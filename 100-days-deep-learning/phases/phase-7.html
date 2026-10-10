@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 7 — Generative & Multimodal Models | 100 Days of Deep Learning</title>
+<meta name="description" content="Phase 7 of 100 Days of Deep Learning: Generative & Multimodal Models. 10 lessons, days 87–94, 8h 45m of video.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="../index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><b>Phase 7</b> · Generative & Multimodal Models</span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  <span class="pagernav"><a class="iconbtn" href="phase-6.html" title="Previous phase">←</a><a class="iconbtn" href="phase-8.html" title="Next phase">→</a></span>
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+  <section class="wrap phasehero">
+    <p class="pnum">Phase 7 of 8 · Days 87–94 · Lessons 101–110</p>
+    <h1>Generative &amp; Multimodal Models</h1>
+    <p class="plede">Learning the distribution instead of the boundary. Autoencoders, VAEs, GANs, flows and diffusion, then the models that put images, text and audio in one shared space.</p>
+    <ul class="statrow"><li><b>10</b> lessons</li><li><b>8h 45m</b> of video</li><li><b>89</b> chapters</li><li>Notes: <b>all 10</b></li></ul>
+    <div class="toc"><span class="tlbl">Everything on this page</span>
+      <ol><li><a class="todo" href="#l101"><span class="tn">D87</span><span class="tt">Generative Modeling — The Landscape</span></a></li><li><a class="todo" href="#l102"><span class="tn">D88</span><span class="tt">Autoencoders</span></a></li><li><a class="todo" href="#l103"><span class="tn">D89</span><span class="tt">Variational Autoencoders</span></a></li><li><a class="todo" href="#l104"><span class="tn">D90</span><span class="tt">GANs I — Foundations</span></a></li><li><a class="todo" href="#l105"><span class="tn">D90-b</span><span class="tt">GANs II — Advanced &amp; Applied</span></a></li><li><a class="todo" href="#l106"><span class="tn">D91</span><span class="tt">Normalizing Flows &amp; Autoregressive Generators</span></a></li><li><a class="todo" href="#l107"><span class="tn">D92</span><span class="tt">Diffusion Models I — DDPM</span></a></li><li><a class="todo" href="#l108"><span class="tn">D92-b</span><span class="tt">Diffusion Models II — Modern Image Generation</span></a></li><li><a class="todo" href="#l109"><span class="tn">D93</span><span class="tt">Multimodal Models</span></a></li><li><a class="todo" href="#l110"><span class="tn">D94</span><span class="tt">Speech &amp; Audio Deep Learning</span></a></li></ol>
+    </div>
+  </section>
+<article class="wrap lesson" id="l101">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 87</span><span>Lesson 101</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-101.html">single page ↗</a></div>
+      <h3 class="lesson-title">Generative Modeling — The Landscape</h3>
+      <span class="lesson-no">101</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Discriminative vs generative</li><li>Explicit vs implicit density</li>
+        <li>Tractable vs approximate likelihood</li><li>The taxonomy tree</li>
+        <li>The quality / diversity / speed trilemma</li><li>How to evaluate a generative model</li>
+      </ol>
+    </div>
+
+    <h4>The shift</h4>
+    <p>A discriminative model estimates \(p(y\mid\mathbf x)\). A generative model estimates \(p(\mathbf x)\) — or at least gives you a way to sample from it. That is a strictly harder problem: to generate a convincing photograph you must implicitly know about geometry, lighting, materials and object structure, none of which anyone labelled.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Taxonomy of generative models by whether they define an explicit density and whether it is tractable">
+        <text class="svg-ttl" x="20" y="22">THE FAMILY TREE — what each model actually optimises</text>
+        <g transform="translate(20,40)">
+          <rect x="330" y="0" width="180" height="28" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="360" y="19">generative model</text>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M420 28 L420 44 L180 44 L180 60"/><path d="M420 28 L420 44 L680 44 L680 60"/>
+          </g>
+          <rect x="90" y="60" width="180" height="26" fill="#0F1822" stroke="#5BC8E6"/>
+          <text class="svg-lbl" x="112" y="78" fill="#5BC8E6">explicit density p(x)</text>
+          <rect x="590" y="60" width="180" height="26" fill="#0F1822" stroke="#B79CFF"/>
+          <text class="svg-lbl" x="612" y="78" fill="#B79CFF">implicit — sampling only</text>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M180 86 L180 100 L88 100 L88 116"/><path d="M180 86 L180 100 L280 100 L280 116"/>
+            <path d="M680 86 L680 116"/>
+          </g>
+          <rect x="10" y="116" width="156" height="26" fill="#0F1822" stroke="#93D97B"/>
+          <text class="svg-lbl" x="24" y="134" fill="#93D97B">tractable likelihood</text>
+          <rect x="196" y="116" width="168" height="26" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl" x="210" y="134" fill="#FFB454">approximate / bound</text>
+          <g class="svg-lbl" fill="#DCE6F0">
+            <text x="14" y="164">autoregressive</text><text x="14" y="182">(PixelCNN, LLMs)</text>
+            <text x="14" y="206">normalizing flows</text>
+            <text x="200" y="164">VAE — ELBO</text>
+            <text x="200" y="186">diffusion — also a</text><text x="200" y="204">variational bound</text>
+            <text x="596" y="164">GAN</text>
+            <text x="596" y="186">energy-based</text>
+          </g>
+          <text class="svg-lbl" x="196" y="230" fill="#FFB454">diffusion sits here, and it won</text>
+        </g>
+      </svg>
+      <figcaption>The split that matters is whether you can evaluate \(p(\mathbf x)\) for a given sample. A GAN cannot — it only produces samples — which is why GAN evaluation was such a persistent problem.</figcaption>
+    </figure>
+
+    <h4>The trilemma</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Family</th><th>Sample quality</th><th>Diversity / coverage</th><th>Sampling speed</th></tr></thead>
+      <tbody>
+        <tr><td>Autoregressive</td><td class="tick">High</td><td class="tick">High</td><td style="color:var(--warn)">Slow — one element at a time</td></tr>
+        <tr><td>VAE</td><td style="color:var(--warn)">Blurry</td><td class="tick">High</td><td class="tick">One forward pass</td></tr>
+        <tr><td>GAN</td><td class="tick">Very high</td><td style="color:var(--warn)">Mode collapse</td><td class="tick">One forward pass</td></tr>
+        <tr><td>Flows</td><td>Moderate</td><td class="tick">High</td><td class="tick">Fast</td></tr>
+        <tr><td><b>Diffusion</b></td><td class="tick">Very high</td><td class="tick">High</td><td style="color:var(--warn)">Slow — but see Lesson 108</td></tr>
+      </tbody>
+    </table></div>
+    <p>For years the received wisdom was that you could pick two of the three. Diffusion took quality and diversity, accepted slow sampling, and then attacked that weakness with distillation and few-step methods — which is a useful strategic lesson: <b>take the two properties that are hard to fix, and engineer your way out of the one that is merely expensive</b>.</p>
+
+    <div class="box intuition"><span class="lbl">Why VAEs are blurry and GANs are not</span>
+      <p style="margin-bottom:0">It follows from the loss. A VAE minimises reconstruction error, typically MSE, which as Lesson 21 showed corresponds to a Gaussian likelihood — and the optimal prediction under MSE when the model is uncertain is the <b>mean</b> of the plausible outputs. Average several plausible faces and you get a blur. A GAN's loss says nothing about matching any particular target; it says "make the discriminator unable to tell". A blurry image is trivially detectable, so blur is punished directly. Different loss, different failure mode, and the difference is entirely explained by Lesson 8's maximum-likelihood framing.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · evaluating generative models</span>
+      <p style="margin-bottom:0">There is no good single metric. <b>FID</b> compares the mean and covariance of Inception features between real and generated sets, and it is the standard — but it is sensitive to sample count, to the resizing and JPEG settings used, and to the fact that Inception was trained on ImageNet, so it measures ImageNet-like features. <b>Inception Score</b> is worse: it cannot detect mode collapse <em>within</em> a class and it ignores the real data entirely. Report Precision/Recall for generative models (quality and coverage separately), fix your sample count and preprocessing, and state them. Two papers reporting "FID 8.3" may not be comparable at all.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l102">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 88</span><span>Lesson 102</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-102.html">single page ↗</a></div>
+      <h3 class="lesson-title">Autoencoders</h3>
+      <span class="lesson-no">102</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Encoder, bottleneck, decoder</li><li>Reconstruction loss</li>
+        <li>Undercomplete autoencoders vs PCA</li><li>Denoising autoencoders</li>
+        <li>Sparse autoencoders</li><li>Contractive autoencoders</li>
+        <li>Anomaly detection</li><li>Why a plain AE latent is not generative</li>
+      </ol>
+    </div>
+
+    <h4>The setup</h4>
+    \[ \mathbf z=f_\phi(\mathbf x),\qquad \hat{\mathbf x}=g_\theta(\mathbf z),\qquad \mathcal L=\|\mathbf x-\hat{\mathbf x}\|^2 \]
+    <p>Compress and reconstruct. With \(\dim(\mathbf z)\ll\dim(\mathbf x)\) the network must discard something, and what survives is whatever is most useful for reconstruction — a learned compression.</p>
+    <div class="box derive"><span class="lbl">A linear autoencoder is PCA</span>
+      <p style="margin-bottom:0">With linear \(f\) and \(g\) and squared error, the optimal solution spans the same subspace as the top-\(k\) principal components (Lesson 4) — the reconstruction error is minimised by projecting onto the top-\(k\) singular directions, which is exactly Eckart–Young. The autoencoder does not recover the individual components (any rotation within the subspace is equally optimal) but the subspace is identical. Non-linear activations are what make an autoencoder more than PCA: it can then follow a curved manifold rather than a flat one.</p>
+    </div>
+
+    <h4>The variants, and what each regulariser buys</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Variant</th><th>Change</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><b>Denoising</b></td><td>Corrupt the input, reconstruct the clean original</td><td>Cannot copy; must learn structure. The direct ancestor of masked language modelling and of diffusion.</td></tr>
+        <tr><td><b>Sparse</b></td><td>Penalty forcing most units near zero</td><td>Overcomplete latent that is still forced to be selective. Now central to interpretability (Lesson 117).</td></tr>
+        <tr><td>Contractive</td><td>Penalise the encoder Jacobian \(\|\partial f/\partial\mathbf x\|_F^2\)</td><td>Representation is locally invariant to small input changes</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Anomaly detection actually works</h4>
+    <p>Train on normal data only. Anomalies reconstruct badly because the model never learned to represent them, so reconstruction error is an anomaly score. This is one of the genuinely reliable practical uses of autoencoders — industrial defect detection, network intrusion, equipment monitoring — and it needs no anomaly labels, which is usually the whole problem.</p>
+    <div class="box pitfall"><span class="lbl">Pitfall · the threshold, and the too-powerful decoder</span>
+      <p style="margin-bottom:0">Set the threshold on a <b>validation set containing known anomalies</b>, using the precision/recall trade from Lesson 43 — picking "mean + 3σ of training error" is arbitrary and usually wrong. And keep the bottleneck genuinely narrow: a sufficiently expressive autoencoder learns to reconstruct <em>anything</em>, including inputs unlike its training data, at which point the anomaly score goes flat and the method silently stops working.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Why you cannot generate from a plain autoencoder</span>
+      <p style="margin-bottom:0">Sample a random \(\mathbf z\), decode it, and you get noise. Nothing in the objective constrained <em>where</em> in latent space the encoder puts things — it is free to scatter the training data into disconnected islands with vast empty regions between them, and it will, because that makes reconstruction easiest. The decoder has never seen the empty regions and produces garbage there. To generate, you need the latent distribution to be something you can sample from. That single requirement is what produces the VAE.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l103">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 89</span><span>Lesson 103</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-103.html">single page ↗</a></div>
+      <h3 class="lesson-title">Variational Autoencoders</h3>
+      <span class="lesson-no">103</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Latent variable models</li><li>Intractable posteriors</li>
+        <li>Variational inference</li><li>The ELBO, line by line</li>
+        <li>Reconstruction and KL interpreted</li><li>The reparameterization trick</li>
+        <li>Latent interpolation</li><li>Posterior collapse</li>
+        <li>β-VAE and disentanglement</li><li>VQ-VAE and discrete latents</li>
+      </ol>
+    </div>
+
+    <h4>The model</h4>
+    <p>Posit that data is generated by first drawing a latent \(\mathbf z\sim p(\mathbf z)=\mathcal N(0,I)\) and then \(\mathbf x\sim p_\theta(\mathbf x\mid\mathbf z)\). The likelihood we want to maximise is</p>
+    \[ p_\theta(\mathbf x)=\int p_\theta(\mathbf x\mid\mathbf z)\,p(\mathbf z)\,\d\mathbf z \]
+    <p>which is intractable — it integrates over every possible latent. And the posterior \(p_\theta(\mathbf z\mid\mathbf x)\) we would need in order to train is equally intractable. Variational inference sidesteps both by introducing an <em>approximate</em> posterior \(q_\phi(\mathbf z\mid\mathbf x)\), which is the encoder.</p>
+
+    <div class="box derive"><span class="lbl">The ELBO, derived</span>
+      <p>Start from the log-likelihood and insert \(q_\phi\):</p>
+      \[ \log p_\theta(\mathbf x)=\log\int p_\theta(\mathbf x\mid\mathbf z)p(\mathbf z)\,\d\mathbf z =\log\,\E_{q_\phi(\mathbf z\mid\mathbf x)}\!\left[\frac{p_\theta(\mathbf x\mid\mathbf z)p(\mathbf z)}{q_\phi(\mathbf z\mid\mathbf x)}\right] \]
+      <p>Apply Jensen's inequality (\(\log\E[\cdot]\ge\E[\log\cdot]\), since \(\log\) is concave):</p>
+      \[ \log p_\theta(\mathbf x)\ \ge\ \E_{q_\phi}\big[\log p_\theta(\mathbf x\mid\mathbf z)\big]-\mathrm{KL}\big(q_\phi(\mathbf z\mid\mathbf x)\,\|\,p(\mathbf z)\big)\ =\ \mathcal L_{\text{ELBO}} \]
+      <p style="margin-bottom:0">The gap between \(\log p_\theta(\mathbf x)\) and the ELBO is exactly \(\mathrm{KL}\big(q_\phi(\mathbf z\mid\mathbf x)\,\|\,p_\theta(\mathbf z\mid\mathbf x)\big)\) — the error in our posterior approximation. So maximising the ELBO does two things at once: it pushes up the likelihood, and it pulls \(q_\phi\) towards the true posterior. That is the whole idea of variational inference, and it is worth sitting with.</p>
+    </div>
+
+    <p>The two terms read cleanly. <b>Reconstruction</b>: decode \(\mathbf z\) and match \(\mathbf x\). <b>KL</b>: keep the encoder's output distribution close to \(\mathcal N(0,I)\), which is exactly the constraint the plain autoencoder was missing. For Gaussian \(q_\phi=\mathcal N(\boldsymbol\mu,\boldsymbol\sigma^2)\) the KL has a closed form:</p>
+    \[ \mathrm{KL}=\frac12\sum_{j=1}^{d}\Big(\mu_j^2+\sigma_j^2-\log\sigma_j^2-1\Big) \]
+
+    <figure>
+      <svg viewBox="0 0 900 230" role="img" aria-label="VAE architecture showing the encoder producing a distribution, the reparameterization trick, and the decoder">
+        <text class="svg-ttl" x="20" y="22">THE REPARAMETERIZATION TRICK — moving the randomness off the gradient path</text>
+        <g transform="translate(30,44)">
+          <rect x="0" y="40" width="60" height="60" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="24" y="74">x</text>
+          <path d="M60 70 L100 70" stroke="#2A3B4E"/>
+          <rect x="100" y="40" width="80" height="60" fill="#0F1822" stroke="#5BC8E6"/>
+          <text class="svg-lbl" x="118" y="66" fill="#5BC8E6">encoder</text><text class="svg-lbl" x="130" y="84" fill="#5BC8E6">q_φ</text>
+          <rect x="212" y="30" width="52" height="26" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-lbl" x="232" y="48">μ</text>
+          <rect x="212" y="84" width="52" height="26" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-lbl" x="232" y="102">σ</text>
+          <g stroke="#2A3B4E" fill="none"><path d="M180 58 L212 43"/><path d="M180 82 L212 97"/></g>
+          <rect x="212" y="140" width="52" height="26" fill="#0F1822" stroke="#8095AA" stroke-dasharray="3 3"/>
+          <text class="svg-lbl" x="228" y="158" fill="#8095AA">ε</text>
+          <text class="svg-lbl" x="196" y="186" fill="#8095AA">ε ~ N(0, I) — no parameters</text>
+          <circle cx="330" cy="70" r="16" fill="#0F1822" stroke="#FFB454" stroke-width="2"/>
+          <text class="svg-lbl" x="316" y="75" fill="#FFB454">μ+σε</text>
+          <g stroke="#FFB454" stroke-width="1.6" fill="none">
+            <path d="M264 43 L314 62"/><path d="M264 97 L314 78"/><path d="M264 153 L320 90"/>
+          </g>
+          <path d="M346 70 L390 70" stroke="#2A3B4E"/>
+          <rect x="390" y="40" width="80" height="60" fill="#0F1822" stroke="#93D97B"/>
+          <text class="svg-lbl" x="404" y="66" fill="#93D97B">decoder</text><text class="svg-lbl" x="420" y="84" fill="#93D97B">p_θ</text>
+          <path d="M470 70 L510 70" stroke="#2A3B4E"/>
+          <rect x="510" y="40" width="60" height="60" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="530" y="74">x̂</text>
+          <path d="M330 54 L330 20 L60 20 L60 40" fill="none" stroke="#FF7B87" stroke-width="1.6" stroke-dasharray="4 3"/>
+          <text class="svg-lbl" x="140" y="16" fill="#FF7B87">gradient flows back through μ and σ, NOT through ε</text>
+        </g>
+        <g transform="translate(620,58)">
+          <rect x="0" y="0" width="256" height="140" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl-b" x="14" y="24">why it is needed</text>
+          <text class="svg-lbl" x="14" y="48">You cannot backpropagate through</text>
+          <text class="svg-lbl" x="14" y="66">&#8220;sample from N(μ, σ²)&#8221; — sampling</text>
+          <text class="svg-lbl" x="14" y="84">is not differentiable in μ or σ.</text>
+          <text class="svg-lbl" x="14" y="110" fill="#FFB454">Rewrite it as a deterministic</text>
+          <text class="svg-lbl" x="14" y="128" fill="#FFB454">function of μ, σ and fixed noise.</text>
+        </g>
+      </svg>
+      <figcaption>\(\mathbf z=\boldsymbol\mu+\boldsymbol\sigma\odot\boldsymbol\varepsilon\) is an identical distribution to sampling directly, but now \(\partial\mathbf z/\partial\boldsymbol\mu=1\) and \(\partial\mathbf z/\partial\boldsymbol\sigma=\boldsymbol\varepsilon\), both perfectly differentiable.</figcaption>
+    </figure>
+
+    <div class="demo" id="d-vae">
+      <div class="demo-head"><span class="dot"></span><b>The ELBO trade-off</b> · reconstruction against KL, and where the latent stops carrying information</div>
+      <div class="demo-body">
+        <canvas id="vaCv" width="760" height="330" aria-label="Latent posteriors under different beta values, showing posterior collapse"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>β (KL weight) <b id="vaBv">1.00</b></span><input type="range" id="vaB" min="-2" max="1.6" step="0.05" value="0"></label>
+          <label class="ctrl"><span>Data clusters <b id="vaKv">6</b></span><input type="range" id="vaK" min="2" max="12" step="1" value="6"></label>
+          <label class="ctrl"><span>Decoder precision <b id="vaPv">4.0</b></span><input type="range" id="vaP" min="0.5" max="20" step="0.5" value="4"></label>
+        </div>
+        <div class="readout" id="vaOut"></div>
+      </div>
+    </div>
+
+    <pre><code>class VAE(nn.Module):
+    def __init__(self, d_in, d_hid, d_lat):
+        super().__init__()
+        self.enc = nn.Sequential(nn.Linear(d_in, d_hid), nn.ReLU(),
+                                 nn.Linear(d_hid, 2 * d_lat))       # mu and logvar
+        self.dec = nn.Sequential(nn.Linear(d_lat, d_hid), nn.ReLU(),
+                                 nn.Linear(d_hid, d_in))
+
+    def forward(self, x):
+        mu, logvar = self.enc(x).chunk(2, dim=-1)
+        # predict LOG variance, never variance: it is unconstrained and exp() keeps sigma > 0
+        std = torch.exp(0.5 * logvar)
+        z = mu + std * torch.randn_like(std)                        # reparameterization
+        return self.dec(z), mu, logvar
+
+def elbo(x_hat, x, mu, logvar, beta=1.0):
+    rec = F.mse_loss(x_hat, x, reduction="sum") / x.size(0)
+    kl  = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
+    return rec + beta * kl, rec, kl
+</code></pre>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · posterior collapse</span>
+      <p style="margin-bottom:0">If the decoder is powerful enough to model the data on its own — an autoregressive decoder, or a PixelCNN — the cheapest way to minimise the ELBO is to set \(q_\phi(\mathbf z\mid\mathbf x)=p(\mathbf z)\) exactly. The KL term goes to zero, the latent carries <b>no information about the input</b>, and the decoder ignores it entirely. Your "VAE" is now just a language model with a decorative unused input. The symptom is a KL term that drops to near zero early and stays there. Fixes: KL annealing (ramp \(\beta\) from 0), free bits (do not penalise KL below a floor per dimension), or weakening the decoder. Watch the KL term as a training metric, not just the total loss.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">β-VAE and VQ-VAE</span>
+      <p><b>β-VAE</b> simply weights the KL term. \(\beta&gt;1\) forces a tighter information bottleneck, which empirically encourages each latent dimension to capture an independent factor of variation — rotation, size, colour. Disentanglement is real but fragile, and a later analysis showed that unsupervised disentanglement is <em>impossible</em> without inductive biases, and that reported successes depended heavily on hyperparameters and random seed. Treat the demos with some scepticism.</p>
+      <p style="margin-bottom:0"><b>VQ-VAE</b> replaces the continuous latent with a lookup into a learned codebook, making the latent a grid of discrete tokens. That is the idea that matters most downstream: once an image is a sequence of tokens, you can model it with a transformer. VQ-VAE underpins DALL·E 1, and its continuous cousin is the compressor inside Stable Diffusion (Lesson 108).</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l104">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 90</span><span>Lesson 104</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-104.html">single page ↗</a></div>
+      <h3 class="lesson-title">GANs I — Foundations</h3>
+      <span class="lesson-no">104</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The two-player minimax game</li><li>Generator and discriminator objectives</li>
+        <li>The theoretical optimum and the JS connection</li><li>The non-saturating loss</li>
+        <li>DCGAN guidelines</li><li>Training loop mechanics</li>
+        <li>Mode collapse and oscillation</li><li>Stabilization tricks</li>
+      </ol>
+    </div>
+
+    <h4>The game</h4>
+    \[ \min_G\max_D\ V(D,G)=\E_{\mathbf x\sim p_{\text{data}}}\big[\log D(\mathbf x)\big]+\E_{\mathbf z\sim p_{\mathbf z}}\big[\log\big(1-D(G(\mathbf z))\big)\big] \]
+    <p>The discriminator learns to tell real from fake; the generator learns to fool it. No explicit density, no reconstruction target — just a learned, adaptive loss function that gets harder as the generator improves.</p>
+
+    <div class="box derive"><span class="lbl">The optimum, and the Jensen-Shannon connection</span>
+      <p>For a fixed \(G\), the optimal discriminator is found by maximising the integrand pointwise:</p>
+      \[ D^\ast(\mathbf x)=\frac{p_{\text{data}}(\mathbf x)}{p_{\text{data}}(\mathbf x)+p_g(\mathbf x)} \]
+      <p>Substitute it back into \(V\) and, after adding and subtracting \(\log 4\), you get</p>
+      \[ V(D^\ast,G)=2\cdot\mathrm{JSD}\big(p_{\text{data}}\,\|\,p_g\big)-\log 4 \]
+      <p style="margin-bottom:0">So at the optimum the generator is minimising the Jensen-Shannon divergence (Lesson 8), whose unique minimum is \(p_g=p_{\text{data}}\). Elegant — and it contains the theory's own fatal flaw, below.</p>
+    </div>
+
+    <div class="demo" id="d-gan">
+      <div class="demo-head"><span class="dot"></span><b>Why GANs are hard to train</b> · the optimal discriminator, and the gradient it leaves behind</div>
+      <div class="demo-body">
+        <canvas id="gnCv" width="760" height="330" aria-label="Two distributions, the optimal discriminator, and generator gradient magnitude under three losses"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Distribution gap <b id="gnDv">2.0</b></span><input type="range" id="gnD" min="0" max="8" step="0.1" value="2"></label>
+          <label class="ctrl"><span>Overlap width <b id="gnWv">1.00</b></span><input type="range" id="gnW" min="0.1" max="2" step="0.05" value="1"></label>
+          <label class="ctrl"><span>Loss</span>
+            <select id="gnL">
+              <option value="mm">minimax — log(1 − D(G(z)))</option>
+              <option value="ns" selected>non-saturating — −log D(G(z))</option>
+              <option value="w">Wasserstein</option>
+            </select>
+          </label>
+        </div>
+        <div class="readout" id="gnOut"></div>
+      </div>
+    </div>
+
+    <div class="box derive"><span class="lbl">Why the original loss saturates, and the one-line fix</span>
+      <p>Early in training \(G\) is terrible, so \(D(G(\mathbf z))\approx0\). The generator's gradient of \(\log(1-D(G(\mathbf z)))\) at that point is nearly <b>zero</b> — the loss is flat exactly where the generator most needs signal. This is the sigmoid saturation problem from Lesson 20, in a new costume.</p>
+      <p style="margin-bottom:0">The fix, in the original paper: instead of <em>minimising</em> \(\log(1-D(G(\mathbf z)))\), <em>maximise</em> \(\log D(G(\mathbf z))\). Same fixed point, opposite gradient behaviour — strong signal when the generator is bad, weak when it is already fooling \(D\). Every GAN implementation uses this <b>non-saturating</b> form, and it is a good example of two objectives being equivalent at the optimum and wildly different under gradient descent.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · a discriminator that is too good</span>
+      <p style="margin-bottom:0">Here is the flaw hiding in the JS derivation. If \(p_{\text{data}}\) and \(p_g\) have <b>disjoint support</b> — which they essentially always do, since both are low-dimensional manifolds in a very high-dimensional pixel space — then JS divergence is <em>constant</em> at \(\log 2\), and its gradient is exactly zero everywhere. A perfect discriminator gives the generator nothing to learn from. This is the central instability of GAN training and it is not a tuning problem; it is the objective. It is why practitioners deliberately handicap the discriminator, and it is precisely what WGAN was designed to fix.</p>
+    </div>
+
+    <h4>The failure modes, and what they look like</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Failure</th><th>Symptom</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td><b>Mode collapse</b></td><td>Every sample looks the same, or cycles between a few outputs</td><td>Minibatch discrimination, unrolled GAN, WGAN-GP, more diverse noise</td></tr>
+        <tr><td><b>Vanishing D gradient</b></td><td>D loss → 0, G loss climbs, samples stop improving</td><td>Weaken D, label smoothing, noise on D's inputs, switch to Wasserstein</td></tr>
+        <tr><td><b>Oscillation</b></td><td>Losses cycle forever; no convergence</td><td>Two time-scale update rule (different LRs for G and D), spectral norm</td></tr>
+        <tr><td>Checkerboard artifacts</td><td>Regular grid pattern in outputs</td><td>Kernel size divisible by stride, or upsample + conv (Lesson 49)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box check"><span class="lbl">There is no loss curve to read</span>
+      <p style="margin-bottom:0">This is the part that most disorients people coming from supervised learning. In a GAN, <b>the losses are not a progress metric</b>. Both networks are improving against a moving opponent, so a falling generator loss can mean the generator improved <em>or</em> that the discriminator got worse. The only reliable signals are looking at samples, and FID computed periodically against a held-out set. Log a fixed grid of samples from fixed noise vectors every N steps and watch it as a film; that is the actual instrument.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l105">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 90-b</span><span>Lesson 105</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-105.html">single page ↗</a></div>
+      <h3 class="lesson-title">GANs II — Advanced &amp; Applied</h3>
+      <span class="lesson-no">105</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Wasserstein GAN and Earth Mover distance</li><li>Weight clipping vs gradient penalty</li>
+        <li>Spectral normalization</li><li>Conditional GANs</li>
+        <li>pix2pix</li><li>CycleGAN and cycle consistency</li>
+        <li>StyleGAN 1/2/3</li><li>BigGAN</li>
+        <li>Inception Score and FID, and their flaws</li>
+      </ol>
+    </div>
+
+    <h4>Wasserstein GAN</h4>
+    <p>Replace JS divergence with the Earth Mover (Wasserstein-1) distance:</p>
+    \[ W(p_r,p_g)=\inf_{\gamma\in\Pi(p_r,p_g)}\E_{(x,y)\sim\gamma}\big[\|x-y\|\big] \]
+    <p>The intuition is literal: the minimum cost of moving one pile of earth into the shape of the other, where cost is mass times distance. Crucially, this is <b>finite and continuous even when the supports are disjoint</b> — two non-overlapping distributions 3 units apart have \(W=3\), and if you move one closer, \(W\) decreases smoothly. JS would have been stuck at \(\log 2\) the whole time. That is the entire fix.</p>
+    <p>The infimum is intractable, so WGAN uses the Kantorovich-Rubinstein dual, which requires the critic \(f\) to be <b>1-Lipschitz</b>:</p>
+    \[ W(p_r,p_g)=\sup_{\|f\|_L\le1}\ \E_{x\sim p_r}[f(x)]-\E_{x\sim p_g}[f(x)] \]
+    <div class="tablewrap"><table>
+      <thead><tr><th>Enforcing Lipschitz</th><th>How</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>Weight clipping</td><td>Clamp all weights to \([-c,c]\)</td><td style="color:var(--warn)">Crude. Pushes weights to the clip boundaries, wastes capacity, and \(c\) is very sensitive.</td></tr>
+        <tr><td><b>Gradient penalty</b> (WGAN-GP)</td><td>Penalise \(\big(\|\nabla_{\hat x}f(\hat x)\|_2-1\big)^2\) on points interpolated between real and fake</td><td class="tick">The standard. Note: use no BatchNorm in the critic — GP is defined per-example and BN couples them.</td></tr>
+        <tr><td><b>Spectral norm</b></td><td>Divide each weight matrix by its largest singular value, estimated by one power iteration per step</td><td class="tick">Cheapest and most robust. Bounds the Lipschitz constant by construction rather than by penalty.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Conditional and paired translation</h4>
+    <p><b>cGAN</b> conditions both networks on a label \(y\), so you can ask for a specific class. <b>pix2pix</b> is image-to-image with paired data: a U-Net generator (Lesson 59), a PatchGAN discriminator that classifies overlapping patches rather than the whole image, and an L1 term alongside the adversarial loss. The L1 gets the low frequencies roughly right; the adversarial term supplies the high-frequency detail that L1 would have blurred. That division of labour is a good general pattern.</p>
+    <div class="box derive"><span class="lbl">CycleGAN — translation without pairs</span>
+      <p>Paired data is often impossible: there is no photograph of the same scene that Monet painted. CycleGAN learns \(G:X\to Y\) and \(F:Y\to X\) with two discriminators, plus a <b>cycle-consistency</b> loss:</p>
+      \[ \mathcal L_{\text{cyc}}=\E_x\big\|F(G(x))-x\big\|_1+\E_y\big\|G(F(y))-y\big\|_1 \]
+      <p style="margin-bottom:0">Without it, \(G\) could map every input to one convincing output in \(Y\) and satisfy the discriminator completely while preserving nothing. Requiring the round trip to return the original forces \(G\) to retain enough information to invert. The known failure: the constraint can be satisfied by <em>steganography</em> — the network hides the input in imperceptible high-frequency noise so \(F\) can recover it, without any real semantic correspondence. Cycle consistency is a necessary but not sufficient condition, and it was demonstrated to be gameable.</p>
+    </div>
+
+    <h4>StyleGAN</h4>
+    <p>The architectural contribution that made GAN faces famous. Instead of feeding \(\mathbf z\) into the first layer, a <b>mapping network</b> transforms \(\mathbf z\) into an intermediate space \(\mathbf w\), which then modulates every layer via AdaIN. Two consequences:</p>
+    <ul>
+      <li>\(\mathcal W\) is less <em>entangled</em> than \(\mathcal Z\). The Gaussian prior forces \(\mathcal Z\) to be curved wherever the data distribution is uneven; a learned mapping is free to unwarp it, which is why editing directions in \(\mathcal W\) (age, pose, expression) are so much cleaner.</li>
+      <li><b>Style mixing</b>: use one \(\mathbf w\) for coarse layers and another for fine layers, and you get one face's pose with another's colouring — coarse-to-fine control that falls straight out of the architecture.</li>
+    </ul>
+    <p>StyleGAN2 removed the droplet artifacts caused by AdaIN by replacing it with weight demodulation; StyleGAN3 fixed "texture sticking" — details clinging to pixel coordinates rather than to the object — by treating the network as a properly band-limited continuous signal and filtering correctly at every resampling step. That is a signal-processing fix to a deep learning problem, and it is one of the more satisfying papers in the area.</p>
+
+    <div class="box intuition"><span class="lbl">Where GANs stand now</span>
+      <p style="margin-bottom:0">Diffusion took over text-to-image almost completely, for reasons Lesson 107 makes clear: stable training, better coverage, and an easy conditioning story. But GANs are not dead. They remain the fastest high-quality generators — <b>one forward pass</b>, versus 20–50 for a distilled diffusion model — which matters for real-time video, super-resolution and on-device generation. And the adversarial <em>loss</em> survives everywhere: it is a component in neural audio codecs, in the decoders of latent diffusion models, and in diffusion distillation. The architecture lost; the idea of a learned loss did not.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l106">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 91</span><span>Lesson 106</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-106.html">single page ↗</a></div>
+      <h3 class="lesson-title">Normalizing Flows &amp; Autoregressive Generators</h3>
+      <span class="lesson-no">106</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Change of variables</li><li>Invertible transforms and Jacobian determinants</li>
+        <li>Planar and radial flows</li><li>Coupling layers: NICE and RealNVP</li>
+        <li>Glow's 1×1 convolutions</li><li>PixelRNN and PixelCNN</li>
+        <li>MADE</li><li>WaveNet for raw audio</li>
+        <li>Exact likelihood vs sampling speed</li>
+      </ol>
+    </div>
+
+    <h4>Flows: exact likelihood by construction</h4>
+    <p>Take a simple base distribution and push it through an <b>invertible</b> map \(f\). The change-of-variables formula gives the density exactly:</p>
+    \[ \log p_X(\mathbf x)=\log p_Z\big(f^{-1}(\mathbf x)\big)+\log\left|\det\frac{\partial f^{-1}}{\partial\mathbf x}\right| \]
+    <p>No bound, no approximation — unlike the VAE's ELBO. The price is severe: \(f\) must be invertible (so input and output dimensions match, no bottleneck), and you must be able to compute a \(d\times d\) determinant, which is \(O(d^3)\) in general. Flows are entirely about architectures that make that determinant cheap.</p>
+
+    <div class="box derive"><span class="lbl">Coupling layers — a triangular Jacobian</span>
+      <p>Split \(\mathbf x\) into halves. Leave the first half untouched; transform the second using a function of the first:</p>
+      \[ \mathbf y_{1:d}=\mathbf x_{1:d},\qquad \mathbf y_{d+1:D}=\mathbf x_{d+1:D}\odot\exp\big(s(\mathbf x_{1:d})\big)+t(\mathbf x_{1:d}) \]
+      <p style="margin-bottom:0">The Jacobian is lower-triangular, so its determinant is just the product of the diagonal — \(\exp\big(\sum s(\mathbf x_{1:d})\big)\), computable in \(O(d)\). And the inverse is trivial: subtract \(t\), divide by \(\exp(s)\). Note that \(s\) and \(t\) can be <b>arbitrarily complex neural networks</b> and never need to be inverted themselves, because they only ever see the untouched half. That is the trick, and it is genuinely clever. Alternate which half is transformed between layers so everything eventually gets updated; Glow adds a learned invertible 1×1 convolution to permute channels rather than using a fixed split.</p>
+    </div>
+
+    <h4>Autoregressive models</h4>
+    <p>Factorise the joint exactly by the chain rule of probability:</p>
+    \[ p(\mathbf x)=\prod_{i=1}^{D}p\big(x_i\mid x_{&lt;i}\big) \]
+    <p>This is the same objective as an LLM (Lesson 88), applied to pixels or audio samples. PixelRNN/PixelCNN generate an image pixel by pixel in raster order with a masked convolution enforcing causality; MADE achieves the same in one dense network by masking the weight matrices. WaveNet models raw audio at 16kHz with the dilated causal convolutions from Lesson 77.</p>
+    <div class="box pitfall"><span class="lbl">Pitfall · the blind spot in masked convolutions</span>
+      <p style="margin-bottom:0">The naive masked convolution in PixelCNN has a <b>blind spot</b>: a triangular region above and to the right of the current pixel that is never visible, no matter how many layers you stack. It comes from the geometry of stacking masked kernels, and it measurably hurt sample quality. Gated PixelCNN fixed it by splitting into two stacks — a vertical stack seeing all rows above, and a horizontal stack seeing the current row to the left — that together cover the full context. A good reminder to actually plot your receptive field rather than assume it.</p>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th>Training</th><th>Sampling</th><th>Likelihood</th></tr></thead>
+      <tbody>
+        <tr><td>Autoregressive</td><td class="tick">Parallel (teacher forcing)</td><td style="color:var(--warn)">\(D\) sequential steps — one per pixel</td><td class="tick">Exact</td></tr>
+        <tr><td>Normalizing flow</td><td class="tick">Parallel</td><td class="tick">One pass</td><td class="tick">Exact</td></tr>
+        <tr><td>VAE</td><td class="tick">Parallel</td><td class="tick">One pass</td><td>Lower bound</td></tr>
+        <tr><td>Diffusion</td><td class="tick">Parallel</td><td style="color:var(--warn)">\(T\) steps</td><td>Lower bound</td></tr>
+      </tbody>
+    </table></div>
+    <p>Generating a 256×256 RGB image autoregressively means 196,608 sequential forward passes. That is the whole story of why these models, despite having exact likelihoods and excellent theory, lost to diffusion for images — and why the same objective utterly dominates for text, where the sequence is a thousand tokens rather than a hundred thousand pixels.</p>
+    <div class="box intuition"><span class="lbl">Flows did not disappear</span>
+      <p style="margin-bottom:0">Exact invertibility is still valuable where you need a density rather than samples — variational inference, simulation-based inference in physics and cosmology, and probabilistic forecasting. And the continuous-time view of flows connects directly to <b>flow matching</b> and rectified flow (Lesson 108), which are now among the leading formulations for image and video generation. The family was folded into diffusion rather than defeated by it.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l107">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 92</span><span>Lesson 107</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-107.html">single page ↗</a></div>
+      <h3 class="lesson-title">Diffusion Models I — DDPM</h3>
+      <span class="lesson-no">107</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The forward noising process</li><li>The closed form at arbitrary t</li>
+        <li>Variance schedules</li><li>The reverse denoising process</li>
+        <li>The simplified noise-prediction objective</li><li>The U-Net with time conditioning</li>
+        <li>The training loop</li><li>The sampling loop</li>
+        <li>Score matching and SDEs</li>
+      </ol>
+    </div>
+
+    <h4>Destroy, then learn to undo</h4>
+    <p>The forward process adds a little Gaussian noise \(T\) times, gradually turning data into pure noise. It has no parameters — it is fixed:</p>
+    \[ q(\mathbf x_t\mid\mathbf x_{t-1})=\mathcal N\!\Big(\mathbf x_t;\ \sqrt{1-\beta_t}\,\mathbf x_{t-1},\ \beta_t I\Big) \]
+
+    <figure>
+      <svg viewBox="0 0 900 210" role="img" aria-label="The forward noising chain and the learned reverse denoising chain">
+        <text class="svg-ttl" x="20" y="22">TWO CHAINS — one fixed, one learned</text>
+        <g transform="translate(40,44)">
+          <g>
+            <rect x="0" y="20" width="70" height="52" fill="#0F1822" stroke="#93D97B"/>
+            <rect x="140" y="20" width="70" height="52" fill="#0F1822" stroke="#2A3B4E"/>
+            <rect x="280" y="20" width="70" height="52" fill="#0F1822" stroke="#2A3B4E"/>
+            <rect x="420" y="20" width="70" height="52" fill="#0F1822" stroke="#2A3B4E"/>
+            <rect x="560" y="20" width="70" height="52" fill="#0F1822" stroke="#FF7B87"/>
+          </g>
+          <g class="svg-lbl" fill="#8095AA">
+            <text x="24" y="50">x₀</text><text x="166" y="50">x₁</text><text x="308" y="50">x₂</text>
+            <text x="450" y="50">…</text><text x="588" y="50">x_T</text>
+          </g>
+          <text class="svg-lbl" x="0" y="14" fill="#93D97B">data</text>
+          <text class="svg-lbl" x="560" y="14" fill="#FF7B87">pure noise N(0, I)</text>
+          <g stroke="#5BC8E6" stroke-width="1.8" fill="none">
+            <path d="M70 34 L140 34"/><path d="M210 34 L280 34"/><path d="M350 34 L420 34"/><path d="M490 34 L560 34"/>
+          </g>
+          <text class="svg-lbl" x="76" y="26" fill="#5BC8E6">q — fixed, no parameters</text>
+          <g stroke="#FFB454" stroke-width="1.8" fill="none">
+            <path d="M140 60 L70 60"/><path d="M280 60 L210 60"/><path d="M420 60 L350 60"/><path d="M560 60 L490 60"/>
+          </g>
+          <text class="svg-lbl" x="76" y="82" fill="#FFB454">p_θ — the neural network</text>
+          <text class="svg-lbl" x="0" y="120">The forward direction is trivially easy. All the learning is in undoing one step of it —</text>
+          <text class="svg-lbl" x="0" y="138">and because each step is small, undoing one step is a much easier problem than</text>
+          <text class="svg-lbl" x="0" y="156">generating an image from nothing. That decomposition is the whole idea.</text>
+        </g>
+      </svg>
+      <figcaption>A GAN must jump from noise to image in one leap. Diffusion breaks the same journey into a thousand small, individually easy steps — which is why it trains stably where GANs do not.</figcaption>
+    </figure>
+
+    <div class="box derive"><span class="lbl">The closed form — why you never simulate the chain</span>
+      <p>Composing \(t\) Gaussian steps gives another Gaussian. Let \(\alpha_t=1-\beta_t\) and \(\bar\alpha_t=\prod_{s=1}^{t}\alpha_s\). Then:</p>
+      \[ q(\mathbf x_t\mid\mathbf x_0)=\mathcal N\!\Big(\mathbf x_t;\ \sqrt{\bar\alpha_t}\,\mathbf x_0,\ (1-\bar\alpha_t)I\Big) \quad\Longleftrightarrow\quad \mathbf x_t=\sqrt{\bar\alpha_t}\,\mathbf x_0+\sqrt{1-\bar\alpha_t}\,\boldsymbol\varepsilon \]
+      <p style="margin-bottom:0">This is what makes training practical: to get a training example at timestep 500 you do <b>not</b> run 500 noising steps. You sample \(t\) uniformly, sample \(\boldsymbol\varepsilon\sim\mathcal N(0,I)\), and compute \(\mathbf x_t\) in one line. \(\bar\alpha_t\) is the signal-to-noise schedule: it starts near 1 (almost pure data) and ends near 0 (almost pure noise).</p>
+    </div>
+
+    <div class="box derive"><span class="lbl">From the ELBO to three lines of code</span>
+      <p>The full variational bound on \(\log p_\theta(\mathbf x_0)\) decomposes into a sum of KL divergences between \(q(\mathbf x_{t-1}\mid\mathbf x_t,\mathbf x_0)\) and \(p_\theta(\mathbf x_{t-1}\mid\mathbf x_t)\). Both are Gaussian, so each KL is a closed-form squared difference of means. After substituting the closed form above and dropping the time-dependent weights, everything collapses to:</p>
+      \[ \mathcal L_{\text{simple}}=\E_{t,\mathbf x_0,\boldsymbol\varepsilon}\Big[\big\|\boldsymbol\varepsilon-\boldsymbol\varepsilon_\theta(\mathbf x_t,t)\big\|^2\Big] \]
+      <p style="margin-bottom:0"><b>Predict the noise that was added.</b> That is it. A page of variational algebra reduces to mean squared error on a noise vector, and the weighting that gets dropped is what makes it work better in practice than the exact bound would. Note also that \(\boldsymbol\varepsilon_\theta\) is, up to scaling, an estimate of the <b>score</b> \(\nabla_{\mathbf x}\log p_t(\mathbf x)\) — which is how DDPM and score-based SDE models turned out to be the same thing described twice.</p>
+    </div>
+
+    <pre><code>betas = torch.linspace(1e-4, 0.02, T)            # linear schedule
+alphas = 1.0 - betas
+abar = torch.cumprod(alphas, dim=0)
+
+def training_step(model, x0):
+    t = torch.randint(0, T, (x0.size(0),), device=x0.device)
+    eps = torch.randn_like(x0)
+    a = abar[t].view(-1, 1, 1, 1)
+    xt = a.sqrt() * x0 + (1 - a).sqrt() * eps    # the closed form — no simulation
+    return F.mse_loss(model(xt, t), eps)          # predict the noise
+
+@torch.no_grad()
+def sample(model, shape, device):
+    x = torch.randn(shape, device=device)
+    for t in reversed(range(T)):
+        tt = torch.full((shape[0],), t, device=device, dtype=torch.long)
+        eps = model(x, tt)
+        a, ab = alphas[t], abar[t]
+        mean = (x - (1 - a) / (1 - ab).sqrt() * eps) / a.sqrt()
+        x = mean + (betas[t].sqrt() * torch.randn_like(x) if t &gt; 0 else 0)
+    return x
+</code></pre>
+
+    <div class="demo" id="d-diff">
+      <div class="demo-head"><span class="dot"></span><b>Forward and reverse diffusion</b> · with an exactly-known score, so nothing is trained or faked</div>
+      <div class="demo-body">
+        <canvas id="dfCv" width="760" height="330" aria-label="A two-dimensional data distribution being noised and denoised"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Timestep t <b id="dfTv">400</b></span><input type="range" id="dfT" min="0" max="1000" step="10" value="400"></label>
+          <label class="ctrl"><span>Schedule</span>
+            <select id="dfS"><option value="linear" selected>linear β</option><option value="cosine">cosine</option></select>
+          </label>
+          <label class="ctrl"><span>Sampler</span>
+            <select id="dfM"><option value="ddpm" selected>DDPM (stochastic)</option><option value="ddim">DDIM (deterministic)</option></select>
+          </label>
+          <label class="ctrl"><span>Sampling steps <b id="dfKv">50</b></span><input type="range" id="dfK" min="2" max="200" step="1" value="50"></label>
+        </div>
+        <div class="readout" id="dfOut"></div>
+      </div>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the linear schedule destroys information too early</span>
+      <p style="margin-bottom:0">With the original linear \(\beta\) schedule at 256×256 resolution, \(\bar\alpha_t\) reaches near zero well before \(t=T\) — the last several hundred steps operate on what is already pure noise and contribute nothing but wasted compute. The <b>cosine schedule</b> keeps \(\bar\alpha_t\) meaningful for much longer, and it measurably improves sample quality. Drag the timestep slider in the demo and compare where each schedule's signal-to-noise ratio crosses 1. Related: the model must be conditioned on \(t\), normally through a sinusoidal embedding (Lesson 83) added into every residual block — omit it and the network cannot know how much noise to remove, so it learns the average and produces mush.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l108">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 92-b</span><span>Lesson 108</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-108.html">single page ↗</a></div>
+      <h3 class="lesson-title">Diffusion Models II — Modern Image Generation</h3>
+      <span class="lesson-no">108</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>DDIM and deterministic sampling</li><li>Classifier guidance</li>
+        <li>Classifier-free guidance</li><li>Latent diffusion</li>
+        <li>Text conditioning via cross-attention</li><li>ControlNet</li>
+        <li>LoRA, DreamBooth, textual inversion</li><li>Inpainting and img2img</li>
+        <li>SDXL and DiT</li><li>Flow matching and consistency models</li>
+      </ol>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 900 240" role="img" aria-label="Latent diffusion: encode to a compressed latent, diffuse there, decode back to pixels">
+        <text class="svg-ttl" x="20" y="22">LATENT DIFFUSION — why Stable Diffusion runs on a laptop</text>
+        <g transform="translate(30,42)">
+          <rect x="0" y="34" width="72" height="72" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="6" y="74">512×512×3</text>
+          <text class="svg-lbl" x="10" y="122" fill="#8095AA">786,432 dims</text>
+          <path d="M72 70 L108 70" stroke="#2A3B4E"/>
+          <rect x="108" y="52" width="54" height="36" fill="#0F1822" stroke="#5BC8E6"/>
+          <text class="svg-lbl" x="116" y="74" fill="#5BC8E6">VAE enc</text>
+          <path d="M162 70 L196 70" stroke="#2A3B4E"/>
+          <rect x="196" y="56" width="46" height="28" fill="#0F1822" stroke="#FFB454" stroke-width="2"/>
+          <text class="svg-lbl" x="200" y="74" fill="#FFB454">64×64×4</text>
+          <text class="svg-lbl" x="192" y="122" fill="#FFB454">16,384 dims — 48× smaller</text>
+          <rect x="276" y="20" width="190" height="100" fill="#0A1119" stroke="#93D97B"/>
+          <text class="svg-lbl-b" x="288" y="40" fill="#93D97B">U-Net · diffusion here</text>
+          <text class="svg-lbl" x="288" y="62">ResBlocks + self-attention</text>
+          <text class="svg-lbl" x="288" y="80" fill="#B79CFF">+ cross-attention to text</text>
+          <text class="svg-lbl" x="288" y="102">timestep embedding</text>
+          <path d="M242 70 L276 70" stroke="#2A3B4E"/>
+          <rect x="276" y="152" width="190" height="30" fill="#0F1822" stroke="#B79CFF"/>
+          <text class="svg-lbl" x="290" y="171" fill="#B79CFF">CLIP text encoder → K, V</text>
+          <path d="M370 152 L370 120" stroke="#B79CFF" stroke-width="1.6"/>
+          <path d="M466 70 L500 70" stroke="#2A3B4E"/>
+          <rect x="500" y="52" width="54" height="36" fill="#0F1822" stroke="#5BC8E6"/>
+          <text class="svg-lbl" x="508" y="74" fill="#5BC8E6">VAE dec</text>
+          <path d="M554 70 L590 70" stroke="#2A3B4E"/>
+          <rect x="590" y="34" width="72" height="72" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="596" y="74">512×512×3</text>
+          <g transform="translate(700,20)">
+            <rect x="0" y="0" width="176" height="112" fill="#0F1822" stroke="#2A3B4E"/>
+            <text class="svg-lbl-b" x="12" y="24">the whole argument</text>
+            <text class="svg-lbl" x="12" y="48">Pixels carry huge perceptual</text>
+            <text class="svg-lbl" x="12" y="64">redundancy. Compress it away</text>
+            <text class="svg-lbl" x="12" y="80">ONCE with a VAE, then spend</text>
+            <text class="svg-lbl" x="12" y="96" fill="#FFB454">every diffusion step on meaning.</text>
+          </g>
+        </g>
+      </svg>
+      <figcaption>Diffusing in a 48× smaller space cuts compute per step by roughly the same factor. That single change is what moved text-to-image from a datacentre to consumer hardware.</figcaption>
+    </figure>
+
+    <div class="box derive"><span class="lbl">Classifier-free guidance</span>
+      <p>Classifier guidance needed a separate noise-aware classifier. CFG removes it entirely. Train one model that sees the condition \(c\) but randomly drops it (replacing it with a null token) about 10% of the time, so it learns both \(\boldsymbol\varepsilon_\theta(\mathbf x_t,c)\) and \(\boldsymbol\varepsilon_\theta(\mathbf x_t,\varnothing)\). At sampling time, <b>extrapolate</b>:</p>
+      \[ \tilde{\boldsymbol\varepsilon}=\boldsymbol\varepsilon_\theta(\mathbf x_t,\varnothing)+w\big(\boldsymbol\varepsilon_\theta(\mathbf x_t,c)-\boldsymbol\varepsilon_\theta(\mathbf x_t,\varnothing)\big) \]
+      <p style="margin-bottom:0">At \(w=1\) this is ordinary conditional sampling. At \(w&gt;1\) you push <em>past</em> the conditional prediction, away from the unconditional one — amplifying whatever makes this sample specific to the prompt. The cost is two forward passes per step, and a real trade-off: high \(w\) gives strong prompt adherence but reduced diversity and over-saturated, contrast-heavy images. Typical values are 3–8, and it is the single most consequential knob a user of these systems touches.</p>
+    </div>
+
+    <div class="demo" id="d-cfg">
+      <div class="demo-head"><span class="dot"></span><b>Guidance scale</b> · prompt adherence bought with diversity</div>
+      <div class="demo-body">
+        <canvas id="cgCv" width="760" height="320" aria-label="Samples from a conditional distribution at different classifier-free guidance scales"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Guidance w <b id="cgWv">3.0</b></span><input type="range" id="cgW" min="0" max="15" step="0.5" value="3"></label>
+          <label class="ctrl"><span>Condition</span>
+            <select id="cgC"><option value="0" selected>class A</option><option value="1">class B</option></select>
+          </label>
+          <label class="ctrl"><span>Samples <b id="cgNv">400</b></span><input type="range" id="cgN" min="50" max="1200" step="50" value="400"></label>
+        </div>
+        <div class="readout" id="cgOut"></div>
+      </div>
+    </div>
+
+    <h4>Faster sampling</h4>
+    <p><b>DDIM</b> reformulates the reverse process as a deterministic, non-Markovian ODE. Because there is no injected noise, you can take much larger steps: 1000-step DDPM quality is roughly matched in 50 DDIM steps. It also makes generation <em>reproducible</em> from a seed and makes the latent space interpolable, since the mapping from noise to image is now a function.</p>
+    <p><b>Flow matching</b> and <b>rectified flow</b> reframe the whole thing: instead of a noising chain, learn a velocity field that transports noise to data along paths that are as straight as possible. Straight paths need fewer integration steps, and the training objective is simpler than the diffusion ELBO. SD3 and Flux use this formulation. <b>Consistency models</b> and adversarial distillation go further, training a student to jump directly from any point on the trajectory to the endpoint — <b>1 to 4 step</b> generation, at some quality cost.</p>
+
+    <h4>Controlling the output</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>What it adapts</th><th>Data needed</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td><b>Textual inversion</b></td><td>One new token embedding only</td><td>3–5 images</td><td>Teach a specific object or style, tiny file</td></tr>
+        <tr><td><b>DreamBooth</b></td><td>The whole U-Net, with a prior-preservation loss</td><td>3–5 images</td><td>Strongest subject fidelity; risks overfitting and language drift</td></tr>
+        <tr><td><b>LoRA</b></td><td>Low-rank updates to attention (Lesson 96)</td><td>10–100 images</td><td>The practical default — small files, composable, good quality</td></tr>
+        <tr><td><b>ControlNet</b></td><td>A trainable copy of the encoder, connected by zero-initialised convolutions</td><td>Large paired dataset</td><td>Spatial control from edges, depth, pose, segmentation</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box intuition"><span class="lbl">Why ControlNet's zero-initialised convolutions matter</span>
+      <p style="margin-bottom:0">ControlNet clones the U-Net encoder and links it back into the frozen original through convolutions initialised to <b>exactly zero</b>. At step zero the branch contributes nothing, so the model is bit-identical to the base — no random noise is injected into a carefully trained network, and there is no destructive early phase to recover from. The branch's influence grows only as the gradients justify it. This is the same reasoning as LoRA's \(B=\mathbf 0\) initialisation (Lesson 96) and as ResNet's zero-init residual \(\gamma\) (Lesson 52). Three separate papers, one principle: <b>start new machinery at the identity</b>.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · text encoders and negative prompts</span>
+      <p style="margin-bottom:0">Two practical gotchas. First, the CLIP text encoder used by SD 1.x truncates at <b>77 tokens</b>, silently — a long prompt simply loses its ending, which is why prompt weight seems to concentrate at the front. Second, "negative prompts" are not a separate mechanism: they replace the null/unconditional branch of CFG with an encoding of the unwanted text, so guidance pushes <em>away</em> from it. That means negative prompts only do anything at \(w&gt;1\), and their strength is tied to the guidance scale — which explains why they seem to stop working when you turn guidance down.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l109">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 93</span><span>Lesson 109</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-109.html">single page ↗</a></div>
+      <h3 class="lesson-title">Multimodal Models</h3>
+      <span class="lesson-no">109</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Joint embedding spaces</li><li>CLIP's contrastive pretraining</li>
+        <li>Zero-shot classification and its limits</li><li>ALIGN and SigLIP</li>
+        <li>BLIP-2's Q-Former</li><li>Flamingo's perceiver resampler</li>
+        <li>LLaVA-style projector recipes</li><li>Document and chart understanding</li>
+        <li>Video-language and text-to-video</li><li>Any-to-any models</li>
+      </ol>
+    </div>
+
+    <h4>CLIP</h4>
+    <p>Two encoders — one for images, one for text — trained so that matching pairs are close and mismatched pairs are far. Given a batch of \(N\) pairs, compute all \(N^2\) similarities and treat the diagonal as the correct class in both directions:</p>
+    \[ \mathcal L=\tfrac12\Big[\text{CE}\big(\text{sim}/\tau,\ \text{diag}\big)_{\text{rows}}+\text{CE}\big(\text{sim}/\tau,\ \text{diag}\big)_{\text{cols}}\Big] \]
+    <p>This is InfoNCE (Lesson 63) with the other modality supplying the negatives. Because each example's negatives are the other \(N-1\) items in the batch, <b>batch size is a hyperparameter of the loss</b> — CLIP used 32,768.</p>
+
+    <div class="demo" id="d-clip">
+      <div class="demo-head"><span class="dot"></span><b>Contrastive alignment</b> · the similarity matrix, the temperature, and what the diagonal costs</div>
+      <div class="demo-body">
+        <canvas id="clCv" width="760" height="330" aria-label="Image-text similarity matrix with the correct pairs on the diagonal"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Batch size <b id="clNv">10</b></span><input type="range" id="clN" min="4" max="24" step="1" value="10"></label>
+          <label class="ctrl"><span>Temperature τ <b id="clTv">0.07</b></span><input type="range" id="clT" min="-2.2" max="0.3" step="0.05" value="-1.155"></label>
+          <label class="ctrl"><span>Alignment quality <b id="clQv">0.60</b></span><input type="range" id="clQ" min="0" max="1" step="0.05" value="0.6"></label>
+        </div>
+        <div class="readout" id="clOut"></div>
+      </div>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Zero-shot classification, and why it is not magic</span>
+      <p>Embed the text "a photo of a {class}" for every candidate class, embed the image, take the nearest. No training on the target dataset at all. CLIP matched a fully supervised ResNet-50 on ImageNet this way, which was a genuine shock in 2021.</p>
+      <p style="margin-bottom:0">The limits are equally real. Performance depends heavily on <b>prompt engineering</b> — the phrase "a photo of a" is worth several points, and ensembling 80 prompt templates was worth several more. It is weak on fine-grained distinctions (bird species, aircraft models), on counting, and on anything requiring spatial relations, because a contrastive objective over noisy web captions never had to represent "three" or "to the left of". And its performance mirrors what is common in web text, so it is far better at Western, English-language concepts. Zero-shot is a strong baseline, not a substitute for a labelled dataset.</p>
+    </div>
+    <p><b>SigLIP</b> replaces the softmax cross-entropy with a per-pair sigmoid loss. That removes the need for a global normalisation over the batch, so it works well at small batch sizes and shards trivially across devices — a small change that made contrastive training far more accessible.</p>
+
+    <h4>Attaching vision to an LLM</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Approach</th><th>Bridge</th><th>Trade-off</th></tr></thead>
+      <tbody>
+        <tr><td><b>LLaVA</b></td><td>A linear or 2-layer MLP projecting frozen CLIP patch embeddings into the LLM's token space</td><td>Astonishingly simple and strong. Token count grows with image resolution.</td></tr>
+        <tr><td><b>BLIP-2</b></td><td>A Q-Former: a small transformer with 32 learned queries that extract a fixed-size summary</td><td>Fixed token cost regardless of resolution; an extra module to train</td></tr>
+        <tr><td><b>Flamingo</b></td><td>Perceiver resampler plus gated cross-attention inserted into a frozen LLM</td><td>Handles interleaved image-text sequences and video; more complex</td></tr>
+      </tbody>
+    </table></div>
+    <p>The LLaVA result is the instructive one: a <b>single linear layer</b> between a frozen vision encoder and a frozen LLM, trained on modest instruction data, produces a capable vision-language model. It suggests the two representation spaces were already close enough that a linear map suffices — which says something quite deep about what large-scale pretraining converges to.</p>
+    <div class="box pitfall"><span class="lbl">Pitfall · resolution, and where VLMs actually fail</span>
+      <p style="margin-bottom:0">Most VLMs downsample to 224 or 336 pixels. Any text in the image smaller than roughly 20 pixels is gone before the LLM sees anything, which is why models confidently misread charts, forms and screenshots — they are not hallucinating from ignorance, they are reading a blur. Tiling approaches (process crops at full resolution plus a global thumbnail) fix a lot of this at the cost of many more tokens. When evaluating a VLM on documents, always check what resolution it actually receives; it explains most of the failures you will see.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l110">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 94</span><span>Lesson 110</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-110.html">single page ↗</a></div>
+      <h3 class="lesson-title">Speech &amp; Audio Deep Learning</h3>
+      <span class="lesson-no">110</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Waveforms, sampling rates, STFT</li><li>Mel spectrograms and MFCCs</li>
+        <li>Audio augmentation</li><li>ASR with CTC</li>
+        <li>RNN-Transducer</li><li>Attention-based ASR and Whisper</li>
+        <li>wav2vec 2.0 and HuBERT</li><li>Diarization and verification</li>
+        <li>TTS and neural vocoders</li><li>Audio codecs and music generation</li>
+      </ol>
+    </div>
+
+    <h4>Audio is an image, if you let it be</h4>
+    <p>Raw audio at 16kHz is 16,000 samples per second — a 10-second clip is 160,000 values with structure at every timescale. Almost every model instead works on a <b>mel spectrogram</b>: take the short-time Fourier transform to get frequency content over time, then warp the frequency axis to the mel scale, which spaces bins according to human pitch perception (roughly logarithmic above 500Hz). The result is a 2D array you can hand to a CNN or a transformer.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Parameter</th><th>Typical</th><th>What it trades</th></tr></thead>
+      <tbody>
+        <tr><td>Sample rate</td><td>16kHz speech, 44.1kHz music</td><td>Nyquist: you can represent frequencies up to half of it</td></tr>
+        <tr><td>Window (n_fft)</td><td>400–1024 samples</td><td>Frequency resolution against time resolution — you cannot have both</td></tr>
+        <tr><td>Hop length</td><td>160 samples (10ms)</td><td>Output frame rate</td></tr>
+        <tr><td>Mel bins</td><td>80</td><td>Frequency detail against dimensionality</td></tr>
+      </tbody>
+    </table></div>
+    <p>The window/hop trade is the uncertainty principle, and it is unavoidable: a short window localises events in time but smears them in frequency, a long window does the reverse.</p>
+
+    <h4>The three ASR architectures</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Approach</th><th>Alignment handled by</th><th>Streaming?</th><th>Weakness</th></tr></thead>
+      <tbody>
+        <tr><td><b>CTC</b> (Lesson 60)</td><td>Marginalising over all alignments</td><td class="tick">Yes</td><td>Assumes outputs are conditionally independent given audio — so it has no language model of its own</td></tr>
+        <tr><td><b>RNN-Transducer</b></td><td>A joint network over audio and a prediction network</td><td class="tick">Yes</td><td>More complex; the standard for on-device ASR</td></tr>
+        <tr><td><b>Attention seq2seq</b></td><td>Cross-attention learns it</td><td style="color:var(--warn)">Not naturally</td><td>Needs the whole utterance; can hallucinate on silence</td></tr>
+      </tbody>
+    </table></div>
+    <p><b>Whisper</b> is the third kind, scaled: an ordinary encoder-decoder transformer on log-mel spectrograms, trained on 680,000 hours of weakly-supervised multilingual audio scraped from the web. It performs multilingual transcription, translation, language ID and timestamping in one model, with special tokens selecting the task — the T5 text-to-text idea (Lesson 89) applied to audio. Its robustness came almost entirely from data scale and diversity rather than from architecture, which was the paper's actual point.</p>
+    <div class="box pitfall"><span class="lbl">Pitfall · Whisper hallucinates on silence</span>
+      <p style="margin-bottom:0">Because the decoder is a language model trained on web audio, feeding it silence or non-speech produces plausible text with no acoustic basis — commonly "Thank you for watching" or subtitle credits, which were abundant in the training data. It is a well-documented failure with real consequences in medical and legal transcription. Mitigate with voice-activity detection before transcribing, check the <code>no_speech_prob</code> output, and be suspicious of repeated identical segments.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Self-supervised audio, and why it mattered more here</span>
+      <p style="margin-bottom:0"><b>wav2vec 2.0</b> masks spans of a latent audio representation and solves a contrastive task over quantised targets; <b>HuBERT</b> instead predicts cluster assignments from an offline k-means over features, iteratively refined. Both learn phonetic structure with no transcripts. The impact was larger in speech than in vision for an economic reason: transcribing audio is <em>slow and expensive</em>, roughly 5–10× real time for careful work, so labelled speech is scarce while raw audio is essentially free. wav2vec 2.0 matched fully-supervised systems using <b>10 minutes</b> of labelled data. When labels are expensive and raw data is abundant, self-supervision is transformative — that is the general rule, and speech is its cleanest case.</p>
+    </div>
+
+    <h4>Synthesis</h4>
+    <p>Modern TTS is two stages: an acoustic model producing a mel spectrogram from text (Tacotron 2, FastSpeech 2, VITS), then a <b>vocoder</b> turning the spectrogram back into a waveform. The spectrogram discarded phase information, so the vocoder must invent it plausibly — HiFi-GAN does this adversarially and in real time, and is why neural TTS became deployable. FastSpeech dropped autoregression in favour of a duration predictor, which removed both the latency and the attention-failure modes (skipped and repeated words) that plagued Tacotron.</p>
+    <p><b>Neural audio codecs</b> — EnCodec, SoundStream — apply residual vector quantisation to compress audio into discrete tokens at a few kbps. Once audio is tokens, a transformer can model it exactly as it models text, which is how MusicGen, AudioLM and the current generation of speech language models work. It is the VQ-VAE idea from Lesson 103, and the same move that unified images with language models. Phase 8 begins on Day 95.</p>
+  </article>
+  <section class="wrap"><div class="pager"><a id="prevLink" href="phase-6.html" rel="prev"><span class="dir">← Previous phase</span><span class="ttl">Transformers &amp; Large Language Models</span></a><a id="nextLink" class="nx" href="phase-8.html" rel="next"><span class="dir">Next phase →</span><span class="ttl">Advanced Topics, Deployment &amp; Capstone</span></a></div></section>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"../", current:0, phase:"p7", mode:"phase" };</script>
+<script src="../assets/site.js"></script>
+<script src="../assets/demos.js"></script>
+</body>
+</html>

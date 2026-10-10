@@ -1,0 +1,2402 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 0 · Foundations & Mental Models — System Design Notes</title>
+<meta name="description" content="Days 1-12: scale vocabulary, estimation, latency numbers, NFRs, SLOs, statelessness, OS and storage fundamentals.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true,
+       macros:{RR:"{\\mathbb{R}}"}},
+  options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},
+  chtml:{scale:1.0,matchFontHeight:false},
+  startup:{typeset:true}
+};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+<style>:root{
+  --paper:#E7EDF2; --card:#FAFCFD; --card-2:#F1F5F8;
+  --ink:#0B2239; --ink-mid:#42596E; --ink-soft:#6E8299;
+  --grid:#D3DFE9; --rule:#C2D2DF; --rule-soft:#DFE8EF;
+  --signal:#0E6E63; --hot:#B4232C; --amber:#9A6A00; --violet:#54399A;
+  --p0:#23415E; --p1:#0E6E63; --p2:#7A4C1E; --p3:#8A2E68; --p4:#1B6E9B;
+  --p5:#4A3C9E; --p6:#2E6E36; --p7:#9E4A05; --p8:#B4232C; --p9:#5A5270; --p10:#0B2239;
+  --disp:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --sans:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --accent:var(--p0);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:1.5rem}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:16.5px;line-height:1.62;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;background-position:-1px -1px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:286px minmax(0,1fr);gap:0;max-width:1680px;margin:0 auto}
+.rail{position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--rule);
+  background:linear-gradient(180deg,var(--card) 0%,var(--card-2) 100%);padding:22px 18px 60px}
+.rail::-webkit-scrollbar{width:8px}.rail::-webkit-scrollbar-thumb{background:var(--rule);border-radius:8px}
+.main{padding:34px 40px 140px;min-width:0}
+.wrap{max-width:900px;margin:0 auto}
+@media(max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule)}
+  .main{padding:20px 16px 90px}
+}
+
+/* ---------- rail contents ---------- */
+.brandmark{font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px}
+.brandtitle{font-family:var(--disp);font-weight:600;font-size:25px;line-height:1.08;margin:0 0 14px;letter-spacing:-.01em}
+.brandtitle a{color:var(--ink);text-decoration:none}
+.railmeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);line-height:1.7;
+  border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft);padding:9px 0;margin-bottom:16px}
+.railsec{font-family:var(--disp);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-soft);margin:20px 0 8px;font-weight:600}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:0}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:4px 8px;border-radius:4px;text-decoration:none;
+  color:var(--ink-mid);font-family:var(--sans);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
+.toc a:hover{background:#fff;color:var(--ink)}
+.toc a.on{background:#fff;color:var(--ink);border-left-color:var(--accent);font-weight:600}
+.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-soft);flex:0 0 30px;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.phaselinks{list-style:none;margin:0;padding:0;font-family:var(--sans);font-size:12.5px}
+.phaselinks a{display:block;padding:3px 8px;color:var(--ink-mid);text-decoration:none;border-radius:4px}
+.phaselinks a:hover{background:#fff;color:var(--ink)}
+.phaselinks a[aria-current]{font-weight:700;color:var(--ink);background:#fff}
+.phaselinks .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+
+/* ---------- page head ---------- */
+.phasehead{border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:26px 30px;margin-bottom:34px;position:relative;overflow:hidden}
+.phasehead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 6px;font-weight:600}
+h1{font-family:var(--disp);font-size:clamp(30px,4.6vw,46px);line-height:1.03;margin:0 0 10px;
+  font-weight:600;letter-spacing:-.018em}
+.lede{font-size:17px;color:var(--ink-mid);margin:0 0 16px;max-width:62ch}
+.statrow{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule-soft);padding-top:14px}
+.stat{padding-right:26px;margin-right:26px;border-right:1px solid var(--rule-soft)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-family:var(--mono);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+.stat span{font-family:var(--disp);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* ---------- lesson card ---------- */
+.lesson{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  margin:0 0 30px;overflow:hidden;scroll-margin-top:16px}
+.lhead{display:flex;gap:16px;align-items:flex-start;padding:20px 26px 14px;
+  border-bottom:1px solid var(--rule-soft);background:linear-gradient(180deg,#fff,var(--card))}
+.day{flex:0 0 auto;font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.05em;
+  color:#fff;background:var(--accent);padding:6px 9px;border-radius:3px;margin-top:3px}
+.lhead h3{font-family:var(--disp);font-size:26px;font-weight:600;margin:0 0 3px;line-height:1.12;letter-spacing:-.012em}
+.lmeta{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);margin:0;letter-spacing:.02em}
+.lbody{padding:22px 26px 26px}
+@media(max-width:600px){.lhead{padding:16px}.lbody{padding:16px}.lhead h3{font-size:21px}}
+
+/* ---------- signature: chapter ribbon ---------- */
+.ribbon{display:flex;height:22px;width:100%;border-bottom:1px solid var(--rule-soft);
+  font-family:var(--mono);font-size:9px;cursor:default;background:var(--card-2)}
+.ribbon i{display:block;height:100%;position:relative;border-right:1px solid rgba(255,255,255,.75);
+  transition:filter .15s;transform-origin:left}
+.ribbon i:last-child{border-right:0}
+.ribbon i:hover{filter:brightness(1.35)}
+.ribbon i::after{content:attr(data-l);position:absolute;left:50%;bottom:calc(100% + 5px);transform:translateX(-50%);
+  white-space:nowrap;background:var(--ink);color:#fff;padding:3px 7px;border-radius:3px;font-size:10.5px;
+  opacity:0;pointer-events:none;transition:opacity .12s;z-index:20;font-family:var(--sans)}
+.ribbon i:hover::after{opacity:1}
+.ribbonkey{font-family:var(--mono);font-size:10px;color:var(--ink-soft);padding:5px 26px 0;letter-spacing:.04em}
+
+/* ---------- prose ---------- */
+.lbody h4{font-family:var(--disp);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin:26px 0 8px;font-weight:700;display:flex;align-items:center;gap:10px}
+.lbody h4::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+.lbody h5{font-family:var(--sans);font-size:15px;font-weight:600;margin:18px 0 5px;color:var(--ink)}
+.lbody p{margin:0 0 12px}
+.lbody ul,.lbody ol{margin:0 0 13px;padding-left:22px}
+.lbody li{margin-bottom:5px}
+.lbody li::marker{color:var(--ink-soft)}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.86em;background:#E3EAF0;padding:1px 5px;border-radius:3px;color:#12354F}
+a{color:var(--signal)}
+.k{font-family:var(--mono);font-size:.88em;background:var(--ink);color:#EAF2F8;padding:1px 6px;border-radius:3px}
+
+/* callouts */
+.hook{border-left:3px solid var(--hot);background:#FCF1F1;padding:12px 16px;margin:0 0 18px;border-radius:0 3px 3px 0}
+.hook b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--hot);display:block;margin-bottom:3px}
+.war{border-left:3px solid var(--amber);background:#FBF5E7;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.war b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--amber);display:block;margin-bottom:3px}
+.iv{border-left:3px solid var(--violet);background:#F3F0FA;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.iv b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--violet);display:block;margin-bottom:3px}
+.hw{border:1px dashed var(--rule);background:var(--card-2);padding:12px 16px;margin:18px 0 0;border-radius:3px}
+.hw b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--ink-soft);display:block;margin-bottom:3px}
+.note{background:#EDF3F7;border:1px solid var(--rule-soft);padding:10px 14px;border-radius:3px;margin:14px 0;font-size:15.3px}
+.wrong{list-style:none;padding-left:0}
+.wrong li{padding-left:24px;position:relative;margin-bottom:7px}
+.wrong li::before{content:"\2715";position:absolute;left:2px;top:1px;color:var(--hot);font-size:12px;font-weight:700}
+.right li::before{content:"\2713";color:var(--signal)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-family:var(--sans);font-size:14px;background:#fff}
+th{font-family:var(--disp);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;text-align:left;
+  padding:8px 11px;border-bottom:2px solid var(--ink);color:var(--ink);font-weight:700;vertical-align:bottom}
+td{padding:8px 11px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tbody tr:hover{background:var(--card-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tblwrap{overflow-x:auto;margin:14px 0}
+.tblwrap table{margin:0;min-width:520px}
+.yes{color:var(--signal);font-weight:700}.no{color:var(--hot);font-weight:700}.mid{color:var(--amber);font-weight:700}
+
+/* ---------- figures ---------- */
+figure{margin:20px 0;border:1px solid var(--rule);background:#fff;border-radius:3px;overflow:hidden}
+figure .canvas{background-image:linear-gradient(#E8EFF5 1px,transparent 1px),linear-gradient(90deg,#E8EFF5 1px,transparent 1px);
+  background-size:20px 20px;padding:14px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);padding:9px 14px;
+  border-top:1px solid var(--rule-soft);background:var(--card-2)}
+figcaption b{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.06em}
+.svgt{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:12px;fill:#0B2239}
+.svgs{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:10.5px;fill:#5B7189}
+.svgm{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:#0B2239}
+.svgh{font-family:"IBM Plex Sans Condensed",Arial,sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;fill:#5B7189}
+
+/* ---------- math ---------- */
+.math{background:#FCFAF3;border:1px solid #EADFC0;border-left:3px solid var(--amber);
+  padding:12px 16px;border-radius:0 3px 3px 0;margin:16px 0;overflow-x:auto}
+.math .lbl{font-family:var(--disp);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);font-weight:700;margin-bottom:4px}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
+mjx-container[display]{margin:.6em 0!important}
+
+/* ---------- code ---------- */
+pre{background:#0E2033;color:#DDE8F2;padding:14px 16px;border-radius:3px;overflow-x:auto;
+  font-family:var(--mono);font-size:12.6px;line-height:1.6;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+pre .c{color:#7C93A8;font-style:italic}
+pre .kw{color:#F0A868}
+pre .st{color:#8FCFA0}
+pre .fn{color:#77BEE8}
+pre .nm{color:#E0A0C8}
+
+/* ---------- demo widgets ---------- */
+.demo{border:1px solid var(--rule);border-top:3px solid var(--signal);background:#fff;
+  border-radius:3px;padding:16px 18px;margin:20px 0}
+.demo>h6{font-family:var(--disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--signal);margin:0 0 12px;font-weight:700;display:flex;gap:8px;align-items:center}
+.demo>h6::before{content:"\25B8";font-size:11px}
+.ctrl{display:grid;grid-template-columns:auto 1fr auto;gap:9px 12px;align-items:center;margin-bottom:5px}
+.ctrl label{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);white-space:nowrap}
+.ctrl output{font-family:var(--mono);font-size:12.5px;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums;min-width:82px}
+input[type=range]{width:100%;accent-color:var(--signal);height:4px}
+select,input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;padding:5px 8px;
+  border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+button{font-family:var(--disp);font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;
+  padding:7px 13px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:3px;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink)}
+button:hover{filter:brightness(1.18)}
+.readout{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-soft);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:12px}
+.readout div{background:var(--card-2);border-radius:3px;padding:8px 10px}
+.readout .v{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);
+  display:block;font-variant-numeric:tabular-nums;line-height:1.25}
+.readout .l{font-family:var(--disp);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft)}
+.bars{margin-top:12px}
+.bar{display:grid;grid-template-columns:118px 1fr 74px;gap:9px;align-items:center;margin-bottom:5px;
+  font-family:var(--mono);font-size:11.5px}
+.bar .t{background:var(--card-2);height:15px;border-radius:2px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--signal);transition:width .25s}
+.bar .t i.hot{background:var(--hot)}
+.bar .t i.amb{background:var(--amber)}
+.bar .v{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- misc ---------- */
+.pillrow{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pill{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--rule);
+  border-radius:20px;background:#fff;color:var(--ink-mid)}
+.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.foot{border-top:1px solid var(--rule);margin-top:44px;padding-top:18px;font-family:var(--mono);
+  font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot a{color:var(--ink-mid);text-decoration:none;border-bottom:1px solid var(--rule)}
+.nextprev{display:flex;justify-content:space-between;gap:14px;margin-top:30px;flex-wrap:wrap}
+.nextprev a{flex:1 1 220px;border:1px solid var(--rule);background:var(--card);padding:12px 15px;
+  border-radius:3px;text-decoration:none;color:var(--ink)}
+.nextprev a span{display:block;font-family:var(--disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft)}
+.nextprev a b{font-family:var(--disp);font-size:16px;font-weight:600}
+.top{position:fixed;right:18px;bottom:18px;z-index:40;background:var(--ink);color:#fff;border:0;
+  width:40px;height:40px;border-radius:50%;font-size:15px;opacity:.28;padding:0}
+.top:hover{opacity:1}
+:focus-visible{outline:2.5px solid var(--signal);outline-offset:2px}
+
+:root{--accent:var(--p0)}</style>
+</head><body>
+<div class="shell"><nav class="rail">
+<p class="brandmark">100 Days of System Design</p>
+<h2 class="brandtitle"><a href="index.html">Engineering<br>Notebook</a></h2>
+<div class="railmeta">145 lessons · 75h 48m<br>Phase 0 · Days 1–12</div>
+<p class="railsec">On this page</p>
+<ul class="toc"><li><a href="#d001"><span class="n">D001</span><span>What System Design Actually Is</span></a></li><li><a href="#d002"><span class="n">D002</span><span>The Vocabulary of Scale</span></a></li><li><a href="#d003"><span class="n">D003</span><span>Back-of-the-Envelope Estimation</span></a></li><li><a href="#d004"><span class="n">D004</span><span>Latency Numbers &amp; the Memory Hierarchy</span></a></li><li><a href="#d005"><span class="n">D005</span><span>Non-Functional Requirements</span></a></li><li><a href="#d006"><span class="n">D006</span><span>SLA, SLO, SLI &amp; Error Budgets</span></a></li><li><a href="#d007"><span class="n">D007</span><span>Vertical vs Horizontal Scaling &amp; Statelessness</span></a></li><li><a href="#d008"><span class="n">D008</span><span>Monolith, Modular Monolith, SOA, Microservices</span></a></li><li><a href="#d009"><span class="n">D009</span><span>Client–Server, N-Tier &amp; Layered Architecture</span></a></li><li><a href="#d010"><span class="n">D010</span><span>OS Essentials for System Designers</span></a></li><li><a href="#d011"><span class="n">D011</span><span>Concurrency Models</span></a></li><li><a href="#d012"><span class="n">D012</span><span>Storage Hardware &amp; the OS Page Cache</span></a></li></ul>
+<p class="railsec">All phases</p>
+<ul class="phaselinks"><li><a href="phase-00.html" aria-current="page"><span class="sw" style="background:var(--p0)"></span>00 · Foundations & Mental Models</a></li><li><a href="phase-01.html"><span class="sw" style="background:var(--p1)"></span>01 · Networking & the Web</a></li><li><a href="phase-02.html"><span class="sw" style="background:var(--p2)"></span>02 · Storage & Databases</a></li><li><a href="phase-03.html"><span class="sw" style="background:var(--p3)"></span>03 · Caching</a></li><li><a href="phase-04.html"><span class="sw" style="background:var(--p4)"></span>04 · Load Balancing & Traffic</a></li><li><a href="phase-05.html"><span class="sw" style="background:var(--p5)"></span>05 · Distributed Systems Theory</a></li><li><a href="phase-06.html"><span class="sw" style="background:var(--p6)"></span>06 · Messaging & Streaming</a></li><li><a href="phase-07.html"><span class="sw" style="background:var(--p7)"></span>07 · Microservices & Patterns</a></li><li><a href="phase-08.html"><span class="sw" style="background:var(--p8)"></span>08 · Reliability, Observability, Security, Cost</a></li><li><a href="phase-09.html"><span class="sw" style="background:var(--p9)"></span>09 · Case Studies</a></li><li><a href="phase-10.html"><span class="sw" style="background:var(--p10)"></span>10 · Interview Mastery & Capstone</a></li></ul>
+</nav><main class="main"><div class="wrap"><div class="phasehead">
+  <p class="eyebrow">Phase 0 · Days 1–12 · 12 lessons · 5h 06m</p>
+  <h1>Foundations &amp; Mental Models</h1>
+  <p class="lede">The goal of this phase is narrow and testable: by Day 12 you should be able to
+  reason about scale <em>numerically</em> instead of with adjectives. Not “it’s a lot of traffic” —
+  “it’s 46,000 writes per second at peak, each write is 1.2 KB, so we need 55 MB/s of sustained
+  write bandwidth and that already rules out one machine.”</p>
+  <div class="statrow">
+    <div class="stat"><b>12</b><span>Lessons</span></div>
+    <div class="stat"><b>5h 06m</b><span>Runtime</span></div>
+    <div class="stat"><b>25.5 min</b><span>Average</span></div>
+    <div class="stat"><b>Wk 1–2.5</b><span>At 5 / week</span></div>
+    <div class="stat"><b>None</b><span>Prerequisites</span></div>
+  </div>
+</div>
+
+<!-- ============================================ D001 -->
+<article class="lesson" id="d001">
+<div class="lhead"><div class="day">D001</div><div>
+  <h3>What System Design Actually Is</h3>
+  <p class="lmeta">18 min · Phase 0 · Prereq: none · Homework: 20 min</p></div></div>
+<div class="ribbon" data-runtime="18"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A photo-sharing app runs happily on one 4-core box with Postgres and local disk. It has 8,000 users.
+A creator with 2 million followers posts a link. Within ninety seconds: the connection pool is
+exhausted, the app returns 502s, the disk fills with un-resized uploads, and the database is
+CPU-bound on a query that was always slow but never mattered. Nothing was <em>wrong</em> with the
+system. It was correct at 8,000 users and incorrect at 800,000, and no amount of clean code would
+have saved it. That gap is the entire subject.</div>
+
+<h4>What you'll be able to do</h4>
+<p>Name the four things people mean when they say “design”, run the seven-step process on a blank
+page without prompting, and explain to an interviewer why a design question has no answer key.</p>
+
+<h4>Core concept — four words people use interchangeably</h4>
+<p>Most confusion in system-design interviews is vocabulary confusion. These four are not synonyms:</p>
+
+<div class="tblwrap"><table>
+<thead><tr><th>Term</th><th>Scope</th><th>Artifact it produces</th><th>Typical owner</th></tr></thead>
+<tbody>
+<tr><td><b>High-level design (HLD)</b></td><td>Boxes, arrows, datastores, protocols. “What talks to what, and with what guarantees.”</td><td>Architecture diagram + design doc</td><td>Senior / staff engineer</td></tr>
+<tr><td><b>Low-level design (LLD)</b></td><td>Classes, interfaces, schemas, state machines, thread safety inside one service.</td><td>Class diagram, API spec, DDL</td><td>The engineer building it</td></tr>
+<tr><td><b>Architecture</b></td><td>The decisions that are expensive to reverse: data ownership, service boundaries, consistency model.</td><td>ADRs / decision records</td><td>Whoever pays for the mistake</td></tr>
+<tr><td><b>Infrastructure</b></td><td>The substrate: regions, clusters, networks, CI/CD, IaC.</td><td>Terraform, k8s manifests</td><td>Platform / SRE</td></tr>
+</tbody></table></div>
+
+<p class="note"><strong>The useful test:</strong> if a decision can be changed in an afternoon by one
+person, it is not architecture. Architecture is the set of choices whose cost of reversal is measured
+in quarters. Choosing Postgres over MySQL is usually not architecture. Choosing “every service owns
+its own data and nobody shares a database” <em>is</em>.</p>
+
+<h4>Core concept — the seven-step process</h4>
+<p>This template is used in all 145 lessons and all 20 case studies. Learn it by repetition, not by
+memorising it. In a 45-minute interview the time budget is roughly the widths below.</p>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 268" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Seven-step system design process">
+<text class="svgh" x="0" y="12">The seven-step template</text>
+<g>
+  <rect x="0" y="24" width="700" height="34" rx="3" fill="#fff" stroke="#C2D2DF"/>
+  <rect x="0" y="24" width="93" height="34" rx="3" fill="#B4232C"/>
+  <text class="svgm" x="10" y="45" fill="#fff">1 · 3 min</text>
+  <text class="svgt" x="106" y="39">Clarify requirements</text>
+  <text class="svgs" x="106" y="52">Functional list, scale, who the users are, what is out of scope. Ask before you draw.</text>
+</g>
+<g>
+  <rect x="0" y="62" width="700" height="34" rx="3" fill="#fff" stroke="#C2D2DF"/>
+  <rect x="0" y="62" width="93" height="34" rx="3" fill="#9A6A00"/>
+  <text class="svgm" x="10" y="83" fill="#fff">2 · 4 min</text>
+  <text class="svgt" x="106" y="77">Estimate</text>
+  <text class="svgs" x="106" y="90">DAU → QPS → storage → bandwidth → machines. Numbers decide the architecture.</text>
+</g>
+<g>
+  <rect x="0" y="100" width="700" height="34" rx="3" fill="#fff" stroke="#C2D2DF"/>
+  <rect x="0" y="100" width="93" height="34" rx="3" fill="#2E6E36"/>
+  <text class="svgm" x="10" y="121" fill="#fff">3 · 4 min</text>
+  <text class="svgt" x="106" y="115">Define the API</text>
+  <text class="svgs" x="106" y="128">Three to six endpoints with parameters. The API is the contract the design must satisfy.</text>
+</g>
+<g>
+  <rect x="0" y="138" width="700" height="34" rx="3" fill="#fff" stroke="#C2D2DF"/>
+  <rect x="0" y="138" width="93" height="34" rx="3" fill="#0E6E63"/>
+  <text class="svgm" x="10" y="159" fill="#fff">4 · 6 min</text>
+  <text class="svgt" x="106" y="153">Data model &amp; storage choice</text>
+  <text class="svgs" x="106" y="166">Entities, access patterns, then the store. Access patterns first — always.</text>
+</g>
+<g>
+  <rect x="0" y="176" width="700" height="34" rx="3" fill="#fff" stroke="#C2D2DF"/>
+  <rect x="0" y="176" width="93" height="34" rx="3" fill="#1B6E9B"/>
+  <text class="svgm" x="10" y="197" fill="#fff">5 · 8 min</text>
+  <text class="svgt" x="106" y="191">High-level architecture</text>
+  <text class="svgs" x="106" y="204">The first complete diagram. Every box justified, every arrow labelled with a protocol.</text>
+</g>
+<g>
+  <rect x="0" y="214" width="700" height="34" rx="3" fill="#fff" stroke="#C2D2DF"/>
+  <rect x="0" y="214" width="93" height="34" rx="3" fill="#4A3C9E"/>
+  <text class="svgm" x="10" y="235" fill="#fff">6 · 15 min</text>
+  <text class="svgt" x="106" y="229">Deep dive on the hard part</text>
+  <text class="svgs" x="106" y="242">One or two components, taken to the internals. This is where the level is decided.</text>
+</g>
+<g>
+  <rect x="0" y="252" width="700" height="14" rx="3" fill="#5A5270"/>
+  <text class="svgm" x="10" y="263" fill="#fff">7 · 5 min — Bottlenecks, failure modes, what you would do with more time</text>
+</g>
+</svg></div>
+<figcaption><b>FIG 1.1</b> · The template. The two biggest blocks — data model and deep dive — are
+where senior signal appears. Candidates who fail usually spend step 5's budget on step 1.</figcaption></figure>
+
+<h4>Deep dive — why there is never one right answer</h4>
+<p>A system design is a point chosen inside a constraint space. Change any constraint and the optimum
+moves. Concretely, most designs are dominated by three ratios:</p>
+<div class="math"><div class="lbl">The three ratios that pick your architecture</div>
+\[
+r_{\text{rw}}=\frac{\text{reads}}{\text{writes}},\qquad
+r_{\text{fan}}=\frac{\text{deliveries}}{\text{write}},\qquad
+r_{\text{hot}}=\frac{\text{traffic to top 1\% of keys}}{\text{total traffic}}
+\]</div>
+<ul>
+<li>\(r_{\text{rw}} \approx 100\) (URL shortener) → cache aggressively, replicate reads, accept slow writes.</li>
+<li>\(r_{\text{rw}} \approx 1\) (chat) → the write path <em>is</em> the product; caching buys you little.</li>
+<li>\(r_{\text{fan}} \approx 10^{8}\) (a celebrity post) → fan-out-on-write is bankrupt; you need a hybrid.</li>
+<li>\(r_{\text{hot}} \to 1\) (a ticket on sale) → sharding does not help, because every shard but one is idle.</li>
+</ul>
+<p>An interviewer who says “design Twitter” has not given you these numbers. That is the test. The
+first three minutes exist so you can obtain them.</p>
+
+<h4>Tradeoffs</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>When you hear…</th><th>They are really asking</th><th>Wrong move</th></tr></thead>
+<tbody>
+<tr><td>“Design X”</td><td>Can you scope an ambiguous problem?</td><td>Start drawing boxes immediately</td></tr>
+<tr><td>“How would you scale it?”</td><td>Can you find the bottleneck before adding machines?</td><td>“Add a load balancer and cache”</td></tr>
+<tr><td>“What are the tradeoffs?”</td><td>Do you know the cost of your own choice?</td><td>List advantages only</td></tr>
+<tr><td>“What breaks first?”</td><td>Have you built anything real?</td><td>Name a component, not a resource</td></tr>
+</tbody></table></div>
+
+<div class="war"><b>War story</b>
+The 2017 Amazon S3 outage in <span class="k">us-east-1</span> began with an operator running a
+capacity-removal playbook and mistyping one argument, removing far more capacity than intended from
+the index subsystem. Recovery required a full restart of a subsystem that had not been restarted in
+years, and the safety checks took hours. Two design facts made the blast radius what it was: the AWS
+Service Health Dashboard itself depended on S3 in the same region, so the status page could not report
+the outage; and the index subsystem's restart path had never been exercised at that scale. Neither is a
+coding error. Both are design.</div>
+
+<div class="iv"><b>Interview angle</b>
+Common wrong answers on Day-1 material:
+<ul class="wrong">
+<li>“There's no right answer, so anything goes.” There are plenty of <em>wrong</em> answers — a design that cannot meet the stated durability requirement is wrong.</li>
+<li>Treating the requirements phase as a formality and asking zero questions.</li>
+<li>Naming technologies (“I'd use Kafka and Cassandra”) before naming access patterns.</li>
+</ul>
+What scores instead: state an assumption out loud, mark it as an assumption, and say what you would
+change if it were false.</div>
+
+<div class="hw"><b>Homework</b>
+Write down three systems you use daily. For each, guess (a) what breaks first at 100× today's
+traffic, and (b) which of the three ratios above dominates it. Keep the page — you will re-answer it
+on Day 145 and the difference is the course.</div>
+</div></article>
+
+<!-- ============================================ D002 -->
+<article class="lesson" id="d002">
+<div class="lhead"><div class="day">D002</div><div>
+  <h3>The Vocabulary of Scale</h3>
+  <p class="lmeta">24 min · Phase 0 · Prereq: D001 · Homework: 30 min</p></div></div>
+<div class="ribbon" data-runtime="24"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A team celebrates: average API latency is 84 ms, well under the 200 ms target. Support tickets say
+the app is unusable. Both are true. The average hides that 3% of requests take 4 seconds, and the
+users filing tickets are the ones with the most data — the same users who hit the slow path every
+time. An average is a summary statistic that deletes exactly the information you needed.</div>
+
+<h4>Latency, response time, service time — three different numbers</h4>
+<p>These get used interchangeably and they are not the same. For a single request:</p>
+<div class="math"><div class="lbl">Decomposition of what the user feels</div>
+\[
+T_{\text{response}} \;=\; T_{\text{network}} \;+\; T_{\text{queue}} \;+\; T_{\text{service}}
+\]</div>
+<ul>
+<li><b>Service time</b> — how long the work actually takes once a worker picks it up. This is what profilers show you.</li>
+<li><b>Queueing delay</b> — how long the request waited for a free worker. Invisible in application traces unless you instrument for it. Usually the cause of a p99 blow-up.</li>
+<li><b>Response time</b> — what the client measures, including network and serialisation.</li>
+<li><b>Latency</b> — loosely, the whole thing; precisely, the delay component (network + queue). If you must use one word, say “response time” and define it.</li>
+</ul>
+<p class="note">The important consequence: <strong>you can make service time faster and response time
+get worse</strong>, if the extra throughput drives utilisation higher and queueing dominates.</p>
+
+<h4>Throughput vs bandwidth vs QPS</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Term</th><th>Unit</th><th>Measures</th><th>Trap</th></tr></thead>
+<tbody>
+<tr><td>Bandwidth</td><td>bits/s</td><td>Theoretical channel capacity</td><td>Marketing number; never achieved</td></tr>
+<tr><td>Throughput</td><td>bytes/s or ops/s</td><td>Work actually completed</td><td>Meaningless without a latency bound</td></tr>
+<tr><td>Goodput</td><td>bytes/s</td><td>Useful payload, excluding headers &amp; retransmits</td><td>What the user gets</td></tr>
+<tr><td>QPS / RPS</td><td>requests/s</td><td>Request arrival or completion rate</td><td>Average or peak? Always say which</td></tr>
+<tr><td>TPS</td><td>transactions/s</td><td>Business-level units</td><td>One transaction may be 40 queries</td></tr>
+</tbody></table></div>
+
+<h4>Concurrency is not parallelism</h4>
+<p><b>Concurrency</b> is a structure property: how many things are <em>in progress</em>. <b>Parallelism</b>
+is an execution property: how many things run at the <em>same instant</em>. A single-core machine can
+hold 10,000 concurrent connections and have parallelism of 1. The relationship is Little's Law, which
+is the single most useful formula in this course:</p>
+<div class="math"><div class="lbl">Little's Law — holds for any stable system, no assumptions</div>
+\[
+L \;=\; \lambda W
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(L\) = average number of requests in the system
+(concurrency), \(\lambda\) = arrival rate (throughput), \(W\) = average time in system (response time).</p></div>
+<p>Rearranged, it sizes thread pools, connection pools, and queue depths. If your service handles
+\(\lambda = 2{,}000\) req/s and each takes \(W = 50\) ms, then \(L = 2000 \times 0.05 = 100\) requests
+are in flight on average. You need at least 100 units of concurrency. Provision 100 threads and you
+are at 100% utilisation with zero headroom — which brings us to the danger line.</p>
+
+<h4>Deep dive — utilisation and why 80% is the cliff</h4>
+<p>Model a single server as an M/M/1 queue: Poisson arrivals at rate \(\lambda\), exponential service
+at rate \(\mu\), utilisation \(\rho = \lambda/\mu\). The expected time in system is:</p>
+<div class="math"><div class="lbl">M/M/1 response time</div>
+\[
+W \;=\; \frac{1}{\mu - \lambda} \;=\; \frac{1/\mu}{1-\rho}
+\;=\; \frac{T_{\text{service}}}{1-\rho}
+\]</div>
+<p>That \(\frac{1}{1-\rho}\) term is the whole story. It is a hyperbola with a vertical asymptote at
+\(\rho = 1\). Read the multiplier off it:</p>
+<div class="tblwrap"><table>
+<thead><tr><th class="num">Utilisation ρ</th><th class="num">Latency multiplier 1/(1−ρ)</th><th class="num">Queue length ρ/(1−ρ)</th><th>Feels like</th></tr></thead>
+<tbody>
+<tr><td class="num">50%</td><td class="num">2.0×</td><td class="num">1.0</td><td>Comfortable</td></tr>
+<tr><td class="num">70%</td><td class="num">3.3×</td><td class="num">2.3</td><td>Normal production target</td></tr>
+<tr><td class="num">80%</td><td class="num">5.0×</td><td class="num">4.0</td><td>The danger line</td></tr>
+<tr><td class="num">90%</td><td class="num">10.0×</td><td class="num">9.0</td><td>Pager goes off</td></tr>
+<tr><td class="num">95%</td><td class="num">20.0×</td><td class="num">19.0</td><td>Effectively down</td></tr>
+<tr><td class="num">99%</td><td class="num">100.0×</td><td class="num">99.0</td><td>Outage</td></tr>
+</tbody></table></div>
+<p>Going from 80% to 90% utilisation buys you 12.5% more throughput and costs you 2× the latency.
+That is why capacity planning targets 60–70% and why a CPU dashboard reading “80% — fine” is a
+dashboard lying to you.</p>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Latency versus utilisation hockey stick">
+<text class="svgh" x="0" y="12">Response time vs utilisation — the hockey stick</text>
+<line x1="52" y1="200" x2="670" y2="200" stroke="#0B2239" stroke-width="1.2"/>
+<line x1="52" y1="26" x2="52" y2="200" stroke="#0B2239" stroke-width="1.2"/>
+<g stroke="#DFE8EF">
+<line x1="52" y1="160" x2="670" y2="160"/><line x1="52" y1="120" x2="670" y2="120"/>
+<line x1="52" y1="80" x2="670" y2="80"/><line x1="52" y1="40" x2="670" y2="40"/>
+</g>
+<text class="svgs" x="4" y="204">1×</text><text class="svgs" x="4" y="164">3×</text>
+<text class="svgs" x="4" y="124">5×</text><text class="svgs" x="4" y="84">8×</text>
+<text class="svgs" x="0" y="44">12×</text>
+<path d="M52,200 L129,190 L206,180 L283,167 L360,160 L437,144 L483,131 L529,111 L560,93 L590,68 L613,42 L629,26"
+      fill="none" stroke="#1B6E9B" stroke-width="2.4"/>
+<rect x="529" y="26" width="141" height="174" fill="#B4232C" opacity=".07"/>
+<line x1="529" y1="26" x2="529" y2="200" stroke="#B4232C" stroke-dasharray="4 3"/>
+<text class="svgm" x="534" y="38" fill="#B4232C">ρ = 0.80</text>
+<text class="svgs" x="534" y="52" fill="#B4232C">every extra request costs</text>
+<text class="svgs" x="534" y="64" fill="#B4232C">disproportionate latency</text>
+<line x1="360" y1="160" x2="360" y2="200" stroke="#0E6E63" stroke-dasharray="4 3"/>
+<text class="svgm" x="300" y="152" fill="#0E6E63">ρ = 0.60 target</text>
+<text class="svgs" x="52" y="218">0%</text><text class="svgs" x="230" y="218">40%</text>
+<text class="svgs" x="345" y="218">60%</text><text class="svgs" x="516" y="218">80%</text>
+<text class="svgs" x="632" y="218">95%</text>
+<text class="svgh" x="300" y="234">Utilisation</text>
+</svg></div>
+<figcaption><b>FIG 2.1</b> · \(W = T_s/(1-\rho)\). The curve is not gradual — it is flat and then it
+is not. Autoscaling policies that trigger at 80% CPU are triggering after the damage starts.</figcaption></figure>
+
+<h4>Deep dive — percentiles, and why averages lie</h4>
+<p>Latency distributions are right-skewed and heavy-tailed: a long tail of slow requests caused by GC
+pauses, cache misses, lock contention, retries, and noisy neighbours. Mean and median can differ by
+an order of magnitude.</p>
+<ul>
+<li><b>p50 (median)</b> — the typical experience. Optimising it is marketing.</li>
+<li><b>p90 / p95</b> — the edge of normal. Where regressions first show.</li>
+<li><b>p99</b> — the users with the most data, most followers, most items in cart. Usually your best customers.</li>
+<li><b>p99.9</b> — where systemic faults hide. At 10,000 QPS this is still 10 requests per second.</li>
+</ul>
+<p class="note"><strong>You cannot average percentiles.</strong> The mean of two servers' p99 values is
+not the fleet p99. To aggregate, you must merge the underlying histograms (or use a mergeable sketch
+such as t-digest / DDSketch). Averaging p99s across shards is one of the most common metrics bugs in
+production, and it always makes things look better than they are.</p>
+
+<h4>Deep dive — tail latency amplification</h4>
+<p>This is the reason p99 dominates in microservice architectures. If a single request fans out to
+\(n\) independent backend calls and must wait for <em>all</em> of them, then the probability that the
+request is slow is the probability that <em>at least one</em> backend is slow:</p>
+<div class="math"><div class="lbl">Fan-out tail amplification</div>
+\[
+P(\text{request slow}) \;=\; 1-(1-p)^{n}
+\qquad\text{where } p = P(\text{one call slow})
+\]
+\[
+\text{With } p = 0.01,\; n = 100:\quad 1-(0.99)^{100} \approx 0.634
+\]</div>
+<p>A backend whose p99 is 1 second — meaning it is “only slow 1% of the time” — makes <strong>63% of
+requests</strong> slow once you fan out to 100 services. Your service's p50 is now your dependency's
+p99. This single equation justifies hedged requests, tied requests, request cancellation, and a large
+part of Google's <em>The Tail at Scale</em> paper.</p>
+
+<div class="demo" id="dm-tail">
+  <h6>Demo · tail amplification calculator</h6>
+  <div class="ctrl">
+    <label>Fan-out width <i>n</i></label><input type="range" id="tn" min="1" max="300" value="50"><output id="tno">50</output>
+    <label>Per-call slow rate <i>p</i></label><input type="range" id="tp" min="1" max="100" value="10"><output id="tpo">1.0%</output>
+  </div>
+  <div class="readout">
+    <div><span class="v" id="tr1">—</span><span class="l">P(request slow)</span></div>
+    <div><span class="v" id="tr2">—</span><span class="l">Effective percentile hit</span></div>
+    <div><span class="v" id="tr3">—</span><span class="l">Max n for &lt;5% slow</span></div>
+    <div><span class="v" id="tr4">—</span><span class="l">With 1 hedged retry</span></div>
+  </div>
+  <p style="font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);margin:12px 0 0">
+  The hedged column assumes you fire a duplicate request after the p95 deadline and take the first
+  response, so a call is only slow if both copies are slow: \(p' = p^2\).</p>
+</div>
+
+<div class="war"><b>War story</b>
+Google's <em>The Tail at Scale</em> (Dean &amp; Barroso, CACM 2013) reports the shape of this problem
+from production: in a service where a single server has a 99th-percentile latency of 10 ms, a request
+that must gather results from 100 such servers ends up with a 99th-percentile latency far above
+10 ms — the paper's headline example puts it at 140 ms, with 63% of requests exceeding the
+single-server p99. Their mitigations — hedged requests, tied requests, micro-partitioning,
+selective replication — are all attempts to defeat \(1-(1-p)^n\).</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: “Your service p99 is 2 s. Where do you look first?” Strong answers separate the three
+components of response time before touching code — is it queueing (check concurrency limits and pool
+saturation), service time (profile), or fan-out amplification (check the trace's critical path).
+<ul class="wrong">
+<li>“I'd add more servers.” Only helps if the bottleneck is utilisation, and makes fan-out worse.</li>
+<li>“Our average is fine.” Never say this out loud.</li>
+<li>Quoting p99 without saying over what window. p99 over 24 h and p99 over 1 min are different metrics.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Pick any API you can hit. Fire 100 sequential requests, record every duration, sort them, and read
+off index 50, 90, 95 and 99. Then compute the mean. Write down the ratio p99/mean — that number is
+your first real feel for tail behaviour.</div>
+</div></article>
+
+<!-- ============================================ D003 -->
+<article class="lesson" id="d003">
+<div class="lhead"><div class="day">D003</div><div>
+  <h3>Back-of-the-Envelope Estimation</h3>
+  <p class="lmeta">28 min · Phase 0 · Prereq: D002 · Homework: 30 min</p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A candidate designs a video platform, draws a beautiful architecture, and confidently puts all
+metadata in Redis. The interviewer asks how much RAM. The candidate says “a lot?” The real number
+was 40 TB — about $250,000/month of memory for data that is read once a week. The design was not
+wrong because of a missing component. It was wrong because nobody multiplied.</div>
+
+<h4>What you'll be able to do</h4>
+<p>Convert a user count into QPS, storage, bandwidth, cache size and machine count in under four
+minutes, out loud, with rounding you can defend.</p>
+
+<h4>Core concept — the two ladders you must know cold</h4>
+<div class="grid2">
+<div><h5>Powers of two</h5>
+<div class="tblwrap"><table>
+<thead><tr><th class="num">Power</th><th class="num">Exact</th><th>Name</th><th class="num">Approx</th></tr></thead>
+<tbody>
+<tr><td class="num">2<sup>10</sup></td><td class="num">1,024</td><td>KiB</td><td class="num">1 thousand</td></tr>
+<tr><td class="num">2<sup>20</sup></td><td class="num">1,048,576</td><td>MiB</td><td class="num">1 million</td></tr>
+<tr><td class="num">2<sup>30</sup></td><td class="num">1.07×10<sup>9</sup></td><td>GiB</td><td class="num">1 billion</td></tr>
+<tr><td class="num">2<sup>40</sup></td><td class="num">1.10×10<sup>12</sup></td><td>TiB</td><td class="num">1 trillion</td></tr>
+<tr><td class="num">2<sup>50</sup></td><td class="num">1.13×10<sup>15</sup></td><td>PiB</td><td class="num">1 quadrillion</td></tr>
+<tr><td class="num">2<sup>32</sup></td><td class="num">4.29×10<sup>9</sup></td><td>—</td><td class="num">IPv4 space, int32 max×2</td></tr>
+<tr><td class="num">2<sup>63</sup></td><td class="num">9.22×10<sup>18</sup></td><td>—</td><td class="num">int64 max</td></tr>
+</tbody></table></div></div>
+<div><h5>Time, in seconds</h5>
+<div class="tblwrap"><table>
+<thead><tr><th>Window</th><th class="num">Seconds</th><th>Shortcut</th></tr></thead>
+<tbody>
+<tr><td>1 minute</td><td class="num">60</td><td>—</td></tr>
+<tr><td>1 hour</td><td class="num">3,600</td><td>3.6 × 10<sup>3</sup></td></tr>
+<tr><td>1 day</td><td class="num">86,400</td><td><b>≈ 10<sup>5</sup></b></td></tr>
+<tr><td>1 month</td><td class="num">2.6 × 10<sup>6</sup></td><td>2.5 M</td></tr>
+<tr><td>1 year</td><td class="num">3.15 × 10<sup>7</sup></td><td><b>π × 10<sup>7</sup></b></td></tr>
+<tr><td>5 years</td><td class="num">1.58 × 10<sup>8</sup></td><td>1.6 × 10<sup>8</sup></td></tr>
+</tbody></table></div>
+<p class="note">Memorise two: <b>86,400 ≈ 10<sup>5</sup> s/day</b> and <b>1 year ≈ π×10<sup>7</sup> s</b>.
+Everything else derives.</p></div>
+</div>
+
+<h5>Bytes per thing</h5>
+<div class="tblwrap"><table>
+<thead><tr><th>Item</th><th class="num">Size</th><th>Item</th><th class="num">Size</th></tr></thead>
+<tbody>
+<tr><td><code>char</code> ASCII</td><td class="num">1 B</td><td>UUID (binary / text)</td><td class="num">16 B / 36 B</td></tr>
+<tr><td><code>int32</code> / <code>int64</code></td><td class="num">4 B / 8 B</td><td>Unix timestamp (ms)</td><td class="num">8 B</td></tr>
+<tr><td>Tweet-length text</td><td class="num">~300 B</td><td>Typical JSON API response</td><td class="num">1–5 KB</td></tr>
+<tr><td>Row of user metadata</td><td class="num">~1 KB</td><td>Web page (transferred, 2024 median)</td><td class="num">~2.5 MB</td></tr>
+<tr><td>Thumbnail JPEG</td><td class="num">~15 KB</td><td>Phone photo (12 MP HEIC)</td><td class="num">~3 MB</td></tr>
+<tr><td>1 min 1080p H.264</td><td class="num">~50 MB</td><td>1 min 4K</td><td class="num">~200 MB</td></tr>
+<tr><td>1 min audio, AAC 128 kbps</td><td class="num">~1 MB</td><td>1 h of 1 KB logs at 1 kQPS</td><td class="num">~3.6 GB</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — the estimation chain</h4>
+<p>Six steps, always the same order. Each one feeds the next.</p>
+<div class="math"><div class="lbl">Step 1 — average QPS from users</div>
+\[
+\text{QPS}_{\text{avg}} \;=\; \frac{\text{DAU}\times\text{actions per user per day}}{86{,}400}
+\]</div>
+<div class="math"><div class="lbl">Step 2 — peak, which is what you must provision for</div>
+\[
+\text{QPS}_{\text{peak}} \;=\; k\cdot \text{QPS}_{\text{avg}},\qquad k \in [2,5]
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(k\approx2\) for a global product with users spread across
+time zones; \(k\approx5\) for a single-country product with a strong evening peak; \(k\) can exceed
+50 for event-driven traffic (ticket sales, live sport, flash sales) — those are not modelled by a
+multiplier at all, they are modelled as a spike.</p></div>
+<div class="math"><div class="lbl">Step 3 — storage growth</div>
+\[
+S_{\text{year}} \;=\; \text{writes/day}\times \text{bytes/write}\times 365 \times R
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(R\) is the replication + overhead factor. Use \(R=3\) for
+naive replication; \(R\approx1.5\) for erasure coding; add ~30% on top for indexes, and a further
+margin for backups if backups live in the same budget.</p></div>
+<div class="math"><div class="lbl">Step 4 — bandwidth</div>
+\[
+B_{\text{egress}} \;=\; \text{QPS}_{\text{peak}}\times \text{bytes per response}
+\]</div>
+<div class="math"><div class="lbl">Step 5 — machine count</div>
+\[
+N_{\text{servers}} \;=\; \left\lceil \frac{\text{QPS}_{\text{peak}}}{\text{QPS per server}\times \rho_{\text{target}}} \right\rceil + N_{\text{spare}}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">Use \(\rho_{\text{target}}=0.6\) from Day 2, and add spares
+for \(N+2\) redundancy per availability zone.</p></div>
+<div class="math"><div class="lbl">Step 6 — cache size, from the working set</div>
+\[
+M_{\text{cache}} \;\approx\; 0.2 \times S_{\text{daily active}} \times (1+\text{overhead})
+\]
+<p style="margin:6px 0 0;font-size:14.5px">The 80/20 rule: 20% of the data serves 80% of requests.
+Redis overhead for small objects is significant — budget 50–100 bytes per key on top of the value.</p></div>
+
+<h4>Worked example — a 100 M DAU photo app</h4>
+<p>Assumptions, stated aloud: 100 M DAU; each user uploads 0.2 photos/day and views 50; photo 3 MB
+plus three renditions totalling 1 MB; metadata row 1 KB; retain 5 years; replication factor 3.</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Quantity</th><th>Working</th><th class="num">Result</th></tr></thead>
+<tbody>
+<tr><td>Uploads/day</td><td>100M × 0.2</td><td class="num">20 M</td></tr>
+<tr><td>Write QPS avg</td><td>20M ÷ 10<sup>5</sup></td><td class="num">200/s</td></tr>
+<tr><td>Write QPS peak</td><td>200 × 3</td><td class="num">600/s</td></tr>
+<tr><td>Views/day</td><td>100M × 50</td><td class="num">5 B</td></tr>
+<tr><td>Read QPS avg / peak</td><td>5B ÷ 10<sup>5</sup> → ×3</td><td class="num">50 K/s → 150 K/s</td></tr>
+<tr><td>Read : write ratio</td><td>50,000 ÷ 200</td><td class="num">250 : 1</td></tr>
+<tr><td>Raw storage/day</td><td>20M × 4 MB</td><td class="num">80 TB</td></tr>
+<tr><td>Storage/5 yr, replicated</td><td>80 TB × 365 × 5 × 3</td><td class="num">≈ 438 PB</td></tr>
+<tr><td>Metadata/5 yr</td><td>20M × 1 KB × 1825 × 3</td><td class="num">≈ 110 TB</td></tr>
+<tr><td>Egress at peak</td><td>150K/s × 200 KB (thumb+feed)</td><td class="num">30 GB/s = 240 Gbps</td></tr>
+<tr><td>Cache for hot 20% of a day's reads</td><td>0.2 × (5B × 200 KB ÷ 365 …)</td><td class="num">tens of TB → CDN, not Redis</td></tr>
+</tbody></table></div>
+<p>The number that decides the architecture is the last row. 240 Gbps of egress and tens of TB of hot
+media means <strong>a CDN is not an optimisation, it is the design</strong>. Origin serves cold objects
+only. That conclusion fell out of arithmetic, not taste.</p>
+
+<div class="demo" id="dm-est">
+  <h6>Demo · estimation worksheet</h6>
+  <div class="ctrl">
+    <label>DAU</label><input type="range" id="e1" min="4" max="9.3" step="0.1" value="8"><output id="e1o">100 M</output>
+    <label>Writes per user / day</label><input type="range" id="e2" min="0.05" max="20" step="0.05" value="0.2"><output id="e2o">0.20</output>
+    <label>Reads per user / day</label><input type="range" id="e3" min="1" max="300" step="1" value="50"><output id="e3o">50</output>
+    <label>Bytes per write object</label><input type="range" id="e4" min="2" max="8.3" step="0.1" value="6.6"><output id="e4o">4 MB</output>
+    <label>Peak factor <i>k</i></label><input type="range" id="e5" min="1" max="8" step="0.5" value="3"><output id="e5o">3.0×</output>
+    <label>Replication <i>R</i></label><input type="range" id="e6" min="1" max="5" step="0.5" value="3"><output id="e6o">3.0×</output>
+  </div>
+  <div class="readout">
+    <div><span class="v" id="er1">—</span><span class="l">Write QPS peak</span></div>
+    <div><span class="v" id="er2">—</span><span class="l">Read QPS peak</span></div>
+    <div><span class="v" id="er3">—</span><span class="l">Read : write</span></div>
+    <div><span class="v" id="er4">—</span><span class="l">Storage / 5 yr</span></div>
+    <div><span class="v" id="er5">—</span><span class="l">Ingest bandwidth</span></div>
+    <div><span class="v" id="er6">—</span><span class="l">App servers @ 2k QPS, ρ=0.6</span></div>
+  </div>
+</div>
+
+<h4>Tradeoffs — when to round and when not to</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Situation</th><th>Rounding</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Interview, out loud</td><td>To one significant figure</td><td>You are testing whether the answer is 10<sup>3</sup> or 10<sup>6</sup>, not the second digit</td></tr>
+<tr><td>Choosing between architectures</td><td>One sig fig</td><td>If the choice flips on a 20% difference, it was a coin toss anyway</td></tr>
+<tr><td>Capacity purchase</td><td>Two sig figs + growth model</td><td>Real money, real lead times</td></tr>
+<tr><td>Cost per request</td><td>Do not round</td><td>Unit economics compound; 10% is a rounding error at 10<sup>4</sup> req and a salary at 10<sup>11</sup></td></tr>
+<tr><td>Anything with a hard limit (int32 IDs, port count, file descriptors)</td><td>Never round</td><td>You are looking for a ceiling, and ceilings are exact</td></tr>
+</tbody></table></div>
+
+<div class="war"><b>War story</b>
+In 2014, Twitter's “Gangnam Style” problem became public engineering folklore: the view counter was
+stored as a signed 32-bit integer, capping at 2,147,483,647. YouTube publicly noted the video had
+exceeded that limit and that they had moved the counter to 64-bit. The estimation lesson is exact:
+\(2^{31}-1\) is not a big number when your denominator is “every human with a phone”.</div>
+
+<div class="iv"><b>Interview angle</b>
+Say your assumptions out loud, in a fixed order, and write them in the corner of the board so you can
+point at them later. Interviewers score the <em>method</em>, not the digits.
+<ul class="wrong">
+<li>Doing arithmetic silently and announcing a number. They cannot score what they cannot hear.</li>
+<li>Using average QPS to size servers. Provision for peak, or you are designing an outage.</li>
+<li>Forgetting replication and index overhead — a 3× miss on storage cost.</li>
+<li>Estimating in MB and answering in GB. Say the unit every single time.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Estimate the storage for five years of WhatsApp messages. Given: ~2 B users, ~100 B messages/day,
+average message ~100 B of text plus ~200 B of metadata, media in ~1% of messages at ~200 KB, and
+replication 3×. Then decide: does text live in the same store as media? Justify with your own numbers.</div>
+</div></article>
+
+<!-- ============================================ D004 -->
+<article class="lesson" id="d004">
+<div class="lhead"><div class="day">D004</div><div>
+  <h3>Latency Numbers &amp; the Memory Hierarchy</h3>
+  <p class="lmeta">22 min · Phase 0 · Prereq: D003 · Homework: 15 min</p></div></div>
+<div class="ribbon" data-runtime="22"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+An engineer moves a service from one region to another to be “closer to the database team”. The code
+is unchanged. p99 goes from 60 ms to 780 ms. The request path makes 9 sequential database calls, and
+each one now crosses 3,900 km. Nobody wrote slower code. The speed of light was always going to win
+that argument.</div>
+
+<h4>Core concept — the latency ladder</h4>
+<p>These numbers change slowly. Learn the <em>orders of magnitude</em> and the ratios; the exact
+digits will drift with hardware generations.</p>
+
+<div class="tblwrap"><table>
+<thead><tr><th>Operation</th><th class="num">Latency</th><th class="num">Relative to L1</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>L1 cache reference</td><td class="num">~1 ns</td><td class="num">1×</td><td>~32–64 KB per core</td></tr>
+<tr><td>Branch mispredict</td><td class="num">~3 ns</td><td class="num">3×</td><td>Pipeline flush</td></tr>
+<tr><td>L2 cache reference</td><td class="num">~4 ns</td><td class="num">4×</td><td>~256 KB–1 MB</td></tr>
+<tr><td>Mutex lock/unlock (uncontended)</td><td class="num">~17 ns</td><td class="num">17×</td><td>Contended is 100–1000×</td></tr>
+<tr><td>L3 cache reference</td><td class="num">~30 ns</td><td class="num">30×</td><td>Shared, ~8–64 MB</td></tr>
+<tr><td>Main memory reference</td><td class="num">~100 ns</td><td class="num">100×</td><td>The number to anchor on</td></tr>
+<tr><td>Compress 1 KB (Snappy/LZ4)</td><td class="num">~2 μs</td><td class="num">2,000×</td><td>Often cheaper than sending uncompressed</td></tr>
+<tr><td>Read 1 MB sequentially from RAM</td><td class="num">~30 μs</td><td class="num">3×10<sup>4</sup></td><td>≈ 30 GB/s</td></tr>
+<tr><td>Round trip within same datacenter</td><td class="num">~0.5 ms</td><td class="num">5×10<sup>5</sup></td><td>The unit of microservice cost</td></tr>
+<tr><td>NVMe SSD random read (4 KB)</td><td class="num">~50–100 μs</td><td class="num">~10<sup>5</sup></td><td>SATA SSD ~150 μs</td></tr>
+<tr><td>Read 1 MB sequentially from NVMe</td><td class="num">~150 μs</td><td class="num">1.5×10<sup>5</sup></td><td>≈ 6 GB/s</td></tr>
+<tr><td>HDD seek</td><td class="num">~8–10 ms</td><td class="num">10<sup>7</sup></td><td>Physical arm movement</td></tr>
+<tr><td>Read 1 MB sequentially from HDD</td><td class="num">~5 ms</td><td class="num">5×10<sup>6</sup></td><td>≈ 200 MB/s</td></tr>
+<tr><td>RTT California → Netherlands</td><td class="num">~150 ms</td><td class="num">1.5×10<sup>8</sup></td><td>Fibre, not vacuum</td></tr>
+</tbody></table></div>
+
+<div class="demo" id="dm-lat">
+  <h6>Demo · the ladder rescaled to human time</h6>
+  <p style="font-family:var(--sans);font-size:13px;color:var(--ink-mid);margin:0 0 10px">
+  Pretend 1 ns = 1 second. Now the whole hierarchy fits inside a human intuition.</p>
+  <div class="bars" id="latbars"></div>
+</div>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Memory hierarchy pyramid">
+<text class="svgh" x="0" y="12">Capacity, latency and cost move in opposite directions</text>
+<g>
+<polygon points="290,24 410,24 425,54 275,54" fill="#B4232C"/>
+<polygon points="275,58 425,58 442,92 258,92" fill="#9A6A00"/>
+<polygon points="258,96 442,96 462,134 238,134" fill="#0E6E63"/>
+<polygon points="238,138 462,138 486,182 214,182" fill="#1B6E9B"/>
+<polygon points="214,186 486,186 514,236 186,236" fill="#4A3C9E"/>
+<polygon points="186,240 514,240 545,296 155,296" fill="#5A5270"/>
+<text class="svgt" x="322" y="43" fill="#fff">Registers</text>
+<text class="svgt" x="322" y="80" fill="#fff">L1 / L2 / L3</text>
+<text class="svgt" x="330" y="119" fill="#fff">DRAM</text>
+<text class="svgt" x="322" y="164" fill="#fff">NVMe SSD</text>
+<text class="svgt" x="336" y="214" fill="#fff">HDD</text>
+<text class="svgt" x="300" y="272" fill="#fff">Object storage / tape</text>
+</g>
+<g class="svgm" text-anchor="end">
+<text x="248" y="44">&lt;1 ns</text><text x="230" y="80">1–30 ns</text><text x="210" y="119">100 ns</text>
+<text x="186" y="164">100 μs</text><text x="158" y="214">10 ms</text><text x="128" y="272">100 ms+</text>
+</g>
+<text class="svgh" x="0" y="292" fill="#5B7189">Latency</text>
+<g class="svgm">
+<text x="452" y="44">~KB</text><text x="470" y="80">~MB</text><text x="490" y="119">~GB</text>
+<text x="514" y="164">~TB</text><text x="542" y="214">~10 TB</text><text x="572" y="272">unbounded</text>
+</g>
+<text class="svgh" x="620" y="292" fill="#5B7189">Capacity</text>
+<line x1="600" y1="30" x2="600" y2="290" stroke="#C2D2DF"/>
+<text class="svgs" x="606" y="44">$/GB</text>
+<text class="svgs" x="606" y="60">falls ~10<tspan dy="-3" font-size="8">6</tspan></text>
+<text class="svgs" x="606" y="76">top to bottom</text>
+</svg></div>
+<figcaption><b>FIG 4.1</b> · Every tier is roughly 10–100× slower and 10× cheaper per byte than the
+one above. Caching is nothing more than moving a working set up one rung.</figcaption></figure>
+
+<h4>Deep dive — the speed of light is a design constraint</h4>
+<p>Light in vacuum: \(c = 3\times10^{8}\) m/s. In optical fibre the refractive index is about 1.47, so
+signals travel at roughly \(2\times10^{8}\) m/s — about two-thirds of \(c\).</p>
+<div class="math"><div class="lbl">Minimum round-trip time over fibre</div>
+\[
+\text{RTT}_{\min} \;=\; \frac{2d}{v},\qquad v \approx 2\times10^{8}\ \text{m/s}
+\]
+\[
+\Rightarrow\quad \text{RTT}_{\min} \approx 10\ \text{ms per } 1{,}000\ \text{km}
+\]</div>
+<p>Worked: Mumbai → Northern Virginia is about 13,000 km great-circle. So
+\(\text{RTT}_{\min} = 2\times13{,}000{,}000 / 2\times10^{8} = 0.13\) s = <b>130 ms</b>. Real-world
+measurements land near 180–220 ms because cables do not follow great circles and every router,
+amplifier and switch adds queueing. There is no engineering, no protocol, no amount of money that
+gets you below 130 ms on that path.</p>
+
+<div class="tblwrap"><table>
+<thead><tr><th>Path</th><th class="num">Distance</th><th class="num">Theoretical RTT</th><th class="num">Typical real RTT</th></tr></thead>
+<tbody>
+<tr><td>Same rack</td><td class="num">~2 m</td><td class="num">~0.02 μs</td><td class="num">~50–250 μs</td></tr>
+<tr><td>Same datacenter</td><td class="num">~1 km</td><td class="num">~0.01 ms</td><td class="num">0.3–0.8 ms</td></tr>
+<tr><td>Same metro / cross-AZ</td><td class="num">~50 km</td><td class="num">0.5 ms</td><td class="num">0.5–2 ms</td></tr>
+<tr><td>New York ↔ London</td><td class="num">5,600 km</td><td class="num">56 ms</td><td class="num">70–80 ms</td></tr>
+<tr><td>US East ↔ US West</td><td class="num">4,000 km</td><td class="num">40 ms</td><td class="num">60–70 ms</td></tr>
+<tr><td>Mumbai ↔ Virginia</td><td class="num">13,000 km</td><td class="num">130 ms</td><td class="num">180–220 ms</td></tr>
+<tr><td>Sydney ↔ London</td><td class="num">17,000 km</td><td class="num">170 ms</td><td class="num">250–290 ms</td></tr>
+</tbody></table></div>
+
+<h5>What this forbids</h5>
+<ul>
+<li><b>Synchronous cross-continent quorum writes with a &lt;100 ms SLO.</b> Impossible. Not hard — impossible.</li>
+<li><b>Chatty protocols over WAN.</b> Nine sequential round trips at 150 ms is 1.35 s of pure waiting. Batch, pipeline, or move the computation.</li>
+<li><b>“Just replicate synchronously to another continent for safety.”</b> Every write now costs a full RTT. Choose async and accept an RPO, or choose a nearby region.</li>
+</ul>
+<p class="note"><strong>The corollary that matters:</strong> when latency is bounded by distance, the
+only remaining lever is <em>moving the data closer to the user</em>. That is the entire justification
+for CDNs (Day 26), edge compute (Day 104), and regional write partitioning (Day 66).</p>
+
+<h4>Cost per tier, roughly</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Tier</th><th class="num">$/GB/month (order of magnitude)</th><th>Practical implication</th></tr></thead>
+<tbody>
+<tr><td>DRAM (managed cache)</td><td class="num">$3–8</td><td>Cache only the working set; never “cache everything”</td></tr>
+<tr><td>Local NVMe</td><td class="num">$0.08–0.20</td><td>Ephemeral — dies with the instance</td></tr>
+<tr><td>Network block storage (EBS gp3)</td><td class="num">$0.08</td><td>Plus IOPS/throughput charges</td></tr>
+<tr><td>Object storage (S3 standard)</td><td class="num">$0.023</td><td>Cheap to store, expensive to <em>egress</em></td></tr>
+<tr><td>Cold / archive</td><td class="num">$0.001–0.004</td><td>Retrieval is minutes-to-hours and costs extra</td></tr>
+<tr><td>Egress to internet</td><td class="num">$0.05–0.09 <i>per GB moved</i></td><td>Frequently the largest line on the bill (Day 120)</td></tr>
+</tbody></table></div>
+<p>The ratio DRAM : object storage is roughly <b>200 : 1</b>. That ratio is why the answer to “should
+this live in Redis?” is almost always “only the 1–5% of it that is hot”.</p>
+
+<div class="war"><b>War story</b>
+High-frequency trading firms have spent hundreds of millions of dollars building microwave and
+millimetre-wave links between Chicago and New Jersey, because microwaves travel through air at
+essentially \(c\) while light in fibre travels at \(0.67c\) — and the fibre route is longer than the
+straight line. The payoff is a few milliseconds. When an industry spends that much money to buy
+milliseconds, it is confirming that the physics constant in the denominator is real.</div>
+
+<div class="iv"><b>Interview angle</b>
+The question is usually implicit: “would you replicate synchronously across regions?” The scoring
+answer computes the RTT floor first.
+<ul class="wrong">
+<li>“Network latency is negligible.” Inside a rack, sometimes. Across a WAN, never.</li>
+<li>Quoting “disk is slow” without distinguishing sequential from random, or HDD from NVMe — a 100× difference.</li>
+<li>Treating cross-AZ as free. It is ~1 ms <em>and</em> it is charged per GB in most clouds.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Compute the theoretical minimum RTT between Mumbai and Northern Virginia from the great-circle
+distance, then measure the real one with <code>ping</code> or an online looking glass. Write down the
+ratio real/theoretical. That ratio (usually 1.4–1.8) is your personal fudge factor for every future
+estimate.</div>
+</div></article>
+
+<!-- ============================================ D005 -->
+<article class="lesson" id="d005">
+<div class="lhead"><div class="day">D005</div><div>
+  <h3>Non-Functional Requirements</h3>
+  <p class="lmeta">26 min · Phase 0 · Prereq: D002, D003 · Homework: 25 min</p></div></div>
+<div class="ribbon" data-runtime="26"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A payments team ships a service with 99.99% availability and a beautiful autoscaling story. Six
+months in, an engineer discovers that the "durable" write path acknowledged the client after writing
+to a single replica's page cache, before <code>fsync</code>. A power event loses 40 seconds of
+transactions. The service was highly available the entire time. It was never durable. Those are
+different words and the team had been using them as one.</div>
+
+<h4>Core concept — the nine NFRs and how each is measured</h4>
+<p>A functional requirement says what the system does. A non-functional requirement says how well.
+Every one of these must be attached to a <em>number and a measurement method</em>, or it is a wish.</p>
+
+<div class="tblwrap"><table>
+<thead><tr><th>NFR</th><th>Question it answers</th><th>How it is measured</th><th>Example target</th></tr></thead>
+<tbody>
+<tr><td><b>Scalability</b></td><td>Can it grow with demand?</td><td>Throughput at fixed latency as resources increase; scaling efficiency</td><td>Linear to 10× with ≤15% efficiency loss</td></tr>
+<tr><td><b>Availability</b></td><td>Is it answering right now?</td><td>Good requests ÷ total requests, over a window</td><td>99.95% monthly</td></tr>
+<tr><td><b>Reliability</b></td><td>Does it answer correctly, repeatedly?</td><td>MTBF, error rate, corruption rate</td><td>&lt;1 incorrect result per 10<sup>9</sup></td></tr>
+<tr><td><b>Durability</b></td><td>Once written, does it survive?</td><td>Annual probability of object loss</td><td>11 nines (S3-class)</td></tr>
+<tr><td><b>Consistency</b></td><td>Do readers see a coherent world?</td><td>Model name + staleness bound</td><td>Read-your-writes; ≤500 ms convergence</td></tr>
+<tr><td><b>Latency</b></td><td>How fast, for whom?</td><td>Percentile + window + endpoint</td><td>p99 &lt; 200 ms over 5 min, on /feed</td></tr>
+<tr><td><b>Maintainability</b></td><td>Can humans change it safely?</td><td>Lead time to change, change failure rate, MTTR</td><td>DORA elite: &lt;1 day, &lt;15%</td></tr>
+<tr><td><b>Observability</b></td><td>Can you tell what it is doing?</td><td>% of paths with RED metrics + trace coverage</td><td>100% of public endpoints</td></tr>
+<tr><td><b>Security</b></td><td>Who can do what?</td><td>Threat model coverage, time-to-patch, blast radius</td><td>Least privilege proven per service</td></tr>
+<tr><td><b>Cost</b></td><td>What does a unit of value cost?</td><td>$ per 1,000 requests / per user / per GB</td><td>&lt;$0.40 per 1k requests</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — durability is not availability</h4>
+<p>They fail independently and are engineered with different mechanisms.</p>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Durability versus availability quadrants">
+<text class="svgh" x="0" y="12">Four states a datastore can be in</text>
+<line x1="350" y1="24" x2="350" y2="184" stroke="#0B2239"/>
+<line x1="60" y1="104" x2="670" y2="104" stroke="#0B2239"/>
+<text class="svgh" x="356" y="36" fill="#5B7189">Durable →</text>
+<text class="svgh" x="60" y="36" fill="#5B7189">← Not durable</text>
+<text class="svgs" x="4" y="70">Available</text><text class="svgs" x="4" y="150">Unavailable</text>
+<rect x="66" y="44" width="272" height="52" rx="3" fill="#FBF5E7" stroke="#EADFC0"/>
+<text class="svgt" x="78" y="64">In-memory cache, unreplicated Redis</text>
+<text class="svgs" x="78" y="80">Answers instantly. Loses everything on restart.</text>
+<rect x="362" y="44" width="300" height="52" rx="3" fill="#EAF4F1" stroke="#B9D8D0"/>
+<text class="svgt" x="374" y="64">The goal: replicated + fsynced + multi-AZ</text>
+<text class="svgs" x="374" y="80">Costs money and write latency. Buy it deliberately.</text>
+<rect x="66" y="112" width="272" height="52" rx="3" fill="#FCF1F1" stroke="#EDCFCF"/>
+<text class="svgt" x="78" y="132">Single node, no backups, currently down</text>
+<text class="svgs" x="78" y="148">The state you discover during an incident.</text>
+<rect x="362" y="112" width="300" height="52" rx="3" fill="#EEF3F8" stroke="#CBD9E6"/>
+<text class="svgt" x="374" y="132">Glacier / tape / a CP store during a partition</text>
+<text class="svgs" x="374" y="148">Data is safe. You just cannot have it right now.</text>
+</svg></div>
+<figcaption><b>FIG 5.1</b> · A CP database during a network partition sits in the bottom-right box on
+purpose. Refusing writes is not a bug; it is the durability guarantee being honoured.</figcaption></figure>
+
+<div class="math"><div class="lbl">Durability, expressed honestly</div>
+\[
+\text{"11 nines"} \;=\; 99.999999999\% \;\Rightarrow\; P(\text{loss per object-year}) = 10^{-11}
+\]
+\[
+\text{Store } 10^{7}\text{ objects} \;\Rightarrow\; \text{expected losses/year} = 10^{7}\times10^{-11}=10^{-4}
+\]</div>
+<p>One object lost every 10,000 years. That number is a <em>model output</em>, not a measurement — it
+assumes independent device failures. It says nothing about correlated failures: a bad deploy that
+deletes data, an operator error, ransomware, or a region-wide event. Which is why backups (Day 116)
+are a separate control from replication.</p>
+
+<h4>Deep dive — extracting NFRs from a vague prompt</h4>
+<p>"Design a ride-hailing app" contains no NFRs. Here is the interrogation sequence that produces
+them, in the order you should ask:</p>
+<ol>
+<li><b>Who is the user and what is the worst moment?</b> (Rider stranded at 2 a.m. → availability is the top NFR.)</li>
+<li><b>What is the unit of loss?</b> (A lost location ping: fine. A lost payment: not fine. Two different durability tiers in the same system.)</li>
+<li><b>What is the read:write ratio and the fan-out?</b> (Sets the shape.)</li>
+<li><b>What is the acceptable staleness, per data type?</b> (Driver location: 4 s. Account balance: 0.)</li>
+<li><b>What is the regulatory surface?</b> (PII, residency, retention — these change the architecture, not the config.)</li>
+<li><b>What is the budget per unit?</b> (If nobody will say, assume it matters and design for cost visibility.)</li>
+</ol>
+<p class="note"><strong>The single most valuable habit:</strong> tier your NFRs per data type rather
+than per system. Almost every real system has three tiers — money-grade, user-content-grade, and
+telemetry-grade — with wildly different durability and consistency needs. Designing all three to the
+strictest tier is how budgets die.</p>
+
+<h4>Tradeoffs — you cannot have all of them</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Push this up…</th><th>…and this goes down</th><th>Mechanism</th></tr></thead>
+<tbody>
+<tr><td>Consistency</td><td>Latency &amp; availability</td><td>Quorums require round trips; partitions force a choice (Days 69–70)</td></tr>
+<tr><td>Durability</td><td>Write latency &amp; cost</td><td><code>fsync</code>, replicas, cross-AZ acknowledgement</td></tr>
+<tr><td>Availability</td><td>Cost &amp; consistency</td><td>Redundancy is duplicated spend; failover risks split brain</td></tr>
+<tr><td>Latency</td><td>Cost &amp; consistency</td><td>Caches, edge PoPs, read replicas — all add staleness</td></tr>
+<tr><td>Security</td><td>Latency &amp; maintainability</td><td>Encryption, mTLS, policy checks on every hop</td></tr>
+<tr><td>Maintainability</td><td>Short-term velocity</td><td>Abstractions, tests, and contracts cost time up front</td></tr>
+</tbody></table></div>
+
+<div class="war"><b>War story</b>
+GitLab's January 2017 database incident is the canonical NFR lesson. An engineer, fighting replication
+problems late at night, ran a directory removal against the wrong host and deleted the primary's data
+directory. The recovery revealed that five separate backup and replication mechanisms were either not
+working, not configured, or produced unusable output — the pg_dump backups were silently failing
+because of a version mismatch. Roughly six hours of data was lost. Availability engineering was in
+place. Durability engineering had never been <em>tested</em>. A backup you have not restored is a
+hypothesis, not a backup.</div>
+
+<div class="iv"><b>Interview angle</b>
+Strong candidates state NFRs as numbers within the first four minutes and revisit them at the end
+("does this design still hit p99 &lt; 200 ms with the cache cold?").
+<ul class="wrong">
+<li>"It should be highly available and scalable." Content-free. Which nines? Measured how?</li>
+<li>Applying the strictest tier to all data. Telemetry does not need money-grade durability.</li>
+<li>Forgetting cost is an NFR. A design that works and costs 40× the revenue is a failed design.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Write the full NFR table for two systems: a hospital records system and a meme-sharing app. Same nine
+rows, different numbers. Then circle every row where the numbers differ by more than 10×, and write
+one sentence on what architectural choice that difference forces.</div>
+</div></article>
+
+<!-- ============================================ D006 -->
+<article class="lesson" id="d006">
+<div class="lhead"><div class="day">D006</div><div>
+  <h3>SLA, SLO, SLI &amp; Error Budgets</h3>
+  <p class="lmeta">24 min · Phase 0 · Prereq: D005 · Homework: 20 min</p></div></div>
+<div class="ribbon" data-runtime="24"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A platform team promises 99.99% availability to every internal consumer. Their service is a thin
+wrapper over six dependencies, each of which promises 99.9%. The promise was arithmetically
+impossible on the day it was made: the best case is \(0.999^{6} = 99.40\%\), which is 52 minutes of
+downtime per month against a budget of 4.3 minutes. Nobody noticed for two quarters because nobody
+multiplied.</div>
+
+<h4>Core concept — three acronyms, three audiences</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Term</th><th>What it is</th><th>Who it is for</th><th>Consequence of breach</th></tr></thead>
+<tbody>
+<tr><td><b>SLI</b> — indicator</td><td>A measurement. "Fraction of HTTP requests with status &lt; 500 and duration &lt; 300 ms."</td><td>Engineers</td><td>None — it is just a number</td></tr>
+<tr><td><b>SLO</b> — objective</td><td>A target for an SLI over a window. "99.9% of requests, 28-day rolling."</td><td>The owning team</td><td>Internal: freeze releases, shift to reliability work</td></tr>
+<tr><td><b>SLA</b> — agreement</td><td>A contract containing an SLO plus penalties.</td><td>Customers, lawyers</td><td>Money: service credits, refunds</td></tr>
+</tbody></table></div>
+<p class="note"><strong>Rule of thumb:</strong> set your SLO tighter than your SLA. If you sell 99.9%,
+run to 99.95% internally. The gap is the margin that keeps lawyers out of your incident review.</p>
+
+<h4>Core concept — a good SLI has a specific shape</h4>
+<div class="math"><div class="lbl">The standard SLI form</div>
+\[
+\text{SLI} \;=\; \frac{\text{good events}}{\text{valid events}} \times 100\%
+\]</div>
+<p>Both words matter. "Good" needs a threshold (status <em>and</em> latency). "Valid" excludes things
+you should not be judged on — health checks, requests from a client sending malformed input, traffic
+during a scheduled maintenance window if the SLA permits one. Uptime measured by pinging the server
+is not an SLI, because the server can be up and returning 500s.</p>
+
+<h4>Deep dive — the nines table</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Availability</th><th class="num">Downtime / year</th><th class="num">/ month (30 d)</th><th class="num">/ week</th><th class="num">/ day</th></tr></thead>
+<tbody>
+<tr><td>90% — one nine</td><td class="num">36.5 d</td><td class="num">72 h</td><td class="num">16.8 h</td><td class="num">2.4 h</td></tr>
+<tr><td>99% — two nines</td><td class="num">3.65 d</td><td class="num">7.2 h</td><td class="num">1.68 h</td><td class="num">14.4 m</td></tr>
+<tr><td>99.9% — three nines</td><td class="num">8.77 h</td><td class="num">43.8 m</td><td class="num">10.1 m</td><td class="num">1.44 m</td></tr>
+<tr><td>99.95%</td><td class="num">4.38 h</td><td class="num">21.9 m</td><td class="num">5.04 m</td><td class="num">43.2 s</td></tr>
+<tr><td>99.99% — four nines</td><td class="num">52.6 m</td><td class="num">4.38 m</td><td class="num">1.01 m</td><td class="num">8.64 s</td></tr>
+<tr><td>99.999% — five nines</td><td class="num">5.26 m</td><td class="num">26.3 s</td><td class="num">6.05 s</td><td class="num">0.86 s</td></tr>
+</tbody></table></div>
+<p>Read the four-nines row carefully: <b>4.38 minutes per month</b>. A single human paging in, opening
+a laptop and reading a dashboard consumes the entire budget. Four nines is not achieved by responding
+faster; it is achieved by making the failure not user-visible in the first place — which means
+automated failover, and therefore redundancy you paid for in advance.</p>
+
+<h4>Deep dive — availability composes badly</h4>
+<div class="math"><div class="lbl">Hard dependencies in series</div>
+\[
+A_{\text{system}} \;=\; \prod_{i=1}^{n} A_i
+\]</div>
+<div class="math"><div class="lbl">Redundant components in parallel (independent failures)</div>
+\[
+A_{\text{parallel}} \;=\; 1-\prod_{i=1}^{n}\bigl(1-A_i\bigr)
+\]</div>
+<p>Series is the default and it is brutal. Parallel is the fix and it assumes independence — which is
+usually false, because both replicas share a power feed, a network, a deploy pipeline and a config
+file. <b>Correlated failure is the reason real redundancy delivers less than the formula promises.</b></p>
+
+<div class="tblwrap"><table>
+<thead><tr><th>Topology</th><th>Working</th><th class="num">Availability</th><th class="num">Downtime/month</th></tr></thead>
+<tbody>
+<tr><td>1 component @ 99.9%</td><td>—</td><td class="num">99.900%</td><td class="num">43.8 m</td></tr>
+<tr><td>3 in series @ 99.9%</td><td>0.999³</td><td class="num">99.700%</td><td class="num">2.16 h</td></tr>
+<tr><td>6 in series @ 99.9%</td><td>0.999⁶</td><td class="num">99.401%</td><td class="num">4.31 h</td></tr>
+<tr><td>10 in series @ 99.9%</td><td>0.999¹⁰</td><td class="num">99.004%</td><td class="num">7.17 h</td></tr>
+<tr><td>2 in parallel @ 99.9%</td><td>1−0.001²</td><td class="num">99.9999%</td><td class="num">2.6 s</td></tr>
+<tr><td>2 parallel, 90% independent</td><td>—</td><td class="num">~99.99%</td><td class="num">~4.4 m</td></tr>
+</tbody></table></div>
+
+<div class="demo" id="dm-slo">
+  <h6>Demo · composite SLO calculator</h6>
+  <div class="ctrl">
+    <label>Hard dependencies in series</label><input type="range" id="s1" min="1" max="20" value="6"><output id="s1o">6</output>
+    <label>Each dependency's availability</label><input type="range" id="s2" min="90" max="99.99" step="0.01" value="99.9"><output id="s2o">99.90%</output>
+    <label>Your own service's availability</label><input type="range" id="s3" min="90" max="99.999" step="0.001" value="99.95"><output id="s3o">99.950%</output>
+  </div>
+  <div class="readout">
+    <div><span class="v" id="sr1">—</span><span class="l">Max achievable SLO</span></div>
+    <div><span class="v" id="sr2">—</span><span class="l">Downtime / month</span></div>
+    <div><span class="v" id="sr3">—</span><span class="l">Error budget / 28 d</span></div>
+    <div><span class="v" id="sr4">—</span><span class="l">If you make 1 dep soft</span></div>
+  </div>
+  <p style="font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);margin:12px 0 0">
+  "Soft" means you have a fallback: degrade the feature instead of failing the request. Converting one
+  hard dependency into a soft one is usually cheaper than making that dependency more reliable — and
+  it is the single highest-leverage availability move available to most teams.</p>
+</div>
+
+<h4>Deep dive — error budgets</h4>
+<div class="math"><div class="lbl">Error budget</div>
+\[
+\text{Budget} \;=\; 1 - \text{SLO}
+\qquad\Rightarrow\qquad
+\text{Budget}_{99.9\%} = 0.1\% \text{ of requests}
+\]
+\[
+\text{At } 10^{9}\ \text{requests}/28\text{d}:\quad 10^{6}\ \text{failures allowed}
+\]</div>
+<p>The budget converts reliability from a moral argument into an accounting one. The policy that makes
+it work:</p>
+<ul>
+<li><b>Budget remaining</b> → ship features, take risks, deploy on Friday if you like.</li>
+<li><b>Budget exhausted</b> → feature freeze; the only merges allowed are reliability fixes. Automatic, not negotiated.</li>
+<li><b>Budget consistently unspent</b> → your SLO is too loose or you are over-investing in reliability. Loosen it, or ship faster.</li>
+</ul>
+<div class="math"><div class="lbl">Burn rate — how fast you are spending it</div>
+\[
+\text{burn rate} \;=\; \frac{\text{observed error rate}}{1-\text{SLO}}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">A burn rate of 1 exhausts the budget exactly at the end of
+the window. A burn rate of 14.4 exhausts a 30-day budget in ~2 days — the standard threshold for a
+page. Multi-window, multi-burn-rate alerting is Day 112.</p></div>
+
+<h4>Why 100% is the wrong target</h4>
+<ul>
+<li>The user's path includes their Wi-Fi, their ISP, their DNS resolver and their phone. If the end-to-end path is 99.5%, your 100% is invisible to them and you paid for it anyway.</li>
+<li>Cost of the next nine is roughly an order of magnitude each time. Going 99.9 → 99.99 typically means multi-region active-active, which can double infrastructure spend.</li>
+<li>A 100% target forbids all change, and change is where the value is. The budget exists to <em>license</em> risk-taking.</li>
+</ul>
+
+<div class="war"><b>War story</b>
+Google's SRE book describes the error-budget mechanism as the resolution to a structural conflict:
+product wants launch velocity, SRE wants stability, and without a shared number the argument is
+political. Making the budget an explicit, agreed quantity turns "should we ship this?" into "do we
+have budget?" — a question with an answer. The organisational insight is bigger than the maths.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "Your service depends on six things at 99.9% each. What SLO can you promise?" The answer is
+99.4%, then immediately: "and here is how I would get it higher without touching the dependencies" —
+caching a stale response, a static fallback, making the dependency asynchronous, or removing it from
+the critical path.
+<ul class="wrong">
+<li>Promising five nines for a service with a single-region database.</li>
+<li>Confusing SLA and SLO; only one of them has penalties attached.</li>
+<li>Measuring availability by server uptime rather than by successful requests.</li>
+<li>Treating parallel redundancy as if failures were independent. Ask what they share.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Compute the maximum achievable SLO for a service with six hard dependencies at 99.9% each. Then pick
+the two dependencies you would convert to soft, describe the fallback for each, and recompute. Report
+both numbers and the minutes-per-month difference.</div>
+</div></article>
+
+<!-- ============================================ D007 -->
+<article class="lesson" id="d007">
+<div class="lhead"><div class="day">D007</div><div>
+  <h3>Vertical vs Horizontal Scaling &amp; Statelessness</h3>
+  <p class="lmeta">22 min · Phase 0 · Prereq: D003 · Homework: 30 min</p></div></div>
+<div class="ribbon" data-runtime="22"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+Traffic doubles, so the team adds a second app server behind a load balancer. Within minutes, users
+are randomly logged out, half the file uploads 404, and an in-memory rate limiter lets through twice
+the allowed traffic. Nothing was deployed except a second copy of code that already worked. The code
+was holding state, and horizontal scaling turns held state into a bug.</div>
+
+<h4>Core concept — scale up vs scale out</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Vertical (scale up)</th><th>Horizontal (scale out)</th></tr></thead>
+<tbody>
+<tr><td>Move</td><td>Bigger machine</td><td>More machines</td></tr>
+<tr><td>Code changes</td><td class="yes">None</td><td class="no">Statelessness, idempotency, coordination</td></tr>
+<tr><td>Cost curve</td><td class="no">Super-linear — top-end hardware carries a premium</td><td class="yes">Roughly linear in commodity units</td></tr>
+<tr><td>Ceiling</td><td class="no">Hard — largest instance available</td><td class="yes">Soft — coordination overhead</td></tr>
+<tr><td>Failure domain</td><td class="no">One machine = total outage</td><td class="yes">One machine = 1/N degradation</td></tr>
+<tr><td>Downtime to scale</td><td class="no">Usually a restart</td><td class="yes">None</td></tr>
+<tr><td>Latency</td><td class="yes">Everything is local; no network hop</td><td class="mid">Adds hops and coordination</td></tr>
+<tr><td>Best for</td><td>Databases, single-writer systems, early stage</td><td>Stateless web/app tiers, caches, queues, workers</td></tr>
+</tbody></table></div>
+<p class="note"><strong>Scale up first. Seriously.</strong> A modern single server can have 128+ cores,
+2 TB of RAM and 100 Gbps of network. That handles more traffic than most companies will ever see, at a
+fraction of the operational complexity of a distributed system. The correct order is: optimise → scale
+up → scale out. Teams that skip to step three pay the distributed-systems tax (Days 67–84) for
+traffic they do not have.</p>
+
+<h4>Deep dive — the ceiling on scale-out</h4>
+<p>Adding machines does not add throughput linearly forever, because some fraction of the work is
+serial and some is coordination. Amdahl gives the first bound:</p>
+<div class="math"><div class="lbl">Amdahl's Law — serial fraction \(s\) caps speedup</div>
+\[
+\text{Speedup}(N) \;=\; \frac{1}{s + \frac{1-s}{N}}
+\qquad\Rightarrow\qquad
+\lim_{N\to\infty}\text{Speedup} = \frac{1}{s}
+\]</div>
+<p>With just 5% serial work, the maximum possible speedup is 20×, no matter how many machines you buy.
+The Universal Scalability Law adds a second, worse term for coordination — cross-talk between nodes —
+and it does not merely plateau, it <em>declines</em>:</p>
+<div class="math"><div class="lbl">Universal Scalability Law (Gunther)</div>
+\[
+C(N) \;=\; \frac{N}{1+\sigma(N-1)+\kappa N(N-1)}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(\sigma\) = contention (serialisation, like Amdahl's \(s\));
+\(\kappa\) = coherency cost (nodes must agree). When \(\kappa &gt; 0\), throughput peaks at
+\(N^{*}=\sqrt{(1-\sigma)/\kappa}\) and then falls. This is why adding database replicas can make a
+system slower.</p></div>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Universal scalability law curves">
+<text class="svgh" x="0" y="12">Throughput vs node count</text>
+<line x1="48" y1="186" x2="676" y2="186" stroke="#0B2239"/><line x1="48" y1="24" x2="48" y2="186" stroke="#0B2239"/>
+<line x1="48" y1="186" x2="640" y2="30" stroke="#C2D2DF" stroke-dasharray="4 4"/>
+<text class="svgs" x="560" y="42" fill="#8A98A8">linear ideal</text>
+<path d="M48,186 L110,158 L172,136 L234,120 L296,109 L358,101 L420,96 L482,93 L544,91 L620,90" fill="none" stroke="#1B6E9B" stroke-width="2.4"/>
+<text class="svgm" x="560" y="84" fill="#1B6E9B">Amdahl (σ=.05)</text>
+<path d="M48,186 L110,160 L172,142 L234,132 L296,130 L358,136 L420,148 L482,164 L544,178 L600,186" fill="none" stroke="#B4232C" stroke-width="2.4"/>
+<text class="svgm" x="400" y="176" fill="#B4232C">USL (σ=.05, κ=.005)</text>
+<circle cx="296" cy="130" r="4" fill="#B4232C"/>
+<text class="svgs" x="256" y="122" fill="#B4232C">peak — adding nodes now hurts</text>
+<text class="svgs" x="48" y="202">1</text><text class="svgs" x="290" y="202">16</text><text class="svgs" x="600" y="202">64 nodes</text>
+</svg></div>
+<figcaption><b>FIG 7.1</b> · The red curve is the one that surprises people. Coordination cost grows
+as \(N^2\); past the peak, every machine you add makes the system slower and more expensive.</figcaption></figure>
+
+<h4>Core concept — the AKF scale cube</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AKF scale cube">
+<text class="svgh" x="0" y="12">Three independent axes of scaling</text>
+<g transform="translate(30,26)">
+<rect x="0" y="0" width="196" height="180" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgh" x="12" y="20" fill="#0E6E63">X · Clone</text>
+<text class="svgt" x="12" y="42">Run N identical copies</text>
+<text class="svgs" x="12" y="60">behind a load balancer.</text>
+<text class="svgs" x="12" y="76">Each can serve any request.</text>
+<rect x="14" y="92" width="46" height="24" rx="2" fill="#0E6E63"/><text class="svgm" x="24" y="108" fill="#fff">app</text>
+<rect x="70" y="92" width="46" height="24" rx="2" fill="#0E6E63"/><text class="svgm" x="80" y="108" fill="#fff">app</text>
+<rect x="126" y="92" width="46" height="24" rx="2" fill="#0E6E63"/><text class="svgm" x="136" y="108" fill="#fff">app</text>
+<text class="svgs" x="12" y="140">Cheap, instant, needs</text>
+<text class="svgs" x="12" y="156">statelessness. Does not</text>
+<text class="svgs" x="12" y="172">help write-bound stores.</text>
+</g>
+<g transform="translate(252,26)">
+<rect x="0" y="0" width="196" height="180" rx="3" fill="#EEF3F8" stroke="#1B6E9B"/>
+<text class="svgh" x="12" y="20" fill="#1B6E9B">Y · Split by function</text>
+<text class="svgt" x="12" y="42">Different code paths</text>
+<text class="svgs" x="12" y="60">become different services.</text>
+<rect x="14" y="76" width="52" height="24" rx="2" fill="#1B6E9B"/><text class="svgm" x="20" y="92" fill="#fff">auth</text>
+<rect x="74" y="76" width="52" height="24" rx="2" fill="#1B6E9B"/><text class="svgm" x="80" y="92" fill="#fff">feed</text>
+<rect x="134" y="76" width="52" height="24" rx="2" fill="#1B6E9B"/><text class="svgm" x="140" y="92" fill="#fff">pay</text>
+<text class="svgs" x="12" y="124">Scales teams as well as</text>
+<text class="svgs" x="12" y="140">machines. Costs network</text>
+<text class="svgs" x="12" y="156">hops and data consistency.</text>
+<text class="svgs" x="12" y="172">This is microservices.</text>
+</g>
+<g transform="translate(474,26)">
+<rect x="0" y="0" width="196" height="180" rx="3" fill="#F3F0FA" stroke="#4A3C9E"/>
+<text class="svgh" x="12" y="20" fill="#4A3C9E">Z · Split by data</text>
+<text class="svgt" x="12" y="42">Same code, each instance</text>
+<text class="svgs" x="12" y="60">owns a slice of the data.</text>
+<rect x="14" y="76" width="52" height="24" rx="2" fill="#4A3C9E"/><text class="svgm" x="16" y="92" fill="#fff">A–H</text>
+<rect x="74" y="76" width="52" height="24" rx="2" fill="#4A3C9E"/><text class="svgm" x="78" y="92" fill="#fff">I–P</text>
+<rect x="134" y="76" width="52" height="24" rx="2" fill="#4A3C9E"/><text class="svgm" x="138" y="92" fill="#fff">Q–Z</text>
+<text class="svgs" x="12" y="124">The only axis that scales</text>
+<text class="svgs" x="12" y="140">writes. Costs cross-shard</text>
+<text class="svgs" x="12" y="156">queries and rebalancing.</text>
+<text class="svgs" x="12" y="172">This is sharding (Day 46).</text>
+</g>
+</svg></div>
+<figcaption><b>FIG 7.2</b> · The axes are independent and composable. Most large systems use all three:
+sharded databases (Z), behind functionally split services (Y), each running many clones (X).</figcaption></figure>
+
+<h4>Deep dive — making a server stateless, step by step</h4>
+<p>"Stateless" does not mean "has no state". It means <em>no request depends on state held only in the
+process that served an earlier request</em>. Here is where state hides and where it must go:</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Hidden state</th><th>Symptom when you add a second server</th><th>Where it must live</th></tr></thead>
+<tbody>
+<tr><td>In-memory session map</td><td>Random logouts</td><td>Signed cookie/JWT, or Redis session store</td></tr>
+<tr><td>Uploaded files on local disk</td><td>404 on half of downloads</td><td>Object storage + CDN</td></tr>
+<tr><td>In-process cache</td><td>Inconsistent reads between servers</td><td>Distributed cache, or accept divergence with short TTL (Day 54)</td></tr>
+<tr><td>In-memory rate-limit counters</td><td>Limits multiply by N</td><td>Redis with atomic Lua (Day 25)</td></tr>
+<tr><td>Scheduled jobs via local cron</td><td>Job runs N times</td><td>Leader-elected scheduler or distributed queue (Day 107)</td></tr>
+<tr><td>WebSocket connection registry</td><td>Messages delivered to the wrong node</td><td>Pub/sub backplane keyed by user (Day 23)</td></tr>
+<tr><td>Sticky in-memory feature-flag cache</td><td>Flag flips take effect unevenly</td><td>Config service with push invalidation (Day 108)</td></tr>
+<tr><td>Auto-increment ID from a local counter</td><td>Duplicate IDs</td><td>Snowflake-style generator (Day 122)</td></tr>
+</tbody></table></div>
+
+<h5>Sticky sessions are a smell, not a solution</h5>
+<p>Session affinity (routing a user to the same backend every time) makes the statefulness invisible
+rather than fixing it. The costs arrive later: uneven load because sessions are long-lived, a
+thundering restart when one node dies and its users all re-authenticate at once, and an inability to
+drain a node cleanly during deploys. Use affinity where the state is genuinely expensive to move —
+long-lived WebSocket connections, in-progress uploads — and nowhere else.</p>
+
+<h5>Idempotency is the twin requirement</h5>
+<p>The moment there are N servers and a load balancer, retries happen: a client retries, a proxy
+retries, a health check causes a re-route mid-request. If your handler is not idempotent, retries
+produce duplicates. Design the write path so that repeating it is harmless (Day 79).</p>
+
+<div class="war"><b>War story</b>
+Stack Overflow ran, for years, on a famously small number of large servers — a handful of web servers
+and a couple of very large SQL Servers — serving billions of monthly page views. Their published
+architecture posts make the point deliberately: they scaled up hard, kept the app tier stateless, and
+avoided distributed complexity they did not need. It remains the best public counterexample to the
+assumption that scale requires a fleet.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "How would you scale this web tier?" The scoring answer starts by identifying state, not by
+adding boxes.
+<ul class="wrong">
+<li>"Add a load balancer" without saying what happens to sessions, uploads and in-memory caches.</li>
+<li>Claiming horizontal scaling is always better. For a single-writer database it is often not available at all.</li>
+<li>Forgetting that the load balancer and the shared session store are now new single points of failure.</li>
+<li>Ignoring that N app servers means N× connections to the database — see connection pooling, Day 35.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Take any app you have written. Find every piece of state that lives in the process — sessions, caches,
+counters, temp files, timers. List them, and for each write the one-line change that externalises it.
+Then run two copies behind a proxy and confirm the list was complete.</div>
+</div></article>
+
+<!-- ============================================ D008 -->
+<article class="lesson" id="d008">
+<div class="lhead"><div class="day">D008</div><div>
+  <h3>Monolith, Modular Monolith, SOA, Microservices</h3>
+  <p class="lmeta">30 min · Phase 0 · Prereq: D007 · Homework: 25 min</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A 12-person startup splits its product into 30 microservices "for scale". Eighteen months later,
+adding a field to the user profile requires coordinated deploys across four repositories, a schema
+migration, two contract updates, and a release train. The p99 has tripled because a page load now
+makes 19 network calls. They have all the operational cost of a distributed system and none of the
+benefits, because the services still deploy together. That is a distributed monolith, and it is worse
+than either endpoint.</div>
+
+<h4>Core concept — honest definitions</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Monolith</th><th>Modular monolith</th><th>SOA</th><th>Microservices</th></tr></thead>
+<tbody>
+<tr><td>Deploy unit</td><td>1 artifact</td><td>1 artifact</td><td>Few coarse services</td><td>Many fine services</td></tr>
+<tr><td>Internal boundaries</td><td class="no">None enforced</td><td class="yes">Compile-time modules, no cross-imports</td><td>Network</td><td>Network</td></tr>
+<tr><td>Data ownership</td><td>One schema, shared</td><td>One database, module-owned schemas</td><td>Often a shared canonical store</td><td class="yes">Database per service, no sharing</td></tr>
+<tr><td>Integration</td><td>Function calls</td><td>Function calls through interfaces</td><td>ESB / SOAP / message bus</td><td>REST, gRPC, events</td></tr>
+<tr><td>Transactions</td><td class="yes">ACID, free</td><td class="yes">ACID, free</td><td class="mid">Sometimes 2PC</td><td class="no">Sagas + compensations (Day 78)</td></tr>
+<tr><td>Failure domain</td><td class="no">Whole app</td><td class="no">Whole app</td><td>Per service</td><td class="yes">Per service, with bulkheads</td></tr>
+<tr><td>Debuggability</td><td class="yes">One stack trace</td><td class="yes">One stack trace</td><td class="mid">Bus tracing</td><td class="no">Distributed tracing required (Day 111)</td></tr>
+<tr><td>Team scaling</td><td class="no">Merge conflicts, release trains</td><td class="mid">Better, still one pipeline</td><td>Per service</td><td class="yes">Independent deploys per team</td></tr>
+<tr><td>Right when…</td><td>&lt;10 engineers, unclear domain</td><td>10–60 engineers, domain settling</td><td>Large enterprise integration</td><td>Many teams, distinct scaling profiles</td></tr>
+</tbody></table></div>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Same feature drawn in four architectures">
+<text class="svgh" x="0" y="12">"Place an order" — the same feature, four ways</text>
+<g transform="translate(0,22)">
+<text class="svgh" x="0" y="10" fill="#23415E">Monolith</text>
+<rect x="0" y="18" width="160" height="86" rx="3" fill="#fff" stroke="#23415E" stroke-width="1.5"/>
+<rect x="10" y="28" width="140" height="16" rx="2" fill="#E7EDF2"/><text class="svgm" x="16" y="40">order()</text>
+<rect x="10" y="48" width="140" height="16" rx="2" fill="#E7EDF2"/><text class="svgm" x="16" y="60">charge()</text>
+<rect x="10" y="68" width="140" height="16" rx="2" fill="#E7EDF2"/><text class="svgm" x="16" y="80">ship()</text>
+<text class="svgs" x="10" y="98">in-process calls · one TX</text>
+<ellipse cx="80" cy="122" rx="46" ry="10" fill="#23415E"/><text class="svgm" x="58" y="126" fill="#fff">one DB</text>
+<text class="svgs" x="0" y="150">Fastest to build.</text>
+<text class="svgs" x="0" y="164">Boundaries erode</text>
+<text class="svgs" x="0" y="178">without discipline.</text>
+</g>
+<g transform="translate(180,22)">
+<text class="svgh" x="0" y="10" fill="#0E6E63">Modular monolith</text>
+<rect x="0" y="18" width="160" height="86" rx="3" fill="#fff" stroke="#0E6E63" stroke-width="1.5"/>
+<rect x="8" y="26" width="66" height="34" rx="2" fill="#EAF4F1" stroke="#0E6E63"/><text class="svgm" x="14" y="46">Orders</text>
+<rect x="86" y="26" width="66" height="34" rx="2" fill="#EAF4F1" stroke="#0E6E63"/><text class="svgm" x="92" y="46">Billing</text>
+<rect x="8" y="66" width="144" height="30" rx="2" fill="#EAF4F1" stroke="#0E6E63"/><text class="svgm" x="14" y="85">Shipping</text>
+<text class="svgs" x="8" y="112">interfaces enforced at build</text>
+<ellipse cx="80" cy="130" rx="52" ry="10" fill="#0E6E63"/><text class="svgm" x="42" y="134" fill="#fff">one DB, 3 schemas</text>
+<text class="svgs" x="0" y="158">Still one deploy.</text>
+<text class="svgs" x="0" y="172">Seams ready for</text>
+<text class="svgs" x="0" y="186">extraction later.</text>
+</g>
+<g transform="translate(360,22)">
+<text class="svgh" x="0" y="10" fill="#9E4A05">SOA</text>
+<rect x="0" y="18" width="66" height="26" rx="3" fill="#fff" stroke="#9E4A05"/><text class="svgm" x="6" y="35">Orders</text>
+<rect x="84" y="18" width="66" height="26" rx="3" fill="#fff" stroke="#9E4A05"/><text class="svgm" x="92" y="35">Billing</text>
+<rect x="0" y="86" width="150" height="24" rx="3" fill="#9E4A05"/><text class="svgm" x="42" y="102" fill="#fff">enterprise bus</text>
+<line x1="33" y1="44" x2="33" y2="86" stroke="#9E4A05"/><line x1="117" y1="44" x2="117" y2="86" stroke="#9E4A05"/>
+<rect x="42" y="52" width="66" height="26" rx="3" fill="#fff" stroke="#9E4A05"/><text class="svgm" x="48" y="69">Shipping</text>
+<line x1="75" y1="78" x2="75" y2="86" stroke="#9E4A05"/>
+<ellipse cx="75" cy="128" rx="52" ry="10" fill="#9E4A05"/><text class="svgm" x="42" y="132" fill="#fff">canonical DB</text>
+<text class="svgs" x="0" y="158">Bus becomes the</text>
+<text class="svgs" x="0" y="172">bottleneck and the</text>
+<text class="svgs" x="0" y="186">place logic hides.</text>
+</g>
+<g transform="translate(534,22)">
+<text class="svgh" x="0" y="10" fill="#4A3C9E">Microservices</text>
+<rect x="0" y="18" width="72" height="24" rx="3" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="6" y="34">Orders</text>
+<ellipse cx="36" cy="52" rx="24" ry="7" fill="#4A3C9E"/>
+<rect x="88" y="18" width="72" height="24" rx="3" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="96" y="34">Billing</text>
+<ellipse cx="124" cy="52" rx="24" ry="7" fill="#4A3C9E"/>
+<rect x="44" y="76" width="72" height="24" rx="3" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="50" y="92">Shipping</text>
+<ellipse cx="80" cy="110" rx="24" ry="7" fill="#4A3C9E"/>
+<path d="M72,30 L88,30" stroke="#4A3C9E" marker-end="url(#ar8)"/>
+<path d="M60,64 L60,76" stroke="#4A3C9E" stroke-dasharray="3 2"/>
+<text class="svgs" x="0" y="128">own DB each · events</text>
+<text class="svgs" x="0" y="150">No shared transaction.</text>
+<text class="svgs" x="0" y="164">Saga + compensation</text>
+<text class="svgs" x="0" y="178">or accept inconsistency.</text>
+</g>
+<defs><marker id="ar8" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+<path d="M0,0 L7,3 L0,6 z" fill="#4A3C9E"/></marker></defs>
+</svg></div>
+<figcaption><b>FIG 8.1</b> · The feature is identical in all four. What changes is where the
+boundaries are enforced — compiler, bus, or network — and what a transaction costs.</figcaption></figure>
+
+<h4>Deep dive — Conway's Law is a design constraint, not a proverb</h4>
+<p>Conway's 1968 observation: organisations design systems that mirror their own communication
+structure. The practical version for architects is the <em>inverse</em> manoeuvre — choose the team
+structure you want, and the architecture follows. Two teams that cannot get a meeting will build two
+services with a hard interface, whether you planned it or not.</p>
+<div class="math"><div class="lbl">Why team size caps service count</div>
+\[
+\text{communication paths} = \binom{n}{2} = \frac{n(n-1)}{2}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">10 people → 45 pairwise channels. 30 people → 435. Splitting
+into teams of 5–8 with explicit interfaces is a coordination-cost optimisation, and microservices are
+the architectural expression of it. If you have one team, you are paying the cost and getting none of
+the benefit.</p></div>
+
+<h4>Deep dive — the hidden costs of microservices</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Cost</th><th>What it looks like</th><th>Mitigation (and its lesson)</th></tr></thead>
+<tbody>
+<tr><td><b>Network</b></td><td>An in-process call at ~10 ns becomes ~0.5–2 ms — a 10<sup>5</sup>× increase, plus serialisation</td><td>Batch, cache, colocate; measure the critical path (D111)</td></tr>
+<tr><td><b>Partial failure</b></td><td>Every call can now time out, be slow, or return stale data</td><td>Timeouts, retries with jitter, circuit breakers (D100)</td></tr>
+<tr><td><b>Data consistency</b></td><td>No cross-service transaction exists</td><td>Sagas, outbox, idempotency (D78, D79, D94)</td></tr>
+<tr><td><b>Operational surface</b></td><td>N services × (CI, deploy, alerts, on-call, dashboards, secrets, dependencies)</td><td>Platform investment before the split, not after (D103, D108)</td></tr>
+<tr><td><b>Debugging</b></td><td>No single stack trace; the bug is in the interaction</td><td>Correlation IDs and distributed tracing from day one (D110, D111)</td></tr>
+<tr><td><b>Versioning</b></td><td>Every interface is a public API with consumers you cannot upgrade</td><td>Contract tests, expand/contract, deprecation policy (D98)</td></tr>
+<tr><td><b>Local development</b></td><td>Running the product on a laptop stops being possible</td><td>Mocks, contract stubs, shared dev environments</td></tr>
+<tr><td><b>Cost</b></td><td>Per-service baseline capacity + cross-AZ traffic charges</td><td>Right-size, colocate chatty pairs (D120)</td></tr>
+</tbody></table></div>
+
+<h4>The default recommendation, stated plainly</h4>
+<p><strong>Start with a modular monolith.</strong> One deploy artifact, one database, but hard internal
+module boundaries: each module owns its tables, exposes an interface, and cross-module imports are
+blocked at build time. This buys you the thing that actually matters — the ability to find the seams
+later — without paying for the network. When a module genuinely needs to scale, deploy or fail
+independently, extract it. The seam is already there.</p>
+
+<h5>Migration triggers — extract a service when at least two are true</h5>
+<ul>
+<li>A distinct team owns it and is blocked by the shared release train.</li>
+<li>Its scaling profile is materially different (10× the traffic, or GPU-bound, or memory-bound).</li>
+<li>Its failure should not take down the rest (payment processing, third-party integrations).</li>
+<li>It has a genuinely independent data lifecycle and no need for cross-module transactions.</li>
+<li>Its compliance boundary differs (PCI, PHI) and isolation reduces audit scope.</li>
+</ul>
+<p class="note">Notice what is <em>not</em> on the list: "the codebase is big", "microservices are best
+practice", and "we want to use Kubernetes". None of those are triggers.</p>
+
+<div class="war"><b>War story</b>
+Amazon Prime Video's engineering team published an account in 2023 of moving their audio/video
+monitoring service from a distributed serverless architecture back to a single process — a "monolith"
+— and reported roughly a 90% reduction in infrastructure cost for that workload. The dominant costs
+were orchestration state transitions and passing video frames through intermediate storage between
+components. The lesson is not "monoliths win". It is that <em>chatty, data-heavy components should be
+colocated</em>, and that the network is the expensive part.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "Would you build this as microservices?" The strongest answer names a team size and a
+migration trigger.
+<ul class="wrong">
+<li>"Microservices, because they scale better." Scaling is an X-axis property (D007); a monolith clones just as well.</li>
+<li>Splitting by technical layer (a "database service", a "business logic service") instead of by business capability. That guarantees every feature touches every service.</li>
+<li>Proposing microservices without mentioning distributed tracing, contract tests, or how transactions work afterwards.</li>
+<li>Assuming the shared database can stay. If services share tables, they are one service with extra steps.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+List five companies you know and, from their public engineering blogs, identify which model they run
+and why. Then take one of them and write the three-sentence argument their team would have made for
+the opposite choice. Being able to argue both sides is the actual skill.</div>
+</div></article>
+
+<!-- ============================================ D009 -->
+<article class="lesson" id="d009">
+<div class="lhead"><div class="day">D009</div><div>
+  <h3>Client–Server, N-Tier &amp; Layered Architecture</h3>
+  <p class="lmeta">22 min · Phase 0 · Prereq: D008 · Homework: 20 min</p></div></div>
+<div class="ribbon" data-runtime="22"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A team "layers" their app: controllers, services, repositories, three folders, everything by the
+book. Then someone needs a fast report, so the controller imports the ORM directly. Six months later
+half the codebase bypasses the service layer, business rules live in three places, and swapping the
+database is impossible. The folders were still perfectly named. Layering is a <em>dependency rule</em>,
+and a rule nobody enforces is a naming convention.</div>
+
+<h4>Core concept — the tier evolution</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Model</th><th>Split</th><th>Scales independently?</th><th>Where you still see it</th></tr></thead>
+<tbody>
+<tr><td>1-tier</td><td>Everything on one machine, including the user</td><td class="no">No</td><td>Desktop apps, SQLite, embedded</td></tr>
+<tr><td>2-tier</td><td>Fat client ↔ database</td><td class="no">No — client holds logic</td><td>Legacy internal tools, some mobile-with-BaaS</td></tr>
+<tr><td>3-tier</td><td>Presentation ↔ application ↔ data</td><td class="yes">Yes, each tier separately</td><td>The default web architecture, still</td></tr>
+<tr><td>N-tier</td><td>Adds caching, search, queue, worker, gateway tiers</td><td class="yes">Yes, per tier</td><td>Every system in Phase 9</td></tr>
+</tbody></table></div>
+<p>The reason 3-tier won is not elegance. It is that <b>the tiers have different scaling profiles</b>.
+The presentation tier is CPU-light and connection-heavy; the app tier is CPU-heavy and stateless; the
+data tier is IO-heavy and hard to scale. Bundling them forces you to buy all three when you need one.</p>
+
+<h4>Deep dive — the full request path</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Request path through every tier">
+<text class="svgh" x="0" y="12">One page load, every hop labelled with its typical cost</text>
+<defs><marker id="a9" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#5B7189"/></marker></defs>
+<g font-family="IBM Plex Mono">
+<rect x="0" y="26" width="118" height="40" rx="3" fill="#fff" stroke="#23415E" stroke-width="1.4"/>
+<text class="svgt" x="10" y="44">Browser / app</text><text class="svgs" x="10" y="58">render, local cache</text>
+<line x1="118" y1="46" x2="168" y2="46" stroke="#5B7189" marker-end="url(#a9)"/>
+<text class="svgs" x="120" y="40">DNS 0–50 ms</text>
+<rect x="170" y="26" width="112" height="40" rx="3" fill="#fff" stroke="#1B6E9B" stroke-width="1.4"/>
+<text class="svgt" x="180" y="44">CDN / edge</text><text class="svgs" x="180" y="58">static + cached API</text>
+<line x1="282" y1="46" x2="332" y2="46" stroke="#5B7189" marker-end="url(#a9)"/>
+<text class="svgs" x="284" y="40">TLS 1–2 RTT</text>
+<rect x="334" y="26" width="112" height="40" rx="3" fill="#fff" stroke="#1B6E9B" stroke-width="1.4"/>
+<text class="svgt" x="344" y="44">Load balancer</text><text class="svgs" x="344" y="58">L4/L7, TLS term.</text>
+<line x1="446" y1="46" x2="496" y2="46" stroke="#5B7189" marker-end="url(#a9)"/>
+<text class="svgs" x="452" y="40">0.3 ms</text>
+<rect x="498" y="26" width="112" height="40" rx="3" fill="#fff" stroke="#1B6E9B" stroke-width="1.4"/>
+<text class="svgt" x="508" y="44">API gateway</text><text class="svgs" x="508" y="58">authn, rate limit</text>
+<path d="M554,66 L554,88 L300,88 L300,104" stroke="#5B7189" fill="none" marker-end="url(#a9)"/>
+<text class="svgs" x="360" y="84">Presentation tier ends here — everything above is stateless and cloneable</text>
+<rect x="240" y="106" width="180" height="44" rx="3" fill="#EAF4F1" stroke="#0E6E63" stroke-width="1.6"/>
+<text class="svgt" x="252" y="126">Application tier</text><text class="svgs" x="252" y="140">business logic, orchestration</text>
+<line x1="240" y1="128" x2="180" y2="128" stroke="#5B7189" marker-end="url(#a9)"/>
+<rect x="40" y="106" width="138" height="44" rx="3" fill="#fff" stroke="#8A2E68"/>
+<text class="svgt" x="50" y="126">Distributed cache</text><text class="svgs" x="50" y="140">0.2–1 ms · 90% hit</text>
+<line x1="420" y1="128" x2="482" y2="128" stroke="#5B7189" marker-end="url(#a9)"/>
+<rect x="484" y="106" width="150" height="44" rx="3" fill="#fff" stroke="#9E4A05"/>
+<text class="svgt" x="494" y="126">Search / queue tier</text><text class="svgs" x="494" y="140">async work, indexes</text>
+<line x1="330" y1="150" x2="330" y2="176" stroke="#5B7189" marker-end="url(#a9)"/>
+<text class="svgs" x="336" y="168">connection pool (D035)</text>
+<rect x="200" y="178" width="260" height="52" rx="3" fill="#fff" stroke="#7A4C1E" stroke-width="1.6"/>
+<text class="svgt" x="212" y="198">Data tier</text>
+<text class="svgs" x="212" y="212">primary (writes) + replicas (reads)</text>
+<text class="svgs" x="212" y="224">1–10 ms warm · 10–50 ms cold</text>
+<ellipse cx="330" cy="252" rx="70" ry="12" fill="#7A4C1E"/><text class="svgm" x="288" y="256" fill="#fff">durable storage</text>
+<rect x="470" y="178" width="164" height="52" rx="3" fill="#F3F0FA" stroke="#4A3C9E"/>
+<text class="svgt" x="480" y="198">Object storage</text><text class="svgs" x="480" y="212">blobs, never in the DB</text>
+<text class="svgs" x="480" y="224">CDN pulls from here</text>
+<line x1="460" y1="204" x2="468" y2="204" stroke="#5B7189" marker-end="url(#a9)"/>
+<text class="svgh" x="0" y="288" fill="#5B7189">Scaling lever per tier</text>
+<text class="svgs" x="0" y="304">Edge: add PoPs · App: add clones (X-axis) · Cache: add memory · Data: add replicas for reads, shards for writes</text>
+</g>
+</svg></div>
+<figcaption><b>FIG 9.1</b> · Every arrow is a place a timeout must be configured and a place a request
+can fail. Count them: this "simple" page load has nine failure points before any business logic
+runs.</figcaption></figure>
+
+<h4>Deep dive — layering as a dependency rule</h4>
+<p>The only version of layering that survives contact with a deadline is the one the build enforces.
+State it as an arrow, not a folder:</p>
+<div class="math"><div class="lbl">The dependency rule</div>
+\[
+\text{Presentation} \to \text{Application} \to \text{Domain} \;\not\to\; \text{Infrastructure}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">Source-code dependencies point inward only. The domain layer
+knows nothing about HTTP, SQL, or your message broker. Infrastructure depends on the domain, never the
+reverse — which is achieved by defining interfaces in the domain and implementing them outside.</p></div>
+
+<h5>Hexagonal / ports-and-adapters, in one paragraph</h5>
+<p>The application defines <em>ports</em> — interfaces it needs (<code>OrderRepository</code>,
+<code>PaymentGateway</code>, <code>EventPublisher</code>). <em>Adapters</em> implement them for a
+specific technology (Postgres, Stripe, Kafka). Driving adapters (HTTP handler, CLI, message consumer)
+call into the application; driven adapters are called by it. The payoff is not "we can swap
+databases" — you rarely will. The payoff is that the domain is testable without infrastructure, which
+is what makes it changeable.</p>
+
+<h4>Thick vs thin clients</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Thin client (server-rendered)</th><th>Thick client (SPA / mobile)</th></tr></thead>
+<tbody>
+<tr><td>Where logic lives</td><td>Server</td><td>Split — and duplicated validation</td></tr>
+<tr><td>First paint</td><td class="yes">Fast</td><td class="no">Bundle download + hydrate</td></tr>
+<tr><td>Subsequent navigation</td><td class="no">Full round trip</td><td class="yes">Local, instant</td></tr>
+<tr><td>Offline</td><td class="no">Impossible</td><td class="yes">Possible (and then you need CRDTs, D072)</td></tr>
+<tr><td>API shape</td><td>Whatever the page needs</td><td class="mid">Generic → chatty, or BFF per client (D024)</td></tr>
+<tr><td>Security</td><td class="yes">Logic hidden</td><td class="no">Client is untrusted; validate everything again server-side</td></tr>
+<tr><td>Versioning</td><td class="yes">Deploy and it is live</td><td class="no">Old app versions live in the wild for years</td></tr>
+</tbody></table></div>
+<p class="note"><strong>The rule that never changes:</strong> client-side validation is a UX feature.
+Server-side validation is the security control. Every check that matters happens twice.</p>
+
+<div class="war"><b>War story</b>
+The "old app versions live forever" problem is why mobile-first companies invest heavily in API
+versioning and forced-upgrade mechanisms. A three-year-old build of your app is still calling your
+API, and it will keep calling the endpoints it knew about. Any breaking change is a coordinated
+campaign, not a deploy. This is the single biggest architectural difference between a web-only
+product and one with native clients — and it is why Day 98's deprecation policy exists.</div>
+
+<div class="iv"><b>Interview angle</b>
+Drawing the tiers is table stakes. Signal comes from labelling each arrow with a protocol and a
+timeout, and from saying which tier you would scale first and why.
+<ul class="wrong">
+<li>Drawing "the backend" as one box. Which tier — app, cache, or data? They fail differently.</li>
+<li>Putting blobs in the database because it is "simpler". It is, until the backup takes nine hours.</li>
+<li>Claiming layering means folders. Say "dependency direction" and you have said something.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Draw the tiers of the last app you built, then annotate every arrow with (a) protocol, (b) timeout
+value, (c) what happens if it fails. Most people discover at least two arrows with no timeout
+configured at all. Those are the ones that will hang your thread pool.</div>
+</div></article>
+
+<!-- ============================================ D010 -->
+<article class="lesson" id="d010">
+<div class="lhead"><div class="day">D010</div><div>
+  <h3>OS Essentials for System Designers</h3>
+  <p class="lmeta">30 min · Phase 0 · Prereq: D004 · Homework: 30 min</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A service starts refusing connections at exactly 1,024 concurrent users, every time, on every host.
+CPU is at 12%, memory is fine, the database is idle. The logs say <code>EMFILE: too many open files</code>.
+There is no bug in the code. There is a per-process file-descriptor limit that has been 1,024 by
+default since before most of the team was born, and every socket is a file.</div>
+
+<h4>Core concept — processes, threads and what a context switch costs</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Process</th><th>Thread</th><th>Coroutine / green thread</th></tr></thead>
+<tbody>
+<tr><td>Address space</td><td>Own</td><td class="yes">Shared with siblings</td><td class="yes">Shared</td></tr>
+<tr><td>Creation cost</td><td class="no">~100 μs–1 ms</td><td class="mid">~10–50 μs</td><td class="yes">~100 ns–1 μs</td></tr>
+<tr><td>Memory overhead</td><td class="no">MBs</td><td class="mid">Default stack 1–8 MB virtual, ~8–64 KB touched</td><td class="yes">2–8 KB, grows on demand</td></tr>
+<tr><td>Switch cost</td><td class="no">~2–5 μs (TLB flush)</td><td class="mid">~1–2 μs</td><td class="yes">~50–200 ns (user-space)</td></tr>
+<tr><td>Scheduled by</td><td>Kernel</td><td>Kernel</td><td class="yes">Runtime, in user space</td></tr>
+<tr><td>Crash blast radius</td><td class="yes">Isolated</td><td class="no">Takes the process</td><td class="no">Takes the process</td></tr>
+<tr><td>Practical ceiling</td><td>Thousands</td><td>~10<sup>4</sup></td><td class="yes">10<sup>6</sup>+</td></tr>
+</tbody></table></div>
+<p>The context-switch number is the one that matters for design. A switch is not just saving
+registers: it invalidates CPU caches and, for a process switch, the TLB. The <em>indirect</em> cost —
+running cold on a cache that was warm — often exceeds the direct cost by several times. This is why
+10,000 threads is a worse design than 10,000 coroutines even though both express the same concurrency.</p>
+<div class="math"><div class="lbl">Why thread-per-request stops working</div>
+\[
+\text{CPU spent switching} \approx \frac{N_{\text{switches/s}} \times t_{\text{switch}}}{1}
+\]
+\[
+10^{5}\ \text{switches/s} \times 2\,\mu s = 0.2 = \mathbf{20\%\ of\ one\ core\ doing\ nothing\ useful}
+\]</div>
+
+<h4>Core concept — user space, kernel space, syscalls</h4>
+<p>Your code runs in user space and cannot touch hardware. Every network read, disk write, timer and
+memory map goes through the kernel via a syscall — a controlled trap that switches privilege level.</p>
+<ul>
+<li>Syscall cost: roughly <b>100–500 ns</b> on modern hardware, and it got worse after the Spectre/Meltdown mitigations added page-table isolation.</li>
+<li>Consequence: <b>batch your syscalls.</b> Writing 1 byte 1,000 times is ~1,000 syscalls; writing 1,000 bytes once is one. This is the entire reason buffered I/O exists.</li>
+<li><code>io_uring</code> exists to amortise this further — submission and completion queues shared with the kernel, so many operations cost one syscall or none.</li>
+</ul>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="What happens when a request arrives at a Linux box">
+<text class="svgh" x="0" y="12">A packet arrives — the path to your handler</text>
+<defs><marker id="a10" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#5B7189"/></marker></defs>
+<rect x="0" y="24" width="700" height="118" rx="3" fill="#EEF3F8" stroke="#1B6E9B" stroke-dasharray="4 3"/>
+<text class="svgh" x="8" y="40" fill="#1B6E9B">Kernel space</text>
+<rect x="14" y="48" width="96" height="34" rx="2" fill="#fff" stroke="#1B6E9B"/>
+<text class="svgm" x="22" y="62">NIC + DMA</text><text class="svgs" x="22" y="76">ring buffer</text>
+<line x1="110" y1="65" x2="132" y2="65" stroke="#5B7189" marker-end="url(#a10)"/>
+<rect x="134" y="48" width="96" height="34" rx="2" fill="#fff" stroke="#1B6E9B"/>
+<text class="svgm" x="142" y="62">IRQ → softirq</text><text class="svgs" x="142" y="76">NAPI polling</text>
+<line x1="230" y1="65" x2="252" y2="65" stroke="#5B7189" marker-end="url(#a10)"/>
+<rect x="254" y="48" width="110" height="34" rx="2" fill="#fff" stroke="#1B6E9B"/>
+<text class="svgm" x="262" y="62">IP / TCP stack</text><text class="svgs" x="262" y="76">checksum, reorder</text>
+<line x1="364" y1="65" x2="386" y2="65" stroke="#5B7189" marker-end="url(#a10)"/>
+<rect x="388" y="48" width="110" height="34" rx="2" fill="#fff" stroke="#1B6E9B"/>
+<text class="svgm" x="396" y="62">socket recv buf</text><text class="svgs" x="396" y="76">per-connection</text>
+<line x1="498" y1="65" x2="520" y2="65" stroke="#5B7189" marker-end="url(#a10)"/>
+<rect x="522" y="48" width="164" height="34" rx="2" fill="#fff" stroke="#1B6E9B"/>
+<text class="svgm" x="530" y="62">epoll marks fd readable</text><text class="svgs" x="530" y="76">wakes a waiting thread</text>
+<rect x="14" y="94" width="672" height="34" rx="2" fill="#fff" stroke="#B4232C"/>
+<text class="svgm" x="22" y="108" fill="#B4232C">Backpressure lives here:</text>
+<text class="svgs" x="176" y="108">accept queue full → SYN dropped → client retries → looks like packet loss, not overload</text>
+<text class="svgs" x="22" y="122">Tuning knobs: net.core.somaxconn · tcp_max_syn_backlog · rmem/wmem · SO_REUSEPORT</text>
+<rect x="0" y="152" width="700" height="94" rx="3" fill="#EAF4F1" stroke="#0E6E63" stroke-dasharray="4 3"/>
+<text class="svgh" x="8" y="168" fill="#0E6E63">User space</text>
+<rect x="14" y="176" width="130" height="34" rx="2" fill="#fff" stroke="#0E6E63"/>
+<text class="svgm" x="22" y="190">read() / recv()</text><text class="svgs" x="22" y="204">syscall ~200 ns</text>
+<line x1="144" y1="193" x2="166" y2="193" stroke="#5B7189" marker-end="url(#a10)"/>
+<rect x="168" y="176" width="130" height="34" rx="2" fill="#fff" stroke="#0E6E63"/>
+<text class="svgm" x="176" y="190">parse HTTP</text><text class="svgs" x="176" y="204">alloc, copy</text>
+<line x1="298" y1="193" x2="320" y2="193" stroke="#5B7189" marker-end="url(#a10)"/>
+<rect x="322" y="176" width="130" height="34" rx="2" fill="#fff" stroke="#0E6E63"/>
+<text class="svgm" x="330" y="190">your handler</text><text class="svgs" x="330" y="204">the 1% you profile</text>
+<line x1="452" y1="193" x2="474" y2="193" stroke="#5B7189" marker-end="url(#a10)"/>
+<rect x="476" y="176" width="210" height="34" rx="2" fill="#fff" stroke="#0E6E63"/>
+<text class="svgm" x="484" y="190">write() → back through the kernel</text><text class="svgs" x="484" y="204">sendfile/splice avoids the copy</text>
+<text class="svgs" x="14" y="230">Every boundary crossing is a copy unless you use zero-copy paths (sendfile, splice, io_uring, DPDK).</text>
+<text class="svgh" x="0" y="268" fill="#5B7189">Where the time actually goes at high QPS</text>
+<text class="svgs" x="0" y="284">Kernel networking + copies + context switches routinely exceed application logic. Profile the whole path, not just your code.</text>
+</svg></div>
+<figcaption><b>FIG 10.1</b> · Most "our app is slow" investigations end in this diagram, not in the
+handler.</figcaption></figure>
+
+<h4>Deep dive — file descriptors and the C10K problem</h4>
+<p>In Unix, everything is a file descriptor: sockets, pipes, files, timers, epoll instances. Limits
+stack, and you must raise all of them:</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Limit</th><th>Where</th><th>Typical default</th><th>Symptom when hit</th></tr></thead>
+<tbody>
+<tr><td>Per-process soft limit</td><td><code>ulimit -n</code></td><td class="num">1,024</td><td><code>EMFILE</code>, connection refused</td></tr>
+<tr><td>Per-process hard limit</td><td><code>ulimit -Hn</code></td><td class="num">4,096–1,048,576</td><td>Cannot raise soft above this</td></tr>
+<tr><td>System-wide</td><td><code>fs.file-max</code></td><td class="num">~10<sup>6</sup></td><td><code>ENFILE</code>, whole box unhappy</td></tr>
+<tr><td>Ephemeral ports</td><td><code>ip_local_port_range</code></td><td class="num">~28,000</td><td>Outbound connections fail (D014)</td></tr>
+<tr><td>Conntrack table</td><td><code>nf_conntrack_max</code></td><td class="num">~65,536</td><td>Silent packet drops behind NAT</td></tr>
+<tr><td>Accept backlog</td><td><code>somaxconn</code></td><td class="num">128–4,096</td><td>SYN drops under burst</td></tr>
+</tbody></table></div>
+<p><b>C10K</b> (Dan Kegel, 1999) asked how one server handles ten thousand concurrent connections.
+The answer was not faster hardware — it was replacing \(O(n)\) readiness scanning
+(<code>select</code>/<code>poll</code>, which walk the entire fd set on every call) with \(O(1)\)
+event notification (<code>epoll</code>, <code>kqueue</code>). Today the interesting number is C10M,
+and the answer involves kernel bypass. The structural lesson survives: <b>cost per idle connection
+must be near zero.</b></p>
+
+<h4>Deep dive — memory: virtual, paging, swap, OOM</h4>
+<ul>
+<li><b>Virtual memory</b> means a process's addresses are not physical. Allocating 100 GB of virtual
+address space on a 16 GB box succeeds — pages are only backed when touched. This is why RSS matters and
+VSZ mostly does not.</li>
+<li><b>Page faults</b>: minor (page is in memory, just not mapped — cheap) vs major (must read from
+disk — ~100 μs on NVMe, ~10 ms on HDD). A service that suddenly slows with normal CPU is often taking
+major faults.</li>
+<li><b>Swap</b> trades latency for capacity, and for a latency-sensitive service that trade is almost
+always wrong. Swapping a hot page turns a 100 ns access into a 100 μs one — a 1,000× cliff. Most
+production services disable swap and let the process die instead, because a dead process fails over
+and a swapping process just poisons the load balancer's health checks.</li>
+<li><b>The OOM killer</b> picks a victim by <code>oom_score</code>, and it frequently picks your main
+application because it is the largest consumer. In containers, hitting the cgroup memory limit kills
+the process with exit code 137 — which shows up as a mysterious restart, not an error message.</li>
+</ul>
+<p class="note"><strong>Design consequence:</strong> memory limits must be set below the point where
+the kernel intervenes, and your service should shed load (D063) before it allocates its way into a
+kill. Failing fast with a 503 is a better outcome than being terminated mid-request.</p>
+
+<h4>CPU scheduling, briefly but usefully</h4>
+<p>Linux's CFS gives each runnable thread a fair share of CPU time. Two consequences for design:</p>
+<ul>
+<li><b>Container CPU limits are enforced by throttling</b>, not by slowing the clock. A container
+limited to 0.5 CPU that tries to use a full core gets stopped for half of every 100 ms period. Result:
+p99 latency spikes of ~50 ms with CPU utilisation showing a comfortable 50%. Check
+<code>nr_throttled</code> before you believe a CPU graph.</li>
+<li><b>Noisy neighbours are real.</b> Co-tenant workloads evict your L3 cache lines and saturate memory
+bandwidth. This is a large part of why p99 varies between identical instances.</li>
+</ul>
+
+<div class="war"><b>War story</b>
+The "container CPU throttling" pattern has been documented repeatedly across the industry: teams set
+conservative CPU limits, latency gets dramatically worse, and CPU dashboards look fine because average
+utilisation is well under the limit. The fix is usually to raise or remove the limit while keeping the
+<em>request</em> for scheduling, and to alert on throttled periods rather than on utilisation. It is
+the clearest example of an OS mechanism producing a latency problem that no application profiler can
+explain.</div>
+
+<div class="iv"><b>Interview angle</b>
+This material shows up as diagnosis questions: "the service returns errors but CPU is low", "latency
+spikes every 30 seconds", "it works with one client and fails with a thousand".
+<ul class="wrong">
+<li>Jumping to "add more replicas" when the limit is per-process and will be hit on every replica.</li>
+<li>Not knowing that a socket is a file descriptor, and therefore that connection count has an OS ceiling.</li>
+<li>Blaming the network for what is an accept-queue overflow.</li>
+<li>Assuming GC pauses are the only source of latency spikes. Throttling, major faults and TCP retransmits all look identical from the application's side.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Run <code>strace -c curl http://example.com</code> (or the equivalent on your OS) and count the
+syscalls in one HTTP request. Then check your own service: <code>ulimit -n</code>, and if it says
+1,024, work out how many concurrent connections that actually permits once you subtract the
+descriptors used by your database pool, log files and metrics exporter.</div>
+</div></article>
+
+<!-- ============================================ D011 -->
+<article class="lesson" id="d011">
+<div class="lhead"><div class="day">D011</div><div>
+  <h3>Concurrency Models</h3>
+  <p class="lmeta">32 min · Phase 0 · Prereq: D010 · Homework: 40 min</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A Node.js service is "async everywhere" and handles 12,000 req/s beautifully. A product manager asks
+for PDF thumbnails. Someone adds a synchronous image resize in the request handler. Throughput
+collapses to 40 req/s and <em>every</em> endpoint gets slow — including health checks, so the load
+balancer starts ejecting healthy instances. One blocking call on a single-threaded event loop does
+not slow one request. It stops the world.</div>
+
+<h4>Core concept — blocking, non-blocking, async</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Model</th><th>What the calling thread does</th><th>Notification</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td><b>Blocking</b></td><td>Sleeps until data is ready</td><td>Return value</td><td><code>read()</code> on a blocking socket</td></tr>
+<tr><td><b>Non-blocking + polling</b></td><td>Returns <code>EAGAIN</code>, you call again</td><td>You ask repeatedly</td><td><code>O_NONBLOCK</code> in a loop — burns CPU</td></tr>
+<tr><td><b>I/O multiplexing</b></td><td>Blocks on <em>many</em> fds at once</td><td>Kernel says which are ready</td><td><code>epoll</code>, <code>kqueue</code> — the event loop</td></tr>
+<tr><td><b>Async I/O (true)</b></td><td>Submits and continues; kernel does the copy</td><td>Completion event</td><td><code>io_uring</code>, Windows IOCP</td></tr>
+</tbody></table></div>
+<p class="note">Most "async" runtimes (Node, Netty, asyncio, Tokio) are technically <em>readiness</em>-based
+multiplexing, not completion-based async I/O. The distinction matters for disk I/O: <code>epoll</code>
+does not work on regular files, so file reads in these runtimes are usually delegated to a background
+thread pool. That thread pool is a queue, and queues have depth limits.</p>
+
+<h4>Core concept — four ways to structure concurrency</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Model</th><th>Unit</th><th>Strength</th><th>Failure mode</th><th>Seen in</th></tr></thead>
+<tbody>
+<tr><td><b>Thread per request</b></td><td>OS thread</td><td>Simple, debuggable, real stack traces; blocking code is fine</td><td>Memory + context-switch cost caps you near 10<sup>4</sup></td><td>Classic Java/Tomcat, Rails, PHP-FPM</td></tr>
+<tr><td><b>Event loop</b></td><td>Callback / promise</td><td>10<sup>5</sup>+ idle connections on one thread; tiny memory</td><td>One blocking call halts everything; CPU-bound work is fatal</td><td>Node.js, nginx, Redis, Netty</td></tr>
+<tr><td><b>Coroutines / green threads</b></td><td>Lightweight task</td><td>Blocking-style code with event-loop economics; M:N scheduling</td><td>Blocking a carrier thread with native code still stalls it</td><td>Go, Kotlin, Java 21 virtual threads, Erlang</td></tr>
+<tr><td><b>Actor model</b></td><td>Actor + mailbox</td><td>No shared mutable state; supervision trees; location transparency</td><td>Mailbox growth is unbounded backpressure debt</td><td>Erlang/OTP, Akka, Orleans</td></tr>
+</tbody></table></div>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="10000 connections handled by threads versus an event loop">
+<text class="svgh" x="0" y="12">10,000 concurrent connections, two ways</text>
+<g transform="translate(0,22)">
+<text class="svgh" x="0" y="10" fill="#B4232C">Thread per request</text>
+<rect x="0" y="18" width="326" height="176" rx="3" fill="#FCF1F1" stroke="#B4232C"/>
+<g fill="#B4232C" opacity=".85">
+<rect x="12" y="30" width="8" height="26" rx="1"/><rect x="24" y="30" width="8" height="26" rx="1"/>
+<rect x="36" y="30" width="8" height="26" rx="1"/><rect x="48" y="30" width="8" height="26" rx="1"/>
+<rect x="60" y="30" width="8" height="26" rx="1"/><rect x="72" y="30" width="8" height="26" rx="1"/>
+<rect x="84" y="30" width="8" height="26" rx="1"/><rect x="96" y="30" width="8" height="26" rx="1"/>
+<rect x="108" y="30" width="8" height="26" rx="1"/><rect x="120" y="30" width="8" height="26" rx="1"/>
+<rect x="132" y="30" width="8" height="26" rx="1"/><rect x="144" y="30" width="8" height="26" rx="1"/>
+<rect x="156" y="30" width="8" height="26" rx="1"/><rect x="168" y="30" width="8" height="26" rx="1"/>
+<rect x="180" y="30" width="8" height="26" rx="1"/><rect x="192" y="30" width="8" height="26" rx="1"/>
+<rect x="204" y="30" width="8" height="26" rx="1"/><rect x="216" y="30" width="8" height="26" rx="1"/>
+<rect x="228" y="30" width="8" height="26" rx="1"/><rect x="240" y="30" width="8" height="26" rx="1"/>
+</g>
+<text class="svgs" x="252" y="46">× 10,000</text>
+<text class="svgt" x="12" y="82">10,000 OS threads</text>
+<text class="svgs" x="12" y="100">Stack: 10,000 × 1 MB virtual ≈ 10 GB VSZ</text>
+<text class="svgs" x="12" y="116">Touched: 10,000 × 32 KB ≈ 320 MB RSS</text>
+<text class="svgs" x="12" y="132">Switches: ~10<tspan dy="-3" font-size="8">5</tspan><tspan dy="3">/s × 2 μs ≈ 20% of a core</tspan></text>
+<text class="svgs" x="12" y="150">Scheduler run-queue depth hurts p99</text>
+<text class="svgm" x="12" y="176" fill="#B4232C">Verdict: works to ~10k, painful past it</text>
+</g>
+<g transform="translate(354,22)">
+<text class="svgh" x="0" y="10" fill="#0E6E63">Event loop, 4 threads</text>
+<rect x="0" y="18" width="326" height="176" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<g fill="#0E6E63">
+<rect x="14" y="30" width="26" height="26" rx="2"/><rect x="48" y="30" width="26" height="26" rx="2"/>
+<rect x="82" y="30" width="26" height="26" rx="2"/><rect x="116" y="30" width="26" height="26" rx="2"/>
+</g>
+<text class="svgs" x="150" y="48">4 threads = 4 cores</text>
+<rect x="14" y="66" width="290" height="22" rx="2" fill="#fff" stroke="#0E6E63"/>
+<text class="svgm" x="20" y="81">epoll_wait() → [fd 7, fd 991, fd 4412 ready]</text>
+<text class="svgs" x="14" y="106">Per connection: one fd + a small state object ≈ 2–10 KB</text>
+<text class="svgs" x="14" y="122">10,000 conns ≈ 20–100 MB total</text>
+<text class="svgs" x="14" y="138">Switches: ~thousands/s, not 10<tspan dy="-3" font-size="8">5</tspan></text>
+<text class="svgm" x="14" y="164" fill="#B4232C">One blocking call here stalls 2,500 connections</text>
+<text class="svgm" x="14" y="180" fill="#0E6E63">Verdict: 10<tspan dy="-3" font-size="8">5</tspan><tspan dy="3">+ conns, if nothing blocks</tspan></text>
+</g>
+</svg></div>
+<figcaption><b>FIG 11.1</b> · The event loop wins on idle connections by two orders of magnitude and
+loses catastrophically on CPU-bound work. Choose by workload shape, not by fashion.</figcaption></figure>
+
+<h4>Deep dive — sizing a thread pool with Little's Law</h4>
+<p>The most common production question this answers: "how many threads should my pool have?" Not
+"more". The formula:</p>
+<div class="math"><div class="lbl">Pool size from utilisation target</div>
+\[
+N_{\text{threads}} \;=\; N_{\text{cores}} \times U_{\text{target}} \times \left(1+\frac{W}{C}\right)
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(W\) = wait time (blocked on I/O), \(C\) = compute time,
+\(U_{\text{target}}\) = target CPU utilisation (use 0.7–0.8).</p></div>
+<p>Worked: 8 cores, target 0.75, a request that computes for 5 ms and waits 45 ms on the database.
+\(N = 8\times0.75\times(1+45/5) = 8\times0.75\times10 = \mathbf{60}\) threads. Note what happens if
+you tune the query so \(W\) drops to 5 ms: \(N = 8\times0.75\times2 = 12\). <b>Making the dependency
+faster shrinks the correct pool size by 5×.</b> Pools sized once and never revisited are one of the
+most common sources of unexplained latency.</p>
+<p>Cross-check with Little's Law: at 2,000 req/s and 50 ms per request, \(L = 100\) in flight. If the
+pool is 60, the other 40 are queueing — and queueing delay is what your p99 is made of. Either raise
+the pool, reduce \(W\), or shed load (D063). Raising the pool is the option that stops working first.</p>
+
+<div class="demo" id="dm-pool">
+  <h6>Demo · thread pool sizing</h6>
+  <div class="ctrl">
+    <label>Cores</label><input type="range" id="p1" min="1" max="64" value="8"><output id="p1o">8</output>
+    <label>Compute per request <i>C</i></label><input type="range" id="p2" min="0.5" max="50" step="0.5" value="5"><output id="p2o">5.0 ms</output>
+    <label>Wait per request <i>W</i></label><input type="range" id="p3" min="0" max="400" step="1" value="45"><output id="p3o">45 ms</output>
+    <label>Arrival rate λ</label><input type="range" id="p4" min="10" max="20000" step="10" value="2000"><output id="p4o">2,000/s</output>
+  </div>
+  <div class="readout">
+    <div><span class="v" id="pr1">—</span><span class="l">Recommended pool</span></div>
+    <div><span class="v" id="pr2">—</span><span class="l">In flight (Little's L)</span></div>
+    <div><span class="v" id="pr3">—</span><span class="l">Max λ this pool serves</span></div>
+    <div><span class="v" id="pr4">—</span><span class="l">Verdict</span></div>
+  </div>
+</div>
+
+<h4>Deep dive — readiness APIs</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>API</th><th>Complexity per call</th><th>Platform</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>select()</code></td><td class="no">O(n) scan, fd limit 1024</td><td>POSIX</td><td>Rebuilds the fd set every call</td></tr>
+<tr><td><code>poll()</code></td><td class="no">O(n) scan, no fd limit</td><td>POSIX</td><td>Still copies the whole array in and out</td></tr>
+<tr><td><code>epoll</code></td><td class="yes">O(1) — kernel keeps the interest set</td><td>Linux</td><td>Level- vs edge-triggered; edge is faster and easier to get wrong</td></tr>
+<tr><td><code>kqueue</code></td><td class="yes">O(1)</td><td>BSD, macOS</td><td>More general — files, signals, timers, processes</td></tr>
+<tr><td><code>io_uring</code></td><td class="yes">Batched, often zero syscalls</td><td>Linux 5.1+</td><td>Completion-based; works for files too</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — the concurrency hazards you will actually hit</h4>
+<ul>
+<li><b>Race condition</b> — two threads read-modify-write the same location. Fix: atomics for single
+words, locks for invariants spanning multiple locations, or don't share (partition by key so one
+thread owns one key — see D076).</li>
+<li><b>Lock contention</b> — the lock itself becomes the bottleneck. An uncontended mutex is ~17 ns;
+a contended one costs a syscall and a context switch, ~1–10 μs. Contention makes throughput
+<em>decrease</em> as you add threads (this is the \(\kappa\) term from D007).</li>
+<li><b>False sharing</b> — two threads write different variables on the same 64-byte cache line, and
+the line ping-pongs between cores. Symptom: adding threads makes it slower, with no lock in sight. Fix:
+pad to cache-line boundaries.</li>
+<li><b>Deadlock</b> — circular wait. Prevent by ordering lock acquisition globally (D034).</li>
+<li><b>Async coloured functions</b> — in Node/Python, one blocking call anywhere in an async call chain
+blocks the loop, and the type system usually will not tell you.</li>
+</ul>
+
+<h5>Why "async everywhere" is not free</h5>
+<ul>
+<li>Stack traces become useless; a callback's stack does not include who scheduled it. You need explicit context propagation (D111).</li>
+<li>Debuggers and profilers show the loop, not the logical request.</li>
+<li>Every await point is an interleaving point — a place where shared state can change under you. Async code has races too; they are just harder to see.</li>
+<li>CPU-bound work must be moved to a worker pool explicitly, which means you now have two concurrency models in one process.</li>
+</ul>
+<p class="note"><strong>Java 21's virtual threads</strong> are the current best answer to this tension:
+blocking-style code, coroutine economics, real stack traces. If you are choosing a runtime for a new
+I/O-bound service today, "coroutines with blocking-looking syntax" (Go, virtual threads, Kotlin)
+gives you most of the event loop's efficiency without the colour problem.</p>
+
+<div class="war"><b>War story</b>
+Redis is single-threaded for command execution, by design, and is one of the fastest datastores in
+existence. The design works because every command is O(1) or O(log n) and returns in microseconds —
+so no command monopolises the loop. It also means a single <code>KEYS *</code> on a large database,
+or a big <code>ZRANGE</code>, blocks every other client for the duration. That is the event-loop
+tradeoff in one product: extraordinary throughput, on the condition that nothing takes long. Redis 6+
+added threaded I/O for reading and writing sockets, but kept command execution single-threaded —
+because the single-threaded model is what makes its atomicity guarantees free.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "how many concurrent users can one server handle?" The right move is to ask what they are
+doing — idle WebSockets, short CPU-light requests, or heavy computation — and then apply the model.
+<ul class="wrong">
+<li>"Async is faster." Async is more <em>efficient per connection</em>. For CPU-bound work it is slower, because of scheduling overhead.</li>
+<li>Sizing a thread pool at "2 × cores" for an I/O-bound workload. That formula is for CPU-bound work only.</li>
+<li>Unbounded thread pools or unbounded queues. Both convert an overload into a memory exhaustion (D063).</li>
+<li>Not knowing that their runtime's file I/O is served by a hidden thread pool with a default size of 4.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Write two trivial HTTP servers — one thread-per-request, one event-loop — that both sleep 50 ms and
+return. Load them at 1,000 concurrent connections and record RSS, p99 and throughput for each. Then
+add a 100 ms CPU-bound loop to one endpoint and re-run. The second measurement is the one that
+teaches you something.</div>
+</div></article>
+
+<!-- ============================================ D012 -->
+<article class="lesson" id="d012">
+<div class="lhead"><div class="day">D012</div><div>
+  <h3>Storage Hardware &amp; the OS Page Cache</h3>
+  <p class="lmeta">28 min · Phase 0 · Prereq: D004, D010 · Homework: 30 min · <b>Phase 0 finale</b></p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A database benchmark shows 40,000 writes per second on a laptop and 900 on the production server with
+enterprise SSDs. The laptop is not faster. The laptop is lying: its disk cache acknowledges writes
+before they reach media, and the production server is honouring <code>fsync</code>. One of those
+machines will lose your data on a power cut, and it is the fast one.</div>
+
+<h4>Core concept — HDD physics</h4>
+<div class="math"><div class="lbl">Time to read a random block from a spinning disk</div>
+\[
+T_{\text{access}} \;=\; T_{\text{seek}} \;+\; T_{\text{rotation}} \;+\; T_{\text{transfer}}
+\]
+\[
+T_{\text{rotation}}^{\text{avg}} \;=\; \frac{60}{2\cdot\text{RPM}}\ \text{seconds}
+\]</div>
+<p>For a 7,200 RPM drive: average rotational latency \(= 60/(2\times7200) = 4.17\) ms. Average seek is
+about 4–9 ms. Transfer of 4 KB at ~200 MB/s is 0.02 ms — <b>negligible</b>. So a random 4 KB read costs
+roughly 9 ms, of which 99.8% is mechanical positioning.</p>
+<div class="math"><div class="lbl">The consequence, in IOPS</div>
+\[
+\text{IOPS}_{\text{random}} \approx \frac{1}{9\ \text{ms}} \approx 110\ \text{per drive}
+\]
+\[
+\text{vs sequential: } \frac{200\ \text{MB/s}}{4\ \text{KB}} = 51{,}200\ \text{IOPS}
+\]</div>
+<p><b>A 465× difference between random and sequential on the same device.</b> This single ratio
+explains: why B-Trees exist (minimise seeks by maximising fanout), why LSM trees exist (turn random
+writes into sequential ones), why Kafka is fast (append-only log), and why "just add an index" can
+make a table scan slower than no index at all.</p>
+
+<h4>Core concept — SSD internals, and why they wear out</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Unit</th><th>Size</th><th>Operation</th><th>Constraint</th></tr></thead>
+<tbody>
+<tr><td>Page</td><td>4–16 KB</td><td>Read, program (write)</td><td>Smallest writable unit</td></tr>
+<tr><td>Block</td><td>128–512 pages (~1–8 MB)</td><td>Erase</td><td class="no">Smallest <em>erasable</em> unit</td></tr>
+<tr><td>Plane / die</td><td>Many blocks</td><td>Parallelism</td><td>Source of an SSD's high queue depth</td></tr>
+</tbody></table></div>
+<p>You cannot overwrite a page in place. To change one 4 KB page inside a 4 MB block, the controller
+must copy the live pages elsewhere, erase the whole block, and rewrite. That amplification is the
+central fact of SSD behaviour:</p>
+<div class="math"><div class="lbl">Write amplification factor</div>
+\[
+\text{WAF} \;=\; \frac{\text{bytes written to NAND}}{\text{bytes written by the host}}
+\]</div>
+<ul>
+<li>Sequential, large writes: WAF ≈ 1.0–1.1.</li>
+<li>Random 4 KB writes on a nearly-full drive: WAF can reach 3–10, occasionally worse.</li>
+<li>Consequences: throughput drops, latency becomes bimodal (some writes wait for garbage collection), and endurance is consumed at WAF× the expected rate.</li>
+</ul>
+<p><b>TRIM / discard</b> tells the SSD which blocks the filesystem no longer needs, so garbage
+collection can skip copying dead data. Over-provisioning (leaving 10–25% unallocated) has the same
+effect and is why "enterprise" and "consumer" drives with identical NAND behave so differently under
+sustained random write.</p>
+<p class="note"><strong>Endurance, in numbers you can use:</strong> a drive rated at 1 DWPD (drive
+writes per day) over 5 years with 2 TB capacity tolerates \(2\ \text{TB}\times365\times5 = 3.65\) PB
+of host writes. At WAF 4, your effective budget is ~0.9 PB. A write-heavy LSM workload can burn that
+in under two years — which is why compaction tuning (D037) is a hardware-lifetime decision, not just
+a performance one.</p>
+
+<h4>Sequential vs random — the numbers that drive every storage design</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Device</th><th class="num">Random 4K read IOPS</th><th class="num">Random 4K write IOPS</th><th class="num">Sequential</th><th class="num">Latency (p50 / p99)</th></tr></thead>
+<tbody>
+<tr><td>7.2k HDD</td><td class="num">~110</td><td class="num">~110</td><td class="num">~200 MB/s</td><td class="num">9 ms / 30 ms+</td></tr>
+<tr><td>SATA SSD</td><td class="num">~90,000</td><td class="num">~70,000</td><td class="num">~550 MB/s</td><td class="num">100 μs / 1 ms</td></tr>
+<tr><td>NVMe (TLC)</td><td class="num">~600,000</td><td class="num">~400,000</td><td class="num">3–7 GB/s</td><td class="num">70 μs / 500 μs</td></tr>
+<tr><td>Cloud network SSD (gp3)</td><td class="num">3,000–16,000 (provisioned)</td><td class="num">same pool</td><td class="num">125–1,000 MB/s</td><td class="num">0.5–1 ms / several ms</td></tr>
+</tbody></table></div>
+<p class="note"><strong>The cloud row is the trap.</strong> Network-attached block storage has an IOPS
+<em>cap you pay for</em>, and it is 1–2 orders of magnitude below local NVMe. Databases benchmarked on
+a laptop's NVMe and deployed on gp3 routinely lose 50× of their write throughput. Always ask what the
+provisioned IOPS ceiling is before believing a capacity plan.</p>
+
+<h4>RAID, in one table</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Level</th><th>Layout</th><th class="num">Usable capacity</th><th>Fault tolerance</th><th>Write penalty</th><th>Use for</th></tr></thead>
+<tbody>
+<tr><td>RAID 0</td><td>Stripe</td><td class="num">100%</td><td class="no">None — any loss is total</td><td class="num">1×</td><td>Scratch, caches, rebuildable data</td></tr>
+<tr><td>RAID 1</td><td>Mirror</td><td class="num">50%</td><td class="yes">1 drive</td><td class="num">2× writes</td><td>Boot volumes, small DBs</td></tr>
+<tr><td>RAID 5</td><td>Stripe + 1 parity</td><td class="num">(n−1)/n</td><td class="mid">1 drive</td><td class="no">4× (read-modify-write)</td><td>Read-heavy archives; risky rebuilds on big drives</td></tr>
+<tr><td>RAID 6</td><td>Stripe + 2 parity</td><td class="num">(n−2)/n</td><td class="yes">2 drives</td><td class="no">6×</td><td>Large capacity where rebuild time is long</td></tr>
+<tr><td>RAID 10</td><td>Mirror + stripe</td><td class="num">50%</td><td class="yes">1 per mirror pair</td><td class="num">2×</td><td class="yes">Databases — the default choice</td></tr>
+</tbody></table></div>
+<p><b>The RAID 5 rebuild problem:</b> rebuilding an 18 TB drive at 150 MB/s takes ~33 hours of full-array
+read. During that window a second failure loses everything, and the elevated read load makes a second
+failure more likely. This is why large arrays use RAID 6 or erasure coding (D125), and why RAID is
+<em>not</em> a backup — it protects against device failure, not against deletion, corruption or
+ransomware.</p>
+
+<h4>Deep dive — the page cache and how databases achieve durability</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Path of a write from write() to physical media">
+<text class="svgh" x="0" y="12">The path of a write — and where each layer can lie to you</text>
+<defs><marker id="a12" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#5B7189"/></marker></defs>
+<rect x="0" y="24" width="230" height="42" rx="3" fill="#fff" stroke="#0E6E63" stroke-width="1.4"/>
+<text class="svgt" x="12" y="42">1 · Application buffer</text><text class="svgs" x="12" y="58">stdio / language runtime · lost on process crash</text>
+<line x1="115" y1="66" x2="115" y2="86" stroke="#5B7189" marker-end="url(#a12)"/>
+<text class="svgm" x="124" y="80">write() syscall</text>
+<rect x="0" y="88" width="330" height="42" rx="3" fill="#EEF3F8" stroke="#1B6E9B" stroke-width="1.4"/>
+<text class="svgt" x="12" y="106">2 · OS page cache (dirty pages)</text>
+<text class="svgs" x="12" y="122">survives process crash · lost on power loss or kernel panic</text>
+<line x1="115" y1="130" x2="115" y2="150" stroke="#B4232C" stroke-width="1.6" marker-end="url(#a12)"/>
+<text class="svgm" x="124" y="144" fill="#B4232C">fsync() / fdatasync() — the expensive one</text>
+<rect x="0" y="152" width="330" height="42" rx="3" fill="#FBF5E7" stroke="#9A6A00" stroke-width="1.4"/>
+<text class="svgt" x="12" y="170">3 · Drive write cache (volatile DRAM)</text>
+<text class="svgs" x="12" y="186">consumer drives may ACK here · lost on power loss</text>
+<line x1="115" y1="194" x2="115" y2="214" stroke="#5B7189" marker-end="url(#a12)"/>
+<text class="svgm" x="124" y="208">FLUSH CACHE / FUA · capacitor-backed on enterprise drives</text>
+<rect x="0" y="216" width="330" height="42" rx="3" fill="#EAF4F1" stroke="#0E6E63" stroke-width="1.8"/>
+<text class="svgt" x="12" y="234">4 · Physical media — actually durable</text>
+<text class="svgs" x="12" y="250">only now may the database acknowledge the commit</text>
+<g transform="translate(370,24)">
+<rect x="0" y="0" width="330" height="234" rx="3" fill="#fff" stroke="#C2D2DF"/>
+<text class="svgh" x="12" y="20" fill="#0B2239">Why WAL makes this affordable</text>
+<text class="svgs" x="12" y="42">A commit must be durable. Flushing the data pages</text>
+<text class="svgs" x="12" y="58">themselves would mean random writes all over the file.</text>
+<text class="svgs" x="12" y="80">Instead: append the change to a sequential log and</text>
+<text class="svgs" x="12" y="96">fsync only the log. Data pages are written later,</text>
+<text class="svgs" x="12" y="112">lazily, in the background.</text>
+<rect x="12" y="126" width="306" height="26" rx="2" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="20" y="143">WAL: sequential append + 1 fsync ≈ 0.1–1 ms</text>
+<rect x="12" y="158" width="306" height="26" rx="2" fill="#FCF1F1" stroke="#B4232C"/>
+<text class="svgm" x="20" y="175">Data pages: random writes, deferred to checkpoint</text>
+<text class="svgs" x="12" y="202">Group commit batches many transactions into one</text>
+<text class="svgs" x="12" y="218">fsync — throughput rises, per-txn latency rises slightly.</text>
+</g>
+<text class="svgs" x="0" y="278">Test your stack honestly: a benchmark that never calls fsync is measuring your RAM, not your disk. Tools: diskchecker.pl, fio with --fsync=1.</text>
+<text class="svgs" x="0" y="294">Cloud note: EBS-class volumes are replicated and battery-backed, so their fsync is fast but still a network round trip — 0.5–2 ms, not 100 μs.</text>
+</svg></div>
+<figcaption><b>FIG 12.1</b> · Four caches between <code>write()</code> and durability. A "durable"
+system is one that has verified which layer it is trusting.</figcaption></figure>
+
+<h5>The page cache in one paragraph</h5>
+<p>Linux uses all free RAM as a cache for file data. Reads that hit it cost ~100 ns instead of ~100 μs.
+Writes land in <em>dirty pages</em>, flushed by the <code>pdflush</code>/writeback threads according to
+<code>vm.dirty_ratio</code> and <code>vm.dirty_background_ratio</code>. Two consequences for design:
+(1) "free memory" on a database server should be near zero — that is the cache working, not a leak;
+(2) a large <code>dirty_ratio</code> means a flush storm can stall all writers at once, which shows up
+as periodic multi-second latency spikes with no application cause.</p>
+
+<h5>Filesystems and journaling</h5>
+<ul>
+<li><b>ext4 journal modes:</b> <code>data=ordered</code> (default — metadata journaled, data written
+before metadata commits), <code>data=journal</code> (both, safest, ~2× write cost),
+<code>data=writeback</code> (fastest, can expose stale data after a crash).</li>
+<li><b>XFS</b> is the common choice for large-file, high-throughput workloads; <b>ZFS/Btrfs</b> add
+checksums and snapshots at the cost of extra write amplification (copy-on-write).</li>
+<li>Databases usually want journaling for metadata only — they have their own WAL, and double-journaling
+is wasted work.</li>
+</ul>
+
+<h4>IOPS vs throughput vs latency — pick the right one</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Metric</th><th>Definition</th><th>Bottleneck for</th><th>How to improve</th></tr></thead>
+<tbody>
+<tr><td>IOPS</td><td>Operations per second</td><td>OLTP, small random reads/writes, index lookups</td><td>More devices, bigger queue depth, NVMe, caching</td></tr>
+<tr><td>Throughput</td><td>Bytes per second</td><td>Analytics scans, backups, log shipping, video</td><td>Larger I/O size, sequential layout, compression</td></tr>
+<tr><td>Latency</td><td>Time per operation</td><td>Anything user-facing on the critical path</td><td>Lower queue depth, faster media, avoid fsync per op</td></tr>
+</tbody></table></div>
+<div class="math"><div class="lbl">They are linked — this is Little's Law again</div>
+\[
+\text{Queue depth} \;=\; \text{IOPS} \times \text{latency}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">Pushing queue depth up raises IOPS <em>and</em> raises
+latency. A device advertising 600,000 IOPS is quoting it at queue depth 256 — where per-operation
+latency is far above its idle figure. Benchmark at the queue depth your workload actually produces.</p></div>
+
+<div class="war"><b>War story</b>
+Algolia published a post-mortem in 2015 after a batch of enterprise SSDs corrupted data under a
+specific access pattern. The root cause was traced to a firmware bug interacting with how the
+filesystem issued <code>TRIM</code> commands — the drives would zero out ranges that were still in
+use. It is a reminder that the storage stack has at least five layers of code beneath your database
+(filesystem, block layer, driver, HBA firmware, drive firmware), any of which can violate the
+guarantees the layer above assumes. This is the real argument for checksums at the application level
+and for restore drills (D116).</div>
+
+<div class="iv"><b>Interview angle</b>
+Storage hardware shows up indirectly: "why is this database slow?", "why do we use an append-only
+log?", "how would you make writes durable?"
+<ul class="wrong">
+<li>"SSDs are fast" without distinguishing read from write, or fresh from full.</li>
+<li>Treating RAID as a backup strategy.</li>
+<li>Ignoring that cloud block storage has a provisioned IOPS ceiling — the most common capacity-planning miss.</li>
+<li>Not knowing what <code>fsync</code> costs, and therefore proposing "just commit every write" at 50k writes/s.</li>
+<li>Assuming the page cache means reads are free. It means <em>hot</em> reads are free; the working set still has to fit.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Run <code>fio</code> twice on the same device: <code>--rw=randread --bs=4k --iodepth=1</code> and
+<code>--rw=read --bs=1M --iodepth=32</code>. Record IOPS, MB/s and p99 latency for both, and compute
+the random:sequential ratio. Then repeat the random test with <code>--fsync=1</code> and watch what
+durability actually costs.</div>
+</div></article>
+
+<div class="nextprev">
+  <a href="index.html"><span>Hub</span><b>All 145 lessons →</b></a>
+  <a href="phase-01.html"><span>Next phase</span><b>01 · Networking &amp; the Web →</b></a>
+</div>
+
+<div class="foot">
+  <span>Phase 0 · Days 1–12 · 5h 06m · Review checkpoint after Day 12</span>
+  <span><a href="index.html">← Back to hub</a></span>
+</div>
+
+<script>
+/* ---- D002 tail amplification ---- */
+wire("#dm-tail", el=>{
+  const n=+$("#tn",el).value, p=+$("#tp",el).value/1000;
+  setv(el,"#tno",n); setv(el,"#tpo",(p*100).toFixed(1)+"%");
+  const P=1-Math.pow(1-p,n);
+  setv(el,"#tr1",(P*100).toFixed(1)+"%");
+  setv(el,"#tr2",P>=0.5?"your p50 is their p"+((1-p)*100).toFixed(1):"p"+(100-P*100).toFixed(1));
+  const nmax=Math.max(1,Math.floor(Math.log(0.95)/Math.log(1-p)));
+  setv(el,"#tr3",nmax);
+  setv(el,"#tr4",((1-Math.pow(1-p*p,n))*100).toFixed(2)+"%");
+});
+/* ---- D003 estimation ---- */
+wire("#dm-est", el=>{
+  const dau=Math.pow(10,+$("#e1",el).value), wpu=+$("#e2",el).value, rpu=+$("#e3",el).value;
+  const B=Math.pow(10,+$("#e4",el).value), k=+$("#e5",el).value, R=+$("#e6",el).value;
+  setv(el,"#e1o",eng(dau)); setv(el,"#e2o",wpu.toFixed(2)); setv(el,"#e3o",rpu);
+  setv(el,"#e4o",bytes(B)); setv(el,"#e5o",k.toFixed(1)+"\u00d7"); setv(el,"#e6o",R.toFixed(1)+"\u00d7");
+  const wq=dau*wpu/86400*k, rq=dau*rpu/86400*k;
+  setv(el,"#er1",eng(wq)+"/s"); setv(el,"#er2",eng(rq)+"/s");
+  setv(el,"#er3",(rq/Math.max(wq,1e-9)).toFixed(0)+" : 1");
+  setv(el,"#er4",bytes(dau*wpu*B*365*5*R));
+  setv(el,"#er5",bytes(wq*B)+"/s");
+  setv(el,"#er6",Math.ceil(rq/(2000*0.6)).toLocaleString());
+});
+/* ---- D004 latency ladder rescaled ---- */
+(function(){
+  const rows=[["L1 cache","1 ns",1],["L2 cache","4 ns",4],["Mutex lock","17 ns",17],
+    ["Main memory","100 ns",100],["1 KB over 1 Gbps","10 \u00b5s",1e4],["NVMe 4K read","100 \u00b5s",1e5],
+    ["Datacenter RTT","500 \u00b5s",5e5],["HDD seek","9 ms",9e6],["CA \u2192 NL RTT","150 ms",1.5e8]];
+  const human=s=>{ // seconds -> human string
+    if(s<60)return s.toFixed(0)+" sec";
+    if(s<3600)return (s/60).toFixed(1)+" min";
+    if(s<86400)return (s/3600).toFixed(1)+" hours";
+    if(s<86400*365)return (s/86400).toFixed(1)+" days";
+    return (s/86400/365).toFixed(1)+" years";};
+  const host=document.getElementById("latbars"); if(!host)return;
+  const mx=Math.log10(1.5e8);
+  host.innerHTML=rows.map(([n,real,ns])=>{
+    const w=Math.log10(ns)/mx*100;
+    const cls=ns>=1e6?"hot":ns>=1e4?"amb":"";
+    return `<div class="bar"><span>${n}</span><span class="t"><i class="${cls}" style="width:${w.toFixed(1)}%"></i></span><span class="v">${human(ns)}</span></div>`;
+  }).join("")+`<p style="font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);margin:10px 0 0">
+  Bars are log-scaled. Read it as: if a memory access took 1 minute 40 seconds, a disk seek would take
+  104 days and a transatlantic round trip would take <b>4.8 years</b>. That is why you batch WAN calls.</p>`;
+})();
+/* ---- D006 composite SLO ---- */
+wire("#dm-slo", el=>{
+  const n=+$("#s1",el).value, a=+$("#s2",el).value/100, s=+$("#s3",el).value/100;
+  setv(el,"#s1o",n); setv(el,"#s2o",(a*100).toFixed(2)+"%"); setv(el,"#s3o",(s*100).toFixed(3)+"%");
+  const A=s*Math.pow(a,n);
+  const mins=(1-A)*30*24*60;
+  setv(el,"#sr1",(A*100).toFixed(3)+"%");
+  setv(el,"#sr2",mins<60?mins.toFixed(1)+" min":(mins/60).toFixed(2)+" h");
+  setv(el,"#sr3",((1-A)*100).toFixed(3)+"% of reqs");
+  const A2=s*Math.pow(a,Math.max(0,n-1));
+  const m2=(1-A2)*30*24*60;
+  setv(el,"#sr4",(A2*100).toFixed(3)+"% \u2192 "+(m2<60?m2.toFixed(1)+"m":(m2/60).toFixed(2)+"h"));
+});
+/* ---- D011 pool sizing ---- */
+wire("#dm-pool", el=>{
+  const cores=+$("#p1",el).value, C=+$("#p2",el).value, W=+$("#p3",el).value, lam=+$("#p4",el).value;
+  setv(el,"#p1o",cores); setv(el,"#p2o",C.toFixed(1)+" ms");
+  setv(el,"#p3o",W+" ms"); setv(el,"#p4o",lam.toLocaleString()+"/s");
+  const pool=Math.max(1,Math.round(cores*0.75*(1+W/C)));
+  const L=lam*(C+W)/1000;
+  const maxLam=pool/((C+W)/1000);
+  setv(el,"#pr1",pool);
+  setv(el,"#pr2",Math.round(L).toLocaleString());
+  setv(el,"#pr3",eng(maxLam)+"/s");
+  const cpuNeeded=lam*C/1000;
+  setv(el,"#pr4", cpuNeeded>cores*0.9 ? "CPU-bound \u2014 add cores"
+      : L>pool*1.2 ? "queueing \u2014 raise pool or cut W"
+      : "headroom OK");
+});
+</script>
+</div></main></div><script>/* ---------- signature element: the chapter ribbon ---------- */
+const SPEC = {
+  std: [
+    ["Hook — watch it break", 5,  "#B4232C"],
+    ["What you'll be able to do", 3, "#C97B2E"],
+    ["Prerequisite recap", 5, "#9A6A00"],
+    ["Core concept — whiteboard", 30, "#0E6E63"],
+    ["Deep dive — internals / math", 30, "#1B6E9B"],
+    ["Tradeoffs table", 10, "#4A3C9E"],
+    ["Real-world war story", 8, "#8A2E68"],
+    ["Interview angle", 6, "#5A5270"],
+    ["Homework + teaser", 3, "#23415E"]
+  ],
+  case: [
+    ["Problem + scoping questions", 6, "#B4232C"],
+    ["Functional + non-functional reqs", 8, "#C97B2E"],
+    ["Back-of-envelope estimation", 8, "#9A6A00"],
+    ["API design", 7, "#2E6E36"],
+    ["Data model + storage choice", 12, "#0E6E63"],
+    ["High-level architecture", 15, "#1B6E9B"],
+    ["Deep dive 1 — the hard part", 15, "#4A3C9E"],
+    ["Deep dive 2", 12, "#8A2E68"],
+    ["Bottlenecks + failure modes", 10, "#5A5270"],
+    ["Interview follow-ups", 7, "#23415E"]
+  ]
+};
+function fmtClock(min){const m=Math.floor(min),s=Math.round((min-m)*60);return m+":"+String(s).padStart(2,"0");}
+function buildRibbons(){
+  document.querySelectorAll(".ribbon").forEach(r=>{
+    const rt=parseFloat(r.dataset.runtime||"30");
+    const spec=SPEC[r.dataset.spec||"std"];
+    let acc=0;
+    r.innerHTML=spec.map(([label,pct,col])=>{
+      const start=acc*rt/100; acc+=pct;
+      return `<i style="width:${pct}%;background:${col}" data-l="${fmtClock(start)} · ${label} · ${Math.round(pct*rt/100*10)/10}m"></i>`;
+    }).join("");
+  });
+}
+
+/* ---------- scroll-spy table of contents ---------- */
+function spy(){
+  const links=[...document.querySelectorAll(".toc a")];
+  if(!links.length) return;
+  const map=new Map();
+  links.forEach(a=>{const el=document.querySelector(a.getAttribute("href"));if(el)map.set(el,a);});
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove("on"));
+        const a=map.get(e.target); if(a){a.classList.add("on");
+          const r=a.closest(".rail");
+          if(r&&window.innerWidth>980){const t=a.offsetTop-r.clientHeight/2;r.scrollTo({top:t,behavior:"smooth"});}}
+      }
+    });
+  },{rootMargin:"-8% 0px -80% 0px",threshold:0});
+  map.forEach((a,el)=>io.observe(el));
+}
+
+/* ---------- helpers used by inline demos ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function num(n,d=0){return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});}
+function bytes(b){
+  const u=["B","KB","MB","GB","TB","PB","EB"];let i=0;
+  while(b>=1024&&i<u.length-1){b/=1024;i++;}
+  return (b<10?b.toFixed(2):b<100?b.toFixed(1):Math.round(b))+" "+u[i];
+}
+function eng(n){
+  if(n>=1e12)return (n/1e12).toFixed(2)+"T";
+  if(n>=1e9) return (n/1e9).toFixed(2)+"B";
+  if(n>=1e6) return (n/1e6).toFixed(2)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(2)+"K";
+  return n.toFixed(n<10?2:0);
+}
+function wire(root,fn){
+  const el=typeof root==="string"?$(root):root; if(!el)return;
+  $$("input,select",el).forEach(i=>i.addEventListener("input",()=>fn(el)));
+  $$("button[data-act]",el).forEach(b=>b.addEventListener("click",()=>fn(el,b.dataset.act)));
+  fn(el);
+}
+function setv(el,sel,val){const t=$(sel,el);if(t)t.textContent=val;}
+function setbar(el,sel,pct,cls){
+  const t=$(sel,el); if(!t)return;
+  t.style.width=Math.max(0,Math.min(100,pct))+"%";
+  t.className=cls||"";
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  buildRibbons(); spy();
+  const b=document.createElement("button");
+  b.className="top"; b.textContent="\u2191"; b.setAttribute("aria-label","Back to top");
+  b.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+  document.body.appendChild(b);
+});
+</script></body></html>

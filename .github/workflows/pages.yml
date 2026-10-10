@@ -1,0 +1,49 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Publish only the combined index and the four tracks it links to.
+      # The .zip archives and the 100DL/ duplicate stay out of the site.
+      - name: Assemble site
+        run: |
+          mkdir _site
+          cp index.html _site/
+          cp -r 100ML 100-days-deep-learning 100NLP 100SystemDesign _site/
+
+      - name: Check internal links
+        run: python3 .github/scripts/check_links.py _site
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    # Pull requests only build and check links; pushes to main go live.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

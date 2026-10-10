@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 3 — Training Deep Networks Well | 100 Days of Deep Learning</title>
+<meta name="description" content="Phase 3 of 100 Days of Deep Learning: Training Deep Networks Well. 14 lessons, days 29–40, 10h 50m of video.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="../index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><b>Phase 3</b> · Training Deep Networks Well</span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  <span class="pagernav"><a class="iconbtn" href="phase-2.html" title="Previous phase">←</a><a class="iconbtn" href="phase-4.html" title="Next phase">→</a></span>
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+  <section class="wrap phasehero">
+    <p class="pnum">Phase 3 of 8 · Days 29–40 · Lessons 33–46</p>
+    <h1>Training Deep Networks Well</h1>
+    <p class="plede">The gap between a model that runs and a model that works. Schedules, regularization, normalization, and the diagnostic habits that turn a bad run into a fixed one.</p>
+    <ul class="statrow"><li><b>14</b> lessons</li><li><b>10h 50m</b> of video</li><li><b>113</b> chapters</li><li>Notes: <b>all 14</b></li></ul>
+    <div class="toc"><span class="tlbl">Everything on this page</span>
+      <ol><li><a class="todo" href="#l33"><span class="tn">D29</span><span class="tt">Learning Rate Schedules &amp; Warmup</span></a></li><li><a class="todo" href="#l34"><span class="tn">D30</span><span class="tt">Regularization I — Weight Penalties &amp; Early Stopping</span></a></li><li><a class="todo" href="#l35"><span class="tn">D31</span><span class="tt">Regularization II — Dropout &amp; Friends</span></a></li><li><a class="todo" href="#l36"><span class="tn">D32</span><span class="tt">Normalization I — Batch Normalization</span></a></li><li><a class="todo" href="#l37"><span class="tn">D33</span><span class="tt">Normalization II — Layer, Group, Instance, RMSNorm</span></a></li><li><a class="todo" href="#l38"><span class="tn">D34</span><span class="tt">Data Augmentation</span></a></li><li><a class="todo" href="#l39"><span class="tn">D35</span><span class="tt">Hyperparameter Tuning</span></a></li><li><a class="todo" href="#l40"><span class="tn">D36</span><span class="tt">Debugging Neural Networks</span></a></li><li><a class="todo" href="#l41"><span class="tn">D37</span><span class="tt">Experiment Tracking &amp; Reproducibility</span></a></li><li><a class="todo" href="#l42"><span class="tn">D38</span><span class="tt">Reading Loss Curves &amp; Diagnosing Training</span></a></li><li><a class="todo" href="#l43"><span class="tn">D39</span><span class="tt">Evaluation Metrics Done Properly</span></a></li><li><a class="todo" href="#l44"><span class="tn">D39-b</span><span class="tt">Mixed Precision, Gradient Accumulation &amp; Memory</span></a></li><li><a class="todo" href="#l45"><span class="tn">D40</span><span class="tt">Transfer Learning &amp; Fine-Tuning Fundamentals</span></a></li><li><a class="todo" href="#l46"><span class="tn">D40-b</span><span class="tt">Project Checkpoint 1 — End-to-End Classifier</span></a></li></ol>
+    </div>
+  </section>
+<article class="wrap lesson" id="l33">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 29</span><span>Lesson 33</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-033.html">single page ↗</a></div>
+      <h3 class="lesson-title">Learning Rate Schedules &amp; Warmup</h3>
+      <span class="lesson-no">33</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why a constant learning rate cannot converge</li><li>Step, exponential and polynomial decay</li>
+        <li>Cosine annealing</li><li>Linear warmup and why large batches need it</li>
+        <li>Warm restarts (SGDR)</li><li>The one-cycle policy</li>
+        <li>ReduceLROnPlateau</li><li>Schedulers in PyTorch, stepped correctly</li>
+        <li>Reading the LR curve alongside the loss curve</li>
+      </ol>
+    </div>
+
+    <h4>A constant learning rate never converges</h4>
+    <p>This is the fact that makes schedules mandatory rather than optional. SGD does not descend on the true loss — it descends on a noisy estimate from one mini-batch. Near a minimum the true gradient goes to zero but the noise does not, so each step is pure jitter of size roughly \(\eta\) times the gradient noise.</p>
+    <div class="box derive"><span class="lbl">The noise ball</span>
+      <p>Model the mini-batch gradient as the true gradient plus zero-mean noise, \(\hat{\mathbf g}=\mathbf g+\boldsymbol\xi\) with \(\E[\boldsymbol\xi\boldsymbol\xi\T]=\Sigma\). Near a quadratic minimum with curvature \(\lambda\), the stationary distribution of SGD has</p>
+      \[ \E\!\left[\|\boldsymbol\theta-\boldsymbol\theta^\ast\|^2\right] \;\approx\; \frac{\eta\,\operatorname{tr}\Sigma}{2\lambda-\eta\lambda^2} \;\xrightarrow[\ \eta\ \text{small}\ ]{}\; \frac{\eta\,\operatorname{tr}\Sigma}{2\lambda} \]
+      <p style="margin-bottom:0">The parameters orbit the minimum inside a ball whose <b>radius is proportional to \(\eta\)</b>. Halving the learning rate halves the radius. The only way to actually land at the bottom is to shrink \(\eta\) towards zero — which is exactly what a schedule does. Every drop you see in a loss curve immediately after an LR decay is this ball contracting.</p>
+    </div>
+
+    <h4>The schedules worth knowing</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Schedule</th><th>Formula (step \(t\) of \(T\))</th><th>Where it earns its place</th></tr></thead>
+      <tbody>
+        <tr><td><b>Step decay</b></td><td>\(\eta_t=\eta_0\gamma^{\lfloor t/s\rfloor}\)</td><td>The ImageNet classic: ×0.1 at epochs 30/60/90. Simple, still competitive, but the cliff edges are arbitrary.</td></tr>
+        <tr><td><b>Exponential</b></td><td>\(\eta_t=\eta_0\gamma^{t}\)</td><td>Smooth version of the above. Sensitive to \(\gamma\) — over a long run it either decays to nothing by epoch 10 or barely moves.</td></tr>
+        <tr><td><b>Polynomial</b></td><td>\(\eta_t=\eta_0(1-t/T)^p\)</td><td>\(p=1\) is linear-to-zero, the default in most LLM pretraining runs and in segmentation (\(p=0.9\)).</td></tr>
+        <tr><td><b>Cosine</b></td><td>\(\eta_t=\eta_{\min}+\tfrac12(\eta_0-\eta_{\min})\left(1+\cos\frac{\pi t}{T}\right)\)</td><td>The modern default. Slow at the start, fast in the middle, very slow at the end — spends its budget where it matters. Needs \(T\) known in advance.</td></tr>
+        <tr><td><b>One-cycle</b></td><td>up to \(\eta_{\max}\), then down to \(\eta_0/10^4\)</td><td>Superconvergence. The rising phase acts as regularisation; the long tail anneals. Excellent for short budgets.</td></tr>
+        <tr><td><b>Plateau</b></td><td>×\(\gamma\) when val stops improving</td><td>The only reactive option. Convenient when you have no idea how long training will take; usually beaten by a well-set cosine.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Warmup — and why it is not optional for Adam</h4>
+    <p>Warmup ramps the learning rate linearly from (near) zero to \(\eta_0\) over the first few hundred to few thousand steps:</p>
+    \[ \eta_t=\eta_0\cdot\min\!\left(1,\ \frac{t}{T_{\text{warm}}}\right) \]
+    <p>There are two independent reasons, and people usually only know the second one.</p>
+    <div class="box intuition"><span class="lbl">Reason 1 — Adam's second moment is garbage at step 1</span>
+      <p style="margin-bottom:0">Recall from Lesson 32 that Adam divides by \(\sqrt{\hat v_t}\). At small \(t\), \(\hat v_t\) is an average of one or two squared gradients, so its <em>variance</em> is enormous. Some coordinates get a denominator that happens to be tiny and take a wildly oversized step. This is not a scaling problem you can fix with a smaller \(\eta\) — it is an estimator-variance problem, and it goes away only once \(\hat v_t\) has averaged over \(\sim 1/(1-\beta_2)=1000\) steps. Warmup is a cheap way to survive that window. (RAdam attacks the same problem analytically.)</p>
+    </div>
+    <div class="box intuition"><span class="lbl">Reason 2 — large batches want a large \(\eta\) the model cannot yet take</span>
+      <p style="margin-bottom:0">The linear scaling rule from Lesson 29 says batch 8192 wants an LR 32× larger than batch 256. That LR is correct <em>once the weights are in a sane region</em>, but at initialisation the loss surface is steep and badly conditioned, and a 32× step diverges immediately. Warmup buys the network a few hundred steps to reach a region where the big step is safe.</p>
+    </div>
+    <p>Rules of thumb: <b>2–5% of total steps</b> for vision, <b>~2000 steps</b> for transformer pretraining regardless of run length, and <b>0</b> for small-batch SGD on a small model, where warmup does nothing but waste steps.</p>
+
+    <div class="demo" id="d-sched">
+      <div class="demo-head"><span class="dot"></span><b>Schedule shapes</b> · the same budget spent six different ways</div>
+      <div class="demo-body">
+        <canvas id="schCv" width="760" height="330" aria-label="Learning rate against training step for six schedules"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Schedule</span>
+            <select id="schSel">
+              <option value="const">constant</option>
+              <option value="step">step decay ×0.1</option>
+              <option value="exp">exponential</option>
+              <option value="cosine" selected>cosine</option>
+              <option value="linear">linear to zero</option>
+              <option value="onecycle">one-cycle</option>
+              <option value="sgdr">warm restarts (SGDR)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Warmup <b id="schWv">3%</b></span><input type="range" id="schW" min="0" max="20" step="1" value="3"></label>
+          <label class="ctrl"><span>Peak LR <b id="schPv">3.0e-4</b></span><input type="range" id="schP" min="-5" max="-1" step="0.1" value="-3.5"></label>
+          <label class="ctrl"><span><input type="checkbox" id="schCmp" checked> overlay cosine</span></label>
+        </div>
+        <div class="readout" id="schOut"></div>
+      </div>
+    </div>
+
+    <h4>Stepping the scheduler correctly</h4>
+    <pre><code>import math, torch
+from torch.optim.lr_scheduler import LambdaLR
+
+def warmup_cosine(optimizer, warmup_steps, total_steps, min_ratio=0.0):
+    def f(step):
+        if step &lt; warmup_steps:                       # linear ramp
+            return step / max(1, warmup_steps)
+        p = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        p = min(1.0, p)                                # clamp: never go past the floor
+        return min_ratio + (1 - min_ratio) * 0.5 * (1 + math.cos(math.pi * p))
+    return LambdaLR(optimizer, f)
+
+steps_per_epoch = len(train_loader)
+total = epochs * steps_per_epoch
+sched = warmup_cosine(opt, warmup_steps=int(0.03 * total), total_steps=total)
+
+for epoch in range(epochs):
+    for xb, yb in train_loader:
+        opt.zero_grad(set_to_none=True)
+        loss = criterion(model(xb), yb)
+        loss.backward()
+        opt.step()
+        sched.step()                                   # PER BATCH, because total is in batches
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · three ways to break a scheduler</span>
+      <p><b>1. Wrong granularity.</b> You compute <code>total</code> in batches but call <code>sched.step()</code> once per epoch. Your cosine then completes 0.3% of its curve and the LR never decays. The loss looks "stuck" and you blame the model. Decide once whether your schedule is per-step or per-epoch and make the denominator match.</p>
+      <p><b>2. Wrong order.</b> <code>sched.step()</code> must come <em>after</em> <code>opt.step()</code>. PyTorch warns about this but the warning fires once and scrolls away.</p>
+      <p style="margin-bottom:0"><b>3. Resuming without the scheduler.</b> Checkpoints must save <code>sched.state_dict()</code> too. Restore the model and optimizer but not the scheduler and you restart training at the peak LR, which undoes hours of annealing in about ten steps.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">Reading the two curves together</span>
+      <p style="margin-bottom:0">Always log LR on the same x-axis as loss. A loss drop that lines up exactly with an LR decay is the noise ball contracting — normal and healthy. A loss drop that happens <em>between</em> decays is real learning. If every improvement in your run is glued to a decay step, your LR was too high for the whole run and the model was never learning, only orbiting.</p>
+    </div>
+
+    <div class="box exercise"><span class="lbl">Exercise</span>
+      <p style="margin-bottom:0">Train the same CIFAR model three times for exactly 20 epochs: constant \(\eta\), step decay, and warmup+cosine. Plot all three loss curves on one axis. Then run the cosine version for 40 epochs and confirm that the 20-epoch cosine beats the 40-epoch cosine <em>truncated at epoch 20</em> — this is the reason cosine needs \(T\) known in advance.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l34">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 30</span><span>Lesson 34</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-034.html">single page ↗</a></div>
+      <h3 class="lesson-title">Regularization I — Weight Penalties &amp; Early Stopping</h3>
+      <span class="lesson-no">34</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>L2 penalty and its shrinkage effect</li><li>L1 and sparsity</li>
+        <li>Elastic net</li><li>The Bayesian view: L2 = Gaussian prior</li>
+        <li>Weight decay vs L2 in adaptive optimizers</li><li>What you must never decay</li>
+        <li>Early stopping with patience</li><li>Max-norm constraints</li>
+      </ol>
+    </div>
+
+    <h4>L2, and what it actually does to a weight</h4>
+    <p>Add a penalty on squared weight magnitude to the objective:</p>
+    \[ \tilde L(\mathbf w)=L(\mathbf w)+\frac{\lambda}{2}\|\mathbf w\|_2^2 \qquad\Longrightarrow\qquad \nabla\tilde L=\nabla L+\lambda\mathbf w \]
+    <p>Substitute into the SGD update and the effect becomes obvious:</p>
+    \[ \mathbf w\leftarrow\mathbf w-\eta(\nabla L+\lambda\mathbf w)=\underbrace{(1-\eta\lambda)}_{\text{shrink}}\mathbf w-\eta\nabla L \]
+    <p>Every step multiplies the weight by \((1-\eta\lambda)\) before the gradient is applied. That is the whole mechanism, and it is why the technique is called weight <em>decay</em>: absent any gradient signal, weights decay geometrically towards zero. A weight only stays large if the loss gradient keeps pushing it back out. L2 is therefore a running vote: <b>justify your magnitude or lose it</b>.</p>
+
+    <div class="box derive"><span class="lbl">Why L2 is a Gaussian prior</span>
+      <p>From Lesson 8, MAP estimation maximises \(\log p(\mathcal D\mid\mathbf w)+\log p(\mathbf w)\). Take an isotropic Gaussian prior \(\mathbf w\sim\mathcal N(0,\sigma_p^2 I)\):</p>
+      \[ \log p(\mathbf w)=-\frac{1}{2\sigma_p^2}\|\mathbf w\|_2^2+\text{const} \]
+      <p style="margin-bottom:0">Negate to get a loss and the penalty is exactly \(\frac{\lambda}{2}\|\mathbf w\|^2\) with \(\lambda=1/\sigma_p^2\). A <em>large</em> \(\lambda\) is a <em>narrow</em> prior — a strong prior belief that weights are small. Swap in a Laplace prior \(p(w)\propto e^{-|w|/b}\) and you get L1 instead. The two penalties are not tricks; they are two different statements about what you believe before seeing data.</p>
+    </div>
+
+    <h4>L1 and why it produces exact zeros</h4>
+    <p>The L1 gradient is \(\lambda\,\mathrm{sign}(w)\) — a <b>constant</b> pull towards zero regardless of how small \(w\) already is. L2's pull is \(\lambda w\), which vanishes as \(w\to0\). So L2 makes weights small; L1 makes them <em>exactly zero</em> and keeps them there, because at \(w=0\) the subgradient interval \([-\lambda,\lambda]\) can cancel the data gradient entirely. That is sparsity, and it is why L1 is used for feature selection and structured pruning rather than for general deep-network regularisation.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Penalty</th><th>Gradient</th><th>Effect on a weight</th><th>Typical use in DL</th></tr></thead>
+      <tbody>
+        <tr><td>L2 / weight decay</td><td>\(\lambda w\)</td><td>Geometric shrinkage, never exactly 0</td><td>Almost always. The default regulariser.</td></tr>
+        <tr><td>L1</td><td>\(\lambda\,\mathrm{sign}(w)\)</td><td>Constant pull, produces exact zeros</td><td>Sparsity, pruning, some embedding layers</td></tr>
+        <tr><td>Elastic net</td><td>\(\lambda_1\mathrm{sign}(w)+\lambda_2 w\)</td><td>Sparse but stable under correlated features</td><td>Rare in DL, common in classical ML</td></tr>
+        <tr><td>Max-norm</td><td>projection: \(\|\mathbf w_j\|_2\le c\)</td><td>Hard cap per neuron, no shrinkage below \(c\)</td><td>Historically paired with dropout; largely retired</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>The AdamW distinction, restated because it bites everyone</h4>
+    <p>Lesson 32 derived this; here is the practical form. Adding \(\lambda\mathbf w\) to the gradient means the penalty passes through Adam's per-parameter denominator \(\sqrt{\hat v}\). A weight with historically large gradients gets a large \(\hat v\) and therefore a <em>weaker</em> decay — the exact opposite of what you intended. Decoupled decay applies the shrink directly to the parameter, outside the adaptive machinery:</p>
+    \[ \text{L2 in Adam:}\quad \mathbf w\leftarrow\mathbf w-\eta\frac{\hat m+\lambda\mathbf w}{\sqrt{\hat v}+\epsilon} \qquad\qquad \text{AdamW:}\quad \mathbf w\leftarrow\mathbf w-\eta\frac{\hat m}{\sqrt{\hat v}+\epsilon}-\eta\lambda\mathbf w \]
+    <p>Use <code>torch.optim.AdamW</code>. If you find yourself typing <code>Adam(..., weight_decay=...)</code>, you almost certainly meant AdamW.</p>
+
+    <h4>What you must never decay</h4>
+    <pre><code>decay, no_decay = [], []
+for name, p in model.named_parameters():
+    if not p.requires_grad:
+        continue
+    # biases, and every 1-D parameter (LayerNorm/BatchNorm gains, embeddings' scale)
+    if p.ndim &lt; 2 or name.endswith(".bias"):
+        no_decay.append(p)
+    else:
+        decay.append(p)
+
+opt = torch.optim.AdamW(
+    [{"params": decay,    "weight_decay": 0.1},
+     {"params": no_decay, "weight_decay": 0.0}],
+    lr=3e-4, betas=(0.9, 0.95))
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · decaying your normalization gains</span>
+      <p style="margin-bottom:0">A LayerNorm gain \(\gamma\) is initialised to 1 and is <em>supposed</em> to sit near 1. Apply weight decay to it and you are actively pulling it towards 0, which scales the entire layer's output towards zero. On a transformer this shows up as a run that trains for a while and then quietly degrades. The same applies to biases: a bias has no capacity to overfit in the way a weight matrix does, and shrinking it just adds bias in the statistical sense. The <code>p.ndim &lt; 2</code> test above catches all of these in one line.</p>
+    </div>
+
+    <h4>Early stopping</h4>
+    <p>Track a validation metric, keep the best weights, and stop when it has not improved for <code>patience</code> evaluations. It is the cheapest regulariser in existence — it costs nothing and it is the only one that adapts to the run in front of you.</p>
+    <pre><code>class EarlyStopping:
+    def __init__(self, patience=10, min_delta=1e-4, mode="min"):
+        self.patience, self.min_delta, self.mode = patience, min_delta, mode
+        self.best, self.count, self.best_state = None, 0, None
+
+    def step(self, value, model):
+        better = (self.best is None or
+                  (value &lt; self.best - self.min_delta if self.mode == "min"
+                   else value &gt; self.best + self.min_delta))
+        if better:
+            self.best, self.count = value, 0
+            # keep on CPU so a long run does not hold a second model on the GPU
+            self.best_state = {k: v.detach().cpu().clone()
+                               for k, v in model.state_dict().items()}
+        else:
+            self.count += 1
+        return self.count &gt;= self.patience        # True -> stop
+
+    def restore(self, model):
+        if self.best_state is not None:
+            model.load_state_dict(self.best_state)
+</code></pre>
+    <div class="box intuition"><span class="lbl">Early stopping is L2 in disguise</span>
+      <p style="margin-bottom:0">For a linear model trained by gradient descent from \(\mathbf w=0\), stopping after \(t\) steps with learning rate \(\eta\) gives a solution provably close to L2-regularised regression with \(\lambda\approx 1/(\eta t)\). Train longer and you weaken the regularisation. This is why "train longer" and "reduce weight decay" so often produce the same symptom, and why tuning both at once is confusing — they are pulling the same lever from two ends.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">Sane starting values</span>
+      <p style="margin-bottom:0">CNN from scratch with SGD: \(\lambda=5\times10^{-4}\). Vision transformer or ConvNeXt with AdamW: \(\lambda=0.05\)–\(0.1\). LLM pretraining: \(\lambda=0.1\). Fine-tuning a pretrained model: \(\lambda=0.01\) or lower — the pretrained weights are already a strong prior and you do not want to erase it. Note the two orders of magnitude between the SGD and AdamW numbers; they are not comparable quantities, because decoupled decay is not scaled by the gradient magnitude.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l35">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 31</span><span>Lesson 35</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-035.html">single page ↗</a></div>
+      <h3 class="lesson-title">Regularization II — Dropout &amp; Friends</h3>
+      <span class="lesson-no">35</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Dropout mechanics, train vs inference</li><li>Inverted dropout scaling</li>
+        <li>Dropout as an ensemble of \(2^n\) networks</li><li>Where to place it — and why not after BatchNorm</li>
+        <li>Spatial / 2D dropout for convolutions</li><li>DropConnect</li>
+        <li>Stochastic depth and DropPath</li><li>Label smoothing, derived</li>
+      </ol>
+    </div>
+
+    <h4>The mechanism</h4>
+    <p>At training time, sample a Bernoulli mask and zero out units:</p>
+    \[ m_i\sim\text{Bernoulli}(1-p),\qquad \tilde h_i=\frac{m_i}{1-p}\,h_i \]
+    <p>The \(1/(1-p)\) factor is <b>inverted dropout</b>, and it is doing something specific: it makes \(\E[\tilde h_i]=h_i\), so the expected input to the next layer is unchanged. That means inference needs no adjustment at all — you simply stop dropping. (The original 2012 formulation instead multiplied by \((1-p)\) at test time; inverted dropout moved the cost into training, where it is free, and is what every framework implements today.)</p>
+
+    <div class="box intuition"><span class="lbl">Why it regularises</span>
+      <p>Two complementary stories, both true. <b>Ensembling:</b> a layer with \(n\) units has \(2^n\) possible masks, so training is approximately training \(2^n\) subnetworks with massively shared weights, and inference approximates averaging them. <b>Co-adaptation:</b> a unit cannot rely on any particular partner being present, so it must learn a feature that is independently useful. Fragile committee-of-two features get broken up.</p>
+      <p style="margin-bottom:0">The honest caveat: dropout's importance has fallen sharply. Modern convnets use it barely or not at all, because BatchNorm plus heavy augmentation already regularise. It remains standard in transformer FFN and attention blocks, and in the classifier head of a fine-tuned model.</p>
+    </div>
+
+    <h4>Where to put it</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Position</th><th>Verdict</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>After activation, before the next Linear</td><td class="tick">Standard</td><td>The canonical placement. <code>Linear → ReLU → Dropout → Linear</code>.</td></tr>
+        <tr><td>On the input layer</td><td>Occasionally</td><td>Low \(p\) (0.1–0.2) acts like input noise. Mostly superseded by real augmentation.</td></tr>
+        <tr><td>Immediately after BatchNorm</td><td style="color:var(--warn)">Avoid</td><td>See the pitfall below — this is a genuine, well-documented conflict.</td></tr>
+        <tr><td>Between conv layers, elementwise</td><td style="color:var(--warn)">Weak</td><td>Adjacent pixels in a feature map are highly correlated, so dropping single activations barely removes information. Use <code>Dropout2d</code>, which drops whole channels.</td></tr>
+        <tr><td>On the residual branch (DropPath)</td><td class="tick">Modern default</td><td>What ViT, ConvNeXt and Swin actually use. See below.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the dropout–BatchNorm variance shift</span>
+      <p style="margin-bottom:0">BatchNorm records running statistics during training, when dropout is active and the variance of its input is inflated by the \(1/(1-p)\) rescaling. At evaluation dropout switches off, the true variance drops, and BatchNorm is now normalising with statistics that no longer match its input. The result is a model whose validation accuracy is mysteriously worse than its training accuracy in a way that <em>is not overfitting</em>. Fix: put dropout only after the last BatchNorm in the network — conventionally in the classifier head — or drop it entirely and lean on augmentation.</p>
+    </div>
+
+    <h4>Stochastic depth / DropPath</h4>
+    <p>Instead of dropping units, drop entire residual <em>branches</em>:</p>
+    \[ \mathbf x_{l+1}=\mathbf x_l+\frac{b_l}{1-p_l}\,F_l(\mathbf x_l),\qquad b_l\sim\text{Bernoulli}(1-p_l) \]
+    <p>When \(b_l=0\) the block becomes the identity, so the network trains at a random shallower depth each step. The drop probability is normally ramped linearly with depth, \(p_l=\frac{l}{L}p_{\max}\), because early layers extract features everything else depends on while late layers are more redundant. \(p_{\max}\) runs 0.1 for a small ViT up to 0.5 for a very deep one — it is one of the two or three hyperparameters that actually matter when training a ViT from scratch.</p>
+
+    <h4>Label smoothing</h4>
+    <p>Replace the one-hot target with a slightly softened one:</p>
+    \[ y_k^{\text{LS}}=(1-\varepsilon)\,y_k+\frac{\varepsilon}{K} \]
+    <div class="box derive"><span class="lbl">What it does to the logits</span>
+      <p>With hard targets, cross-entropy is minimised only as \(\hat p_{\text{correct}}\to1\), which requires the correct logit to run away to \(+\infty\). Gradient descent will happily spend the entire run pushing one logit larger. With smoothing, the loss is minimised at a finite gap. For a uniform smoothing distribution, the optimal logit gap satisfies</p>
+      \[ z_{\text{correct}}-z_{\text{other}}=\log\frac{(K-1)(1-\varepsilon)}{\varepsilon} \]
+      <p style="margin-bottom:0">With \(K=1000\) and \(\varepsilon=0.1\) that is a gap of about 9.1 — large, but bounded. The model stops burning capacity on unbounded confidence, which improves calibration (Lesson 43) and typically adds a few tenths of a percent of accuracy. The cost: smoothed models are worse teachers for knowledge distillation, because the smoothing destroys the fine structure in the non-target logits that distillation feeds on.</p>
+    </div>
+    <pre><code># PyTorch has it built in — no need to hand-roll the targets
+criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1)
+
+# DropPath, the version used in timm / ViT / ConvNeXt
+class DropPath(torch.nn.Module):
+    def __init__(self, p=0.0):
+        super().__init__()
+        self.p = p
+
+    def forward(self, x):
+        if self.p == 0.0 or not self.training:
+            return x
+        keep = 1 - self.p
+        # one Bernoulli sample PER EXAMPLE, broadcast over all other dims
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        mask = x.new_empty(shape).bernoulli_(keep)
+        return x * mask / keep
+</code></pre>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · forgetting <code>model.eval()</code></span>
+      <p style="margin-bottom:0">Evaluate with dropout still active and your validation numbers become noisy and pessimistic, and they change every time you run them. The signature is a validation loss that is <em>higher</em> than the training loss from the very first epoch, plus non-reproducible eval results. The mirror-image bug is forgetting <code>model.train()</code> after evaluating, which silently disables dropout and BatchNorm updates for the rest of training. Wrap both in your loop so neither can be forgotten.</p>
+    </div>
+
+    <div class="box exercise"><span class="lbl">Exercise</span>
+      <p style="margin-bottom:0">Take the MNIST MLP from Lesson 26 and deliberately overfit it: widen to 2048 units and train 60 epochs with no regularisation. Record the train/val gap. Now add, one at a time, \(p=0.5\) dropout, then label smoothing 0.1, then weight decay \(10^{-4}\). Build the ablation table. You should find dropout dominant on this model — and you should find that on a BatchNorm CNN the ordering reverses.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l36">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 32</span><span>Lesson 36</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-036.html">single page ↗</a></div>
+      <h3 class="lesson-title">Normalization I — Batch Normalization</h3>
+      <span class="lesson-no">36</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The covariate shift story and the smoothing rebuttal</li><li>The exact BN formula</li>
+        <li>Learnable \(\gamma\) and \(\beta\)</li><li>Running statistics</li>
+        <li>Train vs eval divergence bugs</li><li>BN with small batches</li>
+        <li>BN's regularizing side-effect</li><li>Folding BN into the conv at inference</li>
+      </ol>
+    </div>
+
+    <h4>The formula, exactly</h4>
+    <p>For a mini-batch \(\mathcal B\) of size \(m\), per channel (or per feature):</p>
+    \[ \mu_{\mathcal B}=\frac1m\sum_{i=1}^m x_i,\qquad \sigma^2_{\mathcal B}=\frac1m\sum_{i=1}^m(x_i-\mu_{\mathcal B})^2 \]
+    \[ \hat x_i=\frac{x_i-\mu_{\mathcal B}}{\sqrt{\sigma^2_{\mathcal B}+\epsilon}},\qquad y_i=\gamma\,\hat x_i+\beta \]
+    <p>Two things are easy to miss. First, \(\gamma\) and \(\beta\) are <b>learnable</b>, one pair per channel — the layer can undo its own normalisation if that is what the loss wants, so BN adds capacity rather than removing it. Second, \(\mu_{\mathcal B}\) and \(\sigma_{\mathcal B}\) are functions of the batch, so they are part of the computational graph: the backward pass has three terms, one flowing through \(\hat x\) and two more through the mean and variance. This is why BN makes each example's gradient depend on the other examples in its batch — a fact with consequences everywhere below.</p>
+
+    <div class="box derive"><span class="lbl">The story, and the rebuttal</span>
+      <p>The 2015 paper explained BN as reducing "internal covariate shift" — the drift in each layer's input distribution as the layers below it update. It is an appealing story and it is largely wrong. Santurkar et al. (2018) injected deliberate distribution shift <em>after</em> BN layers and training was unaffected; they also measured covariate shift directly and found BN did not reliably reduce it.</p>
+      <p style="margin-bottom:0">The better explanation is that BN <b>smooths the loss landscape</b>. It reduces the Lipschitz constant of both the loss and its gradient, which means the gradient direction stays trustworthy over a larger step. That is a precise statement of the thing you actually observe: with BN you can raise the learning rate by an order of magnitude and it still converges. Know both stories — the original will be quoted at you in interviews, and the correction is the part that tells you what BN is good for.</p>
+    </div>
+
+    <h4>Train and eval are different functions</h4>
+    <p>At training time BN uses the batch statistics. At evaluation it must be deterministic and must work for a single example, so it uses running estimates accumulated during training:</p>
+    \[ \mu_{\text{run}}\leftarrow(1-\alpha)\,\mu_{\text{run}}+\alpha\,\mu_{\mathcal B} \]
+    <p>with \(\alpha=0.1\) in PyTorch (note: PyTorch's <code>momentum</code> argument is \(\alpha\), the weight on the <em>new</em> value — the opposite convention to TensorFlow and to optimizer momentum. This trips people up constantly).</p>
+
+    <div class="demo" id="d-bn">
+      <div class="demo-head"><span class="dot"></span><b>Normalization rescue</b> · the same badly-initialised network, with and without a norm layer</div>
+      <div class="demo-body">
+        <canvas id="bnCv" width="760" height="270" aria-label="Activation distributions through depth with and without normalization"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Normalization</span>
+            <select id="bnSel">
+              <option value="none" selected>none</option>
+              <option value="bn">BatchNorm</option>
+              <option value="ln">LayerNorm</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Init scale <b id="bnSv">0.60</b></span><input type="range" id="bnS" min="0.2" max="1.8" step="0.05" value="0.6"></label>
+          <label class="ctrl"><span>Batch size <b id="bnBv">64</b></span><input type="range" id="bnB" min="2" max="128" step="2" value="64"></label>
+        </div>
+        <div class="readout" id="bnOut"></div>
+      </div>
+    </div>
+
+    <h4>The small-batch failure</h4>
+    <p>The variance of a variance estimate from \(m\) samples scales as \(1/m\). At \(m=64\) the batch statistics are a decent proxy for the population; at \(m=2\) they are noise, and worse, the normalisation is <em>dominated</em> by whichever two examples happened to land together. Detection and segmentation models, which often run batch size 1–2 per GPU because the images are huge, were the original motivation for GroupNorm.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Per-GPU batch</th><th>BatchNorm behaviour</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>≥ 32</td><td>Healthy</td><td>Use BN.</td></tr>
+        <tr><td>8–32</td><td>Usable, noticeably noisier</td><td>BN is fine; consider SyncBN across GPUs.</td></tr>
+        <tr><td>2–8</td><td>Degrading fast</td><td>GroupNorm, or SyncBN if you have the interconnect.</td></tr>
+        <tr><td>1</td><td>Undefined — variance of one sample is 0</td><td>GroupNorm or LayerNorm. Never BN.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · three BN bugs you will meet</span>
+      <p><b>Gradient accumulation does not simulate a big batch for BN.</b> Accumulating 8 micro-batches of 4 gives you the gradient of batch 32 but the <em>normalisation</em> of batch 4, eight times over. BN statistics cannot be accumulated. This is a real and frequently missed limitation.</p>
+      <p><b>Fine-tuning with a tiny batch corrupts the running stats.</b> You load a pretrained ResNet, fine-tune with batch size 4, and accuracy on the source domain collapses — because 200 steps of batch-4 statistics have overwritten estimates that took an ImageNet run to build. Fix: <code>model.apply(lambda m: m.eval() if isinstance(m, nn.BatchNorm2d) else None)</code> to freeze the BN layers in eval mode while still training the weights.</p>
+      <p style="margin-bottom:0"><b>Bias before BN is dead weight.</b> <code>Conv2d(..., bias=True)</code> followed by BN: the bias is added and then immediately subtracted by \(\mu_{\mathcal B}\). It contributes nothing but occupies parameters and an optimizer state. Always <code>bias=False</code> on a conv that feeds a BN.</p>
+    </div>
+
+    <h4>Folding BN into the convolution for inference</h4>
+    <p>At inference BN is a fixed affine map, and an affine map composed with a convolution is just another convolution. Fold it and you delete the layer entirely — typically a 20–30% latency win on mobile:</p>
+    \[ W'=\frac{\gamma}{\sqrt{\sigma^2_{\text{run}}+\epsilon}}\,W,\qquad b'=\beta-\frac{\gamma\,\mu_{\text{run}}}{\sqrt{\sigma^2_{\text{run}}+\epsilon}} \]
+    <pre><code>@torch.no_grad()
+def fold_bn(conv, bn):
+    """Return a single Conv2d equivalent to conv followed by bn, at inference."""
+    w = conv.weight.clone()
+    scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)   # gamma / sigma
+    fused = torch.nn.Conv2d(conv.in_channels, conv.out_channels,
+                            conv.kernel_size, conv.stride,
+                            conv.padding, conv.dilation, conv.groups, bias=True)
+    fused.weight.copy_(w * scale.reshape(-1, 1, 1, 1))
+    b = conv.bias if conv.bias is not None else torch.zeros(conv.out_channels)
+    fused.bias.copy_((b - bn.running_mean) * scale + bn.bias)
+    return fused
+</code></pre>
+    <div class="box check"><span class="lbl">Verify the fold</span>
+      <p style="margin-bottom:0">Put both versions in <code>eval()</code>, push the same random tensor through, and assert the max absolute difference is below \(10^{-5}\). If it is not, you almost certainly forgot <code>eval()</code> on the original — in train mode BN uses batch statistics and the two will never match.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l37">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 33</span><span>Lesson 37</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-037.html">single page ↗</a></div>
+      <h3 class="lesson-title">Normalization II — Layer, Group, Instance &amp; RMSNorm</h3>
+      <span class="lesson-no">37</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>LayerNorm and why sequences need it</li><li>GroupNorm for small batches</li>
+        <li>InstanceNorm for style transfer</li><li>RMSNorm and modern LLMs</li>
+        <li>Pre-norm vs post-norm stability</li><li>Weight normalization</li>
+        <li>A comparison table across tasks</li>
+      </ol>
+    </div>
+
+    <h4>They differ in exactly one thing: which axes you average over</h4>
+    <p>Every normalization layer computes a mean and variance and rescales. The <em>only</em> thing separating BatchNorm, LayerNorm, InstanceNorm and GroupNorm is the set of axes the statistics are taken over. Fix that picture and the whole family collapses into one idea.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Which axes each normalization layer averages over, on an N by C by H by W activation tensor">
+        <text class="svg-ttl" x="20" y="22">WHAT EACH NORM AVERAGES OVER — activation tensor (N, C, H·W)</text>
+        <g transform="translate(20,44)">
+          <text class="svg-lbl-b" x="0" y="0">BatchNorm</text>
+          <text class="svg-lbl" x="0" y="150">over N and H·W,</text><text class="svg-lbl" x="0" y="166">per channel</text>
+          <rect x="0" y="14" width="150" height="120" fill="#0F1822" stroke="#2A3B4E"/>
+          <rect x="0" y="44" width="150" height="26" fill="#FFB454" opacity="0.34"/>
+          <rect x="0" y="44" width="150" height="26" fill="none" stroke="#FFB454"/>
+          <text class="svg-lbl" x="6" y="28">C₁</text><text class="svg-lbl" x="6" y="60">C₂</text>
+          <text class="svg-lbl" x="6" y="90">C₃</text><text class="svg-lbl" x="6" y="120">C₄</text>
+        </g>
+        <g transform="translate(200,44)">
+          <text class="svg-lbl-b" x="0" y="0">LayerNorm</text>
+          <text class="svg-lbl" x="0" y="150">over C and H·W,</text><text class="svg-lbl" x="0" y="166">per example</text>
+          <rect x="0" y="14" width="150" height="120" fill="#0F1822" stroke="#2A3B4E"/>
+          <rect x="42" y="14" width="34" height="120" fill="#5BC8E6" opacity="0.34"/>
+          <rect x="42" y="14" width="34" height="120" fill="none" stroke="#5BC8E6"/>
+          <text class="svg-lbl" x="4" y="148" opacity="0">x</text>
+        </g>
+        <g transform="translate(380,44)">
+          <text class="svg-lbl-b" x="0" y="0">InstanceNorm</text>
+          <text class="svg-lbl" x="0" y="150">over H·W only,</text><text class="svg-lbl" x="0" y="166">per example per channel</text>
+          <rect x="0" y="14" width="150" height="120" fill="#0F1822" stroke="#2A3B4E"/>
+          <rect x="42" y="44" width="34" height="26" fill="#B79CFF" opacity="0.40"/>
+          <rect x="42" y="44" width="34" height="26" fill="none" stroke="#B79CFF"/>
+        </g>
+        <g transform="translate(560,44)">
+          <text class="svg-lbl-b" x="0" y="0">GroupNorm (G=2)</text>
+          <text class="svg-lbl" x="0" y="150">over a group of channels</text><text class="svg-lbl" x="0" y="166">and H·W, per example</text>
+          <rect x="0" y="14" width="150" height="120" fill="#0F1822" stroke="#2A3B4E"/>
+          <rect x="42" y="14" width="34" height="56" fill="#93D97B" opacity="0.36"/>
+          <rect x="42" y="14" width="34" height="56" fill="none" stroke="#93D97B"/>
+          <rect x="42" y="78" width="34" height="56" fill="#93D97B" opacity="0.16"/>
+          <rect x="42" y="78" width="34" height="56" fill="none" stroke="#93D97B" stroke-dasharray="3 3"/>
+        </g>
+        <g transform="translate(20,208)">
+          <text class="svg-lbl" x="0" y="0">rows = channels · columns = examples in the batch · shaded = one set of statistics</text>
+          <text class="svg-lbl" x="0" y="18" fill="#FFB454">only BatchNorm crosses the batch axis — which is the entire source of its problems</text>
+        </g>
+      </svg>
+      <figcaption>Four layers, one idea. Everything that makes BatchNorm awkward — small batches, train/eval divergence, gradient accumulation, distributed sync — follows from that orange rectangle spanning the batch dimension.</figcaption>
+    </figure>
+
+    <h4>LayerNorm, and why sequences demand it</h4>
+    \[ \text{LN}(\mathbf x)=\gamma\odot\frac{\mathbf x-\mu}{\sqrt{\sigma^2+\epsilon}}+\beta,\qquad \mu=\frac1d\sum_{j=1}^d x_j,\quad \sigma^2=\frac1d\sum_{j=1}^d (x_j-\mu)^2 \]
+    <p>Statistics are computed over the feature dimension of a <em>single</em> token. Nothing crosses the batch, so: batch size 1 works, train and eval are the same function, there are no running statistics, gradient accumulation is exact, and no cross-GPU synchronisation is needed. For variable-length padded sequences this is not a convenience but a requirement — batch statistics over a tensor that is 40% padding are meaningless.</p>
+
+    <h4>RMSNorm — drop the mean</h4>
+    \[ \text{RMSNorm}(\mathbf x)=\gamma\odot\frac{\mathbf x}{\sqrt{\frac1d\sum_j x_j^2+\epsilon}} \]
+    <p>No mean subtraction, no \(\beta\). The claim, borne out empirically, is that the re-centring in LayerNorm contributes almost nothing and the re-scaling does all the work. You save one pass over the vector and a parameter tensor, which is worth roughly 7–10% of layer latency — meaningful when you run it twice per block across 80 blocks. Llama, T5, Gemma, Mistral and most current open-weight models use RMSNorm.</p>
+    <pre><code>class RMSNorm(torch.nn.Module):
+    def __init__(self, d, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = torch.nn.Parameter(torch.ones(d))
+
+    def forward(self, x):
+        # compute in fp32 even under autocast: the sum of squares overflows fp16 easily
+        dtype = x.dtype
+        x = x.float()
+        rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return (x * rms).to(dtype) * self.weight
+</code></pre>
+
+    <h4>Pre-norm vs post-norm</h4>
+    <p>The 2017 transformer put the norm <em>after</em> the residual add. Every modern model puts it <em>before</em> the sublayer:</p>
+    \[ \text{post:}\ \ \mathbf x_{l+1}=\text{LN}\big(\mathbf x_l+F(\mathbf x_l)\big) \qquad\qquad \text{pre:}\ \ \mathbf x_{l+1}=\mathbf x_l+F\big(\text{LN}(\mathbf x_l)\big) \]
+    <p>In the pre-norm form there is a clean identity path from the loss to every layer — nothing sits between \(\mathbf x_l\) and \(\mathbf x_{l+1}\) but an addition, exactly the condition from Lesson 28 that makes gradients flow. Post-norm puts a LayerNorm on that path, and its Jacobian shrinks the gradient at every one of the \(L\) layers.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th>Post-norm (2017)</th><th>Pre-norm (modern)</th></tr></thead>
+      <tbody>
+        <tr><td>Warmup</td><td>Required — diverges without it</td><td>Optional, still usually used</td></tr>
+        <tr><td>Depth beyond ~12 layers</td><td>Hard to train</td><td>Trains to 100+ layers</td></tr>
+        <tr><td>Final quality at equal depth</td><td>Slightly better</td><td>Slightly worse</td></tr>
+        <tr><td>Residual stream growth</td><td>Bounded by the norm</td><td>Grows with depth — needs a final norm before the head</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box pitfall"><span class="lbl">Pitfall · the missing final norm</span>
+      <p style="margin-bottom:0">In a pre-norm stack, nothing normalises the residual stream on its way out of the last block, so its magnitude grows roughly like \(\sqrt L\). Forget the final <code>LayerNorm</code> before the output projection and the logits come out scaled wrong — training still works, but slowly and with a strange loss curve. Every reference implementation has this layer; it is easy to omit when writing your own, and you will meet it again in Lesson 85.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">Choosing, in one line each</span>
+      <p style="margin-bottom:0"><b>Conv net, batch ≥ 32</b> → BatchNorm. <b>Conv net, tiny batch</b> (detection, segmentation, 3D medical) → GroupNorm, \(G=32\). <b>Anything sequential</b> (transformer, RNN) → LayerNorm, or RMSNorm if you are writing it yourself. <b>Style transfer / image-to-image</b> → InstanceNorm, because you specifically want to erase per-image contrast statistics. <b>Tiny batch on a transformer</b> → nothing changes; LayerNorm never cared about your batch size.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l38">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 34</span><span>Lesson 38</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-038.html">single page ↗</a></div>
+      <h3 class="lesson-title">Data Augmentation</h3>
+      <span class="lesson-no">38</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Augmentation as an encoded invariance</li><li>Geometric and photometric transforms</li>
+        <li>Test-time augmentation</li><li>mixup and manifold mixup</li>
+        <li>CutMix, Cutout, random erasing</li><li>AutoAugment → RandAugment → TrivialAugment</li>
+        <li>Text augmentation and why it often hurts</li><li>SpecAugment for audio</li>
+      </ol>
+    </div>
+
+    <h4>What you are really doing</h4>
+    <p>Augmentation is usually taught as "more data". That framing is misleading — a horizontally flipped cat carries almost no new information. The accurate framing is that you are <b>declaring an invariance</b>: you are telling the model that a specific transformation must not change the label. Every augmentation is a statement of prior knowledge about your task, and the statement can be false.</p>
+    <div class="box intuition"><span class="lbl">The test for whether an augmentation is legal</span>
+      <p style="margin-bottom:0">Apply it and ask: <em>would a human expert still give the same label?</em> Horizontal flip on ImageNet — yes. Horizontal flip on MNIST — no, a flipped 2 is not a 2, and a flipped 6 is definitely not a 9's problem you want. Vertical flip on satellite imagery — yes. Vertical flip on street scenes — no. Colour jitter on flowers — dangerous, since colour may be the class. Getting this wrong does not throw an error; it just costs you accuracy and you will never know why.</p>
+    </div>
+
+    <h4>mixup</h4>
+    <p>Take two examples and blend both inputs <em>and</em> labels with the same coefficient:</p>
+    \[ \lambda\sim\text{Beta}(\alpha,\alpha),\qquad \tilde{\mathbf x}=\lambda\mathbf x_i+(1-\lambda)\mathbf x_j,\qquad \tilde{\mathbf y}=\lambda\mathbf y_i+(1-\lambda)\mathbf y_j \]
+    <p>The blended image looks like a double exposure and means nothing to a human, yet it works consistently. The reason is that it forces the model's response to be <em>linear between training points</em>, which suppresses the wildly confident predictions that networks otherwise make in the empty space between classes. That is why mixup improves calibration (Lesson 43) at least as much as it improves accuracy, and why it also reduces vulnerability to adversarial examples.</p>
+    <p><b>CutMix</b> is the same idea with a spatial cut rather than a blend: paste a rectangular patch of image \(j\) into image \(i\), and set \(\lambda\) to the fraction of area retained. It preserves local statistics that mixup destroys, and it usually beats mixup on convnets.</p>
+
+    <h4>Learned policies, and the trend towards simplicity</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>How the policy is chosen</th><th>Search cost</th></tr></thead>
+      <tbody>
+        <tr><td><b>AutoAugment</b> (2018)</td><td>RL search over sub-policies</td><td>Thousands of GPU-hours</td></tr>
+        <tr><td><b>RandAugment</b> (2019)</td><td>Two numbers: \(N\) ops sampled uniformly, magnitude \(M\)</td><td>A small grid search over \((N,M)\)</td></tr>
+        <tr><td><b>TrivialAugment</b> (2021)</td><td>One random op, random magnitude. No hyperparameters at all.</td><td>Zero</td></tr>
+      </tbody>
+    </table></div>
+    <p>TrivialAugment matches or beats RandAugment on standard benchmarks while having nothing to tune. This is a useful lesson about the field in general: a large fraction of published complexity does not survive contact with a careful baseline. Start with TrivialAugment or RandAugment; reach for a searched policy only when you have evidence you need it.</p>
+
+    <pre><code>from torchvision.transforms import v2
+
+train_tf = v2.Compose([
+    v2.RandomResizedCrop(224, scale=(0.35, 1.0)),
+    v2.RandomHorizontalFlip(),
+    v2.TrivialAugmentWide(),
+    v2.ToImage(), v2.ToDtype(torch.float32, scale=True),
+    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    v2.RandomErasing(p=0.25),          # AFTER normalize: erases to zero = the channel mean
+])
+
+val_tf = v2.Compose([                   # deterministic. no randomness whatsoever.
+    v2.Resize(256), v2.CenterCrop(224),
+    v2.ToImage(), v2.ToDtype(torch.float32, scale=True),
+    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+# mixup / cutmix operate on the batch, so they belong after collation
+cutmix_or_mixup = v2.RandomChoice([v2.CutMix(num_classes=1000),
+                                   v2.MixUp(num_classes=1000)])
+for xb, yb in loader:
+    xb, yb = cutmix_or_mixup(xb, yb)    # yb becomes soft targets
+    loss = criterion(model(xb), yb)     # CrossEntropyLoss accepts soft targets
+</code></pre>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · four ways augmentation goes wrong</span>
+      <p><b>Augmenting the validation set.</b> Your validation number now measures performance on distorted images and is not comparable to anything. Validation transforms must be deterministic. This bug makes your model look worse than it is, so people rarely investigate.</p>
+      <p><b>Ordering RandomErasing before Normalize.</b> Erasing to 0 before normalisation means erasing to black, a real and unusual pixel value. After normalisation, 0 is the dataset mean — a genuinely uninformative value. The order matters.</p>
+      <p><b>Augmenting so hard the model cannot fit.</b> If training accuracy never rises above validation accuracy, your augmentation is stronger than your model. Turn it down. Heavy augmentation is for big models on small datasets.</p>
+      <p style="margin-bottom:0"><b>Assuming text works like images.</b> Synonym replacement and random deletion frequently <em>hurt</em> modern NLP models, because a pretrained language model already knows what a synonym is and your edit mostly introduces ungrammatical noise. Back-translation is the one that reliably survives. Be sceptical here in a way you need not be with images.</p>
+    </div>
+
+    <div class="box exercise"><span class="lbl">Exercise</span>
+      <p style="margin-bottom:0">On CIFAR-10 with a ResNet-18, run five configurations for 30 epochs each: none; flip+crop; flip+crop+TrivialAugment; the previous plus mixup; the previous plus random erasing. Record final accuracy and the train–val gap for each. Write down which single addition bought the most, and confirm that the gap shrinks monotonically even where accuracy does not.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l39">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 35</span><span>Lesson 39</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-039.html">single page ↗</a></div>
+      <h3 class="lesson-title">Hyperparameter Tuning</h3>
+      <span class="lesson-no">39</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>What to tune, in order of importance</li><li>Grid vs random search, and why random wins</li>
+        <li>Log-uniform sampling</li><li>Coarse-to-fine</li>
+        <li>Bayesian optimization and TPE</li><li>Hyperband and ASHA</li>
+        <li>Population-based training</li><li>Optuna, hands-on</li>
+        <li>Budget planning and honest reporting</li>
+      </ol>
+    </div>
+
+    <h4>The order that actually matters</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Rank</th><th>Hyperparameter</th><th>Search range</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><b>Learning rate</b></td><td>log-uniform over 3 decades</td><td>Dominates everything else combined. Tune it first, tune it alone.</td></tr>
+        <tr><td>2</td><td>Schedule + warmup length</td><td>cosine vs step; 0–10% warmup</td><td>Cheap to get right, expensive to get wrong.</td></tr>
+        <tr><td>3</td><td>Batch size</td><td>powers of 2 up to memory</td><td>Mostly a throughput decision — but changing it changes the optimal LR.</td></tr>
+        <tr><td>4</td><td>Weight decay</td><td>log-uniform \(10^{-5}\)–\(10^{-1}\)</td><td>Strongly coupled to LR. Search them jointly or not at all.</td></tr>
+        <tr><td>5</td><td>Augmentation strength</td><td>a couple of discrete levels</td><td>Bigger effect than architecture on small datasets.</td></tr>
+        <tr><td>6</td><td>Width / depth</td><td>2–3 sizes</td><td>Usually decided by your latency budget, not by search.</td></tr>
+        <tr><td>7</td><td>Everything else</td><td>—</td><td>\(\beta_1,\beta_2,\epsilon\), init scheme, activation. Leave at defaults until you have evidence.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Why random search beats grid search</h4>
+    <figure>
+      <svg viewBox="0 0 900 230" role="img" aria-label="Grid search versus random search over one important and one unimportant hyperparameter">
+        <text class="svg-ttl" x="20" y="22">NINE TRIALS, TWO PARAMETERS — ONE OF WHICH DOES NOTHING</text>
+        <g transform="translate(60,44)">
+          <text class="svg-lbl-b" x="0" y="0">grid search</text>
+          <rect x="0" y="12" width="150" height="150" fill="#0F1822" stroke="#2A3B4E"/>
+          <g fill="#5BC8E6">
+            <circle cx="25" cy="37" r="4.5"/><circle cx="75" cy="37" r="4.5"/><circle cx="125" cy="37" r="4.5"/>
+            <circle cx="25" cy="87" r="4.5"/><circle cx="75" cy="87" r="4.5"/><circle cx="125" cy="87" r="4.5"/>
+            <circle cx="25" cy="137" r="4.5"/><circle cx="75" cy="137" r="4.5"/><circle cx="125" cy="137" r="4.5"/>
+          </g>
+          <g stroke="#FFB454" stroke-width="1.5" stroke-dasharray="4 3">
+            <line x1="25" y1="12" x2="25" y2="162"/><line x1="75" y1="12" x2="75" y2="162"/><line x1="125" y1="12" x2="125" y2="162"/>
+          </g>
+          <text class="svg-lbl" x="0" y="182">learning rate (matters) →</text>
+          <text class="svg-lbl" x="0" y="200" fill="#FFB454">only 3 distinct values tried</text>
+        </g>
+        <g transform="translate(320,44)">
+          <text class="svg-lbl-b" x="0" y="0">random search</text>
+          <rect x="0" y="12" width="150" height="150" fill="#0F1822" stroke="#2A3B4E"/>
+          <g fill="#93D97B">
+            <circle cx="18" cy="52" r="4.5"/><circle cx="41" cy="118" r="4.5"/><circle cx="57" cy="28" r="4.5"/>
+            <circle cx="72" cy="146" r="4.5"/><circle cx="88" cy="74" r="4.5"/><circle cx="104" cy="35" r="4.5"/>
+            <circle cx="119" cy="129" r="4.5"/><circle cx="133" cy="63" r="4.5"/><circle cx="146" cy="98" r="4.5"/>
+          </g>
+          <g stroke="#FFB454" stroke-width="1" stroke-dasharray="3 3" opacity="0.75">
+            <line x1="18" y1="12" x2="18" y2="162"/><line x1="41" y1="12" x2="41" y2="162"/><line x1="57" y1="12" x2="57" y2="162"/>
+            <line x1="72" y1="12" x2="72" y2="162"/><line x1="88" y1="12" x2="88" y2="162"/><line x1="104" y1="12" x2="104" y2="162"/>
+            <line x1="119" y1="12" x2="119" y2="162"/><line x1="133" y1="12" x2="133" y2="162"/><line x1="146" y1="12" x2="146" y2="162"/>
+          </g>
+          <text class="svg-lbl" x="0" y="182">learning rate (matters) →</text>
+          <text class="svg-lbl" x="0" y="200" fill="#93D97B">9 distinct values tried — 3× the coverage</text>
+        </g>
+        <g transform="translate(580,60)">
+          <text class="svg-lbl-b" x="0" y="0">the argument</text>
+          <text class="svg-lbl" x="0" y="26">Grid spends its budget on the</text>
+          <text class="svg-lbl" x="0" y="44">product of all axes. Most axes</text>
+          <text class="svg-lbl" x="0" y="62">do nothing, so most of the</text>
+          <text class="svg-lbl" x="0" y="80">budget is wasted duplicating</text>
+          <text class="svg-lbl" x="0" y="98">the same value of the axis</text>
+          <text class="svg-lbl" x="0" y="116">that does matter.</text>
+          <text class="svg-lbl" x="0" y="146" fill="#FFB454">Random search gets N distinct</text>
+          <text class="svg-lbl" x="0" y="164" fill="#FFB454">values on EVERY axis, for free.</text>
+        </g>
+      </svg>
+      <figcaption>Bergstra &amp; Bengio (2012). The effect compounds with dimension: with 5 hyperparameters of which 1 matters, grid search wastes a factor of \(3^4=81\).</figcaption>
+    </figure>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · sampling learning rates uniformly</span>
+      <p style="margin-bottom:0"><code>uniform(1e-5, 1e-1)</code> puts 90% of its samples above \(10^{-2}\) — a region where almost every model diverges. You will run 50 trials and see 45 NaNs. Learning rates, weight decay and \(\epsilon\) are <b>scale parameters</b> and must be sampled log-uniformly: <code>10 ** uniform(-5, -1)</code>, or <code>trial.suggest_float("lr", 1e-5, 1e-1, log=True)</code>. This single mistake wastes more compute than any other in tuning.</p>
+    </div>
+
+    <h4>Beyond random: spend less on bad trials</h4>
+    <p>Random search is embarrassingly parallel and hard to beat on a small budget, but it is wasteful in one specific way — it runs every trial to completion, including the obviously terrible ones. The two fixes are orthogonal and compose:</p>
+    <ul>
+      <li><b>Model where to sample next</b> — Bayesian optimization fits a surrogate over the objective and picks points with high expected improvement. TPE (the Optuna default) instead models \(p(\text{config}\mid\text{good})\) and \(p(\text{config}\mid\text{bad})\) and maximises their ratio, which handles conditional and categorical spaces gracefully.</li>
+      <li><b>Kill bad trials early</b> — Successive Halving runs \(n\) configs for a small budget, keeps the top \(1/\eta\), multiplies their budget by \(\eta\), repeats. Hyperband wraps this in an outer loop over the aggressiveness of the halving; ASHA makes it asynchronous so no worker ever idles waiting for a rung to fill. This is usually the bigger win of the two.</li>
+      <li><b>Population-based training</b> — train a population in parallel, and periodically have poor performers copy a good performer's weights and perturb its hyperparameters. Uniquely, this produces a <em>schedule</em> rather than a fixed value, which is why it works well for RL and for augmentation strength.</li>
+    </ul>
+
+    <pre><code>import optuna
+
+def objective(trial):
+    lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
+    wd = trial.suggest_float("wd", 1e-6, 1e-1, log=True)
+    p  = trial.suggest_float("dropout", 0.0, 0.5, step=0.1)
+
+    model, opt = build(dropout=p, lr=lr, wd=wd)
+    for epoch in range(MAX_EPOCHS):
+        train_one_epoch(model, opt)
+        acc = evaluate(model)
+        trial.report(acc, epoch)              # feed the pruner
+        if trial.should_prune():              # ASHA kills it here
+            raise optuna.TrialPruned()
+    return acc
+
+study = optuna.create_study(
+    direction="maximize",
+    sampler=optuna.samplers.TPESampler(n_startup_trials=10),   # random for the first 10
+    pruner=optuna.pruners.HyperbandPruner())
+study.optimize(objective, n_trials=60)
+print(study.best_params, study.best_value)
+</code></pre>
+
+    <div class="box intuition"><span class="lbl">Tune small, transfer up</span>
+      <p style="margin-bottom:0">You cannot afford 60 trials of your largest model. The standard move is to tune on a smaller proxy — fewer layers, narrower, fewer steps — and transfer the result. Naively this fails, because the optimal learning rate shifts as width grows. Maximal Update Parametrization (μP) fixes the parametrization so that the optimal LR is <em>width-invariant</em>, letting you tune a 40M model and use the same LR at 6B. If you are ever going to train something large, this idea saves more compute than anything else in this lesson.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · tuning on the test set</span>
+      <p style="margin-bottom:0">Run 200 trials, select the best by test accuracy, and report that number. It is inflated, and the amount of inflation grows with the number of trials — you have used the test set as a training signal 200 times. Use a validation split for all selection, and touch the test set exactly once, at the end, after every decision is frozen. If your dataset is too small to give up a validation split, use nested cross-validation and accept the cost. Report the search budget alongside the number; "best of 200 trials" and "best of 3" are not the same claim.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l40">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 36</span><span>Lesson 40</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-040.html">single page ↗</a></div>
+      <h3 class="lesson-title">Debugging Neural Networks</h3>
+      <span class="lesson-no">40</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The overfit-a-single-batch test</li><li>Shape mismatch and silent broadcasting</li>
+        <li>Forgetting <code>zero_grad</code></li><li>Wrong loss / activation pairing</li>
+        <li>Label misalignment</li><li>NaN hunting</li>
+        <li>Check the data before you blame the model</li><li>A 20-point checklist</li>
+      </ol>
+    </div>
+
+    <h4>The single most useful test in deep learning</h4>
+    <p>Before anything else: take <b>one</b> mini-batch, turn off augmentation, dropout and weight decay, and train on that batch alone for a few hundred steps. A correct network with a correct training loop will drive the loss to essentially zero — it has more than enough capacity to memorise 32 examples. If it cannot, you have a bug, and it is in the code rather than in the hyperparameters.</p>
+    <pre><code>def overfit_one_batch(model, batch, criterion, steps=300, lr=1e-3):
+    model.train()
+    xb, yb = batch
+    opt = torch.optim.Adam(model.parameters(), lr=lr)   # no weight decay
+    for i in range(steps):
+        opt.zero_grad(set_to_none=True)
+        loss = criterion(model(xb), yb)
+        loss.backward()
+        opt.step()
+        if i % 50 == 0 or i == steps - 1:
+            print(f"step {i:4d}  loss {loss.item():.6f}")
+    assert loss.item() &lt; 1e-3, "cannot overfit one batch -> there is a bug, not a tuning problem"
+</code></pre>
+    <div class="box intuition"><span class="lbl">What the failure modes tell you</span>
+      <p style="margin-bottom:0"><b>Loss is flat from step 0</b> → gradients are not reaching the parameters. Check <code>requires_grad</code>, check that you did not <code>detach()</code> something, check that the optimizer was given the right parameter list. <b>Loss falls then plateaus well above zero</b> → the labels are not deducible from the inputs, i.e. label misalignment. <b>Loss goes to NaN</b> → see the NaN section. <b>Loss goes to zero</b> → your model and loop are fine, and every remaining problem is data, regularisation or optimisation.</p>
+    </div>
+
+    <h4>Check the initial loss</h4>
+    <p>Before a single step, a correctly initialised classifier should predict close to uniform, so the loss should be \(\log K\). For 10 classes that is 2.303; for 1000 classes, 6.908. For binary cross-entropy it is \(\log 2=0.693\). If your run starts at 8.5 on a 10-class problem, the output layer has been initialised with a large scale, or you double-applied a softmax, or your labels are out of range. This costs five seconds and catches an enormous class of bugs.</p>
+
+    <h4>The loss/activation pairing table</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Your final layer outputs</th><th>Correct PyTorch loss</th><th>What happens if you get it wrong</th></tr></thead>
+      <tbody>
+        <tr><td>Raw logits, multiclass</td><td><code>CrossEntropyLoss</code></td><td>Applies log-softmax internally.</td></tr>
+        <tr><td>Log-probabilities (<code>log_softmax</code> applied)</td><td><code>NLLLoss</code></td><td>Using <code>CrossEntropyLoss</code> here softmaxes twice: the distribution flattens, gradients shrink, training crawls and never fails loudly.</td></tr>
+        <tr><td>Raw logits, binary / multilabel</td><td><code>BCEWithLogitsLoss</code></td><td>The numerically stable form from Lesson 10.</td></tr>
+        <tr><td>Probabilities after <code>sigmoid</code></td><td><code>BCELoss</code></td><td>Works, but overflows to <code>inf</code> at confident predictions. Never do this; use the logits version.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box pitfall"><span class="lbl">Pitfall · the double softmax</span>
+      <p style="margin-bottom:0">This is the most common silent bug in the whole of deep learning, because nothing crashes. You write <code>return F.softmax(self.fc(x), dim=1)</code> because it feels tidy, then pass that to <code>CrossEntropyLoss</code>, which softmaxes it again. The model still trains — just badly, converging to maybe 85% where it should reach 98%. The tell is that your logits, once printed, all sit inside \([0,1]\). Your model's <code>forward</code> should return <b>raw logits</b>, full stop; apply softmax only in the code that displays a probability to a human.</p>
+    </div>
+
+    <h4>Hunting NaNs</h4>
+    <p>NaNs come from a short list of places: \(\log(0)\), \(0/0\), \(\sqrt{0}\) in the backward pass (the gradient of \(\sqrt x\) at 0 is infinite), overflow in fp16 (Lesson 44), and a learning rate high enough to blow the weights up in one step. Find the first one, not the thousandth:</p>
+    <pre><code># 1. Which layer produces the first non-finite value?
+def nan_hook(name):
+    def hook(module, inp, out):
+        t = out[0] if isinstance(out, tuple) else out
+        if torch.is_tensor(t) and not torch.isfinite(t).all():
+            raise RuntimeError(f"non-finite output in {name} ({module.__class__.__name__})")
+    return hook
+
+for name, m in model.named_modules():
+    m.register_forward_hook(nan_hook(name))
+
+# 2. Or let autograd find it in the BACKWARD pass (slow — debug runs only)
+with torch.autograd.detect_anomaly():
+    loss.backward()
+
+# 3. Standing guard in the real loop: skip the step, do not poison the weights
+if not torch.isfinite(loss):
+    print("non-finite loss, skipping batch")
+    opt.zero_grad(set_to_none=True)
+    continue
+</code></pre>
+
+    <h4>The checklist</h4>
+    <div class="box check"><span class="lbl">Twenty things to verify, in order</span>
+      <ol style="margin:0 0 0 18px; padding:0">
+        <li>Can you overfit one batch to ~0 loss?</li>
+        <li>Is the initial loss \(\log K\)?</li>
+        <li>Have you looked at 20 raw training examples <em>after</em> the full transform pipeline, with their labels, plotted?</li>
+        <li>Do the label indices actually fall in \([0,K)\)?</li>
+        <li>Are inputs normalised with statistics computed on the training split only?</li>
+        <li>Does <code>forward</code> return raw logits?</li>
+        <li>Is the loss paired correctly with the output (table above)?</li>
+        <li>Is <code>zero_grad</code> called every step?</li>
+        <li>Is <code>model.train()</code> / <code>model.eval()</code> set in the right places?</li>
+        <li>Is the optimizer holding the parameters of the model you are actually training?</li>
+        <li>Do all parameters have non-<code>None</code>, non-zero <code>.grad</code> after a backward?</li>
+        <li>Is the update-to-weight ratio near \(10^{-3}\) (Lesson 28)?</li>
+        <li>Does the validation set overlap the training set?</li>
+        <li>Do X and y stay aligned through every shuffle and every split?</li>
+        <li>Is the scheduler stepped at the right granularity?</li>
+        <li>Is augmentation applied to train only?</li>
+        <li>Does the loss curve respond at all to a 10× learning-rate change?</li>
+        <li>Is the model on the same device as the data, and in the expected dtype?</li>
+        <li>Does a random-guess baseline actually score what you expect?</li>
+        <li>Does a trivial baseline (majority class, or nearest neighbour on raw pixels) beat you? If so, stop tuning and go read your data.</li>
+      </ol>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · debugging the model when the bug is in the data</span>
+      <p style="margin-bottom:0">A large majority of "the model won't learn" reports are label bugs, leakage, or a transform that destroys the signal. Item 3 on that list — <em>plot the images after the transform pipeline, with their labels</em> — finds more bugs than any amount of architecture tinkering, and almost nobody does it first. If your normalisation constants are wrong, the plotted images will look obviously wrong. If your labels are shifted by one, you will see it instantly. Ten minutes with <code>matplotlib</code> beats a day of hyperparameter search.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l41">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 37</span><span>Lesson 41</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-041.html">single page ↗</a></div>
+      <h3 class="lesson-title">Experiment Tracking &amp; Reproducibility</h3>
+      <span class="lesson-no">41</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>TensorBoard, Weights &amp; Biases, MLflow</li><li>What to log — beyond loss and accuracy</li>
+        <li>Config management with Hydra and YAML</li><li>Seeding Python, NumPy, torch and CUDA</li>
+        <li>The DataLoader worker seed bug</li><li>Deterministic algorithms and their cost</li>
+        <li>Versioning data and code</li><li>Structuring an experiments repo</li>
+      </ol>
+    </div>
+
+    <h4>The problem tracking solves</h4>
+    <p>By your twentieth run you will have twenty models, and no reliable way to answer "which one was the good one, and what was different about it?" Notebook cells get edited in place. Filenames like <code>model_v3_final_REAL.pt</code> accumulate. The purpose of a tracker is to make the answer to that question mechanical rather than archaeological.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Tool</th><th>Runs</th><th>Best for</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td><b>TensorBoard</b></td><td>Local, reads a log directory</td><td>Quick local runs; already installed; excellent histogram and embedding views</td><td>Free, no account</td></tr>
+        <tr><td><b>Weights &amp; Biases</b></td><td>Hosted (self-host available)</td><td>Comparing dozens of runs, sweeps, sharing a link with someone</td><td>Free for personal use</td></tr>
+        <tr><td><b>MLflow</b></td><td>Self-hosted</td><td>Teams that also need a model registry and deployment stage gates</td><td>Free, you run the server</td></tr>
+        <tr><td><b>A CSV file</b></td><td>—</td><td>Genuinely fine for your first 10 experiments. Do not let tooling become procrastination.</td><td>Free</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>What to log</h4>
+    <p>Loss and accuracy are the obvious ones and the least diagnostic. The list that actually saves you:</p>
+    <ul>
+      <li><b>Learning rate</b> at every step — so you can align loss drops with schedule events.</li>
+      <li><b>Gradient norm</b>, global and per-layer group. A spike here precedes a loss spike; a norm collapsing to \(10^{-8}\) is a dead layer.</li>
+      <li><b>Update-to-weight ratio</b> \(\eta\|\Delta w\|/\|w\|\) — should sit near \(10^{-3}\) (Lesson 28).</li>
+      <li><b>Throughput</b> in examples/sec and the GPU utilisation. A run at 30% utilisation is a data-loading problem, and you will not notice it from the loss curve.</li>
+      <li><b>The full config</b>, the git commit hash, and whether the working tree was dirty.</li>
+      <li><b>A sample of predictions</b> — a grid of the worst-scoring validation examples each epoch. This is the single most informative artifact and almost nobody logs it.</li>
+    </ul>
+
+    <pre><code>import subprocess, torch, wandb
+
+def git_state():
+    h = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"]).strip())
+    return {"commit": h, "dirty": dirty}
+
+wandb.init(project="dl-100", config={**cfg, **git_state()})
+
+def grad_norm(model):
+    total = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            total += p.grad.detach().pow(2).sum().item()
+    return total ** 0.5
+
+# ... inside the loop, after backward() and before opt.step()
+wandb.log({"train/loss": loss.item(),
+           "train/lr": sched.get_last_lr()[0],
+           "train/grad_norm": grad_norm(model),
+           "train/imgs_per_sec": n_seen / elapsed}, step=global_step)
+</code></pre>
+
+    <h4>Seeding — and the bug in every tutorial</h4>
+    <pre><code>import os, random, numpy as np, torch
+
+def seed_everything(seed: int):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+def seed_worker(worker_id):
+    # torch gives each worker a distinct base seed; derive python/numpy seeds FROM it
+    s = torch.initial_seed() % 2**32
+    np.random.seed(s)
+    random.seed(s)
+
+loader = DataLoader(ds, batch_size=64, num_workers=8, shuffle=True,
+                    worker_init_fn=seed_worker,
+                    generator=torch.Generator().manual_seed(seed))
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · every DataLoader worker generating the same "random" numbers</span>
+      <p style="margin-bottom:0">When PyTorch forks worker processes, each inherits the parent's NumPy random state <em>unchanged</em>. If your <code>Dataset.__getitem__</code> uses <code>np.random</code> for augmentation — which is extremely common — then with 8 workers, examples 0–7 of every batch receive <b>identical</b> augmentation, as do 8–15, and so on. Your augmentation diversity silently drops by a factor of 8. This has been found in published codebases. The <code>worker_init_fn</code> above is the fix; alternatively use <code>torch</code>'s RNG inside the dataset, which PyTorch seeds per-worker correctly.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">How much determinism is worth paying for</span>
+      <p>Full bitwise determinism requires <code>torch.use_deterministic_algorithms(True)</code> and <code>cudnn.benchmark=False</code>, and costs real throughput — some ops have no deterministic kernel and will simply raise. It is worth it while chasing a specific bug, and rarely worth it otherwise.</p>
+      <p style="margin-bottom:0">What you actually need is <b>reproducible conclusions</b>, not reproducible bits. That means: run every important comparison with 3 seeds and report mean ± std. If your improvement is 0.3% and your seed-to-seed standard deviation is 0.4%, you have not measured an improvement — you have measured noise, and no amount of determinism flags will change that.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l42">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 38</span><span>Lesson 42</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-042.html">single page ↗</a></div>
+      <h3 class="lesson-title">Reading Loss Curves &amp; Diagnosing Training</h3>
+      <span class="lesson-no">42</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Healthy vs pathological curves</li><li>Interpreting the train–val gap</li>
+        <li>Plateaus and how to break them</li><li>Loss spikes</li>
+        <li>Double descent</li><li>Grokking</li>
+        <li>When to stop</li><li>Benchmarking against a baseline</li>
+      </ol>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 900 300" role="img" aria-label="Six characteristic loss curve shapes and what each one means">
+        <text class="svg-ttl" x="20" y="22">SIX CURVES YOU WILL MEET — train (amber) vs validation (cyan)</text>
+        <g transform="translate(20,40)">
+          <rect x="0" y="0" width="270" height="100" fill="#0F1822" stroke="#2A3B4E"/>
+          <path d="M8 14 C 60 60, 120 82, 262 90" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <path d="M8 18 C 60 64, 120 84, 262 88" fill="none" stroke="#5BC8E6" stroke-width="2" stroke-dasharray="4 3"/>
+          <text class="svg-lbl-b" x="8" y="-6">healthy</text>
+          <text class="svg-lbl" x="8" y="118">both fall, small gap, still improving</text>
+          <text class="svg-lbl" x="8" y="134" fill="#93D97B">→ keep training</text>
+        </g>
+        <g transform="translate(315,40)">
+          <rect x="0" y="0" width="270" height="100" fill="#0F1822" stroke="#2A3B4E"/>
+          <path d="M8 14 C 60 50, 120 78, 262 92" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <path d="M8 20 C 70 46, 110 40, 262 24" fill="none" stroke="#5BC8E6" stroke-width="2" stroke-dasharray="4 3"/>
+          <circle cx="112" cy="41" r="4" fill="#FF7B87"/>
+          <text class="svg-lbl-b" x="8" y="-6">overfitting</text>
+          <text class="svg-lbl" x="8" y="118">val turns up while train keeps falling</text>
+          <text class="svg-lbl" x="8" y="134" fill="#FF7B87">→ regularise, augment, or stop at the dot</text>
+        </g>
+        <g transform="translate(610,40)">
+          <rect x="0" y="0" width="270" height="100" fill="#0F1822" stroke="#2A3B4E"/>
+          <path d="M8 30 L 262 34" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <path d="M8 36 L 262 40" fill="none" stroke="#5BC8E6" stroke-width="2" stroke-dasharray="4 3"/>
+          <text class="svg-lbl-b" x="8" y="-6">not learning</text>
+          <text class="svg-lbl" x="8" y="118">flat from step 0, both curves</text>
+          <text class="svg-lbl" x="8" y="134" fill="#FF7B87">→ a bug, or LR far too small</text>
+        </g>
+        <g transform="translate(20,180)">
+          <rect x="0" y="0" width="270" height="100" fill="#0F1822" stroke="#2A3B4E"/>
+          <path d="M8 60 L 40 22 L 60 78 L 90 20 L 120 82 L 150 26 L 190 76 L 230 30 L 262 70" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <text class="svg-lbl-b" x="8" y="-6">LR too high</text>
+          <text class="svg-lbl" x="8" y="118">violent oscillation, no downward trend</text>
+          <text class="svg-lbl" x="8" y="134" fill="#FF7B87">→ divide LR by 10, add warmup</text>
+        </g>
+        <g transform="translate(315,180)">
+          <rect x="0" y="0" width="270" height="100" fill="#0F1822" stroke="#2A3B4E"/>
+          <path d="M8 16 C 50 52, 80 62, 130 64 L 150 64 C 200 63, 220 88, 262 92" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <line x1="150" y1="8" x2="150" y2="96" stroke="#93D97B" stroke-width="1.4" stroke-dasharray="3 3"/>
+          <text class="svg-lbl" x="154" y="20" fill="#93D97B">LR decay</text>
+          <text class="svg-lbl-b" x="8" y="-6">plateau then step</text>
+          <text class="svg-lbl" x="8" y="118">flat, then drops exactly at the decay</text>
+          <text class="svg-lbl" x="8" y="134" fill="#FFB454">→ normal: the noise ball contracting</text>
+        </g>
+        <g transform="translate(610,180)">
+          <rect x="0" y="0" width="270" height="100" fill="#0F1822" stroke="#2A3B4E"/>
+          <path d="M8 20 C 50 56, 90 70, 130 72 L 160 71 C 175 70, 178 40, 186 40 C 196 40, 200 76, 230 82 L 262 86" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <circle cx="184" cy="41" r="4" fill="#FF7B87"/>
+          <text class="svg-lbl-b" x="8" y="-6">loss spike</text>
+          <text class="svg-lbl" x="8" y="118">sudden jump, then recovery</text>
+          <text class="svg-lbl" x="8" y="134" fill="#FF7B87">→ clip gradients; skip non-finite batches</text>
+        </g>
+      </svg>
+      <figcaption>Print this. Nine times out of ten, diagnosing a run is recognising which of these six shapes you are looking at.</figcaption>
+    </figure>
+
+    <h4>The train–val gap, read properly</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Train loss</th><th>Val loss</th><th>Diagnosis</th><th>Move</th></tr></thead>
+      <tbody>
+        <tr><td>High</td><td>High</td><td>Underfitting — the model cannot represent the task yet</td><td>Bigger model, longer training, higher LR, <em>less</em> regularisation</td></tr>
+        <tr><td>Low</td><td>High</td><td>Overfitting</td><td>More data, more augmentation, more regularisation, smaller model</td></tr>
+        <tr><td>Low</td><td>Low</td><td>Working</td><td>Ship it, or push the capacity up and repeat</td></tr>
+        <tr><td>High</td><td>Low</td><td>Not a paradox — dropout and augmentation are active in training and not in eval; also small val sets are noisy</td><td>Compare like with like before worrying</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Two phenomena that break the classical story</h4>
+    <div class="box intuition"><span class="lbl">Double descent</span>
+      <p style="margin-bottom:0">Classical statistics predicts a U-shaped test error as model capacity grows: underfit, sweet spot, overfit. What large networks actually show is that test error rises to a peak at the <em>interpolation threshold</em> — the point where the model has just enough parameters to fit the training set exactly — and then <b>falls again</b> as you keep growing. Past that threshold, more parameters make things better. This is why "bigger model, more overfitting" is bad advice in the modern regime, and why the field kept scaling long past the point classical theory said to stop. The same shape appears along the <em>epoch</em> axis too, which is why a val loss that turns up at epoch 40 may turn back down by epoch 200.</p>
+    </div>
+    <div class="box intuition"><span class="lbl">Grokking</span>
+      <p style="margin-bottom:0">On small algorithmic tasks, a network will reach 100% training accuracy while validation accuracy sits at chance — and then, tens of thousands of steps later, with training loss already flat, validation accuracy suddenly jumps to 100%. The model memorised first and generalised much later, once weight decay had ground away the memorising solution and left the structured one. The practical lesson is narrow but real: <em>a flat training loss does not mean nothing is happening</em>. Watch weight norms and validation, not just training loss, before killing a run.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">Before you believe any curve</span>
+      <p style="margin-bottom:0">Establish the baselines first. What does random guessing score? What does predicting the majority class score? What does logistic regression on raw features score? What would a competent human score? A validation accuracy of 92% means nothing until you know that the majority class is 91%. Most of the time this takes ten minutes and reframes the entire project.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l43">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 39</span><span>Lesson 43</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-043.html">single page ↗</a></div>
+      <h3 class="lesson-title">Evaluation Metrics Done Properly</h3>
+      <span class="lesson-no">43</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The confusion matrix</li><li>Accuracy's failure modes</li>
+        <li>Precision, recall, F1, F-beta</li><li>Macro vs micro vs weighted averaging</li>
+        <li>ROC-AUC vs PR-AUC on imbalanced data</li><li>Threshold selection</li>
+        <li>Calibration and temperature scaling</li><li>Regression metrics</li>
+        <li>Confidence intervals</li>
+      </ol>
+    </div>
+
+    <h4>Everything comes from four numbers</h4>
+    \[ \text{precision}=\frac{TP}{TP+FP},\qquad \text{recall}=\frac{TP}{TP+FN},\qquad F_\beta=(1+\beta^2)\frac{PR}{\beta^2 P+R} \]
+    <p>Precision answers <em>"when I raise an alarm, how often am I right?"</em>; recall answers <em>"of everything I should have caught, how much did I catch?"</em>. \(F_1\) is their harmonic mean; \(\beta&gt;1\) weights recall higher (use \(F_2\) for disease screening, where a miss is far worse than a false alarm), \(\beta&lt;1\) weights precision.</p>
+    <div class="box pitfall"><span class="lbl">Pitfall · accuracy on imbalanced data</span>
+      <p style="margin-bottom:0">A fraud detector on a dataset with 0.2% fraud can hit <b>99.8% accuracy</b> by predicting "not fraud" every single time. It has recall 0, precision undefined, and zero value. If your positive class is below about 10%, accuracy is not a metric, it is a decoration. Report precision, recall and PR-AUC instead, and always show the confusion matrix.</p>
+    </div>
+
+    <h4>ROC-AUC versus PR-AUC — the distinction that matters</h4>
+    <p>Both summarise performance across all thresholds, but they use different denominators, and on imbalanced data they tell very different stories:</p>
+    \[ \text{TPR}=\frac{TP}{TP+FN}\ \ \text{(uses positives)},\qquad \text{FPR}=\frac{FP}{FP+TN}\ \ \text{(uses negatives)} \]
+    <p>When negatives vastly outnumber positives, \(TN\) is enormous, so FPR stays tiny even when the model produces a flood of false positives. ROC-AUC therefore looks flattering. Precision, \(TP/(TP+FP)\), has no \(TN\) anywhere in it — it feels every false positive directly.</p>
+    <div class="box derive"><span class="lbl">A concrete case</span>
+      <p>1,000,000 negatives, 1,000 positives. Your model catches 900 positives and raises 10,000 false alarms.</p>
+      <p style="margin-bottom:0">TPR \(=900/1000=0.90\). FPR \(=10{,}000/1{,}000{,}000=0.01\). On an ROC curve that is a point near the top-left — excellent. But precision \(=900/10{,}900=\mathbf{8.3\%}\): <em>twelve out of every thirteen alarms are false</em>. Whoever has to review those alerts will tell you the model is unusable, and the PR curve agrees with them. <b>Use PR-AUC when the positive class is rare and the cost lands on false positives.</b></p>
+    </div>
+
+    <div class="demo" id="d-thresh">
+      <div class="demo-head"><span class="dot"></span><b>Threshold sweep</b> · one model, one dataset, every metric moving at once</div>
+      <div class="demo-body">
+        <canvas id="thCv" width="760" height="360" aria-label="Score distributions, ROC curve and precision-recall curve as the decision threshold moves"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Threshold <b id="thTv">0.50</b></span><input type="range" id="thT" min="0.01" max="0.99" step="0.01" value="0.5"></label>
+          <label class="ctrl"><span>Positive rate <b id="thPv">10%</b></span><input type="range" id="thP" min="1" max="50" step="1" value="10"></label>
+          <label class="ctrl"><span>Separability <b id="thSv">1.8</b></span><input type="range" id="thS" min="0.2" max="4" step="0.1" value="1.8"></label>
+        </div>
+        <div class="readout" id="thOut"></div>
+      </div>
+    </div>
+
+    <h4>Averaging across classes</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Average</th><th>How</th><th>Use when</th></tr></thead>
+      <tbody>
+        <tr><td><b>Macro</b></td><td>Compute the metric per class, then take the unweighted mean</td><td>All classes matter equally, including rare ones. The honest default for imbalanced problems.</td></tr>
+        <tr><td><b>Micro</b></td><td>Pool all TP/FP/FN, then compute once</td><td>Every <em>example</em> matters equally. For single-label classification, micro-F1 equals accuracy.</td></tr>
+        <tr><td><b>Weighted</b></td><td>Per class, averaged by class frequency</td><td>You want a single number dominated by the common classes. Hides rare-class failure.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Calibration</h4>
+    <p>A model is calibrated if, among predictions made with confidence 0.8, exactly 80% are correct. Modern networks are badly <b>overconfident</b> — a ResNet's average confidence far exceeds its accuracy, and the gap grew as architectures got deeper. If you use the probability for anything downstream (thresholding, expected-cost decisions, abstaining, or feeding another system) this matters as much as accuracy.</p>
+    <p>Expected Calibration Error bins predictions by confidence and measures the gap:</p>
+    \[ \text{ECE}=\sum_{b=1}^{B}\frac{|S_b|}{n}\Big|\operatorname{acc}(S_b)-\operatorname{conf}(S_b)\Big| \]
+    <p><b>Temperature scaling</b> fixes most of it with a single parameter. Divide the logits by \(T\) and fit \(T\) on the validation set by minimising NLL. Because it is monotonic it cannot change any prediction or any accuracy — it only rescales confidence.</p>
+    <pre><code>class TemperatureScaler(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.log_T = torch.nn.Parameter(torch.zeros(1))    # T = exp(log_T), keeps T > 0
+
+    def forward(self, logits):
+        return logits / self.log_T.exp()
+
+    def fit(self, val_logits, val_labels):
+        opt = torch.optim.LBFGS([self.log_T], lr=0.1, max_iter=60)
+        nll = torch.nn.CrossEntropyLoss()
+        def closure():
+            opt.zero_grad()
+            loss = nll(self(val_logits), val_labels)
+            loss.backward()
+            return loss
+        opt.step(closure)
+        return self.log_T.exp().item()      # typically lands between 1.2 and 2.5
+</code></pre>
+
+    <div class="box check"><span class="lbl">Report an interval, not a point</span>
+      <p style="margin-bottom:0">On a validation set of \(n\) examples, an accuracy of \(p\) has standard error \(\sqrt{p(1-p)/n}\). At \(n=1000\) and \(p=0.9\) that is 0.95%, so the 95% interval is roughly \(\pm 1.9\) points. Your "92.1% vs 91.4%" improvement is inside the noise. For anything more complex than accuracy, bootstrap: resample the validation set with replacement 1000 times, recompute, and take the 2.5th and 97.5th percentiles. Then add seed variance on top of that.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l44">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 39-b</span><span>Lesson 44</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-044.html">single page ↗</a></div>
+      <h3 class="lesson-title">Mixed Precision, Gradient Accumulation &amp; Memory</h3>
+      <span class="lesson-no">44</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>fp16 vs bf16 vs fp32</li><li>Automatic mixed precision</li>
+        <li>Loss scaling, and why bf16 does not need it</li><li>Gradient accumulation</li>
+        <li>Activation checkpointing</li><li>Profiling GPU memory</li>
+        <li><code>torch.compile</code> basics</li><li>Finding and fixing OOM</li>
+      </ol>
+    </div>
+
+    <h4>Range versus precision</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Format</th><th>Exponent / mantissa</th><th>Max value</th><th>Decimal digits</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>fp32</td><td>8 / 23</td><td>3.4e38</td><td>~7</td><td>The reference. Master weights live here.</td></tr>
+        <tr><td>fp16</td><td>5 / 10</td><td>65,504</td><td>~3</td><td>Good precision, <b>terrible range</b>. Needs loss scaling.</td></tr>
+        <tr><td>bf16</td><td>8 / 7</td><td>3.4e38</td><td>~2</td><td>fp32's exponent, fp16's size. Just works. Ampere and newer.</td></tr>
+      </tbody>
+    </table></div>
+    <p>That table is the whole story. bf16 sacrifices mantissa bits to keep fp32's exponent, so it cannot overflow where fp32 would not, and it needs no loss scaling. fp16 keeps precision but its maximum is 65,504 — and gradients routinely underflow below its minimum normal value of \(6\times10^{-5}\), silently flushing to zero. <b>If your GPU supports bf16, use bf16.</b></p>
+
+    <div class="box derive"><span class="lbl">Why fp16 needs loss scaling</span>
+      <p>Gradients are small — typically \(10^{-3}\) to \(10^{-7}\). Much of that range falls below fp16's smallest normal number and rounds to exactly zero. The fix is to multiply the loss by a large constant \(S\) before the backward pass. By linearity every gradient is scaled by \(S\) too, lifting it into representable range; you then divide by \(S\) before the optimizer step.</p>
+      <p style="margin-bottom:0"><code>GradScaler</code> chooses \(S\) dynamically: start at 65,536, and whenever any gradient comes back non-finite, <em>skip that step</em> and halve \(S\); after 2000 consecutive clean steps, double it. This is why an AMP run legitimately skips a handful of early steps — that is the scaler calibrating, not a bug.</p>
+    </div>
+
+    <pre><code>scaler = torch.amp.GradScaler("cuda")          # a no-op if you use bf16
+ACC = 4                                        # micro-batches per optimizer step
+
+for i, (xb, yb) in enumerate(loader):
+    with torch.autocast("cuda", dtype=torch.bfloat16):
+        loss = criterion(model(xb), yb) / ACC   # DIVIDE — see the pitfall below
+
+    scaler.scale(loss).backward()
+
+    if (i + 1) % ACC == 0:
+        scaler.unscale_(opt)                    # unscale BEFORE clipping, or you clip the scale
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        scaler.step(opt)
+        scaler.update()
+        opt.zero_grad(set_to_none=True)
+        sched.step()
+</code></pre>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · four ways to get accumulation wrong</span>
+      <p><b>Forgetting to divide the loss.</b> Accumulating 4 micro-batches without <code>/ ACC</code> gives you a gradient 4× too large, which is equivalent to quietly quadrupling your learning rate.</p>
+      <p><b>Clipping before unscaling.</b> With fp16, gradients are inflated by \(S\approx 65{,}536\). Clip to norm 1.0 at that point and you have effectively clipped to \(1.5\times10^{-5}\), destroying the update. Always <code>scaler.unscale_(opt)</code> first.</p>
+      <p><b>Stepping the scheduler per micro-batch.</b> The schedule then runs \(ACC\times\) too fast.</p>
+      <p style="margin-bottom:0"><b>Expecting BatchNorm to be fooled.</b> As in Lesson 36 — accumulation gives you the gradient of a large batch, but normalisation statistics of the small one. Under DDP, also wrap the non-stepping micro-batches in <code>model.no_sync()</code>, or you pay a full all-reduce on every micro-batch and lose most of the benefit.</p>
+    </div>
+
+    <h4>Where the memory actually goes</h4>
+    <p>For a model with \(P\) parameters trained in mixed precision with AdamW, the fixed cost per parameter is roughly:</p>
+    \[ \underbrace{2}_{\text{bf16 weights}}+\underbrace{4}_{\text{fp32 master}}+\underbrace{4}_{\text{fp32 grad}}+\underbrace{8}_{\text{Adam }m,v} \;=\; \mathbf{18\ \text{bytes/param}} \]
+    <p>A 7B model therefore needs about 126 GB before a single activation is stored — which is why an 80 GB A100 cannot fine-tune 7B naively, and why ZeRO, FSDP, LoRA and 8-bit optimizers all exist (Lessons 94 and 96). Activations are the variable part, and they scale with batch size × sequence length × depth.</p>
+
+    <div class="demo" id="d-mem">
+      <div class="demo-head"><span class="dot"></span><b>Memory calculator</b> · where every gigabyte goes, and what each trick buys</div>
+      <div class="demo-body">
+        <canvas id="memCv" width="760" height="230" aria-label="Stacked breakdown of GPU memory by category"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Parameters <b id="memPv">7.0B</b></span><input type="range" id="memP" min="7" max="11.2" step="0.05" value="9.845"></label>
+          <label class="ctrl"><span>Optimizer</span>
+            <select id="memOpt">
+              <option value="sgd">SGD (no state)</option>
+              <option value="mom">SGD + momentum</option>
+              <option value="adam" selected>AdamW</option>
+              <option value="adam8">AdamW 8-bit</option>
+              <option value="lora">LoRA (frozen base)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Precision</span>
+            <select id="memPrec">
+              <option value="fp32">fp32 throughout</option>
+              <option value="amp" selected>mixed (bf16 + fp32 master)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Activation tokens <b id="memBv">8192</b></span><input type="range" id="memB" min="512" max="65536" step="512" value="8192"></label>
+          <label class="ctrl"><span><input type="checkbox" id="memCkpt"> gradient checkpointing</span></label>
+        </div>
+        <div class="readout" id="memOut"></div>
+      </div>
+    </div>
+
+    <h4>Activation checkpointing</h4>
+    <p>Backprop needs the forward activations (Lesson 22). Checkpointing keeps only a few and <em>recomputes</em> the rest during the backward pass. Storing every \(\sqrt n\)-th activation in an \(n\)-layer network cuts activation memory from \(O(n)\) to \(O(\sqrt n)\) at the cost of one extra forward pass — about 30% more compute for a memory reduction that is frequently the difference between running and not running.</p>
+    <pre><code>from torch.utils.checkpoint import checkpoint
+
+class Block(torch.nn.Module):
+    def forward(self, x):
+        return x + self.mlp(self.norm(x))
+
+# use_reentrant=False is the modern implementation; the old one breaks with some autograd features
+for blk in model.blocks:
+    blk.forward = lambda x, b=blk: checkpoint(b._forward, x, use_reentrant=False)
+</code></pre>
+
+    <div class="box check"><span class="lbl">OOM triage, in order of what to try first</span>
+      <ol style="margin:0 0 0 18px; padding:0">
+        <li>Reduce batch size and add gradient accumulation to keep the effective batch — costs nothing but time.</li>
+        <li>Turn on mixed precision if it is not already on — halves activations.</li>
+        <li>Turn on gradient checkpointing — the biggest single lever for deep models.</li>
+        <li>Switch to an 8-bit optimizer — saves 6 bytes/param.</li>
+        <li>Check for accidental retention: are you appending <code>loss</code> instead of <code>loss.item()</code> to a list? That keeps the entire graph alive (Lesson 12).</li>
+        <li><code>torch.cuda.memory_summary()</code> and <code>torch.cuda.max_memory_allocated()</code> before guessing further.</li>
+        <li>Only then: a smaller model, or LoRA, or more GPUs.</li>
+      </ol>
+    </div>
+  </article>
+<article class="wrap lesson" id="l45">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 40</span><span>Lesson 45</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-045.html">single page ↗</a></div>
+      <h3 class="lesson-title">Transfer Learning &amp; Fine-Tuning Fundamentals</h3>
+      <span class="lesson-no">45</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why pretrained features transfer</li><li>Feature extraction vs full fine-tuning</li>
+        <li>Freezing and progressive unfreezing</li><li>Discriminative layer-wise learning rates</li>
+        <li>Domain gap</li><li>Catastrophic forgetting</li>
+        <li>How much data you actually need</li>
+      </ol>
+    </div>
+
+    <h4>Why it works</h4>
+    <p>Visualise the filters of any trained convnet (you will do this in Lesson 64) and the first layer always looks the same: oriented edges, colour blobs, spatial frequencies. Nobody designed that — it is what gradient descent discovers because it is what natural images are made of. Those features are not specific to ImageNet's thousand classes; they are specific to <em>images</em>. Depth increases specificity: edges → textures → object parts → whole objects. So the general rule is that <b>early layers transfer almost anywhere and late layers transfer only to similar tasks</b>, and everything below follows from that one sentence.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th>Similar domain to pretraining</th><th>Different domain</th></tr></thead>
+      <tbody>
+        <tr><td><b>Small dataset</b><br>(&lt; ~1k per class)</td><td>Freeze the backbone, train a linear head. Full fine-tuning will overfit.</td><td>The hard case. Freeze early layers, fine-tune the last block plus head, augment heavily.</td></tr>
+        <tr><td><b>Large dataset</b><br>(&gt; ~10k per class)</td><td>Fine-tune everything at a low LR. Almost always the best result.</td><td>Fine-tune everything, or consider training from scratch — the pretrained weights may only be a good initialisation rather than a source of knowledge.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Discriminative learning rates</h4>
+    <p>Early layers need barely any change; the new head needs a lot. Give them different learning rates, decaying geometrically as you go down (ULMFiT used \(\eta_{l-1}=\eta_l/2.6\); most vision recipes use a layer decay of 0.65–0.9):</p>
+    <pre><code>def param_groups_llrd(model, base_lr, decay=0.75):
+    """Layer-wise LR decay: the head gets base_lr, each block below gets decay x less."""
+    blocks = list(model.blocks)                 # deepest last
+    groups, n = [], len(blocks)
+    groups.append({"params": model.head.parameters(), "lr": base_lr})
+    for i, blk in enumerate(reversed(blocks)):  # i=0 is the last block
+        groups.append({"params": blk.parameters(), "lr": base_lr * (decay ** (i + 1))})
+    groups.append({"params": model.stem.parameters(), "lr": base_lr * (decay ** (n + 1))})
+    return groups
+
+opt = torch.optim.AdamW(param_groups_llrd(model, base_lr=1e-3), weight_decay=0.01)
+</code></pre>
+    <p><b>Progressive unfreezing</b> is the discrete version: train the head alone for an epoch or two so its random weights stop sending garbage gradients into the backbone, then unfreeze one block at a time. Do the head-only warmup even if you plan to fine-tune everything — it takes two epochs and reliably improves the final number.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · BatchNorm during fine-tuning</span>
+      <p style="margin-bottom:0">Two independent problems, and the second is subtle. <b>One:</b> as in Lesson 36, fine-tuning with a small batch overwrites carefully-learned running statistics with noise. <b>Two:</b> "freezing" a backbone with <code>requires_grad=False</code> does <em>not</em> freeze BatchNorm's running statistics — those are buffers, not parameters, and they keep updating on every forward pass in train mode. Your "frozen" feature extractor is therefore drifting. You must also put those modules in <code>eval()</code>:</p>
+      <pre style="margin-top:10px"><code>for p in backbone.parameters():
+    p.requires_grad = False
+backbone.eval()                        # stops running-stat updates AND dropout
+for m in backbone.modules():           # belt and braces if you re-enter train() later
+    if isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
+        m.eval()</code></pre>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Catastrophic forgetting</span>
+      <p style="margin-bottom:0">Fine-tune hard on a narrow task and the model loses ability on everything else — the weights that encoded the old capability are simply overwritten, because nothing in the loss is defending them. The mitigations are all versions of "stay close to where you started": low learning rate, few epochs, layer-wise decay, freezing, replaying a mix of old data, or restricting the update to a low-rank subspace (LoRA, Lesson 96). This same phenomenon reappears at the frontier as the "alignment tax" in Lesson 97 — it is not a small-model problem.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">How much data you actually need</span>
+      <p style="margin-bottom:0">With a good pretrained backbone: <b>10–50 images per class</b> gets a usable linear probe. <b>100–500</b> makes fine-tuning worthwhile. <b>1000+</b> and you are in comfortable territory. These numbers are one to two orders of magnitude below what training from scratch needs, and that gap is the entire reason transfer learning dominates practice. Before collecting more data, always run the linear probe first — it takes minutes and tells you whether your problem is data-limited or feature-limited.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l46">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 40-b</span><span>Lesson 46</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-046.html">single page ↗</a></div>
+      <h3 class="lesson-title">✅ Project Checkpoint #1 — End-to-End Classifier</h3>
+      <span class="lesson-no">46</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Choosing a dataset</li><li>EDA and the baselines you must beat</li>
+        <li>Model and training recipe</li><li>Augmentation and schedule</li>
+        <li>Regularisation and the ablation table</li><li>Evaluation with the right metrics</li>
+        <li>Error analysis</li><li>The written model report</li>
+      </ol>
+    </div>
+
+    <p>Everything from Lessons 1–45, applied once, on a dataset nobody has written a tutorial about. The point is not the accuracy number. The point is that you make each decision deliberately and can defend it in writing.</p>
+
+    <div class="box exercise"><span class="lbl">The brief</span>
+      <p><b>Pick a dataset that is not MNIST or CIFAR.</b> Good options: Oxford-IIIT Pet (37 classes, 200 images each — small enough to force real regularisation), Food-101, EuroSAT, PlantVillage, or something you scrape and label yourself. Aim for 5–50 classes and at least mild class imbalance, so the metrics lesson has teeth.</p>
+      <p style="margin-bottom:0"><b>Constraint that makes this useful:</b> you may not look at the test split until the final run. Split once, at the start, and write the split indices to disk.</p>
+    </div>
+
+    <h4>Required deliverables</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th>Deliverable</th><th>Draws on</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>EDA notebook: class distribution, image size distribution, 25 sample images with labels, duplicate check</td><td>L14, L40</td></tr>
+        <tr><td>2</td><td>Three baselines: majority class, logistic regression on a frozen backbone's features, and a small CNN from scratch</td><td>L15, L42, L45</td></tr>
+        <tr><td>3</td><td>An LR range test, with the chosen LR justified from the curve</td><td>L30</td></tr>
+        <tr><td>4</td><td>A tuned model: pretrained backbone, warmup + cosine, AdamW with correct no-decay groups, AMP</td><td>L33, L34, L44, L45</td></tr>
+        <tr><td>5</td><td><b>An ablation table</b> — see below. This is the core deliverable.</td><td>L35, L38, L41</td></tr>
+        <tr><td>6</td><td>Full metrics: confusion matrix, per-class precision/recall, macro-F1, calibration before and after temperature scaling</td><td>L43</td></tr>
+        <tr><td>7</td><td>Error analysis: the 20 worst-scoring validation examples, inspected and categorised by failure type</td><td>L40, L42</td></tr>
+        <tr><td>8</td><td>A one-page model report</td><td>All of Phase 3</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>The ablation table</h4>
+    <p>Start from your best configuration and remove one thing at a time, keeping everything else fixed. Three seeds per row, reporting mean ± std, because without the std you cannot tell a real effect from noise (Lesson 41).</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Configuration</th><th>Val macro-F1</th><th>Δ</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>Full recipe</td><td>0.871 ± 0.004</td><td>—</td><td>baseline</td></tr>
+        <tr><td>− pretrained weights (random init)</td><td>0.612 ± 0.019</td><td class="tick" style="color:var(--warn)">−0.259</td><td>dominant factor</td></tr>
+        <tr><td>− augmentation</td><td>0.804 ± 0.008</td><td style="color:var(--warn)">−0.067</td><td>large, real</td></tr>
+        <tr><td>− cosine schedule (constant LR)</td><td>0.841 ± 0.006</td><td style="color:var(--warn)">−0.030</td><td>real</td></tr>
+        <tr><td>− label smoothing</td><td>0.866 ± 0.005</td><td>−0.005</td><td>inside noise — do not claim it</td></tr>
+        <tr><td>− weight decay</td><td>0.869 ± 0.011</td><td>−0.002</td><td>inside noise</td></tr>
+      </tbody>
+    </table></div>
+    <p>Those last two rows are the most valuable ones in the table, and the ones people quietly delete. Reporting "this component did nothing measurable" is a real result and it is what separates an engineer from someone assembling tricks.</p>
+
+    <div class="box check"><span class="lbl">The model report — one page, eight headings</span>
+      <p style="margin-bottom:0"><b>Task</b> and why it matters · <b>Data</b>: source, size, splits, known biases · <b>Baselines</b> and their scores · <b>Model</b> and the training recipe in enough detail to reproduce · <b>Results</b> with confidence intervals · <b>Ablations</b> · <b>Failure modes</b> from the error analysis, stated plainly · <b>Limitations</b>: where this model should not be deployed. If you cannot write the last heading, you do not yet understand your model.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">What "done" looks like</span>
+      <p style="margin-bottom:0">You should be able to hand the report to someone who was not involved and have them (a) reproduce your number from the config, and (b) tell you the two things most worth trying next. If your project cannot survive that test, it is not finished — and no amount of extra accuracy will fix it. Phase 4 starts on Day 41 and assumes you have done this once.</p>
+    </div>
+  </article>
+  <section class="wrap"><div class="pager"><a id="prevLink" href="phase-2.html" rel="prev"><span class="dir">← Previous phase</span><span class="ttl">Neural Networks From Scratch</span></a><a id="nextLink" class="nx" href="phase-4.html" rel="next"><span class="dir">Next phase →</span><span class="ttl">CNNs &amp; Computer Vision</span></a></div></section>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"../", current:0, phase:"p3", mode:"phase" };</script>
+<script src="../assets/site.js"></script>
+<script src="../assets/demos.js"></script>
+</body>
+</html>

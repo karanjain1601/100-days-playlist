@@ -1,0 +1,2070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 6 — Transformers & Large Language Models | 100 Days of Deep Learning</title>
+<meta name="description" content="Phase 6 of 100 Days of Deep Learning: Transformers & Large Language Models. 21 lessons, days 69–86, 18h 45m of video.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="../index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><b>Phase 6</b> · Transformers & Large Language Models</span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  <span class="pagernav"><a class="iconbtn" href="phase-5.html" title="Previous phase">←</a><a class="iconbtn" href="phase-7.html" title="Next phase">→</a></span>
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+  <section class="wrap phasehero">
+    <p class="pnum">Phase 6 of 8 · Days 69–86 · Lessons 80–100</p>
+    <h1>Transformers &amp; Large Language Models</h1>
+    <p class="plede">The architecture that ate the field, built from scratch twice: once as the 2017 paper, once as a modern Llama-style stack. Then scaled, tuned, aligned and served.</p>
+    <ul class="statrow"><li><b>21</b> lessons</li><li><b>18h 45m</b> of video</li><li><b>178</b> chapters</li><li>Notes: <b>all 21</b></li></ul>
+    <div class="toc"><span class="tlbl">Everything on this page</span>
+      <ol><li><a class="todo" href="#l80"><span class="tn">D69</span><span class="tt">Attention Is All You Need — Paper Walkthrough</span></a></li><li><a class="todo" href="#l81"><span class="tn">D70</span><span class="tt">Self-Attention — The Math</span></a></li><li><a class="todo" href="#l82"><span class="tn">D71</span><span class="tt">Multi-Head Attention</span></a></li><li><a class="todo" href="#l83"><span class="tn">D72</span><span class="tt">Positional Encoding</span></a></li><li><a class="todo" href="#l84"><span class="tn">D73</span><span class="tt">Inside the Transformer Block</span></a></li><li><a class="todo" href="#l85"><span class="tn">D74</span><span class="tt">Build a Transformer From Scratch — Part 1</span></a></li><li><a class="todo" href="#l86"><span class="tn">D75</span><span class="tt">Build a Transformer From Scratch — Part 2</span></a></li><li><a class="todo" href="#l87"><span class="tn">D76</span><span class="tt">Encoder-Only Models — BERT &amp; Family</span></a></li><li><a class="todo" href="#l88"><span class="tn">D77</span><span class="tt">Decoder-Only Models — The GPT Lineage</span></a></li><li><a class="todo" href="#l89"><span class="tn">D78</span><span class="tt">Encoder-Decoder Models — T5 &amp; BART</span></a></li><li><a class="todo" href="#l90"><span class="tn">D79</span><span class="tt">Efficient Attention &amp; Long Context</span></a></li><li><a class="todo" href="#l91"><span class="tn">D80</span><span class="tt">Mixture of Experts</span></a></li><li><a class="todo" href="#l92"><span class="tn">D81</span><span class="tt">State Space Models &amp; Transformer Alternatives</span></a></li><li><a class="todo" href="#l93"><span class="tn">D82</span><span class="tt">Scaling Laws &amp; Pretraining Data</span></a></li><li><a class="todo" href="#l94"><span class="tn">D83</span><span class="tt">Distributed Training at Scale</span></a></li><li><a class="todo" href="#l95"><span class="tn">D84</span><span class="tt">Instruction Tuning &amp; Supervised Fine-Tuning</span></a></li><li><a class="todo" href="#l96"><span class="tn">D84-b</span><span class="tt">Parameter-Efficient Fine-Tuning</span></a></li><li><a class="todo" href="#l97"><span class="tn">D85</span><span class="tt">Alignment I — RLHF</span></a></li><li><a class="todo" href="#l98"><span class="tn">D85-b</span><span class="tt">Alignment II — DPO and Modern Preference Optimization</span></a></li><li><a class="todo" href="#l99"><span class="tn">D86</span><span class="tt">LLM Inference, Quantization &amp; Serving</span></a></li><li><a class="todo" href="#l100"><span class="tn">D86-b</span><span class="tt">Prompting, RAG &amp; Agents</span></a></li></ol>
+    </div>
+  </section>
+<article class="wrap lesson" id="l80">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 69</span><span>Lesson 80</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-080.html">single page ↗</a></div>
+      <h3 class="lesson-title">"Attention Is All You Need" — Paper Walkthrough</h3>
+      <span class="lesson-no">80</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The 2017 context and motivation</li><li>The architecture diagram decoded</li>
+        <li>Encoder stack vs decoder stack</li><li>The three attention types</li>
+        <li>The original training setup</li><li>What the paper got right, and what changed</li>
+        <li>How to read an ML paper</li>
+      </ol>
+    </div>
+
+    <h4>What problem it was solving</h4>
+    <p>Not accuracy. In 2017 attention-augmented seq2seq (Lesson 75) already produced good translations. The problem was that the RNN made training <b>sequential</b>: timestep \(t\) could not start until \(t-1\) finished, so a machine with thousands of parallel cores processed one word at a time. The paper's claim was that if attention is doing the heavy lifting anyway, you can delete the recurrence entirely and compute every position at once. The result trained in 12 hours on 8 GPUs where the previous state of the art took days.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 330" role="img" aria-label="The 2017 transformer: encoder stack, decoder stack, and the three kinds of attention connecting them">
+        <text class="svg-ttl" x="20" y="22">THE 2017 ARCHITECTURE — two stacks, three attentions</text>
+        <g transform="translate(60,42)">
+          <rect x="0" y="30" width="200" height="212" fill="#0A1119" stroke="#5BC8E6"/>
+          <text class="svg-lbl-b" x="0" y="22" fill="#5BC8E6">ENCODER  ×6</text>
+          <rect x="20" y="52" width="160" height="30" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="34" y="71">multi-head self-attention</text>
+          <text class="svg-lbl" x="188" y="71" fill="#93D97B">①</text>
+          <rect x="20" y="94" width="160" height="24" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="46" y="110">add &amp; norm</text>
+          <rect x="20" y="130" width="160" height="30" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="60" y="149">feedforward</text>
+          <rect x="20" y="172" width="160" height="24" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="46" y="188">add &amp; norm</text>
+          <text class="svg-lbl" x="20" y="222">input embed + positional</text>
+          <text class="svg-lbl" x="20" y="264">source tokens</text>
+        </g>
+        <g transform="translate(400,42)">
+          <rect x="0" y="30" width="220" height="252" fill="#0A1119" stroke="#93D97B"/>
+          <text class="svg-lbl-b" x="0" y="22" fill="#93D97B">DECODER  ×6</text>
+          <rect x="20" y="52" width="180" height="30" fill="#0F1822" stroke="#FF7B87"/>
+          <text class="svg-lbl" x="30" y="71">MASKED self-attention</text>
+          <text class="svg-lbl" x="206" y="71" fill="#93D97B">②</text>
+          <rect x="20" y="94" width="180" height="24" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="56" y="110">add &amp; norm</text>
+          <rect x="20" y="130" width="180" height="30" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl" x="46" y="149">cross-attention</text>
+          <text class="svg-lbl" x="206" y="149" fill="#93D97B">③</text>
+          <rect x="20" y="172" width="180" height="24" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="56" y="188">add &amp; norm</text>
+          <rect x="20" y="208" width="180" height="30" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="70" y="227">feedforward</text>
+          <text class="svg-lbl" x="20" y="264">shifted target tokens</text>
+        </g>
+        <path d="M260 180 L400 175" stroke="#FFB454" stroke-width="2.4" fill="none"/>
+        <text class="svg-lbl" x="272" y="168" fill="#FFB454">K, V from the encoder</text>
+        <g transform="translate(660,64)">
+          <rect x="0" y="0" width="220" height="212" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl-b" x="14" y="24">the three attentions</text>
+          <text class="svg-lbl" x="14" y="50" fill="#93D97B">① encoder self-attention</text>
+          <text class="svg-lbl" x="14" y="66">Q, K, V all from the source.</text>
+          <text class="svg-lbl" x="14" y="82">Every token sees every token.</text>
+          <text class="svg-lbl" x="14" y="106" fill="#FF7B87">② masked self-attention</text>
+          <text class="svg-lbl" x="14" y="122">Q, K, V from the target, but</text>
+          <text class="svg-lbl" x="14" y="138">position t cannot see t+1.</text>
+          <text class="svg-lbl" x="14" y="162" fill="#FFB454">③ cross-attention</text>
+          <text class="svg-lbl" x="14" y="178">Q from the decoder, K and V</text>
+          <text class="svg-lbl" x="14" y="194">from the encoder. This IS Bahdanau.</text>
+        </g>
+      </svg>
+      <figcaption>Cross-attention is the 2015 attention mechanism, unchanged. The genuinely new components are encoder self-attention and masked decoder self-attention — the parts that replaced recurrence.</figcaption>
+    </figure>
+
+    <h4>The original setup, for calibration</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Setting</th><th>Base</th><th>Big</th><th>Still true?</th></tr></thead>
+      <tbody>
+        <tr><td>Layers / \(d_{\text{model}}\) / heads</td><td>6 / 512 / 8</td><td>6 / 1024 / 16</td><td>Shape survives; scale is 100–1000× larger now</td></tr>
+        <tr><td>FFN hidden</td><td>2048 (4×)</td><td>4096 (4×)</td><td>The 4× ratio is still the norm</td></tr>
+        <tr><td>Parameters</td><td>65M</td><td>213M</td><td>—</td></tr>
+        <tr><td>Norm placement</td><td colspan="2">Post-norm</td><td style="color:var(--warn)">Changed — pre-norm won (Lesson 37)</td></tr>
+        <tr><td>Activation</td><td colspan="2">ReLU</td><td style="color:var(--warn)">Changed — GELU, then SwiGLU</td></tr>
+        <tr><td>Position</td><td colspan="2">Fixed sinusoidal</td><td style="color:var(--warn)">Changed — RoPE (Lesson 83)</td></tr>
+        <tr><td>Optimizer</td><td colspan="2">Adam, warmup then \(1/\sqrt{\text{step}}\)</td><td>AdamW + warmup + cosine</td></tr>
+        <tr><td>Regularisation</td><td colspan="2">Dropout 0.1, label smoothing 0.1</td><td>Dropout often 0 at scale</td></tr>
+      </tbody>
+    </table></div>
+    <p>Notice how much of the paper was later replaced. What survived is the <b>shape</b>: alternating attention and feedforward, residuals around both, a normalisation layer, and no recurrence. Everything else was negotiable.</p>
+
+    <div class="box intuition"><span class="lbl">How to read an ML paper — three passes</span>
+      <p><b>Pass 1 (5 minutes).</b> Title, abstract, figures, conclusion. Answer one question: what is the claim, and against what baseline? If you cannot state the baseline, you have not understood the claim.</p>
+      <p><b>Pass 2 (30 minutes).</b> Method and results. Read the figures properly, check the axes, look for what is <em>not</em> plotted. Read the ablation table before the headline number — it tells you which component actually mattered, and often the answer is "not the one in the title".</p>
+      <p style="margin-bottom:0"><b>Pass 3 (hours).</b> Reimplement the core idea on a toy problem. This is the only pass that produces real understanding, and it routinely surfaces details the paper omitted. Lesson 120 covers the workflow properly; the transformer is an excellent first candidate, which is what Lessons 85 and 86 are.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l81">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 70</span><span>Lesson 81</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-081.html">single page ↗</a></div>
+      <h3 class="lesson-title">Self-Attention — The Math</h3>
+      <span class="lesson-no">81</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Queries, keys, values and the database analogy</li><li>The projection matrices</li>
+        <li>Scaled dot-product and why we divide by \(\sqrt{d_k}\)</li><li>Softmax over keys</li>
+        <li>Causal masking</li><li>Padding masks</li>
+        <li>\(O(n^2)\) in time and memory</li><li>Coding attention from scratch</li>
+      </ol>
+    </div>
+
+    <h4>One formula</h4>
+    \[ \text{Attention}(Q,K,V)=\softmax\!\left(\frac{QK\T}{\sqrt{d_k}}\right)V \]
+    <p>The database analogy: each position emits a <b>query</b> ("what am I looking for?"), a <b>key</b> ("what do I offer?") and a <b>value</b> ("what do I pass on if selected?"). Compatibility is the dot product of query and key, softmax turns compatibilities into weights, and the output is the weighted average of values. It is the score–normalise–average shape from Lesson 75, with all three roles derived from the same input by learned projections:</p>
+    \[ Q=XW_Q,\qquad K=XW_K,\qquad V=XW_V,\qquad X\in\R^{n\times d} \]
+    <div class="shapes">
+      <span class="dim">X <small>(n, d)</small></span><span class="op">→</span><span class="dim">Q, K <small>(n, d<sub>k</sub>)</small></span><span class="op">→</span><span class="dim">QKᵀ <small>(n, n)</small></span><span class="op">→</span><span class="dim">softmax <small>(n, n)</small></span><span class="op">→</span><span class="dim out">out <small>(n, d<sub>v</sub>)</small></span>
+    </div>
+
+    <div class="box derive"><span class="lbl">Why \(\sqrt{d_k}\) — the variance argument</span>
+      <p>Suppose the components of \(\mathbf q\) and \(\mathbf k\) are independent with mean 0 and variance 1. Their dot product is a sum of \(d_k\) independent products:</p>
+      \[ \E\big[\mathbf q\cdot\mathbf k\big]=0,\qquad \Var\big[\mathbf q\cdot\mathbf k\big]=\sum_{i=1}^{d_k}\Var[q_ik_i]=d_k \]
+      <p>So the scores have standard deviation \(\sqrt{d_k}\). With \(d_k=64\) that is 8; with \(d_k=128\) it is 11.3. Feed scores of that magnitude into a softmax and it saturates — one weight goes to ~1 and the rest to ~0.</p>
+      <p style="margin-bottom:0">Saturation is fatal for a different reason than you might expect. A saturated softmax has a <b>vanishing gradient</b>: \(\partial p_i/\partial z_j=p_i(\delta_{ij}-p_j)\), which is near zero when any \(p_i\approx1\). At initialisation the model would be unable to learn <em>which</em> positions to attend to, because the gradient telling it so is gone. Dividing by \(\sqrt{d_k}\) restores unit variance and keeps the softmax in its responsive range. It is the same numerical-stability reasoning as Lesson 27's initialisation derivation, applied to a different layer.</p>
+    </div>
+
+    <div class="demo" id="d-sdpa">
+      <div class="demo-head"><span class="dot"></span><b>Scaled dot-product attention</b> · what the \(\sqrt{d_k}\) is actually protecting</div>
+      <div class="demo-body">
+        <canvas id="sdCv" width="760" height="330" aria-label="Score distribution, softmax weights and gradient magnitude with and without scaling"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>d<sub>k</sub> <b id="sdDv">64</b></span><input type="range" id="sdD" min="4" max="512" step="4" value="64"></label>
+          <label class="ctrl"><span>Sequence length <b id="sdNv">16</b></span><input type="range" id="sdN" min="4" max="48" step="2" value="16"></label>
+          <label class="ctrl"><span><input type="checkbox" id="sdScale" checked> divide by \u221ad<sub>k</sub></span></label>
+          <label class="ctrl"><span><input type="checkbox" id="sdMask"> causal mask</span></label>
+        </div>
+        <div class="readout" id="sdOut"></div>
+      </div>
+    </div>
+
+    <h4>Masking</h4>
+    <p>Two different masks, often confused:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Mask</th><th>Shape</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><b>Causal</b></td><td>\((n,n)\) lower triangular</td><td>Position \(t\) must not see \(t+1\). Required for any generative decoder — without it the model trivially copies the answer.</td></tr>
+        <tr><td><b>Padding</b></td><td>\((B,n)\) broadcast to \((B,1,1,n)\)</td><td>Real tokens only. Per-example, unlike the causal mask which is shared.</td></tr>
+      </tbody>
+    </table></div>
+
+    <pre><code>import torch, torch.nn.functional as F
+
+def attention(q, k, v, mask=None, scale=True):
+    """q,k,v: (B, h, n, d_k). Returns (B, h, n, d_v) and the weights."""
+    d_k = q.size(-1)
+    scores = q @ k.transpose(-2, -1)                    # (B, h, n, n)
+    if scale:
+        scores = scores / (d_k ** 0.5)
+    if mask is not None:
+        # -inf BEFORE softmax. finfo(...).min keeps fp16 finite (Lesson 75)
+        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+    w = scores.softmax(dim=-1)
+    return w @ v, w
+
+n = 512
+causal = torch.tril(torch.ones(n, n, dtype=torch.bool))          # (n, n)
+pad = (tokens != PAD_ID)[:, None, None, :]                       # (B, 1, 1, n)
+mask = causal & pad                                              # broadcasts to (B,1,n,n)
+
+# in production, use the fused kernel — it never materialises the (n,n) matrix
+out = F.scaled_dot_product_attention(q, k, v, is_causal=True)    # FlashAttention (Lesson 90)
+</code></pre>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · a fully-masked row produces NaN</span>
+      <p style="margin-bottom:0">If an example is entirely padding — an empty sequence in a batch, or a query position masked against every key — every score in that row is \(-\infty\). The softmax then computes \(e^{-\infty}/\sum e^{-\infty}=0/0=\text{NaN}\), which propagates through the whole batch and kills training with no useful error message. Guard against empty sequences at the data-loading stage, or clamp the row to a uniform distribution. This is a genuinely common source of "my transformer NaNs after a few hundred steps".</p>
+    </div>
+
+    <h4>The quadratic cost, made concrete</h4>
+    <p>The score matrix is \(n\times n\) per head per layer. Memory for the attention weights alone:</p>
+    \[ \text{bytes}=B\cdot h\cdot n^2\cdot\text{sizeof(dtype)} \]
+    <p>With \(B=8\), \(h=32\), \(n=8192\) in bf16: \(8\times32\times8192^2\times2\approx\mathbf{34\ \text{GB}}\) — <em>per layer</em>. That number is why FlashAttention exists, and why every long-context method in Lesson 90 exists. It is also why attention is often described as \(O(n^2)\) when the parameter count does not depend on \(n\) at all: the cost is in the activations, not the weights.</p>
+
+    <div class="box intuition"><span class="lbl">What self-attention actually buys</span>
+      <p style="margin-bottom:0">Compare path lengths from Lesson 77. An RNN needs \(O(n)\) sequential steps for information to travel from position 1 to position \(n\), and every step is a chance to lose it. A dilated CNN needs \(O(\log n)\) layers. Self-attention needs <b>one</b> — every position is directly connected to every other. That is the property that makes long-range dependency learnable rather than merely possible, and it is what you are paying \(O(n^2)\) for.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l82">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 71</span><span>Lesson 82</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-082.html">single page ↗</a></div>
+      <h3 class="lesson-title">Multi-Head Attention</h3>
+      <span class="lesson-no">82</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Splitting into heads</li><li>Per-head dimensionality</li>
+        <li>Concatenation and output projection</li><li>What different heads learn</li>
+        <li>Induction heads</li><li>Head redundancy and pruning</li>
+        <li>Efficient batched implementation</li><li>Attention pattern visualization</li>
+      </ol>
+    </div>
+
+    <h4>Why one head is not enough</h4>
+    <p>A single softmax produces one distribution per position, so one attention operation can express exactly one relationship — and averaging over values blurs everything it attends to. But a word relates to its context in several independent ways at once: syntactically to its verb, semantically to a topic word, positionally to its neighbour. Multi-head attention runs \(h\) attention operations in parallel on <em>subspaces</em> of the representation:</p>
+    \[ \text{head}_i=\text{Attention}(XW_Q^i,XW_K^i,XW_V^i),\qquad \text{MHA}(X)=\big[\text{head}_1;\dots;\text{head}_h\big]W_O \]
+    <p>with \(d_k=d_v=d_{\text{model}}/h\), so the total compute is the same as one head at full width. Eight heads of 64 dimensions cost what one head of 512 would — you get the diversity for free.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 220" role="img" aria-label="Multi-head attention: split into heads, attend independently, concatenate, project">
+        <text class="svg-ttl" x="20" y="22">MULTI-HEAD — one reshape, not eight matrices</text>
+        <g transform="translate(30,44)">
+          <rect x="0" y="30" width="70" height="90" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="12" y="78">X (n,512)</text>
+          <path d="M70 75 L118 75" stroke="#2A3B4E"/>
+          <rect x="118" y="30" width="86" height="90" fill="#0F1822" stroke="#5BC8E6"/>
+          <text class="svg-lbl" x="128" y="70">W_Q W_K W_V</text>
+          <text class="svg-lbl" x="128" y="88">(512→512)</text>
+          <path d="M204 75 L246 75" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="206" y="66" fill="#FFB454">reshape</text>
+          <g fill="#0F1822" stroke="#FFB454">
+            <rect x="246" y="24" width="120" height="18"/><rect x="246" y="46" width="120" height="18"/>
+            <rect x="246" y="68" width="120" height="18"/><rect x="246" y="90" width="120" height="18"/>
+            <rect x="246" y="112" width="120" height="18"/>
+          </g>
+          <g class="svg-lbl" fill="#8095AA">
+            <text x="256" y="37">head 1 · d=64</text><text x="256" y="59">head 2</text>
+            <text x="256" y="81">head 3</text><text x="256" y="103">…</text><text x="256" y="125">head 8</text>
+          </g>
+          <text class="svg-lbl" x="246" y="152">8 independent softmaxes,</text>
+          <text class="svg-lbl" x="246" y="168">computed as one batched matmul</text>
+          <path d="M366 75 L408 75" stroke="#2A3B4E"/>
+          <rect x="408" y="30" width="70" height="90" fill="#0F1822" stroke="#93D97B"/>
+          <text class="svg-lbl" x="416" y="78">concat</text>
+          <path d="M478 75 L520 75" stroke="#2A3B4E"/>
+          <rect x="520" y="30" width="76" height="90" fill="#0F1822" stroke="#B79CFF"/>
+          <text class="svg-lbl" x="534" y="70">W_O</text>
+          <text class="svg-lbl" x="528" y="88">(512→512)</text>
+          <text class="svg-lbl" x="408" y="152" fill="#B79CFF">W_O is not decoration: it lets</text>
+          <text class="svg-lbl" x="408" y="168" fill="#B79CFF">heads combine, not just stack.</text>
+        </g>
+        <g transform="translate(660,60)">
+          <rect x="0" y="0" width="216" height="120" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl-b" x="12" y="24">the whole trick</text>
+          <text class="svg-lbl" x="12" y="48">(B, n, 512)</text>
+          <text class="svg-lbl" x="12" y="66">→ view(B, n, 8, 64)</text>
+          <text class="svg-lbl" x="12" y="84">→ transpose(1, 2)</text>
+          <text class="svg-lbl" x="12" y="102" fill="#FFB454">= (B, 8, n, 64) — done</text>
+        </g>
+      </svg>
+      <figcaption>There are no separate per-head weight matrices in any real implementation. One projection to \(d_{\text{model}}\), then a reshape that reinterprets the channel axis as heads.</figcaption>
+    </figure>
+
+    <pre><code>class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_heads, dropout=0.0):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.h, self.dk = n_heads, d_model // n_heads
+        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)   # one GEMM for all three
+        self.proj = nn.Linear(d_model, d_model, bias=False)
+        self.p = dropout
+
+    def forward(self, x, is_causal=True):
+        B, n, D = x.shape
+        q, k, v = self.qkv(x).split(D, dim=2)
+        # (B,n,D) -> (B,h,n,dk). This reshape IS the multi-head split.
+        q, k, v = (t.view(B, n, self.h, self.dk).transpose(1, 2) for t in (q, k, v))
+        o = F.scaled_dot_product_attention(q, k, v, is_causal=is_causal,
+                                           dropout_p=self.p if self.training else 0.0)
+        o = o.transpose(1, 2).contiguous().view(B, n, D)          # concat the heads back
+        return self.proj(o)
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · <code>view</code> without <code>contiguous</code></span>
+      <p style="margin-bottom:0">After <code>transpose(1,2)</code> the tensor's memory layout no longer matches its shape, so <code>view</code> raises "view size is not compatible with input tensor's size and stride". The fix is <code>.contiguous().view(...)</code> or simply <code>.reshape(...)</code>. The more dangerous version of this bug is silent: transposing the wrong pair of axes gives a tensor of the <em>right shape</em> whose head and sequence dimensions are swapped. Training proceeds, loss falls slowly, and nothing errors. Always assert your shapes at each step when writing attention by hand.</p>
+    </div>
+
+    <h4>What heads learn</h4>
+    <p>Probing trained models finds recognisable specialisations: heads that attend to the previous token, heads that attend to the next occurrence of a delimiter, heads that link a verb to its subject, heads that attend to rare tokens.</p>
+    <div class="box intuition"><span class="lbl">Induction heads — the most important one</span>
+      <p>Some heads implement a specific algorithm: seeing the pattern <code>[A][B] … [A]</code>, they attend from the second <code>A</code> to the token that followed the first one, and predict <code>B</code>. That is in-context copying — a general "if this happened before, it will happen again" rule, learned from nothing but next-token prediction.</p>
+      <p style="margin-bottom:0">Induction heads matter because their formation coincides with a <b>visible phase change in the loss curve</b> — a small bump where the model abruptly acquires in-context learning. It is one of the few cases where a specific circuit has been tied to a specific capability and a specific moment in training. Lesson 117 covers the mechanistic interpretability programme this belongs to.</p>
+    </div>
+    <p>Head redundancy is real: Michel et al. showed that many heads can be pruned at inference with little loss, and that a large fraction of layers work fine with a single head. This is one motivation for Multi-Query and Grouped-Query Attention in Lesson 90 — if the heads are partly redundant, they need not each carry their own keys and values.</p>
+  </article>
+<article class="wrap lesson" id="l83">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 72</span><span>Lesson 83</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-083.html">single page ↗</a></div>
+      <h3 class="lesson-title">Positional Encoding</h3>
+      <span class="lesson-no">83</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why attention is permutation-invariant</li><li>Sinusoidal encodings derived</li>
+        <li>Learned absolute embeddings</li><li>Relative position: Shaw and T5 bias</li>
+        <li>Rotary Position Embeddings</li><li>ALiBi</li>
+        <li>NoPE</li><li>Context extension, interpolation, YaRN</li>
+      </ol>
+    </div>
+
+    <h4>The problem</h4>
+    <p>Attention computes a weighted sum over a <em>set</em>. Permute the input tokens and every output permutes identically — the operation contains no notion of order at all. Without positional information, "the dog bit the man" and "the man bit the dog" produce identical representations. Position must be injected explicitly.</p>
+
+    <h4>Sinusoidal</h4>
+    \[ PE_{(pos,2i)}=\sin\!\left(\frac{pos}{10000^{2i/d}}\right),\qquad PE_{(pos,2i+1)}=\cos\!\left(\frac{pos}{10000^{2i/d}}\right) \]
+    <p>Each dimension is a sinusoid of a different wavelength, from \(2\pi\) up to \(10000\cdot2\pi\) — a binary-like positional code in continuous form. The stated motivation was that \(PE_{pos+k}\) is a fixed linear function of \(PE_{pos}\), so relative offsets are linearly recoverable. In practice sinusoidal and learned absolute embeddings perform about equally, and both have the same fatal flaw.</p>
+
+    <div class="box derive"><span class="lbl">RoPE — rotate instead of add</span>
+      <p>Absolute encodings are <em>added</em> to the embedding, which means the model must infer relative distance from a sum. RoPE instead <b>rotates</b> the query and key vectors by an angle proportional to their position. Treat consecutive dimension pairs as complex numbers and multiply by \(e^{i m\theta}\):</p>
+      \[ \tilde{\mathbf q}_m=R_m\mathbf q,\qquad \tilde{\mathbf k}_n=R_n\mathbf k \qquad\Longrightarrow\qquad \tilde{\mathbf q}_m\T\tilde{\mathbf k}_n=\mathbf q\T R_{n-m}\mathbf k \]
+      <p style="margin-bottom:0">The absolute positions cancel and only \(n-m\) survives. The attention score depends on <b>relative distance only</b>, exactly and by construction, with no extra parameters and no lookup table. That is why RoPE is in Llama, Mistral, Qwen, Gemma, DeepSeek and essentially every current open-weight model.</p>
+    </div>
+
+    <div class="demo" id="d-rope">
+      <div class="demo-head"><span class="dot"></span><b>Position encodings compared</b> · and what happens past the training length</div>
+      <div class="demo-body">
+        <canvas id="poCv" width="760" height="330" aria-label="Sinusoidal, RoPE and ALiBi position signals and their behaviour beyond the trained context"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Method</span>
+            <select id="poM">
+              <option value="sin">sinusoidal (added)</option>
+              <option value="rope" selected>RoPE (rotation)</option>
+              <option value="alibi">ALiBi (linear bias)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Trained length <b id="poTv">64</b></span><input type="range" id="poT" min="16" max="128" step="8" value="64"></label>
+          <label class="ctrl"><span>Eval length <b id="poEv">128</b></span><input type="range" id="poE" min="16" max="512" step="16" value="128"></label>
+          <label class="ctrl"><span>RoPE base θ <b id="poBv">10000</b></span><input type="range" id="poB" min="3" max="6" step="0.1" value="4"></label>
+        </div>
+        <div class="readout" id="poOut"></div>
+      </div>
+    </div>
+
+    <h4>The alternatives, and what each optimises for</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>Mechanism</th><th>Extrapolates?</th><th>Used by</th></tr></thead>
+      <tbody>
+        <tr><td>Sinusoidal</td><td>Added to embeddings</td><td>Poorly</td><td>Original transformer</td></tr>
+        <tr><td>Learned absolute</td><td>A lookup table of size \(n_{\max}\)</td><td style="color:var(--warn)">Not at all — no embedding exists past \(n_{\max}\)</td><td>BERT, GPT-2, ViT</td></tr>
+        <tr><td>T5 relative bias</td><td>A learned scalar added to scores, bucketed by distance</td><td>Somewhat</td><td>T5, mT5</td></tr>
+        <tr><td><b>RoPE</b></td><td>Rotation of Q and K</td><td>Some, and extendable (below)</td><td>Llama, Mistral, Qwen, Gemma</td></tr>
+        <tr><td><b>ALiBi</b></td><td>Subtract \(m\cdot|i-j|\) from scores; no embedding at all</td><td class="tick">Well, by design</td><td>BLOOM, MPT</td></tr>
+        <tr><td>NoPE</td><td>Nothing. A causal decoder can infer position from the mask itself.</td><td>Surprisingly well at small scale</td><td>Research</td></tr>
+      </tbody>
+    </table></div>
+    <p>NoPE is worth pausing on. A causal decoder is <em>not</em> permutation-invariant even without positional encoding, because the mask gives position 1 a different number of visible tokens than position 50 — the model can count. That it works at all is a useful check on how much of the machinery is truly necessary.</p>
+
+    <h4>Extending context after training</h4>
+    <p>A model trained at 4k tokens degrades sharply at 8k, because RoPE angles at unseen positions are out of distribution. Three fixes, in increasing sophistication:</p>
+    <ul>
+      <li><b>Position interpolation.</b> Compress positions into the trained range: use \(m\cdot L_{\text{train}}/L_{\text{new}}\) instead of \(m\). Every angle is now in-distribution. Costs some fine-grained resolution; needs a little fine-tuning.</li>
+      <li><b>NTK-aware scaling.</b> Increase the RoPE base \(\theta\) instead. High-frequency dimensions (which encode local order) are barely changed, low-frequency ones (which encode long range) stretch. Often works with no fine-tuning at all.</li>
+      <li><b>YaRN.</b> Combines both, interpolating only the low-frequency dimensions and correcting the attention temperature. The current standard for large context extensions.</li>
+    </ul>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · applying RoPE to the values</span>
+      <p style="margin-bottom:0">RoPE rotates <b>Q and K only</b>. The derivation depends on the rotation cancelling inside the \(\mathbf q\T\mathbf k\) product; \(V\) is not part of that product, and rotating it corrupts the content the attention is meant to retrieve. A related trap: RoPE must be applied <em>after</em> the head split, per head, and with the correct pairing of dimensions — implementations differ on whether they pair \((0,1),(2,3),\dots\) or \((0,d/2),(1,d/2{+}1),\dots\). Both are valid, but a checkpoint trained with one and served with the other produces fluent-sounding output with subtly wrong long-range behaviour, which is a miserable bug to find.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l84">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 73</span><span>Lesson 84</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-084.html">single page ↗</a></div>
+      <h3 class="lesson-title">Inside the Transformer Block</h3>
+      <span class="lesson-no">84</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The position-wise feedforward network</li><li>The 4× expansion</li>
+        <li>ReLU → GELU → SwiGLU</li><li>Residual connections</li>
+        <li>Pre-norm vs post-norm stability</li><li>Dropout placement</li>
+        <li>Parameter and FLOP accounting per block</li><li>A Llama-style block vs the 2017 original</li>
+      </ol>
+    </div>
+
+    <h4>The feedforward network is most of the model</h4>
+    <p>Between attention layers sits an MLP applied independently at every position:</p>
+    \[ \text{FFN}(\mathbf x)=W_2\,\phi(W_1\mathbf x+\mathbf b_1)+\mathbf b_2,\qquad W_1\in\R^{4d\times d},\ W_2\in\R^{d\times 4d} \]
+    <p>Count the parameters per block: attention holds \(4d^2\) (the Q, K, V and output projections), the FFN holds \(8d^2\). <b>Two-thirds of a transformer's parameters are in the feedforward layers</b>, not in attention. That surprises people, and it explains why Mixture of Experts (Lesson 91) targets the FFN specifically — it is where the capacity lives.</p>
+    <div class="box intuition"><span class="lbl">What the FFN is doing</span>
+      <p style="margin-bottom:0">Attention <em>moves</em> information between positions; the FFN <em>processes</em> it in place. A productive reading is that the FFN acts as a key-value memory: the rows of \(W_1\) are keys matched against the residual stream, and the corresponding columns of \(W_2\) are values written back when a key fires. Probing work has found individual FFN neurons that activate on specific, human-legible patterns. The 4× expansion gives the layer \(4d\) such slots — width is memory capacity.</p>
+    </div>
+
+    <h4>SwiGLU, and the two-thirds correction</h4>
+    <p>Modern models replace the FFN with a gated variant:</p>
+    \[ \text{SwiGLU}(\mathbf x)=\big(\text{SiLU}(W_{\text{gate}}\mathbf x)\odot W_{\text{up}}\mathbf x\big)W_{\text{down}} \]
+    <p>Three matrices instead of two, so to keep the parameter count equal the hidden dimension is set to \(\frac{2}{3}\cdot4d=\frac{8}{3}d\) — which is where Llama's odd 11008 for \(d=4096\) comes from (rounded to a multiple of 256). Gating buys roughly the same quality gain as a modest increase in depth, for free. The paper introducing it famously attributed its success to "divine benevolence", which is an unusually honest way of saying nobody has a satisfying explanation.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 260" role="img" aria-label="The 2017 post-norm block compared with a modern pre-norm Llama-style block">
+        <text class="svg-ttl" x="20" y="22">EIGHT YEARS OF CHANGES TO ONE BLOCK</text>
+        <g transform="translate(60,44)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#8095AA">2017 · post-norm</text>
+          <rect x="0" y="14" width="150" height="28" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="26" y="32">multi-head attn</text>
+          <circle cx="75" cy="60" r="11" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="71" y="64">+</text>
+          <rect x="0" y="78" width="150" height="26" fill="#0F1822" stroke="#FF7B87"/><text class="svg-lbl" x="42" y="95" fill="#FF7B87">LayerNorm</text>
+          <rect x="0" y="118" width="150" height="28" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="24" y="136">FFN · ReLU · 4d</text>
+          <circle cx="75" cy="164" r="11" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="71" y="168">+</text>
+          <rect x="0" y="182" width="150" height="26" fill="#0F1822" stroke="#FF7B87"/><text class="svg-lbl" x="42" y="199" fill="#FF7B87">LayerNorm</text>
+          <path d="M-16 8 L-16 60 L64 60" fill="none" stroke="#8095AA" stroke-width="1.6"/>
+          <path d="M-16 112 L-16 164 L64 164" fill="none" stroke="#8095AA" stroke-width="1.6"/>
+          <text class="svg-lbl" x="-20" y="230" fill="#FF7B87">a norm sits ON the residual path</text>
+        </g>
+        <g transform="translate(300,44)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#93D97B">2025 · pre-norm, Llama-style</text>
+          <rect x="0" y="14" width="170" height="26" fill="#0F1822" stroke="#93D97B"/><text class="svg-lbl" x="52" y="31" fill="#93D97B">RMSNorm</text>
+          <rect x="0" y="48" width="170" height="28" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="18" y="66">grouped-query attn · RoPE</text>
+          <circle cx="85" cy="94" r="11" fill="#0F1822" stroke="#FFB454" stroke-width="1.8"/><text class="svg-lbl" x="81" y="98" fill="#FFB454">+</text>
+          <rect x="0" y="112" width="170" height="26" fill="#0F1822" stroke="#93D97B"/><text class="svg-lbl" x="52" y="129" fill="#93D97B">RMSNorm</text>
+          <rect x="0" y="146" width="170" height="28" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="34" y="164">SwiGLU · 8d/3</text>
+          <circle cx="85" cy="192" r="11" fill="#0F1822" stroke="#FFB454" stroke-width="1.8"/><text class="svg-lbl" x="81" y="196" fill="#FFB454">+</text>
+          <path d="M-18 8 L-18 94 L74 94" fill="none" stroke="#FFB454" stroke-width="2.4"/>
+          <path d="M-18 104 L-18 192 L74 192" fill="none" stroke="#FFB454" stroke-width="2.4"/>
+          <text class="svg-lbl" x="-20" y="230" fill="#FFB454">nothing on the residual path at all</text>
+        </g>
+        <g transform="translate(560,58)">
+          <rect x="0" y="0" width="316" height="184" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl-b" x="14" y="24">what changed, and why</text>
+          <text class="svg-lbl" x="14" y="48" fill="#93D97B">pre-norm</text><text class="svg-lbl" x="100" y="48">clean identity path → depth</text>
+          <text class="svg-lbl" x="14" y="68" fill="#93D97B">RMSNorm</text><text class="svg-lbl" x="100" y="68">no mean, no bias → ~8% faster</text>
+          <text class="svg-lbl" x="14" y="88" fill="#93D97B">SwiGLU</text><text class="svg-lbl" x="100" y="88">gating → better loss at equal params</text>
+          <text class="svg-lbl" x="14" y="108" fill="#93D97B">RoPE</text><text class="svg-lbl" x="100" y="108">relative position, extendable</text>
+          <text class="svg-lbl" x="14" y="128" fill="#93D97B">GQA</text><text class="svg-lbl" x="100" y="128">KV cache ÷8 (Lesson 90)</text>
+          <text class="svg-lbl" x="14" y="148" fill="#93D97B">no biases</text><text class="svg-lbl" x="100" y="148">no measurable loss, fewer params</text>
+          <text class="svg-lbl" x="14" y="172" fill="#FFB454">The shape is identical. Every detail is different.</text>
+        </g>
+      </svg>
+      <figcaption>Not one of these changes altered the fundamental structure. They are all the accumulated result of people training very large models and finding out which details break at scale.</figcaption>
+    </figure>
+
+    <h4>Accounting, per block</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Component</th><th>Parameters</th><th>FLOPs per token</th></tr></thead>
+      <tbody>
+        <tr><td>Attention projections (Q,K,V,O)</td><td>\(4d^2\)</td><td>\(8d^2\)</td></tr>
+        <tr><td>Attention scores + weighted sum</td><td>0</td><td>\(4nd\) — grows with sequence</td></tr>
+        <tr><td>FFN (standard, 4×)</td><td>\(8d^2\)</td><td>\(16d^2\)</td></tr>
+        <tr><td><b>Block total</b></td><td>\(\mathbf{12d^2}\)</td><td>\(\approx24d^2+4nd\)</td></tr>
+      </tbody>
+    </table></div>
+    <p>Hence the standard estimate \(P\approx12Ld^2\) for a model's parameter count, and the rule of thumb that a forward pass costs about \(2P\) FLOPs per token, a full training step about \(6P\) (forward, backward, and the backward's second matmul). Those two numbers are the basis of every compute-budget calculation in Lesson 93.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the missing final norm, and dropout at scale</span>
+      <p style="margin-bottom:0">In a pre-norm stack nothing normalises the residual stream on its way out of the last block, so it grows roughly as \(\sqrt L\). Forget the final <code>RMSNorm</code> before the output projection and training still works, badly, with an odd loss curve — as flagged in Lesson 37. Separately: the 2017 recipe uses dropout 0.1 everywhere, and copying that into a large-scale pretraining run is usually wrong. When your model sees each token once, there is nothing to overfit; dropout just adds noise and costs throughput. Most large pretraining runs use dropout 0, then reintroduce it for fine-tuning on small data.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l85">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 74</span><span>Lesson 85</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-085.html">single page ↗</a></div>
+      <h3 class="lesson-title">Build a Transformer From Scratch — Part 1</h3>
+      <span class="lesson-no">85</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Config and tokenizer</li><li>Token and position embeddings</li>
+        <li>The attention module</li><li>The MLP module</li>
+        <li>The block</li><li>The full model class</li>
+        <li>Weight tying</li><li>Initialization</li>
+        <li>Counting parameters</li><li>Verifying shapes end to end</li>
+      </ol>
+    </div>
+
+    <p>A complete decoder-only transformer in about 90 lines. This is the nanoGPT shape, and it is genuinely all of it — every production LLM is this code plus engineering.</p>
+
+    <pre><code>from dataclasses import dataclass
+import math, torch, torch.nn as nn, torch.nn.functional as F
+
+@dataclass
+class Config:
+    vocab_size: int = 50304      # 50257 rounded up to a multiple of 64 — see the pitfall
+    n_layer: int = 12
+    n_head: int = 12
+    d_model: int = 768
+    block_size: int = 1024       # max context
+    dropout: float = 0.0         # 0 for pretraining (Lesson 84)
+
+class CausalSelfAttention(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.h, self.d = c.n_head, c.d_model
+        self.qkv  = nn.Linear(c.d_model, 3 * c.d_model, bias=False)
+        self.proj = nn.Linear(c.d_model, c.d_model, bias=False)
+        self.drop = c.dropout
+
+    def forward(self, x):
+        B, T, D = x.shape
+        q, k, v = self.qkv(x).split(D, dim=2)
+        q, k, v = (t.view(B, T, self.h, D // self.h).transpose(1, 2) for t in (q, k, v))
+        y = F.scaled_dot_product_attention(
+            q, k, v, is_causal=True,
+            dropout_p=self.drop if self.training else 0.0)
+        y = y.transpose(1, 2).reshape(B, T, D)
+        return self.proj(y)
+
+class MLP(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.fc   = nn.Linear(c.d_model, 4 * c.d_model, bias=False)
+        self.proj = nn.Linear(4 * c.d_model, c.d_model, bias=False)
+        self.drop = nn.Dropout(c.dropout)
+
+    def forward(self, x):
+        return self.drop(self.proj(F.gelu(self.fc(x), approximate="tanh")))
+
+class Block(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.ln1, self.ln2 = nn.LayerNorm(c.d_model), nn.LayerNorm(c.d_model)
+        self.attn, self.mlp = CausalSelfAttention(c), MLP(c)
+
+    def forward(self, x):
+        x = x + self.attn(self.ln1(x))       # PRE-norm: norm inside, add outside
+        x = x + self.mlp(self.ln2(x))
+        return x
+
+class GPT(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.c = c
+        self.tok = nn.Embedding(c.vocab_size, c.d_model)
+        self.pos = nn.Embedding(c.block_size, c.d_model)
+        self.blocks = nn.ModuleList([Block(c) for _ in range(c.n_layer)])
+        self.ln_f = nn.LayerNorm(c.d_model)                  # the final norm — do not omit
+        self.head = nn.Linear(c.d_model, c.vocab_size, bias=False)
+        self.head.weight = self.tok.weight                   # weight tying
+
+        self.apply(self._init)
+        # scale the residual-projection init by 1/sqrt(2L): L blocks each add TWICE
+        for name, p in self.named_parameters():
+            if name.endswith("proj.weight"):
+                nn.init.normal_(p, 0.0, 0.02 / math.sqrt(2 * c.n_layer))
+
+    def _init(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0.0, 0.02)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.Embedding):
+            nn.init.normal_(m.weight, 0.0, 0.02)
+
+    def forward(self, idx, targets=None):
+        B, T = idx.shape
+        assert T &lt;= self.c.block_size, f"sequence {T} exceeds context {self.c.block_size}"
+        pos = torch.arange(T, device=idx.device)
+        x = self.tok(idx) + self.pos(pos)                    # (B,T,D)
+        for blk in self.blocks:
+            x = blk(x)
+        x = self.ln_f(x)
+        logits = self.head(x)                                # (B,T,V) — raw logits
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)),
+                                   targets.view(-1), ignore_index=-1)
+        return logits, loss
+</code></pre>
+
+    <h4>The three details that are easy to skip</h4>
+    <div class="box derive"><span class="lbl">Weight tying</span>
+      <p style="margin-bottom:0">The input embedding maps token → vector; the output head maps vector → token scores. These are inverse operations over the same vocabulary, and sharing one matrix for both is both principled and cheap: for \(V=50257\) and \(d=768\) it saves 38.6M parameters, about 30% of a 124M model. It also acts as a regulariser and consistently improves perplexity on small models. One line, and every GPT does it.</p>
+    </div>
+    <div class="box derive"><span class="lbl">Residual init scaling by \(1/\sqrt{2L}\)</span>
+      <p style="margin-bottom:0">In a pre-norm stack the residual stream accumulates the output of every sublayer. With \(L\) blocks each contributing two additions, the variance of the stream grows like \(2L\) if every sublayer is initialised identically — so a deep model starts with enormous activations at the top. Scaling the <em>output projection</em> of each sublayer by \(1/\sqrt{2L}\) keeps the stream at roughly unit variance regardless of depth. This is Lesson 27's variance argument applied to the residual stream, and it is what makes a 48-layer model trainable without a fragile warmup.</p>
+    </div>
+    <div class="box pitfall"><span class="lbl">Pitfall · vocabulary size 50257</span>
+      <p style="margin-bottom:0">GPT-2's real vocabulary is 50257, a prime-ish number that is terrible for GPU tiling. Padding it to <b>50304</b> (a multiple of 64, and of 128) makes the final matmul land on tensor-core-friendly shapes and buys roughly a <b>25% throughput improvement</b> for 47 extra rows that are never used — the model simply learns to assign them negligible probability. Free speed for a one-character change, and one of the most cost-effective tricks in the whole of LLM engineering.</p>
+    </div>
+
+    <h4>Verify before you train</h4>
+    <pre><code>c = Config()
+m = GPT(c)
+n_all = sum(p.numel() for p in m.parameters())
+n_emb = m.pos.weight.numel()
+print(f"parameters: {n_all/1e6:.1f}M  (non-positional: {(n_all-n_emb)/1e6:.1f}M)")
+# -> 124.5M, matching GPT-2 small. If yours differs, find out why BEFORE spending GPU hours.
+
+x = torch.randint(0, c.vocab_size, (2, 64))
+logits, loss = m(x, targets=x)
+assert logits.shape == (2, 64, c.vocab_size)
+print(loss.item())          # expect ~10.8 = log(50304). Anything else means a bug (Lesson 40).
+</code></pre>
+    <div class="box check"><span class="lbl">The parameter count, by hand</span>
+      <p style="margin-bottom:0">Embeddings \(Vd=50304\times768=38.6\text{M}\), positions \(1024\times768=0.8\text{M}\), each block \(12d^2=7.08\text{M}\) so twelve blocks give 85.0M. Total \(38.6+0.8+85.0=124.4\text{M}\), and the head is free because of tying. If your count is off by \(Vd\) you forgot to tie; if it is off by roughly \(4d^2\) per layer you have an extra projection somewhere. Reconciling this number by hand catches structural bugs that a forward pass will not.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l86">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 75</span><span>Lesson 86</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-086.html">single page ↗</a></div>
+      <h3 class="lesson-title">Build a Transformer From Scratch — Part 2</h3>
+      <span class="lesson-no">86</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Data loading for next-token prediction</li><li>The training loop with AMP and accumulation</li>
+        <li>Warmup plus cosine</li><li>Evaluating loss</li>
+        <li>Sampling text</li><li>Scaling from toy to bigger</li>
+        <li>Measuring tokens/sec</li><li>Profiling the bottlenecks</li>
+      </ol>
+    </div>
+
+    <pre><code>import numpy as np, time, math, torch
+
+# Tokenize once, store as a uint16 memmap. Never re-tokenize in the training loop.
+data = np.memmap("train.bin", dtype=np.uint16, mode="r")
+
+def get_batch(B, T, device="cuda"):
+    ix = torch.randint(len(data) - T - 1, (B,))
+    x = torch.stack([torch.from_numpy(data[i:i+T].astype(np.int64))     for i in ix])
+    y = torch.stack([torch.from_numpy(data[i+1:i+1+T].astype(np.int64)) for i in ix])
+    return x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
+
+model = GPT(Config()).cuda()
+model = torch.compile(model)
+
+# AdamW with the correct no-decay groups (Lesson 34)
+decay   = [p for n, p in model.named_parameters() if p.dim() &gt;= 2]
+nodecay = [p for n, p in model.named_parameters() if p.dim() &lt;  2]
+opt = torch.optim.AdamW([{"params": decay,   "weight_decay": 0.1},
+                         {"params": nodecay, "weight_decay": 0.0}],
+                        lr=6e-4, betas=(0.9, 0.95), eps=1e-8, fused=True)
+
+WARMUP, TOTAL, MIN_LR, MAX_LR = 2000, 600_000, 6e-5, 6e-4
+def lr_at(step):
+    if step &lt; WARMUP:
+        return MAX_LR * (step + 1) / WARMUP
+    r = (step - WARMUP) / (TOTAL - WARMUP)
+    return MIN_LR + 0.5 * (MAX_LR - MIN_LR) * (1 + math.cos(math.pi * min(r, 1.0)))
+
+ACC = 8                                   # micro-batches per optimizer step
+for step in range(TOTAL):
+    for g in opt.param_groups:
+        g["lr"] = lr_at(step)
+    t0 = time.time()
+    for micro in range(ACC):
+        x, y = get_batch(12, 1024)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            _, loss = model(x, targets=y)
+        (loss / ACC).backward()           # divide! (Lesson 44)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    opt.step(); opt.zero_grad(set_to_none=True)
+
+    if step % 10 == 0:
+        torch.cuda.synchronize()          # CUDA is async — timing without this is fiction
+        dt = time.time() - t0
+        toks = ACC * 12 * 1024
+        print(f"{step} loss {loss.item()*ACC:.4f} lr {lr_at(step):.2e} {toks/dt:,.0f} tok/s")
+</code></pre>
+
+    <h4>Is your training loop fast, or just running?</h4>
+    <p>Model FLOPs Utilisation is the honest metric: the fraction of your GPU's peak throughput you are actually converting into model computation.</p>
+    \[ \text{MFU}=\frac{6\,P\,\text{tokens/sec}}{\text{peak FLOP/s}} \]
+    <p>The \(6P\) is the per-token training cost from Lesson 84. An A100 delivers 312 TFLOP/s in bf16. A well-tuned nanoGPT-scale run reaches 40–55% MFU; below 20% you have a data-loading or synchronisation problem, not a model problem.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>GPU utilisation &lt; 60% in <code>nvidia-smi</code></td><td>Data loading is the bottleneck</td><td>More workers, <code>pin_memory</code>, <code>non_blocking=True</code>, prefetch</td></tr>
+        <tr><td>MFU &lt; 20% with GPU at 100%</td><td>Small batch, unfused ops, or fp32</td><td>bf16 autocast, <code>torch.compile</code>, fused AdamW, larger batch</td></tr>
+        <tr><td>First step takes minutes</td><td><code>torch.compile</code> warmup</td><td>Normal. Recompiles on every new shape — keep shapes fixed.</td></tr>
+        <tr><td>Throughput drops over the run</td><td>Memory fragmentation, or a leaked graph</td><td><code>loss.item()</code> not <code>loss</code> in logs (Lesson 12)</td></tr>
+        <tr><td>Loss spikes then recovers</td><td>Bad batch or LR too high</td><td>Clip gradients; skip non-finite batches (Lesson 42)</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Sampling</h4>
+    <pre><code>@torch.no_grad()
+def generate(model, idx, max_new=200, temperature=0.8, top_k=200):
+    model.eval()
+    for _ in range(max_new):
+        idx_cond = idx[:, -model.c.block_size:]        # crop to context (no KV cache yet)
+        logits, _ = model(idx_cond)
+        logits = logits[:, -1, :] / temperature        # temperature FIRST (Lesson 76)
+        if top_k is not None:
+            v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            logits[logits &lt; v[:, [-1]]] = -float("inf")
+        idx = torch.cat([idx, torch.multinomial(logits.softmax(-1), 1)], dim=1)
+    return idx
+</code></pre>
+    <p>Note that this recomputes the entire forward pass for every new token — \(O(n^2)\) work to generate \(n\) tokens. The KV cache in Lesson 90 fixes that, and it is the single most important inference optimisation there is.</p>
+
+    <div class="box check"><span class="lbl">Milestones on a small run</span>
+      <p style="margin-bottom:0">On ~300MB of text with the 124M model: loss starts at \(\log V\approx10.8\), drops below 6 within a few hundred steps (the model has learned token frequencies), reaches ~4.5 by 2k steps (common words and basic syntax), and settles around 3.0–3.4 after a full run. Sample text at each checkpoint — the transition from plausible-looking word salad to coherent sentences happens somewhere around 4.0 and is far more informative than the number. If loss plateaus above 6, check your data pipeline: you are probably feeding shuffled or misaligned tokens.</p>
+    </div>
+
+    <div class="box exercise"><span class="lbl">Exercise</span>
+      <p style="margin-bottom:0">Train the 124M model on a corpus you care about — your own writing, a codebase, a book collection. Then, holding everything else fixed, halve the width and double the depth so the parameter count is roughly unchanged, and train again. Compare final loss and tokens/sec. You will find depth and width are not interchangeable, and that the deeper model is slower per parameter. That result is the empirical ground for Lesson 93.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l87">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 76</span><span>Lesson 87</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-087.html">single page ↗</a></div>
+      <h3 class="lesson-title">Encoder-Only Models — BERT &amp; Family</h3>
+      <span class="lesson-no">87</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Bidirectional context</li><li>Masked language modeling and the 80/10/10 rule</li>
+        <li>Next-sentence prediction, and why it was dropped</li><li>BERT-base vs large</li>
+        <li>CLS, SEP and segment embeddings</li><li>RoBERTa's better recipe</li>
+        <li>ALBERT, ELECTRA, DeBERTa</li><li>Fine-tuning for classification, NER, QA and embeddings</li>
+      </ol>
+    </div>
+
+    <h4>Why masking, and why 15%</h4>
+    <p>A causal decoder sees only leftward context. For classification and tagging you want both sides — but a bidirectional model cannot be trained on next-token prediction, because the answer is in its input. BERT's solution: corrupt 15% of tokens and predict them from the rest.</p>
+    <div class="box derive"><span class="lbl">The 80/10/10 rule</span>
+      <p>Of the 15% selected: 80% become <code>[MASK]</code>, 10% become a random token, 10% are left unchanged.</p>
+      <p style="margin-bottom:0">The reason is a train/test mismatch. <code>[MASK]</code> never appears during fine-tuning or inference, so a model trained only on masked positions would have a large distribution shift at deployment. Leaving 10% unchanged forces the model to build a good representation of <em>every</em> token, not just masked ones, since it cannot tell which positions it will be graded on. The 10% random substitution prevents it from simply copying the input at unchanged positions. The 15% rate itself is a trade-off: too low and each pass provides little signal, too high and there is not enough context left to predict from. Later work found the optimum is task- and scale-dependent, with 40% working better for large models.</p>
+    </div>
+    <p>MLM is far less sample-efficient than causal LM — you get a learning signal from 15% of positions instead of 100%. That inefficiency is one reason the field moved to decoder-only models for large-scale pretraining.</p>
+
+    <h4>The family, as a sequence of corrections</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Model</th><th>The change</th><th>What it showed</th></tr></thead>
+      <tbody>
+        <tr><td><b>BERT</b> (2018)</td><td>MLM + next-sentence prediction</td><td>Bidirectional pretraining transfers to everything. GLUE jumped ~7 points.</td></tr>
+        <tr><td><b>RoBERTa</b> (2019)</td><td>Drop NSP, train 10× longer on 10× more data, dynamic masking, bigger batches</td><td>BERT was <b>undertrained</b>. No architecture change at all, and it beat every BERT variant — an early and important demonstration that recipe beats architecture.</td></tr>
+        <tr><td><b>ALBERT</b> (2019)</td><td>Share parameters across layers; factorise the embedding matrix</td><td>18× fewer parameters at similar quality — but the same compute, since sharing does not reduce FLOPs.</td></tr>
+        <tr><td><b>ELECTRA</b> (2020)</td><td>A small generator corrupts tokens; the main model classifies every token as real or replaced</td><td>Learning signal from <b>100%</b> of positions instead of 15%. Matches RoBERTa with roughly a quarter of the compute.</td></tr>
+        <tr><td><b>DeBERTa</b> (2021)</td><td>Disentangled attention: separate content and position vectors, with content-to-position and position-to-content terms</td><td>First model to beat the human baseline on SuperGLUE.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Next-sentence prediction is a good cautionary tale. It was presented as essential; RoBERTa removed it and did better, because the task was too easy — a random second sentence usually comes from a different document and is detectable from topic alone, so the model learned topic matching rather than discourse coherence. Ablate your auxiliary objectives.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · using <code>[CLS]</code> as a sentence embedding</span>
+      <p style="margin-bottom:0">The <code>[CLS]</code> token of an off-the-shelf BERT is a poor sentence representation — cosine similarity between two <code>[CLS]</code> vectors correlates worse with human similarity judgements than averaging GloVe vectors. It was trained for next-sentence prediction, not for similarity, and its geometry is anisotropic (all vectors crowd into a narrow cone). If you need sentence embeddings, use a model trained for them: Sentence-BERT fine-tunes with a siamese architecture and a contrastive or triplet objective (Lesson 61), and the difference is not marginal.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">When an encoder is still the right choice in 2026</span>
+      <p style="margin-bottom:0">Encoder-only models are not obsolete — they are just no longer the frontier. For a fixed classification, NER or retrieval task with training data, a fine-tuned DeBERTa or ModernBERT is <b>faster, cheaper and often more accurate</b> than prompting a large decoder, and it runs on a CPU. Reach for an LLM when you need generation, few-shot flexibility, or an open-ended task. Reach for an encoder when you have 5,000 labelled examples and a fixed label set — which describes an enormous amount of real production NLP.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l88">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 77</span><span>Lesson 88</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-088.html">single page ↗</a></div>
+      <h3 class="lesson-title">Decoder-Only Models — The GPT Lineage</h3>
+      <span class="lesson-no">88</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Causal language modeling</li><li>GPT-1 to GPT-2 to GPT-3 to GPT-4</li>
+        <li>Zero-shot, few-shot and in-context learning</li><li>Open-weight families</li>
+        <li>Emergent abilities and the debate</li><li>The modern LLM stack</li>
+      </ol>
+    </div>
+
+    <h4>One objective, all the way up</h4>
+    \[ \mathcal L=-\sum_{t}\log p_\theta\big(x_t\mid x_{&lt;t}\big) \]
+    <p>That is the entire pretraining objective for every model in this lesson. Nothing about it mentions translation, reasoning, summarisation or code. Those capabilities appear because predicting the next token in a large enough corpus <em>requires</em> them — to continue "the French translation of 'hello' is", you must know it.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Model</th><th>Params</th><th>Tokens</th><th>The contribution</th></tr></thead>
+      <tbody>
+        <tr><td>GPT-1 (2018)</td><td>117M</td><td>~1B</td><td>Generative pretraining then supervised fine-tuning per task</td></tr>
+        <tr><td>GPT-2 (2019)</td><td>1.5B</td><td>~10B</td><td><b>Zero-shot</b> — task specified in the prompt, no fine-tuning at all</td></tr>
+        <tr><td>GPT-3 (2020)</td><td>175B</td><td>300B</td><td><b>Few-shot in-context learning</b> — examples in the prompt, weights frozen</td></tr>
+        <tr><td>GPT-4 (2023)</td><td>undisclosed</td><td>undisclosed</td><td>Multimodal input, large gains on reasoning benchmarks; no public architecture</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box intuition"><span class="lbl">In-context learning is the strange one</span>
+      <p style="margin-bottom:0">Put five labelled examples in the prompt and the model performs the task — with <b>no weight updates whatsoever</b>. Whatever is happening lives entirely in the forward pass. The leading mechanistic account ties it to induction heads (Lesson 82): the circuit that completes <code>[A][B]…[A]→[B]</code> is exactly a pattern-copier, and models acquire in-context learning at the same moment those heads form. Other work argues the forward pass is implementing something like gradient descent on the in-context examples inside the activations. It remains an open question, and it is one of the more interesting ones in the field.</p>
+    </div>
+
+    <h4>Open-weight families</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Family</th><th>From</th><th>Notable for</th></tr></thead>
+      <tbody>
+        <tr><td><b>Llama</b></td><td>Meta</td><td>Set the open-weight architecture standard: RMSNorm, SwiGLU, RoPE, GQA. Most other models are variations on it.</td></tr>
+        <tr><td><b>Mistral / Mixtral</b></td><td>Mistral</td><td>Sliding-window attention; the first widely-used open MoE</td></tr>
+        <tr><td><b>Qwen</b></td><td>Alibaba</td><td>Strong multilingual and code performance; a wide range of sizes</td></tr>
+        <tr><td><b>Gemma</b></td><td>Google</td><td>Small models distilled from larger ones; strong quality per parameter</td></tr>
+        <tr><td><b>DeepSeek</b></td><td>DeepSeek</td><td>Fine-grained MoE, multi-head latent attention, and public reasoning-RL work</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Emergence, and the argument about it</h4>
+    <p>Plot accuracy on multi-step arithmetic against model scale and you see a flat line near zero, then a sharp jump. Dozens of tasks show this shape, and it was widely described as <b>emergent</b> — a capability that appears discontinuously and cannot be predicted from smaller models.</p>
+    <div class="box derive"><span class="lbl">The mirage argument, and what survives it</span>
+      <p>Schaeffer et al. (2023) pointed out that most "emergent" results use <b>discontinuous metrics</b>. Exact-match accuracy on a 5-digit multiplication is 0 until every digit is right. If per-digit accuracy improves smoothly from 0.1 to 0.9, exact-match stays near zero and then leaps — the discontinuity is in the <em>metric</em>, not the model. Swapping to per-token log-likelihood makes the same curves smooth.</p>
+      <p style="margin-bottom:0">This is a genuine and important correction, and it does not dissolve the phenomenon entirely. Smooth underlying improvement still produces discontinuous <em>usefulness</em>: a system that gets 4 of 5 digits right is worthless and one that gets 5 of 5 is valuable, and that threshold is real for anyone deploying it. The honest position is that capabilities improve predictably in loss and unpredictably in utility, and that you should be suspicious of any scaling claim resting on a thresholded metric.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l89">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 78</span><span>Lesson 89</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-089.html">single page ↗</a></div>
+      <h3 class="lesson-title">Encoder-Decoder Models — T5 &amp; BART</h3>
+      <span class="lesson-no">89</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Text-to-text unification</li><li>T5's span corruption objective</li>
+        <li>The C4 dataset</li><li>Relative position bias</li>
+        <li>mT5 multilingual</li><li>BART's denoising objectives</li>
+        <li>When encoder-decoder still wins</li><li>FLAN instruction tuning</li>
+      </ol>
+    </div>
+
+    <h4>Everything is text-to-text</h4>
+    <p>T5's framing: classification, translation, summarisation, regression and question answering are all "given this string, produce that string". Prefix the input with a task description and use one model, one objective and one decoding procedure for all of them.</p>
+    <pre><code>"translate English to German: That is good."     -> "Das ist gut."
+"cola sentence: The course is jumping well."     -> "not acceptable"
+"stsb sentence1: ... sentence2: ..."              -> "3.8"        # regression as a string!
+"summarize: state authorities dispatched ..."     -> "six people hospitalized after ..."
+</code></pre>
+    <p>Emitting "3.8" as text for a regression task is deliberately inelegant and it works. The point was to remove per-task architecture entirely so that pretraining objectives could be compared fairly — which is what T5's paper actually is: a large controlled ablation over objectives, corpora, architectures and scales.</p>
+
+    <div class="box derive"><span class="lbl">Span corruption</span>
+      <p>BERT masks individual tokens. T5 masks contiguous <b>spans</b> and replaces each with a single sentinel, then asks the decoder to emit the spans in order:</p>
+      <p style="margin-bottom:0"><code>input:  Thank you &lt;X&gt; me to your party &lt;Y&gt; week.</code><br>
+         <code>target: &lt;X&gt; for inviting &lt;Y&gt; last &lt;Z&gt;</code></p>
+      <p style="margin-bottom:0;margin-top:10px">Two advantages over token masking. The target sequence is much shorter than the input, so training is cheaper per example. And predicting a multi-token span requires modelling the joint distribution over the span, not \(k\) independent marginals — a harder and more useful task. T5 uses 15% corruption with mean span length 3.</p>
+    </div>
+
+    <p><b>BART</b> takes a different route: corrupt the input with an arbitrary noising function — token masking, deletion, span infilling, sentence permutation, document rotation — and train a full seq2seq model to reconstruct the original. Because the decoder is a standard autoregressive LM, BART is directly usable for generation in a way BERT is not. Their ablation found text infilling plus sentence shuffling worked best.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Architecture</th><th>Best at</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Encoder-only</td><td>Classification, NER, retrieval</td><td>Bidirectional context, cheap, no generation needed</td></tr>
+        <tr><td><b>Encoder-decoder</b></td><td>Translation, summarisation, any faithful input→output transform</td><td>The source gets full bidirectional encoding; cross-attention gives the decoder clean access to all of it</td></tr>
+        <tr><td>Decoder-only</td><td>Open-ended generation, few-shot, chat, code</td><td>Simplest to scale, trains on 100% of tokens, one stack to serve</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box intuition"><span class="lbl">Why decoder-only won anyway</span>
+      <p style="margin-bottom:0">Encoder-decoder is arguably the better <em>architecture</em> for conditional generation, and it still holds up on translation and summarisation at matched size. It lost on operational grounds: one stack is simpler to scale, shard and serve than two; there is no split of parameters to tune; a decoder gets learning signal from every token; and in-context learning made per-task fine-tuning less necessary, which was encoder-decoder's main selling point. This is a recurring pattern worth internalising — <b>the architecture that wins is usually the one that is easiest to scale, not the one that is best at a fixed size</b>.</p>
+    </div>
+    <p><b>FLAN</b> is the bridge to Phase 6's second half: take T5 or PaLM and fine-tune it on hundreds of tasks phrased as natural-language instructions. The result generalises to <em>unseen</em> instructions, which is the discovery that instruction tuning works at all — and that is Lesson 95.</p>
+  </article>
+<article class="wrap lesson" id="l90">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 79</span><span>Lesson 90</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-090.html">single page ↗</a></div>
+      <h3 class="lesson-title">Efficient Attention &amp; Long Context</h3>
+      <span class="lesson-no">90</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The quadratic wall</li><li>Sparse and local attention</li>
+        <li>Longformer, BigBird</li><li>Reformer, Linformer, Performer</li>
+        <li>FlashAttention 1/2/3</li><li>The KV cache, explained and sized</li>
+        <li>Multi-Query and Grouped-Query Attention</li><li>PagedAttention</li>
+        <li>Sliding-window inference</li><li>Context extension</li>
+      </ol>
+    </div>
+
+    <h4>The KV cache — the most important optimisation in inference</h4>
+    <p>Generating token \(t\) recomputes attention over all previous tokens. But the keys and values of tokens \(1..t-1\) do not change — only the new query does. Cache them and each new token costs \(O(n)\) instead of \(O(n^2)\), turning generation from quadratic to linear.</p>
+    <p>The cost is memory, and it is substantial:</p>
+    \[ \text{KV bytes}=2\cdot B\cdot n\cdot L\cdot h_{kv}\cdot d_{\text{head}}\cdot\text{sizeof(dtype)} \]
+    <p>For Llama-2-70B (\(L=80\), \(h=64\), \(d_{\text{head}}=128\)) at 4096 tokens with batch 1 in fp16, full multi-head attention would need <b>10.7 GB of cache for a single sequence</b> — more than the weights of a 7B model, for one user. Serve 32 concurrent users and the cache dwarfs everything else. That number is why the next idea exists.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 220" role="img" aria-label="Multi-head, grouped-query and multi-query attention compared by how many key-value heads they keep">
+        <text class="svg-ttl" x="20" y="22">HOW MANY KEY/VALUE HEADS? — the KV cache divides by exactly this</text>
+        <g transform="translate(40,46)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#5BC8E6">MHA · 8 Q, 8 KV</text>
+          <g fill="#0F1822" stroke="#5BC8E6">
+            <rect x="0" y="14" width="18" height="26"/><rect x="22" y="14" width="18" height="26"/>
+            <rect x="44" y="14" width="18" height="26"/><rect x="66" y="14" width="18" height="26"/>
+            <rect x="88" y="14" width="18" height="26"/><rect x="110" y="14" width="18" height="26"/>
+            <rect x="132" y="14" width="18" height="26"/><rect x="154" y="14" width="18" height="26"/>
+          </g>
+          <text class="svg-lbl" x="0" y="58">queries</text>
+          <g fill="#0F1822" stroke="#FFB454">
+            <rect x="0" y="70" width="18" height="26"/><rect x="22" y="70" width="18" height="26"/>
+            <rect x="44" y="70" width="18" height="26"/><rect x="66" y="70" width="18" height="26"/>
+            <rect x="88" y="70" width="18" height="26"/><rect x="110" y="70" width="18" height="26"/>
+            <rect x="132" y="70" width="18" height="26"/><rect x="154" y="70" width="18" height="26"/>
+          </g>
+          <text class="svg-lbl" x="0" y="114" fill="#FFB454">8 KV heads cached</text>
+          <text class="svg-lbl" x="0" y="140">baseline quality</text>
+          <text class="svg-lbl" x="0" y="156" fill="#FF7B87">10.7 GB @ 4k, 70B</text>
+        </g>
+        <g transform="translate(300,46)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#93D97B">GQA · 8 Q, 2 KV</text>
+          <g fill="#0F1822" stroke="#5BC8E6">
+            <rect x="0" y="14" width="18" height="26"/><rect x="22" y="14" width="18" height="26"/>
+            <rect x="44" y="14" width="18" height="26"/><rect x="66" y="14" width="18" height="26"/>
+            <rect x="88" y="14" width="18" height="26"/><rect x="110" y="14" width="18" height="26"/>
+            <rect x="132" y="14" width="18" height="26"/><rect x="154" y="14" width="18" height="26"/>
+          </g>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M9 40 L42 70"/><path d="M31 40 L42 70"/><path d="M53 40 L42 70"/><path d="M75 40 L42 70"/>
+            <path d="M97 40 L130 70"/><path d="M119 40 L130 70"/><path d="M141 40 L130 70"/><path d="M163 40 L130 70"/>
+          </g>
+          <g fill="#0F1822" stroke="#FFB454">
+            <rect x="33" y="70" width="18" height="26"/><rect x="121" y="70" width="18" height="26"/>
+          </g>
+          <text class="svg-lbl" x="0" y="114" fill="#FFB454">2 KV heads cached</text>
+          <text class="svg-lbl" x="0" y="140" fill="#93D97B">quality ≈ MHA</text>
+          <text class="svg-lbl" x="0" y="156" fill="#93D97B">2.7 GB — 4× less</text>
+        </g>
+        <g transform="translate(560,46)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#B79CFF">MQA · 8 Q, 1 KV</text>
+          <g fill="#0F1822" stroke="#5BC8E6">
+            <rect x="0" y="14" width="18" height="26"/><rect x="22" y="14" width="18" height="26"/>
+            <rect x="44" y="14" width="18" height="26"/><rect x="66" y="14" width="18" height="26"/>
+            <rect x="88" y="14" width="18" height="26"/><rect x="110" y="14" width="18" height="26"/>
+            <rect x="132" y="14" width="18" height="26"/><rect x="154" y="14" width="18" height="26"/>
+          </g>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M9 40 L86 70"/><path d="M31 40 L86 70"/><path d="M53 40 L86 70"/><path d="M75 40 L86 70"/>
+            <path d="M97 40 L86 70"/><path d="M119 40 L86 70"/><path d="M141 40 L86 70"/><path d="M163 40 L86 70"/>
+          </g>
+          <rect x="77" y="70" width="18" height="26" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl" x="0" y="114" fill="#FFB454">1 KV head cached</text>
+          <text class="svg-lbl" x="0" y="140" style="fill:#FF7B87">small quality loss</text>
+          <text class="svg-lbl" x="0" y="156">1.3 GB — 8× less</text>
+        </g>
+      </svg>
+      <figcaption>Queries stay at full count; only the keys and values are shared. GQA sits at the useful point on the curve, which is why Llama-2-70B, Mistral, and most current models use it.</figcaption>
+    </figure>
+
+    <div class="demo" id="d-kv">
+      <div class="demo-head"><span class="dot"></span><b>KV cache calculator</b> · why long context is a memory problem, not a compute problem</div>
+      <div class="demo-body">
+        <canvas id="kvCv" width="760" height="250" aria-label="KV cache size against context length for different attention variants"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Model</span>
+            <select id="kvM">
+              <option value="7">7B (32L, 32h, d=128)</option>
+              <option value="13">13B (40L, 40h)</option>
+              <option value="70" selected>70B (80L, 64h)</option>
+              <option value="405">405B (126L, 128h)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Attention</span>
+            <select id="kvA">
+              <option value="1">MHA — all heads</option>
+              <option value="8" selected>GQA — 8 groups</option>
+              <option value="0">MQA — 1 KV head</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Context <b id="kvNv">4096</b></span><input type="range" id="kvN" min="1024" max="131072" step="1024" value="4096"></label>
+          <label class="ctrl"><span>Concurrent users <b id="kvBv">1</b></span><input type="range" id="kvB" min="1" max="64" step="1" value="1"></label>
+          <label class="ctrl"><span><input type="checkbox" id="kvQ"> 8-bit KV cache</span></label>
+        </div>
+        <div class="readout" id="kvOut"></div>
+      </div>
+    </div>
+
+    <div class="box derive"><span class="lbl">FlashAttention — the same maths, a different memory schedule</span>
+      <p>FlashAttention computes <b>exactly</b> standard attention. It is not an approximation. The insight is that GPUs are bottlenecked by memory bandwidth, not arithmetic: a naive implementation writes the \(n\times n\) score matrix to high-bandwidth memory, reads it back for the softmax, writes it again, and reads it for the value multiply. That traffic dominates the runtime.</p>
+      <p style="margin-bottom:0">Instead, tile the computation and keep each tile in on-chip SRAM, using the <b>online softmax</b> trick — a running maximum and running normaliser (Lesson 10's log-sum-exp, made incremental) that lets you finish a tile before seeing the rest of the row. The \(n\times n\) matrix is never materialised. Memory drops from \(O(n^2)\) to \(O(n)\) and wall-clock improves 2–4×, with bit-identical outputs. FlashAttention-2 improved the work partitioning; FlashAttention-3 exploits Hopper's asynchrony and FP8.</p>
+    </div>
+
+    <h4>The approximate methods, and why most of them faded</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>Idea</th><th>Complexity</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><b>Longformer</b></td><td>Sliding window + a few global tokens</td><td>\(O(n)\)</td><td>Still used for long-document encoding</td></tr>
+        <tr><td><b>BigBird</b></td><td>Window + global + random</td><td>\(O(n)\)</td><td>Proved Turing-completeness; little practical uptake</td></tr>
+        <tr><td>Reformer</td><td>Locality-sensitive hashing groups similar queries</td><td>\(O(n\log n)\)</td><td>Largely abandoned — complex, and the constants were bad</td></tr>
+        <tr><td>Linformer</td><td>Project keys/values to a fixed low rank \(k\)</td><td>\(O(n)\)</td><td>Cannot handle variable length or causal masking cleanly</td></tr>
+        <tr><td>Performer</td><td>Random-feature approximation of the softmax kernel</td><td>\(O(n)\)</td><td>Quality gap at scale</td></tr>
+        <tr><td><b>Sliding window</b></td><td>Attend to the last \(w\) tokens; information propagates across layers</td><td>\(O(nw)\)</td><td class="tick">Mistral. Simple and it works.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box intuition"><span class="lbl">Why exact beat approximate</span>
+      <p style="margin-bottom:0">Between 2020 and 2022 there were dozens of sub-quadratic attention papers, and almost none are in production. FlashAttention is the reason: by removing the memory bottleneck from <em>exact</em> attention, it moved the practical crossover point so far out that the approximations no longer paid for their quality loss and implementation complexity. The lesson generalises — <b>a constant-factor improvement to the exact method can defeat an asymptotic improvement to an approximate one</b>, for any problem size people actually run.</p>
+    </div>
+
+    <p><b>PagedAttention</b> (vLLM) applies operating-system virtual memory to the KV cache. Naive serving pre-allocates a contiguous block per request sized to the maximum possible length, wasting 60–80% of it. PagedAttention stores the cache in fixed-size blocks with a page table, allowing non-contiguous allocation, near-zero waste, and copy-on-write sharing of a common prompt prefix across requests. It raised serving throughput by 2–4× with no model change at all.</p>
+  </article>
+<article class="wrap lesson" id="l91">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 80</span><span>Lesson 91</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-091.html">single page ↗</a></div>
+      <h3 class="lesson-title">Mixture of Experts</h3>
+      <span class="lesson-no">91</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Dense vs sparse compute</li><li>Expert layers replacing the FFN</li>
+        <li>Top-k gating</li><li>Load balancing loss</li>
+        <li>Expert capacity and token dropping</li><li>Switch Transformer, GShard</li>
+        <li>Mixtral, DeepSeek-MoE</li><li>Training instabilities</li>
+        <li>Inference memory vs FLOPs</li>
+      </ol>
+    </div>
+
+    <h4>Decouple parameters from compute</h4>
+    <p>In a dense model, every parameter participates in every token's forward pass, so capacity and cost rise together. MoE breaks that link: replace the FFN with \(N\) parallel expert FFNs and a router that sends each token to only the top \(k\) of them.</p>
+    \[ \mathbf g=\softmax\big(W_r\mathbf x\big),\qquad \mathcal T=\text{top-}k(\mathbf g),\qquad \mathbf y=\sum_{i\in\mathcal T}\frac{g_i}{\sum_{j\in\mathcal T}g_j}\,E_i(\mathbf x) \]
+    <p>Mixtral 8×7B holds 46.7B parameters but activates only 12.9B per token — the quality of a much larger model at the compute of a much smaller one. The catch is that <b>all 46.7B must still fit in memory</b>, because any token might route anywhere. MoE saves FLOPs, not VRAM.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 210" role="img" aria-label="A mixture-of-experts layer routing tokens to a subset of expert feedforward networks">
+        <text class="svg-ttl" x="20" y="22">MoE — the router picks 2 of 8 experts per token</text>
+        <g transform="translate(40,44)">
+          <g fill="#0F1822" stroke="#2A3B4E">
+            <rect x="0" y="20" width="58" height="22"/><rect x="0" y="50" width="58" height="22"/><rect x="0" y="80" width="58" height="22"/>
+          </g>
+          <g class="svg-lbl" fill="#8095AA"><text x="10" y="35">tok 1</text><text x="10" y="65">tok 2</text><text x="10" y="95">tok 3</text></g>
+          <rect x="88" y="34" width="56" height="54" fill="#0F1822" stroke="#B79CFF"/>
+          <text class="svg-lbl" x="98" y="58" fill="#B79CFF">router</text>
+          <text class="svg-lbl" x="98" y="74" fill="#B79CFF">W_r</text>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M58 31 L88 52"/><path d="M58 61 L88 61"/><path d="M58 91 L88 70"/>
+          </g>
+          <g fill="#0F1822" stroke="#2A3B4E">
+            <rect x="192" y="0" width="72" height="22"/><rect x="192" y="26" width="72" height="22"/>
+            <rect x="192" y="52" width="72" height="22"/><rect x="192" y="78" width="72" height="22"/>
+            <rect x="192" y="104" width="72" height="22"/><rect x="192" y="130" width="72" height="22"/>
+          </g>
+          <rect x="192" y="26" width="72" height="22" fill="#14202C" stroke="#FFB454" stroke-width="1.8"/>
+          <rect x="192" y="104" width="72" height="22" fill="#14202C" stroke="#FFB454" stroke-width="1.8"/>
+          <g class="svg-lbl" fill="#8095AA">
+            <text x="202" y="15">E₁</text><text x="202" y="41" fill="#FFB454">E₂</text><text x="202" y="67">E₃</text>
+            <text x="202" y="93">E₄</text><text x="202" y="119" fill="#FFB454">E₅</text><text x="202" y="145">E₆ …</text>
+          </g>
+          <g stroke="#FFB454" stroke-width="1.8" fill="none">
+            <path d="M144 55 L192 37"/><path d="M144 66 L192 115"/>
+          </g>
+          <circle cx="308" cy="70" r="13" fill="#0F1822" stroke="#93D97B" stroke-width="1.8"/>
+          <text class="svg-lbl" x="303" y="75" fill="#93D97B">Σ</text>
+          <g stroke="#93D97B" fill="none"><path d="M264 37 L295 66"/><path d="M264 115 L295 76"/></g>
+          <text class="svg-lbl" x="0" y="170">only the 2 amber experts run · the other 6 cost nothing this token</text>
+        </g>
+        <g transform="translate(430,48)">
+          <rect x="0" y="0" width="440" height="132" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl-b" x="14" y="24">the three things that go wrong</text>
+          <text class="svg-lbl" x="14" y="48" fill="#FF7B87">collapse</text><text class="svg-lbl" x="110" y="48">router sends everything to one expert;</text>
+          <text class="svg-lbl" x="110" y="64">the rest never train. Needs a balance loss.</text>
+          <text class="svg-lbl" x="14" y="88" fill="#FF7B87">token dropping</text><text class="svg-lbl" x="130" y="88">an over-subscribed expert exceeds capacity;</text>
+          <text class="svg-lbl" x="130" y="104">surplus tokens skip the layer entirely.</text>
+          <text class="svg-lbl" x="14" y="124" fill="#FF7B87">instability</text><text class="svg-lbl" x="110" y="124">router logits drift large → z-loss to control them.</text>
+        </g>
+      </svg>
+      <figcaption>The router is a single linear layer, and it is the hardest part of the design. Everything difficult about MoE is a consequence of routing being discrete and therefore not smoothly differentiable.</figcaption>
+    </figure>
+
+    <div class="box derive"><span class="lbl">The load-balancing loss</span>
+      <p>Left alone, routing collapses: an expert that is slightly better early gets more tokens, trains faster, becomes more attractive, and the feedback loop starves the others. Switch Transformer adds an auxiliary loss:</p>
+      \[ \mathcal L_{\text{aux}}=\alpha\,N\sum_{i=1}^{N}f_i\,P_i \]
+      <p style="margin-bottom:0">where \(f_i\) is the fraction of tokens actually dispatched to expert \(i\) and \(P_i\) is the mean router probability for it. The product is minimised when both are uniform at \(1/N\), and using \(P_i\) rather than \(f_i\) alone is what makes it differentiable — \(f_i\) comes from a hard top-k and carries no gradient. Typically \(\alpha=0.01\). Too large and the router balances instead of specialising; too small and you get collapse.</p>
+    </div>
+
+    <p><b>DeepSeek-MoE</b> refined this with two ideas that are now widely copied: <b>fine-grained experts</b> — many more, each smaller, so top-k gives combinatorially more specialisation paths — and <b>shared experts</b> that every token always visits, capturing common knowledge so the routed experts need not each relearn it.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · assuming MoE is cheap to deploy</span>
+      <p style="margin-bottom:0">"Mixtral 8×7B activates only 13B parameters" is often read as "it runs like a 13B model". It does not. All 47B parameters must be resident, so you need roughly 94 GB in fp16 — two 80GB GPUs, versus one for a dense 13B. At small batch sizes it is also <em>memory-bandwidth-bound</em> rather than compute-bound, so the FLOP saving does not convert to a proportional latency win. MoE pays off for high-throughput batched serving where the FLOP saving dominates, and is often a poor choice for single-user local inference. Expert-parallel sharding also puts an all-to-all communication step in the critical path, which needs real interconnect.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l92">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 81</span><span>Lesson 92</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-092.html">single page ↗</a></div>
+      <h3 class="lesson-title">State Space Models &amp; Transformer Alternatives</h3>
+      <span class="lesson-no">92</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The linear-time goal</li><li>State space model basics</li>
+        <li>HiPPO and S4</li><li>Mamba's selective SSM</li>
+        <li>The hardware-aware scan</li><li>Mamba-2</li>
+        <li>RWKV and RetNet</li><li>Hybrid architectures</li>
+        <li>Where each wins</li>
+      </ol>
+    </div>
+
+    <h4>The recurrence, back again</h4>
+    <p>A continuous state space model is a linear ODE, discretised:</p>
+    \[ \mathbf h_t=\bar A\mathbf h_{t-1}+\bar B\mathbf x_t,\qquad \mathbf y_t=C\mathbf h_t \]
+    <p>That is an RNN with <b>no non-linearity in the recurrence</b> — which is precisely what makes it different. Because the recurrence is linear, the whole sequence can be computed as a convolution with a kernel derived from \(\bar A\), and therefore in parallel during training. You get an RNN's \(O(1)\) inference state <em>and</em> a CNN's parallel training. The obstacle was always that a linear recurrence forgets: \(\bar A^t\) decays. <b>HiPPO</b> solved that by deriving a specific \(A\) that provably maintains an optimal polynomial compression of the entire history, and <b>S4</b> made it computationally practical.</p>
+
+    <div class="box derive"><span class="lbl">Mamba's selectivity, and what it costs</span>
+      <p>S4's \(\bar A,\bar B,C\) are fixed, so the model compresses every input the same way — it cannot decide that <em>this</em> token matters and <em>that</em> one does not. Attention can, trivially, because its weights are computed from the content. Mamba makes the SSM parameters <b>functions of the input</b>: \(B_t=s_B(\mathbf x_t)\), \(C_t=s_C(\mathbf x_t)\), and a input-dependent step size \(\Delta_t\).</p>
+      <p style="margin-bottom:0">That restores content-based reasoning and immediately breaks the convolution: with time-varying parameters there is no fixed kernel. Mamba recovers parallelism with a <b>hardware-aware parallel scan</b> — an associative scan kept in SRAM, fusing discretisation, scan and multiplication into one kernel so the large hidden state is never written to HBM. The architectural idea and the kernel are equally essential; without the kernel it would be too slow to matter.</p>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th>Transformer</th><th>Mamba / SSM</th><th>RWKV</th></tr></thead>
+      <tbody>
+        <tr><td>Training</td><td>Parallel, \(O(n^2)\)</td><td>Parallel scan, \(O(n)\)</td><td>Parallel, \(O(n)\)</td></tr>
+        <tr><td>Inference state</td><td>KV cache, grows with \(n\)</td><td class="tick">Fixed-size</td><td class="tick">Fixed-size</td></tr>
+        <tr><td>Per-token inference</td><td>\(O(n)\)</td><td class="tick">\(O(1)\)</td><td class="tick">\(O(1)\)</td></tr>
+        <tr><td>Exact recall from context</td><td class="tick">Yes — every token is addressable</td><td style="color:var(--warn)">Lossy — the state is a fixed-size summary</td><td style="color:var(--warn)">Lossy</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box intuition"><span class="lbl">The real trade, in one row</span>
+      <p style="margin-bottom:0">Look at the last row, because it is the one that decides architectures. A transformer keeps <em>every</em> past token and can retrieve any of them exactly — that is what the KV cache is. An SSM compresses the past into a fixed-size state, so it cannot losslessly recall an arbitrary earlier token. On tasks that need exact retrieval — copying a phone number from 3000 tokens back, in-context learning from a specific example — pure SSMs measurably underperform. This is not an implementation gap; it is information theory. Which is why the interesting current architectures are <b>hybrids</b>: mostly Mamba layers for cheap sequence mixing, with a few full-attention layers interleaved to provide exact recall. Jamba and Zamba do this, and it is the most likely shape of the near future.</p>
+    </div>
+    <p>RWKV reaches the same destination from RNN territory, reformulating attention as a linear recurrence with time-decay weights, and RetNet's retention mechanism admits parallel, recurrent and chunked forms of the same computation. All three are converging on: linear recurrence, input-dependent gating, fixed-size state.</p>
+  </article>
+<article class="wrap lesson" id="l93">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 82</span><span>Lesson 93</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-093.html">single page ↗</a></div>
+      <h3 class="lesson-title">Scaling Laws &amp; Pretraining Data</h3>
+      <span class="lesson-no">93</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Kaplan power laws</li><li>Chinchilla compute-optimal</li>
+        <li>Inference-aware overtraining</li><li>Emergent capability curves</li>
+        <li>Data sources and web crawls</li><li>Deduplication and quality filtering</li>
+        <li>Contamination</li><li>Multilingual and code mixes</li>
+        <li>A worked token-vs-parameter budget</li>
+      </ol>
+    </div>
+
+    <h4>Loss is predictable</h4>
+    <p>Test loss follows a power law in parameters, data and compute, over many orders of magnitude:</p>
+    \[ L(N,D)=E+\frac{A}{N^{\alpha}}+\frac{B}{D^{\beta}} \]
+    <p>\(E\) is the irreducible entropy of language, \(N\) is parameters, \(D\) is tokens. Chinchilla fit \(\alpha\approx0.34\), \(\beta\approx0.28\). Being able to predict a large model's loss from small runs is what makes multi-million-dollar training decisions defensible instead of speculative.</p>
+
+    <div class="box derive"><span class="lbl">The Chinchilla result</span>
+      <p>Training compute is \(C\approx6ND\). Minimise \(L(N,D)\) subject to that constraint, and because \(\alpha\approx\beta\), the optimum has \(N\) and \(D\) scaling at roughly the same rate — giving the famous ratio:</p>
+      \[ D^\ast\approx 20\,N^\ast\quad\text{tokens per parameter} \]
+      <p style="margin-bottom:0">This was a correction with real consequences. GPT-3 used 175B parameters on 300B tokens — a ratio of 1.7, more than ten times too few tokens. Chinchilla trained <b>70B on 1.4T tokens</b> at the same compute budget and beat GPT-3 across the board. A model four times smaller, better, and vastly cheaper to serve. Almost every model since has been trained on far more tokens per parameter.</p>
+    </div>
+
+    <div class="demo" id="d-scaling">
+      <div class="demo-head"><span class="dot"></span><b>Compute budget</b> · how to spend a fixed number of FLOPs</div>
+      <div class="demo-body">
+        <canvas id="scCv" width="760" height="330" aria-label="Predicted loss against parameter count for a fixed compute budget"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Compute budget <b id="scCv2">1e22</b></span><input type="range" id="scC" min="18" max="26" step="0.25" value="22"></label>
+          <label class="ctrl"><span>Your model size <b id="scNv">7.0B</b></span><input type="range" id="scN" min="8" max="12" step="0.05" value="9.845"></label>
+          <label class="ctrl"><span>Inference tokens served <b id="scIv">0</b></span><input type="range" id="scI" min="0" max="15" step="0.5" value="0"></label>
+        </div>
+        <div class="readout" id="scOut"></div>
+      </div>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Why Llama ignored Chinchilla, deliberately</span>
+      <p style="margin-bottom:0">Chinchilla optimises <em>training</em> compute. It says nothing about inference. If you will serve a model trillions of times, a smaller model trained past the compute-optimal point is better overall — you pay more once to save forever. Llama-3-8B was trained on <b>15T tokens</b>, a ratio of 1875 tokens per parameter, roughly 90× "optimal". The loss gain per token was small, but the deployment saving was enormous. The rule to carry: <b>Chinchilla-optimal is the right answer to the wrong question</b> unless training cost dominates your total spend.</p>
+    </div>
+
+    <h4>Data is the other half, and the less glamorous one</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Step</th><th>What it does</th><th>Why it matters</th></tr></thead>
+      <tbody>
+        <tr><td>Language ID + filtering</td><td>Keep the target languages</td><td>Raw crawls are mostly boilerplate and spam</td></tr>
+        <tr><td><b>Deduplication</b></td><td>Exact and near-duplicate removal (MinHash / suffix arrays)</td><td>The highest-value step. Duplicates cause memorisation, waste compute, and inflate eval scores.</td></tr>
+        <tr><td>Quality filtering</td><td>Heuristics plus a classifier trained to recognise reference-quality text</td><td>Worth more than a proportional increase in quantity</td></tr>
+        <tr><td>Toxicity / PII removal</td><td>Filter harmful content and personal data</td><td>Both a safety and a legal requirement</td></tr>
+        <tr><td><b>Decontamination</b></td><td>Remove benchmark test sets from training data</td><td>Without it your evaluation measures memorisation</td></tr>
+        <tr><td>Mixing</td><td>Weight web, code, books, papers, multilingual</td><td>Code improves reasoning on non-code tasks — a robust and still slightly mysterious finding</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box pitfall"><span class="lbl">Pitfall · contamination is subtler than string matching</span>
+      <p style="margin-bottom:0">Removing exact benchmark strings is not enough. Test items get paraphrased in blog posts, discussed in forums, translated, and embedded in tutorials. A model can score well on a benchmark it never saw verbatim because it saw a hundred discussions of it. Symptoms: implausibly high scores on one benchmark relative to similar ones, or performance that collapses on a freshly-written variant of the same task. Whenever a result looks surprisingly good, the first hypothesis should be contamination — and the cleanest check is to evaluate on data created after the training cutoff.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l94">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 83</span><span>Lesson 94</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-094.html">single page ↗</a></div>
+      <h3 class="lesson-title">Distributed Training at Scale</h3>
+      <span class="lesson-no">94</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Data parallelism and DDP internals</li><li>ZeRO stages and FSDP</li>
+        <li>Tensor and model parallelism</li><li>Pipeline parallelism and bubbles</li>
+        <li>Sequence and context parallelism</li><li>3D parallelism</li>
+        <li>NCCL primitives</li><li>Checkpointing and fault tolerance</li>
+      </ol>
+    </div>
+
+    <h4>Four axes of splitting</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Strategy</th><th>What is split</th><th>Communication</th><th>Use when</th></tr></thead>
+      <tbody>
+        <tr><td><b>Data (DDP)</b></td><td>The batch</td><td>All-reduce gradients each step</td><td>The model fits on one GPU. Always start here.</td></tr>
+        <tr><td><b>ZeRO / FSDP</b></td><td>Optimizer state, gradients, then parameters</td><td>All-gather before use, reduce-scatter after</td><td>The model does not fit, but a <em>layer</em> does</td></tr>
+        <tr><td><b>Tensor</b></td><td>Individual weight matrices</td><td>All-reduce twice per layer — very chatty</td><td>Within a node, over NVLink. Never across nodes.</td></tr>
+        <tr><td><b>Pipeline</b></td><td>Layers across devices</td><td>Point-to-point activations only</td><td>Across nodes, where bandwidth is scarce</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box derive"><span class="lbl">ZeRO, stage by stage</span>
+      <p>From Lesson 44: mixed-precision AdamW costs about 18 bytes per parameter, and in plain DDP <em>every</em> GPU holds a full copy of all of it. ZeRO observes that this is redundant and shards it across \(P\) devices:</p>
+      <p style="margin-bottom:0"><b>Stage 1</b> shards optimizer state (12 of the 18 bytes) → 4× memory reduction. <b>Stage 2</b> also shards gradients → 8×. <b>Stage 3</b> also shards parameters, gathering each layer just in time for its forward pass and releasing it after → \(P\times\), i.e. essentially unlimited. Stage 3 (FSDP) adds roughly 50% more communication volume than DDP but makes memory a non-issue. Rule of thumb: use stage 2 while it fits, stage 3 when it does not.</p>
+    </div>
+
+    <div class="box derive"><span class="lbl">The pipeline bubble</span>
+      <p>Split \(L\) layers across \(P\) stages and stage 2 sits idle until stage 1 finishes. With naive scheduling the idle fraction is:</p>
+      \[ \text{bubble}=\frac{P-1}{m+P-1} \]
+      <p style="margin-bottom:0">where \(m\) is the number of micro-batches. With \(P=8\) and \(m=1\), 87.5% of your cluster is idle. With \(m=64\) it falls to 10%. This is why pipeline parallelism <em>requires</em> many micro-batches, and why interleaved schedules (1F1B, and Megatron's virtual pipeline stages) exist. Get this wrong and you will buy eight GPUs to run at the speed of one.</p>
+    </div>
+
+    <h4>3D parallelism</h4>
+    <p>Large runs compose all three, matched to the hardware topology: <b>tensor</b> parallelism within a node (8 GPUs over NVLink, ~900 GB/s), <b>pipeline</b> parallelism across nodes (InfiniBand, ~50 GB/s), and <b>data</b> parallelism across the resulting replicas. The ordering is not arbitrary — it puts the chattiest communication on the fastest link. Getting the mapping backwards is one of the most expensive misconfigurations in the field.</p>
+
+    <pre><code>from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+import functools
+
+model = FSDP(
+    model,
+    auto_wrap_policy=functools.partial(transformer_auto_wrap_policy,
+                                       transformer_layer_cls={Block}),   # shard PER BLOCK
+    mixed_precision=MixedPrecision(param_dtype=torch.bfloat16,
+                                   reduce_dtype=torch.float32,           # reduce in fp32
+                                   buffer_dtype=torch.bfloat16),
+    sharding_strategy=ShardingStrategy.FULL_SHARD,                       # ZeRO-3
+    device_id=torch.cuda.current_device(),
+    limit_all_gathers=True)
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · four ways a distributed run silently wastes money</span>
+      <p><b>Wrapping the whole model as one FSDP unit.</b> It then gathers all parameters at once and you get no memory saving. Wrap per transformer block.</p>
+      <p><b>Forgetting <code>no_sync()</code> during gradient accumulation.</b> You pay a full all-reduce on every micro-batch instead of once per step — with \(ACC=8\) that is 8× the communication for no benefit.</p>
+      <p><b>Uneven data across ranks.</b> If one rank has more batches, the others block forever on the next collective. Every rank must call every collective the same number of times, or the job hangs with no error.</p>
+      <p style="margin-bottom:0"><b>No checkpoint resumption.</b> A 1000-GPU job will lose a node — hardware failure at that scale is routine, not exceptional. Checkpoint every 30–60 minutes, save model, optimizer, scheduler <em>and</em> data-loader position, and test that resumption actually reproduces the loss curve before you need it.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l95">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 84</span><span>Lesson 95</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-095.html">single page ↗</a></div>
+      <h3 class="lesson-title">Instruction Tuning &amp; Supervised Fine-Tuning</h3>
+      <span class="lesson-no">95</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>From base model to assistant</li><li>Instruction datasets</li>
+        <li>Chat templates and special tokens</li><li>Loss masking on prompts vs completions</li>
+        <li>Sequence packing</li><li>Multi-turn formatting</li>
+        <li>The LIMA lesson on data quality</li><li>Evaluating an SFT model</li>
+      </ol>
+    </div>
+
+    <h4>What a base model actually is</h4>
+    <p>A pretrained model is a <em>document completer</em>, not an assistant. Prompt it with "What is the capital of France?" and a plausible continuation is another question — because in its training data, questions frequently appear in lists of questions. It knows the answer. It has not been given any reason to produce it.</p>
+    <p>Instruction tuning is supervised fine-tuning on (instruction, response) pairs. It teaches format and behaviour, not knowledge: <em>when you see this shape, respond helpfully in this shape</em>.</p>
+
+    <pre><code># The chat template is part of the model's interface, not a convention you may invent.
+messages = [
+    {"role": "system",    "content": "You are a helpful assistant."},
+    {"role": "user",      "content": "What is the capital of France?"},
+    {"role": "assistant", "content": "Paris."},
+]
+text = tokenizer.apply_chat_template(messages, tokenize=False)
+# -> "&lt;|im_start|&gt;system\nYou are...&lt;|im_end|&gt;\n&lt;|im_start|&gt;user\n..."
+
+# Mask the loss so it applies to the ASSISTANT TURNS ONLY
+labels = input_ids.clone()
+labels[~assistant_mask] = -100          # -100 = ignore_index in CrossEntropyLoss
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · training on the prompt tokens</span>
+      <p style="margin-bottom:0">If you compute loss over the full sequence, the model spends most of its capacity learning to <em>generate user messages</em> — which is not the job, and which is a large fraction of the tokens in a multi-turn conversation. Symptoms are distinctive: the model starts inventing the user's next question, or continues past its own answer with a fabricated follow-up turn. Mask everything that is not an assistant response. A second, equally common failure is using a chat template that does not match the one the model was trained with — the special tokens differ between Llama, ChatML, Mistral and Gemma, and mismatching them degrades quality substantially while producing output that looks superficially fine.</p>
+    </div>
+
+    <h4>Quality beats quantity, by a lot</h4>
+    <div class="box intuition"><span class="lbl">The LIMA result</span>
+      <p style="margin-bottom:0">LIMA fine-tuned Llama-65B on <b>1,000</b> carefully curated examples — no RLHF, no preference data — and reached quality competitive with models tuned on tens of thousands. The paper's framing, the "superficial alignment hypothesis", is that essentially all knowledge is acquired during pretraining, and alignment only teaches which <em>format and style</em> to surface it in. Teaching a format needs far fewer examples than teaching knowledge. The practical implication is direct: <b>100 excellent examples beat 50,000 scraped ones</b>, and time spent reading and fixing your SFT data has a better return than almost anything else you could do with it.</p>
+    </div>
+
+    <h4>Sequence packing</h4>
+    <p>Instruction data varies wildly in length. Padding every example to the maximum wastes most of the batch. Packing concatenates multiple short examples into one full-length sequence, raising throughput 2–5×. The correctness requirement is that attention must not cross document boundaries — otherwise example B attends to example A and learns spurious continuations. Use a block-diagonal attention mask (FlashAttention supports variable-length packing natively via cumulative sequence lengths), and never rely on an EOS token alone to separate them.</p>
+
+    <div class="box check"><span class="lbl">Evaluating an SFT model</span>
+      <p style="margin-bottom:0">Validation loss is nearly useless here — it measures agreement with one particular reference response when many good answers exist. Use instead: a held-out set scored by a strong judge model with a written rubric (Lesson 100); pairwise comparison against the base model and against your previous checkpoint; a small hand-written set of cases you care about, read personally; and a check that <b>capabilities have not regressed</b> — run MMLU or a code benchmark before and after, because aggressive SFT on a narrow distribution causes exactly the catastrophic forgetting from Lesson 45.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l96">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 84-b</span><span>Lesson 96</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-096.html">single page ↗</a></div>
+      <h3 class="lesson-title">Parameter-Efficient Fine-Tuning</h3>
+      <span class="lesson-no">96</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why full fine-tuning is expensive</li><li>Adapter layers</li>
+        <li>Prefix and prompt tuning</li><li>P-tuning v2 and IA³</li>
+        <li><b>LoRA</b>, derived</li><li>Rank, alpha, target modules</li>
+        <li>QLoRA: NF4, double quantization, paged optimizers</li><li>DoRA</li>
+        <li>Adapter merging and multi-LoRA serving</li>
+      </ol>
+    </div>
+
+    <h4>LoRA, derived</h4>
+    <p>Fine-tuning updates \(W_0\to W_0+\Delta W\). The hypothesis is that \(\Delta W\) has low <b>intrinsic rank</b> — adapting a pretrained model to a new task is a small, structured change, not an arbitrary one. So constrain it to be low-rank:</p>
+    \[ \Delta W=BA,\qquad B\in\R^{d\times r},\ A\in\R^{r\times k},\ r\ll\min(d,k) \]
+    \[ \mathbf h=W_0\mathbf x+\frac{\alpha}{r}BA\mathbf x \]
+    <p>\(W_0\) stays frozen; only \(A\) and \(B\) train. For a \(4096\times4096\) matrix at \(r=8\): \(2\times4096\times8=65{,}536\) trainable parameters instead of 16.8M — <b>0.39%</b>. This is Lesson 4's low-rank approximation, used in the opposite direction: not to compress an existing matrix, but to constrain a new one.</p>
+
+    <div class="box derive"><span class="lbl">The three details that make it work</span>
+      <p><b>Initialisation.</b> \(A\sim\mathcal N(0,\sigma^2)\) and \(B=\mathbf 0\). So \(BA=\mathbf 0\) at step zero and the model starts <em>exactly</em> as the pretrained one — no random perturbation to recover from. If both were random, you would be injecting noise into a carefully trained model before it had learned anything.</p>
+      <p><b>The \(\alpha/r\) scaling.</b> It decouples the learning rate from the rank: change \(r\) from 8 to 64 and the update magnitude stays comparable, so you do not have to re-tune the LR. Common practice sets \(\alpha=2r\) or \(\alpha=r\).</p>
+      <p style="margin-bottom:0"><b>Zero inference cost.</b> After training, compute \(W=W_0+\frac{\alpha}{r}BA\) once and fold it in. The deployed model is architecturally identical to the original — unlike adapter layers, which insert extra modules and add latency to every forward pass. That property is why LoRA won over adapters.</p>
+    </div>
+
+    <div class="demo" id="d-lora">
+      <div class="demo-head"><span class="dot"></span><b>LoRA budget</b> · rank, target modules, and what actually gets trained</div>
+      <div class="demo-body">
+        <canvas id="lrCv" width="760" height="250" aria-label="Trainable parameters and memory for LoRA against full fine-tuning"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Model <b id="lrMv">7.0B</b></span><input type="range" id="lrM" min="8.5" max="11.5" step="0.05" value="9.845"></label>
+          <label class="ctrl"><span>Rank r <b id="lrRv">16</b></span><input type="range" id="lrR" min="1" max="256" step="1" value="16"></label>
+          <label class="ctrl"><span>Targets</span>
+            <select id="lrT">
+              <option value="qv" selected>q_proj, v_proj (the classic)</option>
+              <option value="attn">all attention projections</option>
+              <option value="all">attention + MLP (recommended)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Base precision</span>
+            <select id="lrQ">
+              <option value="16">bf16</option>
+              <option value="4" selected>4-bit NF4 (QLoRA)</option>
+            </select>
+          </label>
+        </div>
+        <div class="readout" id="lrOut"></div>
+      </div>
+    </div>
+
+    <h4>QLoRA</h4>
+    <p>Three techniques that together put 65B fine-tuning on a single 48GB GPU:</p>
+    <ul>
+      <li><b>NF4</b> — a 4-bit data type whose 16 quantisation levels are placed at the quantiles of a normal distribution, so each level is equally likely for normally-distributed weights. It is information-theoretically optimal for that distribution, and neural network weights are approximately normal.</li>
+      <li><b>Double quantization</b> — the per-block quantisation constants are themselves quantised, saving another ~0.4 bits per parameter.</li>
+      <li><b>Paged optimizers</b> — optimizer state pages to CPU RAM on a memory spike rather than crashing, using NVIDIA unified memory.</li>
+    </ul>
+    <p>Gradients flow through the frozen 4-bit base (dequantised on the fly for each matmul) into the bf16 LoRA weights. The base is never updated, so its quantisation error is a fixed property of the forward pass rather than something that compounds.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · targeting only q and v</span>
+      <p style="margin-bottom:0">The LoRA paper applied adapters to the query and value projections, and that became the default in most tutorials. Later work — including QLoRA's own ablations — found that applying LoRA to <b>all linear layers, including the MLP</b>, matters more than increasing the rank. Recall from Lesson 84 that two-thirds of the parameters live in the FFN; leaving it entirely untouched constrains adaptation severely. If your LoRA is underperforming full fine-tuning, widen the target modules before you raise the rank.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">Settings that work, and when to skip LoRA</span>
+      <p><b>Style, format or tone adaptation:</b> \(r=8\text{–}16\), \(\alpha=2r\), all linear layers, LR \(1\times10^{-4}\) to \(3\times10^{-4}\) (roughly 10× higher than full fine-tuning, because the adapters start at zero). <b>Learning a new domain or capability:</b> \(r=64\text{–}128\). <b>Serving many variants:</b> keep adapters separate and swap at request time — multi-LoRA serving runs hundreds of task-specific adapters against one base model in memory, which is the real deployment advantage.</p>
+      <p style="margin-bottom:0"><b>When not to use it:</b> if you are teaching genuinely new knowledge at scale, or continuing pretraining on a large corpus, full fine-tuning still wins. LoRA is excellent at redirecting existing capability and merely adequate at installing new capability. <b>DoRA</b> narrows that gap by decomposing the update into magnitude and direction and applying LoRA only to the direction.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l97">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 85</span><span>Lesson 97</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-097.html">single page ↗</a></div>
+      <h3 class="lesson-title">Alignment I — RLHF</h3>
+      <span class="lesson-no">97</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why next-token prediction is not helpfulness</li><li>Preference data collection</li>
+        <li>The Bradley-Terry reward model</li><li>Training the reward model</li>
+        <li>PPO in the LLM setting</li><li>The KL penalty</li>
+        <li>Value head and advantage estimation</li><li>Reward hacking</li>
+        <li>The three-stage pipeline</li>
+      </ol>
+    </div>
+
+    <h4>The problem SFT leaves behind</h4>
+    <p>SFT teaches the model to imitate demonstrations. But for most prompts there is no single correct response, and it is far easier for a human to <em>compare</em> two responses than to write the ideal one. RLHF exploits that asymmetry: collect preferences, fit a reward model to them, then optimise the policy against that reward.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 240" role="img" aria-label="The three stages of RLHF: supervised fine-tuning, reward model training, and policy optimisation">
+        <text class="svg-ttl" x="20" y="22">RLHF — three stages, three datasets</text>
+        <g transform="translate(30,44)">
+          <rect x="0" y="0" width="250" height="150" fill="#0A1119" stroke="#5BC8E6"/>
+          <text class="svg-lbl-b" x="14" y="24" fill="#5BC8E6">1 · SFT</text>
+          <text class="svg-lbl" x="14" y="48">data: demonstrations</text>
+          <text class="svg-lbl" x="14" y="66">(prompt, ideal response)</text>
+          <text class="svg-lbl" x="14" y="92">loss: cross-entropy</text>
+          <text class="svg-lbl" x="14" y="118">→ a model that follows</text>
+          <text class="svg-lbl" x="14" y="134">the instruction format</text>
+        </g>
+        <g transform="translate(310,44)">
+          <rect x="0" y="0" width="250" height="150" fill="#0A1119" stroke="#B79CFF"/>
+          <text class="svg-lbl-b" x="14" y="24" fill="#B79CFF">2 · REWARD MODEL</text>
+          <text class="svg-lbl" x="14" y="48">data: preferences</text>
+          <text class="svg-lbl" x="14" y="66">(prompt, chosen, rejected)</text>
+          <text class="svg-lbl" x="14" y="92">loss: −log σ(r_c − r_r)</text>
+          <text class="svg-lbl" x="14" y="118">→ a scalar judge of</text>
+          <text class="svg-lbl" x="14" y="134">response quality</text>
+        </g>
+        <g transform="translate(590,44)">
+          <rect x="0" y="0" width="280" height="150" fill="#0A1119" stroke="#FFB454"/>
+          <text class="svg-lbl-b" x="14" y="24" fill="#FFB454">3 · PPO</text>
+          <text class="svg-lbl" x="14" y="48">data: prompts only</text>
+          <text class="svg-lbl" x="14" y="70">objective:</text>
+          <text class="svg-lbl" x="14" y="88" fill="#FFB454">maximise  r(x,y) − β·KL(π ‖ π_ref)</text>
+          <text class="svg-lbl" x="14" y="114">→ a policy that scores well</text>
+          <text class="svg-lbl" x="14" y="130">WITHOUT drifting far from SFT</text>
+        </g>
+        <g stroke="#2A3B4E" fill="none">
+          <path d="M280 118 L310 118"/><path d="M560 118 L590 118"/>
+        </g>
+        <text class="svg-lbl" x="30" y="218" fill="#FF7B87">Four models are live in stage 3: policy, reference (frozen), reward model, and value head. That is the cost.</text>
+      </svg>
+      <figcaption>Stage 3 needs three or four models resident simultaneously, which is why RLHF is operationally heavy and why Lesson 98's alternatives were so quickly adopted.</figcaption>
+    </figure>
+
+    <div class="box derive"><span class="lbl">The Bradley-Terry reward model</span>
+      <p>Model the probability that a human prefers \(y_c\) over \(y_r\) as a logistic function of the reward difference:</p>
+      \[ P(y_c\succ y_r\mid x)=\sigma\big(r_\theta(x,y_c)-r_\theta(x,y_r)\big) \]
+      <p>Maximum likelihood gives the training loss \(\mathcal L=-\log\sigma\big(r_\theta(x,y_c)-r_\theta(x,y_r)\big)\), which is exactly binary cross-entropy on the difference (Lesson 17). The reward model is usually the SFT model with the LM head replaced by a scalar head.</p>
+      <p style="margin-bottom:0">Note that only <em>differences</em> are identified — adding a constant to every reward changes nothing. The absolute scale is meaningless, which is why reward values are never comparable across reward models and why reward numbers in papers should be read as ordinal.</p>
+    </div>
+
+    <div class="box derive"><span class="lbl">Why the KL penalty is not optional</span>
+      <p>The full objective is:</p>
+      \[ \max_\pi\ \E_{x\sim\mathcal D,\,y\sim\pi}\Big[r_\theta(x,y)\Big]-\beta\,\mathrm{KL}\big(\pi(\cdot\mid x)\,\|\,\pi_{\text{ref}}(\cdot\mid x)\big) \]
+      <p style="margin-bottom:0">The reward model is a <em>learned approximation</em> of human preference, accurate only near the distribution it was trained on. Optimise hard against it and the policy finds inputs where the approximation is wrong — outputs with enormous predicted reward that humans dislike. That is <b>Goodhart's law</b> in its exact form: the measure ceases to be a good measure once it becomes a target. The KL term keeps the policy inside the region where the reward model is trustworthy. Set \(\beta\) too low and you get reward hacking; too high and the model barely changes. It is the most important hyperparameter in the pipeline.</p>
+    </div>
+
+    <h4>What reward hacking looks like</h4>
+    <p>The failures are consistent and recognisable: responses become steadily <b>longer</b> (annotators mildly prefer thorough answers, so the reward model over-learns length); the model hedges and refuses more (safe answers are rarely rated worst); it repeats the question back; it adopts flattering openers; it produces confident-sounding formatting — bullet lists, bold headings — regardless of content. Watch the KL divergence and the mean output length during training; both climbing together is the signature.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the length bias, and the alignment tax</span>
+      <p style="margin-bottom:0">Length is the single most reliable confound in preference data. Always report reward alongside response length, and consider length-normalising the reward or explicitly de-biasing the reward model — otherwise a chunk of your measured "improvement" is just verbosity. Separately, expect an <b>alignment tax</b>: RLHF often reduces performance on capability benchmarks even as human preference improves. Mixing pretraining gradients into the RL phase (as InstructGPT did) mitigates it. Measure both, or you will optimise one into the ground without noticing.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l98">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 85-b</span><span>Lesson 98</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-098.html">single page ↗</a></div>
+      <h3 class="lesson-title">Alignment II — DPO and Modern Preference Optimization</h3>
+      <span class="lesson-no">98</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>DPO derived from the RLHF objective</li><li>IPO, KTO, ORPO, SimPO, CPO</li>
+        <li>GRPO and group-relative advantages</li><li>RLAIF and Constitutional AI</li>
+        <li>Rejection sampling and best-of-n</li><li>Process vs outcome reward models</li>
+        <li>RL for reasoning and verifiable rewards</li><li>A practical DPO run</li>
+      </ol>
+    </div>
+
+    <div class="box derive"><span class="lbl">DPO — the reward model was never necessary</span>
+      <p>The KL-constrained objective from Lesson 97 has a known closed-form optimum:</p>
+      \[ \pi^\ast(y\mid x)=\frac{1}{Z(x)}\,\pi_{\text{ref}}(y\mid x)\exp\!\Big(\tfrac{1}{\beta}r(x,y)\Big) \]
+      <p>Rearrange for the reward:</p>
+      \[ r(x,y)=\beta\log\frac{\pi^\ast(y\mid x)}{\pi_{\text{ref}}(y\mid x)}+\beta\log Z(x) \]
+      <p>Now substitute this into the Bradley-Terry likelihood. The intractable \(\log Z(x)\) depends only on \(x\), so it <b>cancels in the difference</b> between chosen and rejected. What remains is a supervised loss on the policy itself:</p>
+      \[ \mathcal L_{\text{DPO}}=-\log\sigma\!\left(\beta\log\frac{\pi_\theta(y_c\mid x)}{\pi_{\text{ref}}(y_c\mid x)}-\beta\log\frac{\pi_\theta(y_r\mid x)}{\pi_{\text{ref}}(y_r\mid x)}\right) \]
+      <p style="margin-bottom:0">No reward model, no sampling, no value head, no RL loop. Two models in memory instead of four, and a training loop that looks like ordinary supervised fine-tuning. <b>The language model is secretly its own reward model</b> — that is the paper's title and it is an accurate summary.</p>
+    </div>
+
+    <pre><code>def dpo_loss(policy_chosen_lp, policy_rejected_lp,
+             ref_chosen_lp, ref_rejected_lp, beta=0.1):
+    """All arguments are SUMMED log-probs of the response tokens only."""
+    pi_logratios  = policy_chosen_lp - policy_rejected_lp
+    ref_logratios = ref_chosen_lp    - ref_rejected_lp
+    logits = beta * (pi_logratios - ref_logratios)
+    loss = -F.logsigmoid(logits).mean()
+    # log these: implicit rewards, for diagnosing what the model actually learned
+    chosen_r   = beta * (policy_chosen_lp   - ref_chosen_lp).detach()
+    rejected_r = beta * (policy_rejected_lp - ref_rejected_lp).detach()
+    return loss, chosen_r, rejected_r
+</code></pre>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>The change</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><b>DPO</b></td><td>Closed-form preference optimisation</td><td>The baseline. Simple, stable, widely used.</td></tr>
+        <tr><td>IPO</td><td>Replaces the log-sigmoid with a squared loss</td><td>DPO can overfit deterministic preferences by pushing the ratio to infinity; IPO bounds it.</td></tr>
+        <tr><td><b>KTO</b></td><td>Needs only a binary good/bad label, not pairs</td><td>Enormously easier data collection — thumbs up/down from production traffic works.</td></tr>
+        <tr><td>ORPO</td><td>Merges SFT and preference learning into one stage</td><td>No reference model at all; one training run instead of two.</td></tr>
+        <tr><td>SimPO</td><td>Length-normalised implicit reward, no reference model</td><td>Directly attacks the length bias from Lesson 97.</td></tr>
+        <tr><td><b>GRPO</b></td><td>Sample \(G\) responses per prompt; advantage = each score minus the group mean</td><td>Removes the value network — the group average <em>is</em> the baseline. Much cheaper than PPO; the basis of DeepSeek-R1's reasoning training.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box intuition"><span class="lbl">Verifiable rewards — where RL stopped needing humans</span>
+      <p style="margin-bottom:0">For maths and code you do not need a learned reward model at all: <b>check the answer</b>. Run the unit tests, evaluate the final numeric result. The reward is then exact, unhackable in the usual sense, and infinitely available. Train with GRPO against it and models learn to produce long chains of reasoning, backtrack, and verify their own work — behaviours nobody demonstrated, which emerged because they raise the probability of a correct final answer. This is the most significant development in post-training since RLHF itself, and its limitation is equally clear: it only applies where correctness is cheaply checkable. Nobody has an automatic verifier for "is this essay good".</p>
+    </div>
+
+    <p><b>Constitutional AI / RLAIF</b> replaces the human labeller with a model guided by an explicit written set of principles. The model critiques and revises its own outputs against the constitution, and those revisions become preference data. It scales far better than human annotation and makes the value judgements auditable — the constitution is a document you can read and argue with, rather than being implicit in a labelling workforce's aggregate behaviour.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · DPO on a distribution the model never produces</span>
+      <p style="margin-bottom:0">DPO is off-policy: the chosen and rejected responses come from a dataset, not from the model being trained. If they were generated by some other model, you are teaching yours to prefer outputs it would never have produced, and the gradient signal is largely irrelevant to its actual behaviour. Best practice is to generate the candidate responses <em>with your own SFT model</em> and have them ranked. Also watch the implicit rewards during training: a common and confusing failure is that both \(r_c\) and \(r_r\) fall, with \(r_r\) falling faster — the loss goes down while the model gets worse at everything, because it is learning to assign low probability to all long responses rather than to prefer good ones.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l99">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 86</span><span>Lesson 99</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-099.html">single page ↗</a></div>
+      <h3 class="lesson-title">LLM Inference, Quantization &amp; Serving</h3>
+      <span class="lesson-no">99</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Prefill vs decode</li><li>Latency, throughput, TTFT</li>
+        <li>Memory math</li><li>Post-training quantization vs QAT</li>
+        <li>GPTQ, AWQ, GGUF, bitsandbytes</li><li>Speculative decoding and Medusa</li>
+        <li>Continuous batching</li><li>vLLM, TGI, TensorRT-LLM, SGLang</li>
+        <li>Distillation, pruning, cost per million tokens</li>
+      </ol>
+    </div>
+
+    <h4>Two completely different phases</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th>Prefill</th><th>Decode</th></tr></thead>
+      <tbody>
+        <tr><td>What happens</td><td>Process the whole prompt at once</td><td>Generate one token at a time</td></tr>
+        <tr><td>Parallelism</td><td>All \(n\) positions together</td><td>One position</td></tr>
+        <tr><td>Bottleneck</td><td class="tick">Compute-bound — the GPU is busy</td><td style="color:var(--warn)">Memory-bandwidth-bound — the GPU is mostly idle</td></tr>
+        <tr><td>Determines</td><td>Time to first token (TTFT)</td><td>Tokens per second</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box derive"><span class="lbl">Why decode wastes your GPU</span>
+      <p style="margin-bottom:0">Generating one token at batch size 1 requires reading <b>every weight</b> from memory to perform a handful of matrix-vector products. For a 70B model in fp16 that is 140 GB of reads per token. An A100 has 2 TB/s of bandwidth, so the floor is 70 ms/token ≈ 14 tokens/sec — and arithmetic intensity is about 1 FLOP per byte, against hardware built for 100+. <b>You are using roughly 1% of the GPU's compute.</b> Every serving optimisation that follows is an attempt to reuse those expensive weight reads across more work: batching amortises them over many sequences, speculative decoding over many candidate tokens, and quantization simply makes the reads smaller.</p>
+    </div>
+
+    <div class="demo" id="d-quant">
+      <div class="demo-head"><span class="dot"></span><b>Quantization</b> · what 4 bits does to a weight distribution, and what it buys</div>
+      <div class="demo-body">
+        <canvas id="qzCv" width="760" height="300" aria-label="Weight distribution before and after quantization at different bit widths"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Format</span>
+            <select id="qzF">
+              <option value="int8">INT8 — uniform</option>
+              <option value="int4">INT4 — uniform</option>
+              <option value="nf4" selected>NF4 — normal-quantile (QLoRA)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Block size <b id="qzBv">64</b></span><input type="range" id="qzB" min="16" max="1024" step="16" value="64"></label>
+          <label class="ctrl"><span>Outlier magnitude <b id="qzOv">0.0</b></span><input type="range" id="qzO" min="0" max="12" step="0.5" value="0"></label>
+          <label class="ctrl"><span>Model size <b id="qzMv">70B</b></span><input type="range" id="qzM" min="9" max="11.7" step="0.05" value="10.845"></label>
+        </div>
+        <div class="readout" id="qzOut"></div>
+      </div>
+    </div>
+
+    <h4>Quantization methods</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>How</th><th>Best for</th></tr></thead>
+      <tbody>
+        <tr><td><b>bitsandbytes</b> (NF4/INT8)</td><td>On-the-fly, no calibration</td><td>Training with QLoRA; quick experiments</td></tr>
+        <tr><td><b>GPTQ</b></td><td>Layer-wise second-order error compensation on calibration data</td><td>4-bit GPU inference with minimal quality loss</td></tr>
+        <tr><td><b>AWQ</b></td><td>Identifies salient channels by <em>activation</em> magnitude and protects them</td><td>Often better than GPTQ at 4-bit; faster kernels</td></tr>
+        <tr><td><b>GGUF</b> / llama.cpp</td><td>Many k-quant variants, CPU-optimised</td><td>Local and CPU inference; Apple Silicon</td></tr>
+        <tr><td><b>SmoothQuant</b></td><td>Migrates activation outliers into the weights</td><td>W8A8 — quantising activations too, not just weights</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box pitfall"><span class="lbl">Pitfall · activation outliers</span>
+      <p style="margin-bottom:0">Weights are well-behaved and easy to quantise. <b>Activations are not</b>: beyond roughly 6.7B parameters, transformers develop systematic outlier features in a small number of channels, with magnitudes 20–100× the rest. Quantise per-tensor and those outliers set the scale for everything, crushing all normal values into a couple of levels. This is why naive INT8 quantization collapses at scale, and why LLM.int8() keeps outlier channels in fp16 while quantising the rest, and why SmoothQuant shifts the difficulty into the weights instead. Always evaluate perplexity after quantising — the failure is abrupt and size-dependent, so a method that worked on your 1B test model may destroy your 13B one.</p>
+    </div>
+
+    <div class="box derive"><span class="lbl">Speculative decoding — free tokens from an idle GPU</span>
+      <p>Since decode is bandwidth-bound, verifying \(k\) tokens costs almost the same as generating one. So: let a small fast <b>draft</b> model propose \(k\) tokens, then run the large model <em>once</em> over all \(k\) in parallel and accept the longest prefix consistent with what it would have sampled.</p>
+      <p style="margin-bottom:0">With the right acceptance rule the output distribution is <b>provably identical</b> to sampling from the large model alone — this is exact, not an approximation. Typical speedups are 2–3×. Medusa avoids the separate draft model by adding extra prediction heads to the model itself; EAGLE drafts in feature space and achieves higher acceptance rates.</p>
+    </div>
+
+    <p><b>Continuous batching</b> is the other large win. Static batching waits for every sequence in a batch to finish, so one long generation stalls seven short ones. Continuous (in-flight) batching evicts finished sequences and admits new ones at every decoding step, raising throughput by 5–20× under realistic mixed traffic. It is why vLLM, TGI and TensorRT-LLM exist rather than a plain <code>model.generate</code> loop.</p>
+
+    <div class="box check"><span class="lbl">Costing it out</span>
+      <p style="margin-bottom:0">Estimate cost per million tokens as \(\dfrac{\text{GPU \$/hour}}{\text{tokens/sec}\times3600}\times10^6\). At \$2/hour and 800 tok/s aggregate throughput that is about \$0.69 per million output tokens. Now compare against an API's list price before you build anything — self-hosting wins on volume, privacy and control, and loses on engineering time, idle capacity and the fact that you must keep a GPU warm. Run this arithmetic first; it frequently changes the decision.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l100">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 86-b</span><span>Lesson 100</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-100.html">single page ↗</a></div>
+      <h3 class="lesson-title">Prompting, RAG &amp; Agents</h3>
+      <span class="lesson-no">100</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Zero and few-shot prompting</li><li>Chain-of-thought and self-consistency</li>
+        <li>ReAct</li><li>Structured output and function calling</li>
+        <li>Embeddings and vector databases</li><li>Chunking strategies</li>
+        <li>Hybrid search and reranking</li><li>The full RAG pipeline</li>
+        <li>RAG failure modes</li><li>Agent loops and multi-agent patterns</li>
+        <li>LLM evaluation</li>
+      </ol>
+    </div>
+
+    <h4>Prompting, briefly</h4>
+    <p><b>Chain-of-thought</b> — asking for step-by-step reasoning before the answer — works because the model can only spend a fixed amount of computation per token. Reasoning aloud gives it more forward passes to work with, effectively turning tokens into serial compute. <b>Self-consistency</b> samples several chains and takes the majority answer, trading compute for accuracy. <b>ReAct</b> interleaves reasoning with tool calls, which is the foundation of every agent framework.</p>
+
+    <h4>RAG, honestly</h4>
+    <p>The pipeline is: chunk documents → embed → index → retrieve top-\(k\) for a query → put them in the prompt → generate. The parts that decide whether it works are not the parts people tune.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Stage</th><th>What actually matters</th></tr></thead>
+      <tbody>
+        <tr><td><b>Chunking</b></td><td>Respect document structure — split on headings and paragraphs, not every 512 characters. Overlap 10–20%. Prepend the section heading to each chunk so it is self-contained.</td></tr>
+        <tr><td><b>Retrieval</b></td><td><b>Hybrid</b>: dense embeddings plus BM25 keyword search, fused. Dense retrieval alone fails badly on exact identifiers, product codes, and rare proper nouns — precisely the queries where users expect exactness.</td></tr>
+        <tr><td><b>Reranking</b></td><td>Retrieve 50, rerank with a cross-encoder, keep 5. A cross-encoder reads query and document <em>together</em> and is far more accurate than a bi-encoder's cosine similarity. Usually the single highest-return addition.</td></tr>
+        <tr><td><b>Generation</b></td><td>Instruct the model to cite chunk IDs and to say "not in the provided context" when it is not. Then verify the citations mechanically.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the five ways RAG fails</span>
+      <p><b>Retrieval missed it.</b> The answer exists but the query embedding did not match. Measure retrieval recall@k <em>separately</em> from end-to-end quality — otherwise you cannot tell whether to fix the retriever or the generator, and most people blame the generator.</p>
+      <p><b>Chunk boundaries split the answer.</b> A table separated from its header, a definition split from its term.</p>
+      <p><b>Lost in the middle.</b> Models attend most strongly to the beginning and end of a long context and reliably underuse the middle. Put the highest-ranked chunk first, or last — not buried at position 7 of 12.</p>
+      <p><b>Conflicting sources.</b> Retrieved chunks disagree — an old policy and its replacement — and the model silently picks one. Include document dates and instruct it to prefer recency.</p>
+      <p style="margin-bottom:0"><b>The model ignores the context</b> and answers from parametric memory, which is how you get confident, well-cited, wrong answers. This is the most dangerous failure because it looks exactly like success.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Long context did not kill RAG</span>
+      <p style="margin-bottom:0">With million-token contexts, why retrieve at all? Cost and latency: attention over 1M tokens is expensive per query, and you pay it every time. Retrieval is cheap and reusable. Accuracy also degrades within very long contexts — needle-in-a-haystack tests look good, but performance on tasks requiring <em>several</em> facts scattered through the context falls off sharply. And retrieval gives you provenance, access control and freshness, none of which a stuffed context provides. The two compose: retrieve aggressively, then use the long context to include more of what you retrieved.</p>
+    </div>
+
+    <h4>Agents</h4>
+    <p>An agent is a loop: observe, decide, act with a tool, observe the result, repeat until done. What makes agents hard is not the loop but <b>error compounding</b> — at 95% per-step reliability, a 20-step task succeeds 36% of the time. The engineering is therefore mostly about reducing step count, making each step verifiable, and failing loudly rather than continuing on a bad state.</p>
+    <div class="box check"><span class="lbl">Evaluation — the part people skip</span>
+      <p style="margin-bottom:0">Build a <b>regression suite</b> before you start iterating: 50–200 real inputs with expected properties, run on every change. Use LLM-as-judge with a written rubric and pairwise comparison, and calibrate the judge against human labels on a subset — judges are biased towards longer answers, towards their own outputs, and towards whichever response is presented first, so randomise position. Track cost and latency alongside quality; a 2% quality gain for 5× the cost is usually a bad trade. And keep a small set of examples you read yourself, every time. Automated evaluation tells you whether things changed; reading the outputs tells you <em>how</em>. Phase 7 begins on Day 87 with generative models.</p>
+    </div>
+  </article>
+  <section class="wrap"><div class="pager"><a id="prevLink" href="phase-5.html" rel="prev"><span class="dir">← Previous phase</span><span class="ttl">Sequence Models &amp; Classical NLP</span></a><a id="nextLink" class="nx" href="phase-7.html" rel="next"><span class="dir">Next phase →</span><span class="ttl">Generative &amp; Multimodal Models</span></a></div></section>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"../", current:0, phase:"p6", mode:"phase" };</script>
+<script src="../assets/site.js"></script>
+<script src="../assets/demos.js"></script>
+</body>
+</html>

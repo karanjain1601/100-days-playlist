@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 07 · Microservices & Architecture Patterns — System Design Notes</title>
+<meta name="description" content="Days 97–108: Decompose a system into services without creating a distributed monolith.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true,
+       macros:{RR:"{\\mathbb{R}}"}},
+  options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},
+  chtml:{scale:1.0,matchFontHeight:false},
+  startup:{typeset:true}
+};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+<style>:root{
+  --paper:#E7EDF2; --card:#FAFCFD; --card-2:#F1F5F8;
+  --ink:#0B2239; --ink-mid:#42596E; --ink-soft:#6E8299;
+  --grid:#D3DFE9; --rule:#C2D2DF; --rule-soft:#DFE8EF;
+  --signal:#0E6E63; --hot:#B4232C; --amber:#9A6A00; --violet:#54399A;
+  --p0:#23415E; --p1:#0E6E63; --p2:#7A4C1E; --p3:#8A2E68; --p4:#1B6E9B;
+  --p5:#4A3C9E; --p6:#2E6E36; --p7:#9E4A05; --p8:#B4232C; --p9:#5A5270; --p10:#0B2239;
+  --disp:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --sans:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --accent:var(--p0);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:1.5rem}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:16.5px;line-height:1.62;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;background-position:-1px -1px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:286px minmax(0,1fr);gap:0;max-width:1680px;margin:0 auto}
+.rail{position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--rule);
+  background:linear-gradient(180deg,var(--card) 0%,var(--card-2) 100%);padding:22px 18px 60px}
+.rail::-webkit-scrollbar{width:8px}.rail::-webkit-scrollbar-thumb{background:var(--rule);border-radius:8px}
+.main{padding:34px 40px 140px;min-width:0}
+.wrap{max-width:900px;margin:0 auto}
+@media(max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule)}
+  .main{padding:20px 16px 90px}
+}
+
+/* ---------- rail contents ---------- */
+.brandmark{font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px}
+.brandtitle{font-family:var(--disp);font-weight:600;font-size:25px;line-height:1.08;margin:0 0 14px;letter-spacing:-.01em}
+.brandtitle a{color:var(--ink);text-decoration:none}
+.railmeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);line-height:1.7;
+  border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft);padding:9px 0;margin-bottom:16px}
+.railsec{font-family:var(--disp);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-soft);margin:20px 0 8px;font-weight:600}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:0}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:4px 8px;border-radius:4px;text-decoration:none;
+  color:var(--ink-mid);font-family:var(--sans);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
+.toc a:hover{background:#fff;color:var(--ink)}
+.toc a.on{background:#fff;color:var(--ink);border-left-color:var(--accent);font-weight:600}
+.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-soft);flex:0 0 30px;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.phaselinks{list-style:none;margin:0;padding:0;font-family:var(--sans);font-size:12.5px}
+.phaselinks a{display:block;padding:3px 8px;color:var(--ink-mid);text-decoration:none;border-radius:4px}
+.phaselinks a:hover{background:#fff;color:var(--ink)}
+.phaselinks a[aria-current]{font-weight:700;color:var(--ink);background:#fff}
+.phaselinks .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+
+/* ---------- page head ---------- */
+.phasehead{border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:26px 30px;margin-bottom:34px;position:relative;overflow:hidden}
+.phasehead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 6px;font-weight:600}
+h1{font-family:var(--disp);font-size:clamp(30px,4.6vw,46px);line-height:1.03;margin:0 0 10px;
+  font-weight:600;letter-spacing:-.018em}
+.lede{font-size:17px;color:var(--ink-mid);margin:0 0 16px;max-width:62ch}
+.statrow{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule-soft);padding-top:14px}
+.stat{padding-right:26px;margin-right:26px;border-right:1px solid var(--rule-soft)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-family:var(--mono);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+.stat span{font-family:var(--disp);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* ---------- lesson card ---------- */
+.lesson{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  margin:0 0 30px;overflow:hidden;scroll-margin-top:16px}
+.lhead{display:flex;gap:16px;align-items:flex-start;padding:20px 26px 14px;
+  border-bottom:1px solid var(--rule-soft);background:linear-gradient(180deg,#fff,var(--card))}
+.day{flex:0 0 auto;font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.05em;
+  color:#fff;background:var(--accent);padding:6px 9px;border-radius:3px;margin-top:3px}
+.lhead h3{font-family:var(--disp);font-size:26px;font-weight:600;margin:0 0 3px;line-height:1.12;letter-spacing:-.012em}
+.lmeta{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);margin:0;letter-spacing:.02em}
+.lbody{padding:22px 26px 26px}
+@media(max-width:600px){.lhead{padding:16px}.lbody{padding:16px}.lhead h3{font-size:21px}}
+
+/* ---------- signature: chapter ribbon ---------- */
+.ribbon{display:flex;height:22px;width:100%;border-bottom:1px solid var(--rule-soft);
+  font-family:var(--mono);font-size:9px;cursor:default;background:var(--card-2)}
+.ribbon i{display:block;height:100%;position:relative;border-right:1px solid rgba(255,255,255,.75);
+  transition:filter .15s;transform-origin:left}
+.ribbon i:last-child{border-right:0}
+.ribbon i:hover{filter:brightness(1.35)}
+.ribbon i::after{content:attr(data-l);position:absolute;left:50%;bottom:calc(100% + 5px);transform:translateX(-50%);
+  white-space:nowrap;background:var(--ink);color:#fff;padding:3px 7px;border-radius:3px;font-size:10.5px;
+  opacity:0;pointer-events:none;transition:opacity .12s;z-index:20;font-family:var(--sans)}
+.ribbon i:hover::after{opacity:1}
+.ribbonkey{font-family:var(--mono);font-size:10px;color:var(--ink-soft);padding:5px 26px 0;letter-spacing:.04em}
+
+/* ---------- prose ---------- */
+.lbody h4{font-family:var(--disp);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin:26px 0 8px;font-weight:700;display:flex;align-items:center;gap:10px}
+.lbody h4::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+.lbody h5{font-family:var(--sans);font-size:15px;font-weight:600;margin:18px 0 5px;color:var(--ink)}
+.lbody p{margin:0 0 12px}
+.lbody ul,.lbody ol{margin:0 0 13px;padding-left:22px}
+.lbody li{margin-bottom:5px}
+.lbody li::marker{color:var(--ink-soft)}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.86em;background:#E3EAF0;padding:1px 5px;border-radius:3px;color:#12354F}
+a{color:var(--signal)}
+.k{font-family:var(--mono);font-size:.88em;background:var(--ink);color:#EAF2F8;padding:1px 6px;border-radius:3px}
+
+/* callouts */
+.hook{border-left:3px solid var(--hot);background:#FCF1F1;padding:12px 16px;margin:0 0 18px;border-radius:0 3px 3px 0}
+.hook b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--hot);display:block;margin-bottom:3px}
+.war{border-left:3px solid var(--amber);background:#FBF5E7;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.war b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--amber);display:block;margin-bottom:3px}
+.iv{border-left:3px solid var(--violet);background:#F3F0FA;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.iv b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--violet);display:block;margin-bottom:3px}
+.hw{border:1px dashed var(--rule);background:var(--card-2);padding:12px 16px;margin:18px 0 0;border-radius:3px}
+.hw b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--ink-soft);display:block;margin-bottom:3px}
+.note{background:#EDF3F7;border:1px solid var(--rule-soft);padding:10px 14px;border-radius:3px;margin:14px 0;font-size:15.3px}
+.wrong{list-style:none;padding-left:0}
+.wrong li{padding-left:24px;position:relative;margin-bottom:7px}
+.wrong li::before{content:"\2715";position:absolute;left:2px;top:1px;color:var(--hot);font-size:12px;font-weight:700}
+.right li::before{content:"\2713";color:var(--signal)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-family:var(--sans);font-size:14px;background:#fff}
+th{font-family:var(--disp);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;text-align:left;
+  padding:8px 11px;border-bottom:2px solid var(--ink);color:var(--ink);font-weight:700;vertical-align:bottom}
+td{padding:8px 11px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tbody tr:hover{background:var(--card-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tblwrap{overflow-x:auto;margin:14px 0}
+.tblwrap table{margin:0;min-width:520px}
+.yes{color:var(--signal);font-weight:700}.no{color:var(--hot);font-weight:700}.mid{color:var(--amber);font-weight:700}
+
+/* ---------- figures ---------- */
+figure{margin:20px 0;border:1px solid var(--rule);background:#fff;border-radius:3px;overflow:hidden}
+figure .canvas{background-image:linear-gradient(#E8EFF5 1px,transparent 1px),linear-gradient(90deg,#E8EFF5 1px,transparent 1px);
+  background-size:20px 20px;padding:14px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);padding:9px 14px;
+  border-top:1px solid var(--rule-soft);background:var(--card-2)}
+figcaption b{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.06em}
+.svgt{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:12px;fill:#0B2239}
+.svgs{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:10.5px;fill:#5B7189}
+.svgm{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:#0B2239}
+.svgh{font-family:"IBM Plex Sans Condensed",Arial,sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;fill:#5B7189}
+
+/* ---------- math ---------- */
+.math{background:#FCFAF3;border:1px solid #EADFC0;border-left:3px solid var(--amber);
+  padding:12px 16px;border-radius:0 3px 3px 0;margin:16px 0;overflow-x:auto}
+.math .lbl{font-family:var(--disp);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);font-weight:700;margin-bottom:4px}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
+mjx-container[display]{margin:.6em 0!important}
+
+/* ---------- code ---------- */
+pre{background:#0E2033;color:#DDE8F2;padding:14px 16px;border-radius:3px;overflow-x:auto;
+  font-family:var(--mono);font-size:12.6px;line-height:1.6;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+pre .c{color:#7C93A8;font-style:italic}
+pre .kw{color:#F0A868}
+pre .st{color:#8FCFA0}
+pre .fn{color:#77BEE8}
+pre .nm{color:#E0A0C8}
+
+/* ---------- demo widgets ---------- */
+.demo{border:1px solid var(--rule);border-top:3px solid var(--signal);background:#fff;
+  border-radius:3px;padding:16px 18px;margin:20px 0}
+.demo>h6{font-family:var(--disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--signal);margin:0 0 12px;font-weight:700;display:flex;gap:8px;align-items:center}
+.demo>h6::before{content:"\25B8";font-size:11px}
+.ctrl{display:grid;grid-template-columns:auto 1fr auto;gap:9px 12px;align-items:center;margin-bottom:5px}
+.ctrl label{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);white-space:nowrap}
+.ctrl output{font-family:var(--mono);font-size:12.5px;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums;min-width:82px}
+input[type=range]{width:100%;accent-color:var(--signal);height:4px}
+select,input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;padding:5px 8px;
+  border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+button{font-family:var(--disp);font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;
+  padding:7px 13px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:3px;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink)}
+button:hover{filter:brightness(1.18)}
+.readout{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-soft);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:12px}
+.readout div{background:var(--card-2);border-radius:3px;padding:8px 10px}
+.readout .v{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);
+  display:block;font-variant-numeric:tabular-nums;line-height:1.25}
+.readout .l{font-family:var(--disp);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft)}
+.bars{margin-top:12px}
+.bar{display:grid;grid-template-columns:118px 1fr 74px;gap:9px;align-items:center;margin-bottom:5px;
+  font-family:var(--mono);font-size:11.5px}
+.bar .t{background:var(--card-2);height:15px;border-radius:2px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--signal);transition:width .25s}
+.bar .t i.hot{background:var(--hot)}
+.bar .t i.amb{background:var(--amber)}
+.bar .v{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- misc ---------- */
+.pillrow{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pill{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--rule);
+  border-radius:20px;background:#fff;color:var(--ink-mid)}
+.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.foot{border-top:1px solid var(--rule);margin-top:44px;padding-top:18px;font-family:var(--mono);
+  font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot a{color:var(--ink-mid);text-decoration:none;border-bottom:1px solid var(--rule)}
+.nextprev{display:flex;justify-content:space-between;gap:14px;margin-top:30px;flex-wrap:wrap}
+.nextprev a{flex:1 1 220px;border:1px solid var(--rule);background:var(--card);padding:12px 15px;
+  border-radius:3px;text-decoration:none;color:var(--ink)}
+.nextprev a span{display:block;font-family:var(--disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft)}
+.nextprev a b{font-family:var(--disp);font-size:16px;font-weight:600}
+.top{position:fixed;right:18px;bottom:18px;z-index:40;background:var(--ink);color:#fff;border:0;
+  width:40px;height:40px;border-radius:50%;font-size:15px;opacity:.28;padding:0}
+.top:hover{opacity:1}
+:focus-visible{outline:2.5px solid var(--signal);outline-offset:2px}
+
+:root{--accent:var(--p7)}</style>
+</head><body>
+<div class="shell"><nav class="rail">
+<p class="brandmark">100 Days of System Design</p>
+<h2 class="brandtitle"><a href="index.html">Engineering<br>Notebook</a></h2>
+<div class="railmeta">145 lessons · 75h 48m<br>Phase 07 · Days 97–108</div>
+<p class="railsec">On this page</p>
+<ul class="toc"><li><a href="#d097"><span class="n">D097</span><span>Decomposing a Monolith</span></a></li><li><a href="#d098"><span class="n">D098</span><span>Service Boundaries, Contracts &amp; Versioning</span></a></li><li><a href="#d099"><span class="n">D099</span><span>Inter-Service Communication &amp; Anti-Patterns</span></a></li><li><a href="#d100"><span class="n">D100</span><span>Resilience Patterns</span></a></li><li><a href="#d101"><span class="n">D101</span><span>Service Mesh</span></a></li><li><a href="#d102"><span class="n">D102</span><span>Containers &amp; Images</span></a></li><li><a href="#d103"><span class="n">D103</span><span>Kubernetes for System Designers</span></a></li><li><a href="#d104"><span class="n">D104</span><span>Serverless &amp; Edge Compute</span></a></li><li><a href="#d105"><span class="n">D105</span><span>Multi-Tenancy</span></a></li><li><a href="#d106"><span class="n">D106</span><span>API Patterns for Scale</span></a></li><li><a href="#d107"><span class="n">D107</span><span>Job Scheduling &amp; Workflow Orchestration</span></a></li><li><a href="#d108"><span class="n">D108</span><span>Configuration, Feature Flags &amp; Secrets</span></a></li></ul>
+<p class="railsec">All phases</p>
+<ul class="phaselinks"><li><a href="phase-00.html"><span class="sw" style="background:var(--p0)"></span>00 · Foundations & Mental Models</a></li><li><a href="phase-01.html"><span class="sw" style="background:var(--p1)"></span>01 · Networking & the Web</a></li><li><a href="phase-02.html"><span class="sw" style="background:var(--p2)"></span>02 · Storage & Databases</a></li><li><a href="phase-03.html"><span class="sw" style="background:var(--p3)"></span>03 · Caching</a></li><li><a href="phase-04.html"><span class="sw" style="background:var(--p4)"></span>04 · Load Balancing & Traffic</a></li><li><a href="phase-05.html"><span class="sw" style="background:var(--p5)"></span>05 · Distributed Systems Theory</a></li><li><a href="phase-06.html"><span class="sw" style="background:var(--p6)"></span>06 · Messaging & Streaming</a></li><li><a href="phase-07.html" aria-current="page"><span class="sw" style="background:var(--p7)"></span>07 · Microservices & Patterns</a></li><li><a href="phase-08.html"><span class="sw" style="background:var(--p8)"></span>08 · Reliability, Observability, Security, Cost</a></li><li><a href="phase-09.html"><span class="sw" style="background:var(--p9)"></span>09 · Case Studies</a></li><li><a href="phase-10.html"><span class="sw" style="background:var(--p10)"></span>10 · Interview Mastery & Capstone</a></li></ul>
+</nav><main class="main"><div class="wrap"><div class="phasehead">
+  <p class="eyebrow">Phase 07 · Days 97–108 · 12 lessons · 6h 18m</p>
+  <h1>Microservices &amp; Architecture Patterns</h1>
+  <p class="lede">Decompose a system into services without creating a distributed monolith.</p>
+  <div class="statrow">
+    <div class="stat"><b>12</b><span>Lessons</span></div>
+    <div class="stat"><b>6h 18m</b><span>Runtime</span></div>
+    <div class="stat"><b>32 min</b><span>Average</span></div>
+    <div class="stat"><b>Wk 19.5–22</b><span>At 5 / week</span></div>
+    <div class="stat"><b>D008, D078</b><span>Prerequisites</span></div>
+  </div>
+</div>
+
+<div class="note" style="margin-bottom:26px">
+<b>Where the long-form notes are.</b> Phases 0 and 1 carry the full written treatment — worked
+arithmetic, diagrams, war stories, interview traps and interactive demos. This phase currently carries
+the complete per-lesson breakdown: everything each lesson covers, the whiteboard sequence, and the
+homework. Use it as the study checklist and the recording script; the expanded notes follow the same
+nine-part structure shown by the ribbon on every card.</div>
+<article class="lesson" id="d097">
+<div class="lhead"><div class="day">D097</div><div>
+  <h3>Decomposing a Monolith</h3>
+  <p class="lmeta">34 min · Phase 07 · Prereq: Day 96</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Decomposition strategies (by business capability, by subdomain, by volatility, by team)</li><li>DDD essentials — ubiquitous language, entities, value objects, aggregates, bounded contexts, context maps</li><li>Identifying seams in legacy code</li><li>The strangler fig pattern with a real migration sequence</li><li>Branch-by-abstraction</li><li>Anti-corruption layers</li><li>Splitting the database (the hard part) and the order of operations</li></ul>
+<div class="note"><b>Whiteboard.</b> a monolith decomposed into 6 bounded contexts, with the migration order justified.</div>
+<div class="hw"><b>Homework</b>Draw bounded contexts for a system you know and mark the shared-data conflicts.</div>
+</div></article>
+<article class="lesson" id="d098">
+<div class="lhead"><div class="day">D098</div><div>
+  <h3>Service Boundaries, Contracts &amp; Versioning</h3>
+  <p class="lmeta">30 min · Phase 07 · Prereq: Day 97</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>What belongs inside one service (data ownership, transactional boundary, team ownership)</li><li>The single-writer principle</li><li>API contracts as products</li><li>Consumer-driven contract testing (Pact) in CI</li><li>Backward/forward compatibility rules</li><li>Versioning and deprecation policy with timelines</li><li>Shared libraries vs shared services vs duplication</li><li>The DRY-vs-coupling tradeoff across service boundaries</li></ul>
+<div class="note"><b>Whiteboard.</b> a breaking change rolled out safely across 4 consumers.</div>
+<div class="hw"><b>Homework</b>Write a contract test that fails on a breaking change before deploy.</div>
+</div></article>
+<article class="lesson" id="d099">
+<div class="lhead"><div class="day">D099</div><div>
+  <h3>Inter-Service Communication &amp; Anti-Patterns</h3>
+  <p class="lmeta">30 min · Phase 07 · Prereq: Day 98</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Sync vs async per interaction type</li><li>Choosing REST/gRPC/messaging per call</li><li>The aggregator, chained, and branch patterns</li><li>Chatty services and N+1 across the network</li><li>The distributed monolith (deploy-together services) and how to detect it</li><li>Shared database anti-pattern</li><li>Cyclic dependencies</li><li>Data duplication as a deliberate strategy</li><li>API composition vs CQRS read models for cross-service queries</li></ul>
+<div class="note"><b>Whiteboard.</b> one page load requiring 47 internal calls, then redesigned to 4.</div>
+<div class="hw"><b>Homework</b>Audit a call graph for cycles and synchronous chains deeper than 3.</div>
+</div></article>
+<article class="lesson" id="d100">
+<div class="lhead"><div class="day">D100</div><div>
+  <h3>Resilience Patterns</h3>
+  <p class="lmeta">34 min · Phase 07 · Prereq: Day 99</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Timeouts (connect, read, total) and how to derive budget values</li><li>Retries — only for idempotent ops, with exponential backoff plus full jitter, retry budgets, and why retry amplification kills fleets</li><li>Circuit breakers (closed/open/half-open, thresholds, and tuning)</li><li>Bulkheads (thread pool and connection isolation)</li><li>Fallbacks and graceful degradation tiers</li><li>Hedged requests for tail latency</li><li>Deadline propagation across hops</li><li>Failing fast vs queuing</li></ul>
+<div class="note"><b>Whiteboard.</b> a retry storm amplifying 1× traffic into 8×, then the same call path with budgets and breakers.</div>
+<div class="hw"><b>Homework</b>Add timeouts, jittered retries, and a circuit breaker; verify with fault injection.</div>
+</div></article>
+<article class="lesson" id="d101">
+<div class="lhead"><div class="day">D101</div><div>
+  <h3>Service Mesh</h3>
+  <p class="lmeta">32 min · Phase 07 · Prereq: Day 100</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>What a sidecar proxy takes over (mTLS, retries, timeouts, circuit breaking, routing, telemetry)</li><li>Control plane vs data plane</li><li>Istio vs Linkerd vs Consul Connect</li><li>Ambient/sidecar-less modes and why they emerged</li><li>Traffic shifting and mirroring at the mesh layer</li><li>Zero-trust networking and identity-based auth</li><li>The latency, memory, and complexity tax</li><li>When a mesh is premature</li></ul>
+<div class="note"><b>Whiteboard.</b> a request path with and without sidecars, with added hops and latency labeled.</div>
+<div class="hw"><b>Homework</b>Configure mTLS plus a canary traffic split in a mesh.</div>
+</div></article>
+<article class="lesson" id="d102">
+<div class="lhead"><div class="day">D102</div><div>
+  <h3>Containers &amp; Images</h3>
+  <p class="lmeta">30 min · Phase 07 · Prereq: Day 101</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Namespaces, cgroups, union filesystems — what a container actually is</li><li>Images, layers, and caching</li><li>Multi-stage builds and image size discipline</li><li>The container lifecycle, PID 1 and signal handling</li><li>Resource requests vs limits, CPU throttling, and OOM kills</li><li>Container networking basics</li><li>Registries, tags, and immutable/digest-pinned deploys</li><li>Supply-chain scanning and SBOMs</li></ul>
+<div class="note"><b>Whiteboard.</b> what happens between <code>docker run</code> and a running process, layer by layer.</div>
+<div class="hw"><b>Homework</b>Cut an image size by 70% with multi-stage builds and measure cold start.</div>
+</div></article>
+<article class="lesson" id="d103">
+<div class="lhead"><div class="day">D103</div><div>
+  <h3>Kubernetes for System Designers</h3>
+  <p class="lmeta">36 min · Phase 07 · Prereq: Day 102</p></div></div>
+<div class="ribbon" data-runtime="36"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Control plane components and the reconciliation loop</li><li>Pods, ReplicaSets, Deployments, rolling update mechanics, and <code>maxSurge</code>/<code>maxUnavailable</code></li><li>Services, kube-proxy, Ingress, and Gateway API</li><li>ConfigMaps and Secrets</li><li>Probes (liveness/readiness/startup) done correctly</li><li>HPA, VPA, KEDA, and cluster autoscaler</li><li>StatefulSets, PVs, and running databases on K8s (and whether you should)</li><li>PodDisruptionBudgets, affinity, topology spread</li><li>Namespaces, quotas, and multi-tenancy</li><li>Operators and CRDs</li></ul>
+<div class="note"><b>Whiteboard.</b> a deployment rolling out across 3 AZs while keeping quorum and zero downtime.</div>
+<div class="hw"><b>Homework</b>Deploy a service with correct probes, PDB, HPA, and prove zero-downtime rollout.</div>
+</div></article>
+<article class="lesson" id="d104">
+<div class="lhead"><div class="day">D104</div><div>
+  <h3>Serverless &amp; Edge Compute</h3>
+  <p class="lmeta">30 min · Phase 07 · Prereq: Day 103</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>FaaS execution model, cold starts (causes, measurement, mitigation), concurrency models, and provisioned concurrency</li><li>Limits (duration, payload, memory, /tmp) and how they constrain design</li><li>State, connections, and why RDBMS + Lambda needs a proxy</li><li>Event sources and fan-out</li><li>Step functions/durable workflows</li><li>Cost model and the crossover point vs containers</li><li>Edge functions and their constraints</li><li>When serverless is genuinely the right architecture</li></ul>
+<div class="note"><b>Whiteboard.</b> cost and latency curves — serverless vs containers as QPS rises.</div>
+<div class="hw"><b>Homework</b>Find the request volume where serverless stops being cheaper for a given workload.</div>
+</div></article>
+<article class="lesson" id="d105">
+<div class="lhead"><div class="day">D105</div><div>
+  <h3>Multi-Tenancy</h3>
+  <p class="lmeta">32 min · Phase 07 · Prereq: Day 104</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Tenancy models — silo, pool, bridge — with isolation/cost tradeoffs</li><li>Database strategies (DB per tenant, schema per tenant, shared tables with tenant_id) and migration implications</li><li>Noisy neighbor prevention with per-tenant quotas and rate limits</li><li>Tenant-aware sharding and routing</li><li>Per-tenant encryption and data residency</li><li>Onboarding/offboarding automation</li><li>Cost attribution per tenant</li><li>Tenant-level observability</li></ul>
+<div class="note"><b>Whiteboard.</b> the same SaaS drawn in all three models with cost per tenant compared.</div>
+<div class="hw"><b>Homework</b>Design tenancy for a B2B product with 3 enterprise and 10,000 self-serve customers.</div>
+</div></article>
+<article class="lesson" id="d106">
+<div class="lhead"><div class="day">D106</div><div>
+  <h3>API Patterns for Scale</h3>
+  <p class="lmeta">32 min · Phase 07 · Prereq: Day 105</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Idempotent APIs and the key lifecycle</li><li>Pagination at scale (cursor/keyset, stable ordering, deep-paging pain)</li><li>Bulk and batch endpoints with partial success semantics</li><li>Long-running operations (202 + status resource, polling, callbacks)</li><li>Webhooks — delivery guarantees, retries, signing, replay protection, consumer failure handling</li><li>API quotas and tiers</li><li>Response compression and payload trimming</li><li>API deprecation at scale</li></ul>
+<div class="note"><b>Whiteboard.</b> a long-running export designed end to end, including client polling and expiry.</div>
+<div class="hw"><b>Homework</b>Implement a signed, retrying webhook delivery system with a DLQ.</div>
+</div></article>
+<article class="lesson" id="d107">
+<div class="lhead"><div class="day">D107</div><div>
+  <h3>Job Scheduling &amp; Workflow Orchestration</h3>
+  <p class="lmeta">32 min · Phase 07 · Prereq: Day 106</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Cron&#x27;s failure modes at scale (overlap, missed runs, single host)</li><li>Distributed schedulers, leader-based scheduling, and time-wheel/delayed-queue designs</li><li>At-least-once execution plus idempotency</li><li>Long-running workflows with Temporal/Cadence — event history, replay determinism, activities, retries, timers, signals</li><li>Human-in-the-loop steps</li><li>Scheduling millions of per-user timers</li><li>Job prioritization and fairness</li></ul>
+<div class="note"><b>Whiteboard.</b> a &quot;send reminder in 30 days&quot; feature designed 3 ways at 100M users.</div>
+<div class="hw"><b>Homework</b>Build a delayed job system that survives a restart with no lost or duplicated jobs.</div>
+</div></article>
+<article class="lesson" id="d108">
+<div class="lhead"><div class="day">D108</div><div>
+  <h3>Configuration, Feature Flags &amp; Secrets</h3>
+  <p class="lmeta">26 min · Phase 07 · Prereq: Day 107</p></div></div>
+<div class="ribbon" data-runtime="26"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>The 12-factor config principle and its limits</li><li>Static vs dynamic configuration, hot reload, and config-change-caused outages</li><li>Config as a deploy artifact vs a runtime service</li><li>Feature flag systems — targeting, gradual rollout, kill switches, flag debt and cleanup</li><li>Secrets management (Vault, KMS, cloud secret managers), rotation, and short-lived credentials</li><li>Environment parity</li><li>Config validation in CI</li></ul>
+<div class="note"><b>Whiteboard.</b> a bad config change taking down production, then the same change guarded by staged rollout.</div>
+<div class="hw"><b>Homework</b>Add a kill switch to a risky code path and rehearse using it.</div>
+</div></article>
+<div class="nextprev"><a href="phase-06.html"><span>Previous phase</span><b>← 06</b></a><a href="phase-08.html"><span>Next phase</span><b>08 · Reliability, Observability, Security &amp; Cost →</b></a></div>
+<div class="foot"><span>Phase 07 · Days 97–108 · 6h 18m</span><span><a href="index.html">← Back to hub</a></span></div></div></main></div><script>/* ---------- signature element: the chapter ribbon ---------- */
+const SPEC = {
+  std: [
+    ["Hook — watch it break", 5,  "#B4232C"],
+    ["What you'll be able to do", 3, "#C97B2E"],
+    ["Prerequisite recap", 5, "#9A6A00"],
+    ["Core concept — whiteboard", 30, "#0E6E63"],
+    ["Deep dive — internals / math", 30, "#1B6E9B"],
+    ["Tradeoffs table", 10, "#4A3C9E"],
+    ["Real-world war story", 8, "#8A2E68"],
+    ["Interview angle", 6, "#5A5270"],
+    ["Homework + teaser", 3, "#23415E"]
+  ],
+  case: [
+    ["Problem + scoping questions", 6, "#B4232C"],
+    ["Functional + non-functional reqs", 8, "#C97B2E"],
+    ["Back-of-envelope estimation", 8, "#9A6A00"],
+    ["API design", 7, "#2E6E36"],
+    ["Data model + storage choice", 12, "#0E6E63"],
+    ["High-level architecture", 15, "#1B6E9B"],
+    ["Deep dive 1 — the hard part", 15, "#4A3C9E"],
+    ["Deep dive 2", 12, "#8A2E68"],
+    ["Bottlenecks + failure modes", 10, "#5A5270"],
+    ["Interview follow-ups", 7, "#23415E"]
+  ]
+};
+function fmtClock(min){const m=Math.floor(min),s=Math.round((min-m)*60);return m+":"+String(s).padStart(2,"0");}
+function buildRibbons(){
+  document.querySelectorAll(".ribbon").forEach(r=>{
+    const rt=parseFloat(r.dataset.runtime||"30");
+    const spec=SPEC[r.dataset.spec||"std"];
+    let acc=0;
+    r.innerHTML=spec.map(([label,pct,col])=>{
+      const start=acc*rt/100; acc+=pct;
+      return `<i style="width:${pct}%;background:${col}" data-l="${fmtClock(start)} · ${label} · ${Math.round(pct*rt/100*10)/10}m"></i>`;
+    }).join("");
+  });
+}
+
+/* ---------- scroll-spy table of contents ---------- */
+function spy(){
+  const links=[...document.querySelectorAll(".toc a")];
+  if(!links.length) return;
+  const map=new Map();
+  links.forEach(a=>{const el=document.querySelector(a.getAttribute("href"));if(el)map.set(el,a);});
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove("on"));
+        const a=map.get(e.target); if(a){a.classList.add("on");
+          const r=a.closest(".rail");
+          if(r&&window.innerWidth>980){const t=a.offsetTop-r.clientHeight/2;r.scrollTo({top:t,behavior:"smooth"});}}
+      }
+    });
+  },{rootMargin:"-8% 0px -80% 0px",threshold:0});
+  map.forEach((a,el)=>io.observe(el));
+}
+
+/* ---------- helpers used by inline demos ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function num(n,d=0){return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});}
+function bytes(b){
+  const u=["B","KB","MB","GB","TB","PB","EB"];let i=0;
+  while(b>=1024&&i<u.length-1){b/=1024;i++;}
+  return (b<10?b.toFixed(2):b<100?b.toFixed(1):Math.round(b))+" "+u[i];
+}
+function eng(n){
+  if(n>=1e12)return (n/1e12).toFixed(2)+"T";
+  if(n>=1e9) return (n/1e9).toFixed(2)+"B";
+  if(n>=1e6) return (n/1e6).toFixed(2)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(2)+"K";
+  return n.toFixed(n<10?2:0);
+}
+function wire(root,fn){
+  const el=typeof root==="string"?$(root):root; if(!el)return;
+  $$("input,select",el).forEach(i=>i.addEventListener("input",()=>fn(el)));
+  $$("button[data-act]",el).forEach(b=>b.addEventListener("click",()=>fn(el,b.dataset.act)));
+  fn(el);
+}
+function setv(el,sel,val){const t=$(sel,el);if(t)t.textContent=val;}
+function setbar(el,sel,pct,cls){
+  const t=$(sel,el); if(!t)return;
+  t.style.width=Math.max(0,Math.min(100,pct))+"%";
+  t.className=cls||"";
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  buildRibbons(); spy();
+  const b=document.createElement("button");
+  b.className="top"; b.textContent="\u2191"; b.setAttribute("aria-label","Back to top");
+  b.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+  document.body.appendChild(b);
+});
+</script></body></html>

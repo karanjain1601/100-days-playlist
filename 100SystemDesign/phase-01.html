@@ -1,0 +1,2582 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 1 · Networking & the Web — System Design Notes</title>
+<meta name="description" content="Days 13-26: OSI/TCP-IP, IP and subnets, TCP, QUIC, DNS, HTTP, TLS, REST, GraphQL, gRPC, realtime, gateways, rate limiting, CDNs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true,
+       macros:{RR:"{\\mathbb{R}}"}},
+  options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},
+  chtml:{scale:1.0,matchFontHeight:false},
+  startup:{typeset:true}
+};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+<style>:root{
+  --paper:#E7EDF2; --card:#FAFCFD; --card-2:#F1F5F8;
+  --ink:#0B2239; --ink-mid:#42596E; --ink-soft:#6E8299;
+  --grid:#D3DFE9; --rule:#C2D2DF; --rule-soft:#DFE8EF;
+  --signal:#0E6E63; --hot:#B4232C; --amber:#9A6A00; --violet:#54399A;
+  --p0:#23415E; --p1:#0E6E63; --p2:#7A4C1E; --p3:#8A2E68; --p4:#1B6E9B;
+  --p5:#4A3C9E; --p6:#2E6E36; --p7:#9E4A05; --p8:#B4232C; --p9:#5A5270; --p10:#0B2239;
+  --disp:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --sans:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --accent:var(--p0);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:1.5rem}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:16.5px;line-height:1.62;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;background-position:-1px -1px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:286px minmax(0,1fr);gap:0;max-width:1680px;margin:0 auto}
+.rail{position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--rule);
+  background:linear-gradient(180deg,var(--card) 0%,var(--card-2) 100%);padding:22px 18px 60px}
+.rail::-webkit-scrollbar{width:8px}.rail::-webkit-scrollbar-thumb{background:var(--rule);border-radius:8px}
+.main{padding:34px 40px 140px;min-width:0}
+.wrap{max-width:900px;margin:0 auto}
+@media(max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule)}
+  .main{padding:20px 16px 90px}
+}
+
+/* ---------- rail contents ---------- */
+.brandmark{font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px}
+.brandtitle{font-family:var(--disp);font-weight:600;font-size:25px;line-height:1.08;margin:0 0 14px;letter-spacing:-.01em}
+.brandtitle a{color:var(--ink);text-decoration:none}
+.railmeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);line-height:1.7;
+  border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft);padding:9px 0;margin-bottom:16px}
+.railsec{font-family:var(--disp);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-soft);margin:20px 0 8px;font-weight:600}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:0}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:4px 8px;border-radius:4px;text-decoration:none;
+  color:var(--ink-mid);font-family:var(--sans);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
+.toc a:hover{background:#fff;color:var(--ink)}
+.toc a.on{background:#fff;color:var(--ink);border-left-color:var(--accent);font-weight:600}
+.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-soft);flex:0 0 30px;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.phaselinks{list-style:none;margin:0;padding:0;font-family:var(--sans);font-size:12.5px}
+.phaselinks a{display:block;padding:3px 8px;color:var(--ink-mid);text-decoration:none;border-radius:4px}
+.phaselinks a:hover{background:#fff;color:var(--ink)}
+.phaselinks a[aria-current]{font-weight:700;color:var(--ink);background:#fff}
+.phaselinks .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+
+/* ---------- page head ---------- */
+.phasehead{border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:26px 30px;margin-bottom:34px;position:relative;overflow:hidden}
+.phasehead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 6px;font-weight:600}
+h1{font-family:var(--disp);font-size:clamp(30px,4.6vw,46px);line-height:1.03;margin:0 0 10px;
+  font-weight:600;letter-spacing:-.018em}
+.lede{font-size:17px;color:var(--ink-mid);margin:0 0 16px;max-width:62ch}
+.statrow{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule-soft);padding-top:14px}
+.stat{padding-right:26px;margin-right:26px;border-right:1px solid var(--rule-soft)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-family:var(--mono);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+.stat span{font-family:var(--disp);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* ---------- lesson card ---------- */
+.lesson{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  margin:0 0 30px;overflow:hidden;scroll-margin-top:16px}
+.lhead{display:flex;gap:16px;align-items:flex-start;padding:20px 26px 14px;
+  border-bottom:1px solid var(--rule-soft);background:linear-gradient(180deg,#fff,var(--card))}
+.day{flex:0 0 auto;font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.05em;
+  color:#fff;background:var(--accent);padding:6px 9px;border-radius:3px;margin-top:3px}
+.lhead h3{font-family:var(--disp);font-size:26px;font-weight:600;margin:0 0 3px;line-height:1.12;letter-spacing:-.012em}
+.lmeta{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);margin:0;letter-spacing:.02em}
+.lbody{padding:22px 26px 26px}
+@media(max-width:600px){.lhead{padding:16px}.lbody{padding:16px}.lhead h3{font-size:21px}}
+
+/* ---------- signature: chapter ribbon ---------- */
+.ribbon{display:flex;height:22px;width:100%;border-bottom:1px solid var(--rule-soft);
+  font-family:var(--mono);font-size:9px;cursor:default;background:var(--card-2)}
+.ribbon i{display:block;height:100%;position:relative;border-right:1px solid rgba(255,255,255,.75);
+  transition:filter .15s;transform-origin:left}
+.ribbon i:last-child{border-right:0}
+.ribbon i:hover{filter:brightness(1.35)}
+.ribbon i::after{content:attr(data-l);position:absolute;left:50%;bottom:calc(100% + 5px);transform:translateX(-50%);
+  white-space:nowrap;background:var(--ink);color:#fff;padding:3px 7px;border-radius:3px;font-size:10.5px;
+  opacity:0;pointer-events:none;transition:opacity .12s;z-index:20;font-family:var(--sans)}
+.ribbon i:hover::after{opacity:1}
+.ribbonkey{font-family:var(--mono);font-size:10px;color:var(--ink-soft);padding:5px 26px 0;letter-spacing:.04em}
+
+/* ---------- prose ---------- */
+.lbody h4{font-family:var(--disp);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin:26px 0 8px;font-weight:700;display:flex;align-items:center;gap:10px}
+.lbody h4::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+.lbody h5{font-family:var(--sans);font-size:15px;font-weight:600;margin:18px 0 5px;color:var(--ink)}
+.lbody p{margin:0 0 12px}
+.lbody ul,.lbody ol{margin:0 0 13px;padding-left:22px}
+.lbody li{margin-bottom:5px}
+.lbody li::marker{color:var(--ink-soft)}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.86em;background:#E3EAF0;padding:1px 5px;border-radius:3px;color:#12354F}
+a{color:var(--signal)}
+.k{font-family:var(--mono);font-size:.88em;background:var(--ink);color:#EAF2F8;padding:1px 6px;border-radius:3px}
+
+/* callouts */
+.hook{border-left:3px solid var(--hot);background:#FCF1F1;padding:12px 16px;margin:0 0 18px;border-radius:0 3px 3px 0}
+.hook b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--hot);display:block;margin-bottom:3px}
+.war{border-left:3px solid var(--amber);background:#FBF5E7;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.war b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--amber);display:block;margin-bottom:3px}
+.iv{border-left:3px solid var(--violet);background:#F3F0FA;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.iv b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--violet);display:block;margin-bottom:3px}
+.hw{border:1px dashed var(--rule);background:var(--card-2);padding:12px 16px;margin:18px 0 0;border-radius:3px}
+.hw b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--ink-soft);display:block;margin-bottom:3px}
+.note{background:#EDF3F7;border:1px solid var(--rule-soft);padding:10px 14px;border-radius:3px;margin:14px 0;font-size:15.3px}
+.wrong{list-style:none;padding-left:0}
+.wrong li{padding-left:24px;position:relative;margin-bottom:7px}
+.wrong li::before{content:"\2715";position:absolute;left:2px;top:1px;color:var(--hot);font-size:12px;font-weight:700}
+.right li::before{content:"\2713";color:var(--signal)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-family:var(--sans);font-size:14px;background:#fff}
+th{font-family:var(--disp);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;text-align:left;
+  padding:8px 11px;border-bottom:2px solid var(--ink);color:var(--ink);font-weight:700;vertical-align:bottom}
+td{padding:8px 11px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tbody tr:hover{background:var(--card-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tblwrap{overflow-x:auto;margin:14px 0}
+.tblwrap table{margin:0;min-width:520px}
+.yes{color:var(--signal);font-weight:700}.no{color:var(--hot);font-weight:700}.mid{color:var(--amber);font-weight:700}
+
+/* ---------- figures ---------- */
+figure{margin:20px 0;border:1px solid var(--rule);background:#fff;border-radius:3px;overflow:hidden}
+figure .canvas{background-image:linear-gradient(#E8EFF5 1px,transparent 1px),linear-gradient(90deg,#E8EFF5 1px,transparent 1px);
+  background-size:20px 20px;padding:14px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);padding:9px 14px;
+  border-top:1px solid var(--rule-soft);background:var(--card-2)}
+figcaption b{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.06em}
+.svgt{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:12px;fill:#0B2239}
+.svgs{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:10.5px;fill:#5B7189}
+.svgm{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:#0B2239}
+.svgh{font-family:"IBM Plex Sans Condensed",Arial,sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;fill:#5B7189}
+
+/* ---------- math ---------- */
+.math{background:#FCFAF3;border:1px solid #EADFC0;border-left:3px solid var(--amber);
+  padding:12px 16px;border-radius:0 3px 3px 0;margin:16px 0;overflow-x:auto}
+.math .lbl{font-family:var(--disp);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);font-weight:700;margin-bottom:4px}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
+mjx-container[display]{margin:.6em 0!important}
+
+/* ---------- code ---------- */
+pre{background:#0E2033;color:#DDE8F2;padding:14px 16px;border-radius:3px;overflow-x:auto;
+  font-family:var(--mono);font-size:12.6px;line-height:1.6;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+pre .c{color:#7C93A8;font-style:italic}
+pre .kw{color:#F0A868}
+pre .st{color:#8FCFA0}
+pre .fn{color:#77BEE8}
+pre .nm{color:#E0A0C8}
+
+/* ---------- demo widgets ---------- */
+.demo{border:1px solid var(--rule);border-top:3px solid var(--signal);background:#fff;
+  border-radius:3px;padding:16px 18px;margin:20px 0}
+.demo>h6{font-family:var(--disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--signal);margin:0 0 12px;font-weight:700;display:flex;gap:8px;align-items:center}
+.demo>h6::before{content:"\25B8";font-size:11px}
+.ctrl{display:grid;grid-template-columns:auto 1fr auto;gap:9px 12px;align-items:center;margin-bottom:5px}
+.ctrl label{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);white-space:nowrap}
+.ctrl output{font-family:var(--mono);font-size:12.5px;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums;min-width:82px}
+input[type=range]{width:100%;accent-color:var(--signal);height:4px}
+select,input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;padding:5px 8px;
+  border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+button{font-family:var(--disp);font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;
+  padding:7px 13px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:3px;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink)}
+button:hover{filter:brightness(1.18)}
+.readout{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-soft);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:12px}
+.readout div{background:var(--card-2);border-radius:3px;padding:8px 10px}
+.readout .v{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);
+  display:block;font-variant-numeric:tabular-nums;line-height:1.25}
+.readout .l{font-family:var(--disp);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft)}
+.bars{margin-top:12px}
+.bar{display:grid;grid-template-columns:118px 1fr 74px;gap:9px;align-items:center;margin-bottom:5px;
+  font-family:var(--mono);font-size:11.5px}
+.bar .t{background:var(--card-2);height:15px;border-radius:2px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--signal);transition:width .25s}
+.bar .t i.hot{background:var(--hot)}
+.bar .t i.amb{background:var(--amber)}
+.bar .v{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- misc ---------- */
+.pillrow{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pill{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--rule);
+  border-radius:20px;background:#fff;color:var(--ink-mid)}
+.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.foot{border-top:1px solid var(--rule);margin-top:44px;padding-top:18px;font-family:var(--mono);
+  font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot a{color:var(--ink-mid);text-decoration:none;border-bottom:1px solid var(--rule)}
+.nextprev{display:flex;justify-content:space-between;gap:14px;margin-top:30px;flex-wrap:wrap}
+.nextprev a{flex:1 1 220px;border:1px solid var(--rule);background:var(--card);padding:12px 15px;
+  border-radius:3px;text-decoration:none;color:var(--ink)}
+.nextprev a span{display:block;font-family:var(--disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft)}
+.nextprev a b{font-family:var(--disp);font-size:16px;font-weight:600}
+.top{position:fixed;right:18px;bottom:18px;z-index:40;background:var(--ink);color:#fff;border:0;
+  width:40px;height:40px;border-radius:50%;font-size:15px;opacity:.28;padding:0}
+.top:hover{opacity:1}
+:focus-visible{outline:2.5px solid var(--signal);outline-offset:2px}
+
+:root{--accent:var(--p1)}</style>
+</head><body>
+<div class="shell"><nav class="rail">
+<p class="brandmark">100 Days of System Design</p>
+<h2 class="brandtitle"><a href="index.html">Engineering<br>Notebook</a></h2>
+<div class="railmeta">145 lessons · 75h 48m<br>Phase 1 · Days 13–26</div>
+<p class="railsec">On this page</p>
+<ul class="toc"><li><a href="#d013"><span class="n">D013</span><span>OSI &amp; TCP/IP Models</span></a></li><li><a href="#d014"><span class="n">D014</span><span>IP, Subnets, NAT &amp; Network Topology</span></a></li><li><a href="#d015"><span class="n">D015</span><span>TCP Deep Dive</span></a></li><li><a href="#d016"><span class="n">D016</span><span>UDP, QUIC &amp; HTTP/3</span></a></li><li><a href="#d017"><span class="n">D017</span><span>DNS Deep Dive</span></a></li><li><a href="#d018"><span class="n">D018</span><span>HTTP Evolution: 1.0 → 1.1 → 2 → 3</span></a></li><li><a href="#d019"><span class="n">D019</span><span>TLS, HTTPS &amp; PKI</span></a></li><li><a href="#d020"><span class="n">D020</span><span>REST API Design in Depth</span></a></li><li><a href="#d021"><span class="n">D021</span><span>GraphQL</span></a></li><li><a href="#d022"><span class="n">D022</span><span>gRPC &amp; Protocol Buffers</span></a></li><li><a href="#d023"><span class="n">D023</span><span>Realtime: WebSockets, SSE, Long Polling, WebRTC</span></a></li><li><a href="#d024"><span class="n">D024</span><span>Proxies, Reverse Proxies, API Gateways &amp; BFF</span></a></li><li><a href="#d025"><span class="n">D025</span><span>Rate Limiting Algorithms</span></a></li><li><a href="#d026"><span class="n">D026</span><span>CDNs &amp; Edge Delivery</span></a></li></ul>
+<p class="railsec">All phases</p>
+<ul class="phaselinks"><li><a href="phase-00.html"><span class="sw" style="background:var(--p0)"></span>00 · Foundations & Mental Models</a></li><li><a href="phase-01.html" aria-current="page"><span class="sw" style="background:var(--p1)"></span>01 · Networking & the Web</a></li><li><a href="phase-02.html"><span class="sw" style="background:var(--p2)"></span>02 · Storage & Databases</a></li><li><a href="phase-03.html"><span class="sw" style="background:var(--p3)"></span>03 · Caching</a></li><li><a href="phase-04.html"><span class="sw" style="background:var(--p4)"></span>04 · Load Balancing & Traffic</a></li><li><a href="phase-05.html"><span class="sw" style="background:var(--p5)"></span>05 · Distributed Systems Theory</a></li><li><a href="phase-06.html"><span class="sw" style="background:var(--p6)"></span>06 · Messaging & Streaming</a></li><li><a href="phase-07.html"><span class="sw" style="background:var(--p7)"></span>07 · Microservices & Patterns</a></li><li><a href="phase-08.html"><span class="sw" style="background:var(--p8)"></span>08 · Reliability, Observability, Security, Cost</a></li><li><a href="phase-09.html"><span class="sw" style="background:var(--p9)"></span>09 · Case Studies</a></li><li><a href="phase-10.html"><span class="sw" style="background:var(--p10)"></span>10 · Interview Mastery & Capstone</a></li></ul>
+</nav><main class="main"><div class="wrap"><div class="phasehead">
+  <p class="eyebrow">Phase 1 · Days 13–26 · 14 lessons · 7h 00m</p>
+  <h1>Networking &amp; the Web</h1>
+  <p class="lede">By Day 26 you should be able to take a URL, and narrate every hop between the
+  keystroke and the pixel — DNS resolution, TCP handshake, TLS negotiation, CDN decision, load
+  balancer choice, gateway policy — naming the protocol, the typical latency and the failure mode at
+  each step. Everything above the application in Phases 2–9 assumes you can do this.</p>
+  <div class="statrow">
+    <div class="stat"><b>14</b><span>Lessons</span></div>
+    <div class="stat"><b>7h 00m</b><span>Runtime</span></div>
+    <div class="stat"><b>30 min</b><span>Average</span></div>
+    <div class="stat"><b>Wk 2.5–5.5</b><span>At 5 / week</span></div>
+    <div class="stat"><b>D004, D010</b><span>Prerequisites</span></div>
+  </div>
+</div>
+
+<!-- ============================================ D013 -->
+<article class="lesson" id="d013">
+<div class="lhead"><div class="day">D013</div><div>
+  <h3>OSI &amp; TCP/IP Models</h3>
+  <p class="lmeta">24 min · Phase 1 · Prereq: D010 · Homework: 30 min</p></div></div>
+<div class="ribbon" data-runtime="24"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A team puts a Layer 4 load balancer in front of their API and enables "least connections". Traffic
+distributes evenly, but one backend melts. The reason: the clients use HTTP/2, so each client opens
+<em>one</em> TCP connection and multiplexes 200 requests over it. The L4 balancer counts connections;
+it cannot see requests. It is balancing the wrong unit, because the unit it needs to see lives two
+layers above where it operates.</div>
+
+<h4>Core concept — the seven layers, with what actually runs there</h4>
+<div class="tblwrap"><table>
+<thead><tr><th class="num">L</th><th>Layer</th><th>Unit</th><th>Addresses by</th><th>Real protocols &amp; devices</th></tr></thead>
+<tbody>
+<tr><td class="num">7</td><td>Application</td><td>Message</td><td>URL, hostname</td><td>HTTP, gRPC, DNS, SMTP, WebSocket · API gateway, WAF, L7 LB</td></tr>
+<tr><td class="num">6</td><td>Presentation</td><td>—</td><td>—</td><td>TLS, JSON/protobuf encoding, gzip — in practice folded into L7</td></tr>
+<tr><td class="num">5</td><td>Session</td><td>—</td><td>—</td><td>Rarely distinct today; TLS session resumption lives here conceptually</td></tr>
+<tr><td class="num">4</td><td>Transport</td><td>Segment</td><td>Port</td><td>TCP, UDP, QUIC (over UDP) · L4 LB, NAT, firewall</td></tr>
+<tr><td class="num">3</td><td>Network</td><td>Packet</td><td>IP address</td><td>IPv4/IPv6, ICMP, BGP, OSPF · router, L3 switch</td></tr>
+<tr><td class="num">2</td><td>Data link</td><td>Frame</td><td>MAC address</td><td>Ethernet, ARP, VLAN, 802.11 · switch, bridge</td></tr>
+<tr><td class="num">1</td><td>Physical</td><td>Bits</td><td>—</td><td>Copper, fibre, radio · hub, transceiver</td></tr>
+</tbody></table></div>
+<p class="note">The OSI model is a teaching tool; the internet runs the four-layer TCP/IP model
+(Link · Internet · Transport · Application). Use OSI numbers when talking to network engineers and
+load balancer vendors — "L4" and "L7" are the two words that matter — and TCP/IP when reasoning about
+what actually happens.</p>
+
+<h4>Core concept — encapsulation</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Packet encapsulation gaining and shedding headers">
+<text class="svgh" x="0" y="12">A 100-byte JSON payload on the wire</text>
+<g>
+<rect x="0" y="24" width="700" height="30" rx="2" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="8" y="43">L7</text>
+<rect x="34" y="28" width="120" height="22" rx="2" fill="#0E6E63"/><text class="svgm" x="42" y="43" fill="#fff">HTTP headers</text>
+<rect x="158" y="28" width="120" height="22" rx="2" fill="#fff" stroke="#0E6E63"/><text class="svgm" x="182" y="43">JSON 100 B</text>
+<text class="svgs" x="292" y="43">~200–800 B of headers is normal for HTTP/1.1 with cookies</text>
+</g>
+<g>
+<rect x="0" y="60" width="700" height="30" rx="2" fill="#F3F0FA" stroke="#4A3C9E"/>
+<text class="svgm" x="8" y="79">L6</text>
+<rect x="34" y="64" width="86" height="22" rx="2" fill="#4A3C9E"/><text class="svgm" x="40" y="79" fill="#fff">TLS record</text>
+<rect x="124" y="64" width="154" height="22" rx="2" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="150" y="79">encrypted payload</text>
+<text class="svgs" x="292" y="79">+5 B header, +16 B AEAD tag, +padding</text>
+</g>
+<g>
+<rect x="0" y="96" width="700" height="30" rx="2" fill="#EEF3F8" stroke="#1B6E9B"/>
+<text class="svgm" x="8" y="115">L4</text>
+<rect x="34" y="100" width="96" height="22" rx="2" fill="#1B6E9B"/><text class="svgm" x="40" y="115" fill="#fff">TCP 20–60 B</text>
+<rect x="134" y="100" width="180" height="22" rx="2" fill="#fff" stroke="#1B6E9B"/><text class="svgm" x="186" y="115">segment</text>
+<text class="svgs" x="328" y="115">src port · dst port · seq · ack · window · flags</text>
+</g>
+<g>
+<rect x="0" y="132" width="700" height="30" rx="2" fill="#FBF5E7" stroke="#9A6A00"/>
+<text class="svgm" x="8" y="151">L3</text>
+<rect x="34" y="136" width="92" height="22" rx="2" fill="#9A6A00"/><text class="svgm" x="40" y="151" fill="#fff">IP 20–40 B</text>
+<rect x="130" y="136" width="196" height="22" rx="2" fill="#fff" stroke="#9A6A00"/><text class="svgm" x="196" y="151">packet</text>
+<text class="svgs" x="340" y="151">src IP · dst IP · TTL · protocol · fragment offset</text>
+</g>
+<g>
+<rect x="0" y="168" width="700" height="30" rx="2" fill="#FCF1F1" stroke="#B4232C"/>
+<text class="svgm" x="8" y="187">L2</text>
+<rect x="34" y="172" width="86" height="22" rx="2" fill="#B4232C"/><text class="svgm" x="40" y="187" fill="#fff">Eth 14 B</text>
+<rect x="124" y="172" width="212" height="22" rx="2" fill="#fff" stroke="#B4232C"/><text class="svgm" x="204" y="187">frame</text>
+<rect x="340" y="172" width="46" height="22" rx="2" fill="#B4232C"/><text class="svgm" x="346" y="187" fill="#fff">FCS 4</text>
+<text class="svgs" x="396" y="187">src MAC · dst MAC · ethertype · VLAN tag</text>
+</g>
+<text class="svgt" x="0" y="222">Overhead for a 100-byte message: ~54 B (TCP+IP+Eth) + TLS + HTTP headers</text>
+<text class="svgs" x="0" y="240">At 100,000 small messages/sec, header overhead alone can exceed your payload bandwidth. This is why protobuf + HTTP/2 header compression (D018, D022) matters at scale, and why chatty APIs cost more than their payload suggests.</text>
+</svg></div>
+<figcaption><b>FIG 13.1</b> · Each layer adds a header on the way down and strips it on the way up.
+The receiving host's kernel does this in reverse, in the path you drew on Day 10.</figcaption></figure>
+
+<h4>Deep dive — why L4 vs L7 decides your architecture</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>L4 (transport)</th><th>L7 (application)</th></tr></thead>
+<tbody>
+<tr><td>Can see</td><td>IPs, ports, TCP flags</td><td>URL path, headers, cookies, method, body</td></tr>
+<tr><td>Cannot see</td><td class="no">Anything inside the payload — including HTTP</td><td>—</td></tr>
+<tr><td>TLS</td><td class="yes">Passes through encrypted (or uses SNI only)</td><td class="no">Must terminate to read the request</td></tr>
+<tr><td>Balancing unit</td><td>Connection</td><td class="yes">Request</td></tr>
+<tr><td>Throughput</td><td class="yes">Millions of conn/s, kernel or hardware fast path</td><td class="mid">Tens of thousands req/s per core</td></tr>
+<tr><td>Latency added</td><td class="yes">~microseconds</td><td class="mid">~0.1–1 ms</td></tr>
+<tr><td>Features</td><td>Health checks, connection draining</td><td class="yes">Path routing, retries, rate limits, header rewrite, canary by header</td></tr>
+<tr><td>Typical product</td><td>AWS NLB, IPVS, Maglev</td><td>AWS ALB, nginx, Envoy, HAProxy in HTTP mode</td></tr>
+</tbody></table></div>
+<p>The hook's bug now has a clean statement: with HTTP/2 or gRPC, <b>one connection carries many
+requests</b>, so connection-count balancing is meaningless. You need L7 balancing, or an L4 balancer
+in front of L7 balancers. This is exactly the edge stack in Day 57.</p>
+
+<h4>Deep dive — MTU, MSS and fragmentation</h4>
+<div class="math"><div class="lbl">Maximum segment size, derived</div>
+\[
+\text{MSS} \;=\; \text{MTU} - \text{IP header} - \text{TCP header}
+\]
+\[
+1500 - 20 - 20 = \mathbf{1460\ \text{bytes}}\quad(\text{IPv4, no options})
+\]</div>
+<ul>
+<li><b>Ethernet MTU is 1500 bytes</b> almost everywhere on the public internet.</li>
+<li><b>Tunnels shrink it.</b> VPN/IPsec/VXLAN/GRE encapsulation eats 20–80 bytes. A path MTU of 1400 or 1436 is common inside clouds and Kubernetes overlays.</li>
+<li><b>Jumbo frames (9000 B)</b> exist inside datacenters and cut per-byte CPU cost substantially for bulk transfer. They must be enabled end to end, or you get black-holed traffic.</li>
+<li><b>Fragmentation</b> is the failure mode: if a packet exceeds the path MTU and the Don't Fragment bit is set, the router drops it and sends ICMP "fragmentation needed". If a firewall blocks ICMP — which many do — the sender never learns, and you get a connection that completes the handshake and then hangs on the first large response. This is the classic <b>PMTUD black hole</b>, and it presents as "small requests work, large ones time out".</li>
+</ul>
+<p class="note"><strong>Diagnostic worth memorising:</strong> if TLS handshakes complete but the first
+big response stalls, suspect MTU before you suspect the application. Test with
+<code>ping -M do -s 1472 &lt;host&gt;</code> and walk the size down.</p>
+
+<h4>Switches, routers, gateways — one line each</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Device</th><th>Layer</th><th>Decision it makes</th><th>Table it keeps</th></tr></thead>
+<tbody>
+<tr><td>Hub</td><td>L1</td><td>None — repeats to all ports</td><td>—</td></tr>
+<tr><td>Switch</td><td>L2</td><td>Which port has this MAC?</td><td>MAC/CAM table</td></tr>
+<tr><td>Router</td><td>L3</td><td>Which next hop for this IP prefix?</td><td>Routing table (BGP/OSPF-learned)</td></tr>
+<tr><td>NAT gateway</td><td>L3/L4</td><td>Rewrite source IP+port; track the flow</td><td>Connection tracking table</td></tr>
+<tr><td>Firewall</td><td>L3/L4</td><td>Allow or drop by 5-tuple</td><td>Rules + conntrack</td></tr>
+<tr><td>L7 proxy / gateway</td><td>L7</td><td>Which backend for this path/header?</td><td>Route config + upstream health</td></tr>
+</tbody></table></div>
+
+<h5>Where TLS sits</h5>
+<p>TLS runs on top of TCP (L4) and beneath the application protocol — so nominally L5/L6, practically
+"just under HTTP". Two facts that come up constantly: (1) the <b>SNI</b> field in the ClientHello is
+sent in the clear, which is how one IP can host many HTTPS sites and how L4 proxies route TLS without
+decrypting it; (2) once you terminate TLS at the edge you can do L7 routing, and everything behind it
+is either plaintext inside a trusted network or re-encrypted (mTLS, Day 101).</p>
+
+<div class="war"><b>War story</b>
+Kubernetes clusters using overlay networks (VXLAN adds 50 bytes) frequently ship with a pod MTU of
+1450 while nodes use 1500. Applications that work in staging fail in production for large payloads,
+and the symptom is a hung request rather than an error. The fix is trivial — set the correct MTU on
+the CNI — but finding it takes days because every layer of observability reports "the request was
+sent" and "no response received". Network problems that present as application hangs are the most
+expensive class of bug on this list.</div>
+
+<div class="iv"><b>Interview angle</b>
+The layers themselves are rarely asked directly. What is asked: "L4 or L7 load balancer, and why?",
+"how does one IP serve many HTTPS domains?", "why did large uploads fail after we added a VPN?"
+<ul class="wrong">
+<li>Reciting all seven layers when asked about load balancers. Answer the question in terms of what each layer can <em>see</em>.</li>
+<li>Saying an L7 balancer is always better. It costs latency, CPU, and forces TLS termination.</li>
+<li>Not knowing that SNI is unencrypted — it is central to how CDNs and L4 TLS routing work.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Capture one HTTPS request in Wireshark. Find the TCP handshake, the ClientHello, and identify the SNI
+value in plaintext. Then label the bytes of one data packet by layer, and compute what fraction of
+that packet was headers.</div>
+</div></article>
+
+<!-- ============================================ D014 -->
+<article class="lesson" id="d014">
+<div class="lhead"><div class="day">D014</div><div>
+  <h3>IP, Subnets, NAT &amp; Network Topology</h3>
+  <p class="lmeta">24 min · Phase 1 · Prereq: D013 · Homework: 35 min</p></div></div>
+<div class="ribbon" data-runtime="24"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A service behind a NAT gateway starts failing outbound calls at exactly 3 p.m. every weekday. No
+error in the application, no CPU spike, just connection timeouts to a partner API. The cause: every
+outbound connection from the whole subnet is source-NATed to one IP, and one IP has about 64,000
+ports. With connections held in <code>TIME_WAIT</code> for 60 seconds after close, the effective limit
+to a <em>single destination IP and port</em> is far lower. They ran out of ports. The fix was more NAT
+gateway IPs, not more servers.</div>
+
+<h4>Core concept — CIDR, and the only arithmetic you need</h4>
+<div class="math"><div class="lbl">Address count from prefix length</div>
+\[
+\text{addresses} = 2^{(32-p)} \quad\text{for IPv4 prefix } /p
+\]
+\[
+\text{usable in a cloud subnet} = 2^{(32-p)} - 5
+\]</div>
+<p>Clouds reserve five addresses per subnet (network address, VPC router, DNS, one future use, and
+broadcast). Memorise this table — it is the single most-used lookup in infrastructure work:</p>
+<div class="tblwrap"><table>
+<thead><tr><th class="num">Prefix</th><th class="num">Addresses</th><th class="num">Usable (AWS-style)</th><th>Mask</th><th>Typical use</th></tr></thead>
+<tbody>
+<tr><td class="num">/16</td><td class="num">65,536</td><td class="num">65,531</td><td>255.255.0.0</td><td>A whole VPC</td></tr>
+<tr><td class="num">/20</td><td class="num">4,096</td><td class="num">4,091</td><td>255.255.240.0</td><td>Large app subnet</td></tr>
+<tr><td class="num">/24</td><td class="num">256</td><td class="num">251</td><td>255.255.255.0</td><td>Standard subnet</td></tr>
+<tr><td class="num">/26</td><td class="num">64</td><td class="num">59</td><td>255.255.255.192</td><td>Small tier (databases)</td></tr>
+<tr><td class="num">/28</td><td class="num">16</td><td class="num">11</td><td>255.255.255.240</td><td>Smallest AWS subnet allowed</td></tr>
+<tr><td class="num">/32</td><td class="num">1</td><td class="num">1</td><td>255.255.255.255</td><td>A single host, e.g. in a security rule</td></tr>
+</tbody></table></div>
+<p class="note"><strong>Sizing rule for Kubernetes:</strong> each pod usually gets an IP from the
+subnet. A /24 gives 251 pods across the whole subnet — which a single busy node can exhaust. Size
+node subnets by <em>peak pods including rolling-deploy surge</em>, not by node count.</p>
+
+<h5>Private ranges (RFC 1918) and the ones people forget</h5>
+<div class="tblwrap"><table>
+<thead><tr><th>Range</th><th class="num">Size</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>10.0.0.0/8</td><td class="num">16.7 M</td><td>The default for most VPCs. Plan carefully — overlapping 10-space is the #1 blocker for future VPC peering and acquisitions.</td></tr>
+<tr><td>172.16.0.0/12</td><td class="num">1.05 M</td><td>Docker's default bridge lives here — a classic collision source</td></tr>
+<tr><td>192.168.0.0/16</td><td class="num">65,536</td><td>Home networks; avoid in cloud so VPN clients can reach you</td></tr>
+<tr><td>100.64.0.0/10</td><td class="num">4.2 M</td><td>Carrier-grade NAT space; some clouds use it internally</td></tr>
+<tr><td>169.254.169.254</td><td class="num">1</td><td class="no">The instance metadata endpoint — the target of every SSRF attack (D118)</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — NAT and port exhaustion, with the arithmetic</h4>
+<p>Source NAT rewrites the private source IP and port to the gateway's public IP and a chosen port,
+recording the mapping so replies can be reversed. A TCP connection is identified by a 5-tuple:</p>
+<div class="math"><div class="lbl">The 5-tuple</div>
+\[
+(\text{proto},\; \text{src IP},\; \text{src port},\; \text{dst IP},\; \text{dst port})
+\]</div>
+<p>Behind NAT, three of those are fixed for a given destination: protocol, source IP (the gateway),
+and destination IP+port. Only <b>source port</b> varies — roughly 64,000 values, and typically the
+ephemeral range is ~28,000 by default.</p>
+<div class="math"><div class="lbl">Sustainable connection rate to one destination endpoint</div>
+\[
+\text{rate}_{\max} \;=\; \frac{\text{available ports}}{T_{\text{TIME\_WAIT}}}
+\]
+\[
+\frac{28{,}000}{60\ \text{s}} \approx 470\ \text{new connections/s} \quad(\text{per NAT IP, per dest})
+\]</div>
+<p>Four hundred and seventy per second sounds like a lot until you realise a fleet of 40 pods each
+making 20 outbound API calls per second gets there instantly. Mitigations, in order of preference:</p>
+<ol>
+<li><b>Connection reuse.</b> HTTP keep-alive, connection pools, HTTP/2 multiplexing. This removes the problem rather than raising the ceiling.</li>
+<li><b>More NAT IPs.</b> Each additional public IP multiplies the port space.</li>
+<li><b>VPC endpoints / private links</b> for cloud-internal destinations, so the traffic never traverses NAT.</li>
+<li>Tuning <code>tcp_tw_reuse</code> and the ephemeral range — real, but a smaller win and easy to get wrong.</li>
+</ol>
+
+<h4>Core concept — a production VPC layout</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Three-tier VPC across three availability zones">
+<text class="svgh" x="0" y="12">VPC 10.0.0.0/16 · three AZs · three tiers</text>
+<rect x="0" y="20" width="700" height="248" rx="4" fill="none" stroke="#0B2239" stroke-width="1.4"/>
+<text class="svgm" x="8" y="36">10.0.0.0/16</text>
+<g class="svgh" fill="#5B7189">
+<text x="120" y="52">AZ-a</text><text x="330" y="52">AZ-b</text><text x="540" y="52">AZ-c</text>
+</g>
+<g>
+<rect x="60" y="58" width="180" height="52" rx="3" fill="#FBF5E7" stroke="#9A6A00"/>
+<text class="svgm" x="68" y="76">public 10.0.0.0/24</text>
+<text class="svgs" x="68" y="92">ALB node · NAT GW · bastion</text>
+<text class="svgs" x="68" y="104">route: 0.0.0.0/0 → IGW</text>
+<rect x="270" y="58" width="180" height="52" rx="3" fill="#FBF5E7" stroke="#9A6A00"/>
+<text class="svgm" x="278" y="76">public 10.0.1.0/24</text>
+<text class="svgs" x="278" y="92">ALB node · NAT GW</text>
+<rect x="480" y="58" width="180" height="52" rx="3" fill="#FBF5E7" stroke="#9A6A00"/>
+<text class="svgm" x="488" y="76">public 10.0.2.0/24</text>
+<text class="svgs" x="488" y="92">ALB node · NAT GW</text>
+</g>
+<g>
+<rect x="60" y="122" width="180" height="52" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="68" y="140">private app 10.0.16.0/20</text>
+<text class="svgs" x="68" y="156">4,091 IPs · pods/EC2</text>
+<text class="svgs" x="68" y="168">route: 0.0.0.0/0 → NAT GW</text>
+<rect x="270" y="122" width="180" height="52" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="278" y="140">private app 10.0.32.0/20</text>
+<text class="svgs" x="278" y="156">4,091 IPs</text>
+<rect x="480" y="122" width="180" height="52" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="488" y="140">private app 10.0.48.0/20</text>
+<text class="svgs" x="488" y="156">4,091 IPs</text>
+</g>
+<g>
+<rect x="60" y="186" width="180" height="48" rx="3" fill="#F3F0FA" stroke="#4A3C9E"/>
+<text class="svgm" x="68" y="204">data 10.0.64.0/24</text>
+<text class="svgs" x="68" y="220">RDS · ElastiCache · no route out</text>
+<rect x="270" y="186" width="180" height="48" rx="3" fill="#F3F0FA" stroke="#4A3C9E"/>
+<text class="svgm" x="278" y="204">data 10.0.65.0/24</text>
+<text class="svgs" x="278" y="220">standby replica</text>
+<rect x="480" y="186" width="180" height="48" rx="3" fill="#F3F0FA" stroke="#4A3C9E"/>
+<text class="svgm" x="488" y="204">data 10.0.66.0/24</text>
+<text class="svgs" x="488" y="220">read replica</text>
+</g>
+<text class="svgs" x="60" y="252">Reserved for growth: 10.0.80.0/20 onward. Never allocate to the last usable prefix — you will need room to add a tier.</text>
+<text class="svgh" x="0" y="288" fill="#5B7189">Security groups vs NACLs</text>
+<text class="svgs" x="0" y="306">Security group: stateful, attached to an instance/ENI, allow-rules only, can reference another SG by ID. This is your primary control.</text>
+<text class="svgs" x="0" y="322">NACL: stateless, attached to a subnet, allow AND deny, evaluated in numbered order — remember to open ephemeral ports for return traffic.</text>
+</svg></div>
+<figcaption><b>FIG 14.1</b> · Three AZs because two gives you no quorum for anything (D074). Data
+subnets have no route to the internet at all — an SSRF in the app tier cannot exfiltrate directly.</figcaption></figure>
+
+<h4>Deep dive — SG vs NACL, and why the difference bites</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Security group</th><th>Network ACL</th></tr></thead>
+<tbody>
+<tr><td>Attaches to</td><td>Instance / ENI</td><td>Subnet</td></tr>
+<tr><td>State</td><td class="yes">Stateful — return traffic auto-allowed</td><td class="no">Stateless — you must allow both directions</td></tr>
+<tr><td>Rules</td><td>Allow only</td><td>Allow and deny</td></tr>
+<tr><td>Evaluation</td><td>All rules, any match wins</td><td>In rule-number order, first match wins</td></tr>
+<tr><td>Can reference</td><td class="yes">Another security group</td><td>CIDR only</td></tr>
+<tr><td>Use it for</td><td>Everything, by default</td><td>Coarse subnet-level blocks, compliance requirements</td></tr>
+</tbody></table></div>
+<p>The classic NACL bug: you allow inbound 443 and outbound 443, and everything still breaks —
+because the <em>response</em> to an inbound request leaves from port 443 to the client's
+<em>ephemeral</em> port, which your outbound rule does not cover. Stateless means stateless.</p>
+
+<h4>IPv6, briefly, and why it matters now</h4>
+<ul>
+<li>128 bits, written as eight hex groups; <code>::</code> collapses one run of zeros.</li>
+<li><b>No NAT by design</b> — every device gets a globally routable address. That removes port exhaustion entirely and simplifies peer-to-peer.</li>
+<li>Practical driver: mobile carriers are IPv6-only with translation at the edge, and cloud providers now charge for IPv4 addresses. Dual-stack is the pragmatic answer; IPv6-only internally is increasingly viable.</li>
+<li>Design consequence: <b>never store an IP in a</b> <code>VARCHAR(15)</code> <b>or a 32-bit int.</b> Use 45 characters or a native <code>inet</code> type. This bug is still being written today.</li>
+</ul>
+
+<h4>Peering, transit and the shape of multi-VPC</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Pattern</th><th>Topology</th><th class="num">Connections for n VPCs</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>VPC peering</td><td>Point to point</td><td class="num">n(n−1)/2</td><td class="no">Non-transitive — A↔B and B↔C does not give A↔C</td></tr>
+<tr><td>Transit gateway / hub</td><td>Hub and spoke</td><td class="num">n</td><td class="yes">Transitive, central routing and inspection</td></tr>
+<tr><td>PrivateLink / endpoint services</td><td>Service-specific</td><td class="num">per service</td><td class="yes">Exposes one service, not a network — best isolation</td></tr>
+</tbody></table></div>
+<p><b>All of these require non-overlapping CIDRs.</b> This is why the CIDR plan you write on day one of
+a company outlives most of its code.</p>
+
+<div class="war"><b>War story</b>
+The most common cloud networking incident is not exotic: it is a company that allocated
+<code>10.0.0.0/16</code> to every environment because that was the default, then tried to peer
+production and staging, or acquired a company that had done the same thing. There is no fix except
+renumbering an entire network, which cannot be done without downtime. Spend an hour on an address plan
+before you create the first VPC; it is the cheapest hour in infrastructure.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "walk me through your network layout", "how do you stop the app tier reaching the internet?",
+"why did outbound calls start failing at scale?"
+<ul class="wrong">
+<li>Putting databases in a public subnet with a security group as the only control. Defence in depth means no route, <em>and</em> no rule.</li>
+<li>Not knowing NAT gateways are per-AZ and cost both an hourly rate and a per-GB processing fee — a common surprise line on the bill (D120).</li>
+<li>Forgetting that cross-AZ traffic is charged in both directions in most clouds.</li>
+<li>Sizing subnets from current instance count, with no headroom for a rolling deploy that doubles pods.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Design non-overlapping CIDR blocks for a 3-tier, 3-AZ VPC inside <code>10.20.0.0/16</code>, leaving
+room to double every tier and to add a fourth tier later. Write the route table for each subnet. Then
+compute how many concurrent outbound connections to one API endpoint your NAT design supports.</div>
+</div></article>
+
+<!-- ============================================ D015 -->
+<article class="lesson" id="d015">
+<div class="lhead"><div class="day">D015</div><div>
+  <h3>TCP Deep Dive</h3>
+  <p class="lmeta">32 min · Phase 1 · Prereq: D013 · Homework: 30 min</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A team moves their API behind a new proxy and p50 latency doubles for small requests, from 40 ms to
+95 ms. The proxy adds under a millisecond of processing. The cause: the proxy did not enable
+keep-alive to the backend, so every request paid a fresh TCP handshake plus a TLS handshake. On a
+2 ms intra-DC RTT that is small; over a 45 ms WAN link it is 135 ms of pure waiting before a single
+byte of application data moves.</div>
+
+<h4>Core concept — the handshake and the teardown</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TCP three-way handshake and four-way teardown">
+<text class="svgh" x="0" y="12">Connection setup, data, and the four-way close</text>
+<line x1="120" y1="24" x2="120" y2="284" stroke="#0B2239"/><line x1="560" y1="24" x2="560" y2="284" stroke="#0B2239"/>
+<text class="svgh" x="86" y="20">Client</text><text class="svgh" x="536" y="20">Server</text>
+<defs><marker id="ax" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#1B6E9B"/></marker>
+<marker id="axr" markerWidth="8" markerHeight="8" refX="1" refY="3.2" orient="auto">
+<path d="M8,0 L0,3.2 L8,6.4 z" fill="#0E6E63"/></marker></defs>
+<line x1="120" y1="44" x2="556" y2="60" stroke="#1B6E9B" stroke-width="1.6" marker-end="url(#ax)"/>
+<text class="svgm" x="220" y="42" fill="#1B6E9B">SYN  seq=x</text>
+<line x1="560" y1="76" x2="124" y2="92" stroke="#0E6E63" stroke-width="1.6" marker-end="url(#axr)"/>
+<text class="svgm" x="220" y="76" fill="#0E6E63">SYN-ACK  seq=y, ack=x+1</text>
+<line x1="120" y1="106" x2="556" y2="122" stroke="#1B6E9B" stroke-width="1.6" marker-end="url(#ax)"/>
+<text class="svgm" x="220" y="106" fill="#1B6E9B">ACK  ack=y+1  ← may carry data (TFO)</text>
+<rect x="130" y="128" width="420" height="20" rx="2" fill="#EEF3F8" stroke="#1B6E9B" stroke-dasharray="3 2"/>
+<text class="svgm" x="196" y="142">1 RTT consumed before any application byte</text>
+<line x1="120" y1="164" x2="556" y2="164" stroke="#5A5270" stroke-width="1.6" marker-end="url(#ax)"/>
+<text class="svgm" x="230" y="160">HTTP GET  (+ TLS: 1 more RTT for 1.3, 2 for 1.2)</text>
+<line x1="560" y1="184" x2="124" y2="184" stroke="#5A5270" stroke-width="1.6" marker-end="url(#axr)"/>
+<text class="svgm" x="250" y="180">200 OK, first bytes</text>
+<line x1="120" y1="212" x2="556" y2="212" stroke="#B4232C" stroke-width="1.4" marker-end="url(#ax)"/>
+<text class="svgm" x="266" y="208" fill="#B4232C">FIN</text>
+<line x1="560" y1="228" x2="124" y2="228" stroke="#B4232C" stroke-width="1.4" marker-end="url(#axr)"/>
+<text class="svgm" x="266" y="224" fill="#B4232C">ACK</text>
+<line x1="560" y1="244" x2="124" y2="244" stroke="#B4232C" stroke-width="1.4" marker-end="url(#axr)"/>
+<text class="svgm" x="266" y="240" fill="#B4232C">FIN</text>
+<line x1="120" y1="260" x2="556" y2="260" stroke="#B4232C" stroke-width="1.4" marker-end="url(#ax)"/>
+<text class="svgm" x="266" y="256" fill="#B4232C">ACK</text>
+<rect x="18" y="266" width="96" height="20" rx="2" fill="#FCF1F1" stroke="#B4232C"/>
+<text class="svgm" x="24" y="280" fill="#B4232C">TIME_WAIT 2·MSL</text>
+<text class="svgs" x="126" y="280">The closing side holds the 5-tuple for ~60 s so late duplicates cannot corrupt a new connection.</text>
+</svg></div>
+<figcaption><b>FIG 15.1</b> · Setup costs 1 RTT before TLS. Close costs four segments and leaves
+<code>TIME_WAIT</code> on whichever side closes first — usually the server, which is why servers
+accumulate them.</figcaption></figure>
+
+<h4>Deep dive — flow control vs congestion control</h4>
+<p>Two independent mechanisms, constantly confused:</p>
+<ul>
+<li><b>Flow control</b> protects the <em>receiver</em>. The receiver advertises a window
+(<code>rwnd</code>) — "I have this much buffer left". Sender must not exceed it.</li>
+<li><b>Congestion control</b> protects the <em>network</em>. The sender maintains its own estimate
+(<code>cwnd</code>) of what the path can carry, based on loss and delay signals.</li>
+</ul>
+<div class="math"><div class="lbl">What the sender may have in flight</div>
+\[
+\text{in flight} \;\le\; \min(\text{rwnd},\ \text{cwnd})
+\]</div>
+<div class="math"><div class="lbl">Bandwidth-delay product — the window you actually need</div>
+\[
+\text{BDP} \;=\; \text{bandwidth} \times \text{RTT}
+\]
+\[
+1\ \text{Gbps} \times 100\ \text{ms} \;=\; 10^{9}\times0.1/8 \;=\; \mathbf{12.5\ \text{MB}}
+\]</div>
+<p>This is the number that explains "why is my transfer slow on a fast link?" To keep a 1 Gbps,
+100 ms path full you must have 12.5 MB unacknowledged at all times. The classic TCP window field is
+16 bits — 64 KB maximum — so without <b>window scaling</b> your throughput ceiling is:</p>
+<div class="math"><div class="lbl">Throughput ceiling from window size</div>
+\[
+\text{throughput}_{\max} = \frac{\text{window}}{\text{RTT}} = \frac{65{,}536\ \text{B}}{0.1\ \text{s}} = 655\ \text{KB/s} \approx 5\ \text{Mbps}
+\]</div>
+<p>Five megabits on a gigabit link. Window scaling (RFC 7323) multiplies the window by up to
+2<sup>14</sup>, and is negotiated in the SYN — which is why middleboxes that strip TCP options destroy
+long-fat-network performance.</p>
+
+<h4>Deep dive — congestion control algorithms</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Algorithm</th><th>Signal</th><th>Behaviour</th><th>Good at</th><th>Weak at</th></tr></thead>
+<tbody>
+<tr><td><b>Reno / NewReno</b></td><td>Loss</td><td>AIMD: +1 MSS per RTT, halve on loss</td><td>Fairness, simplicity</td><td class="no">Slow to fill high-BDP paths</td></tr>
+<tr><td><b>CUBIC</b> (Linux default)</td><td>Loss</td><td>Cubic growth around the last loss point</td><td>High-BDP links; still loss-fair</td><td class="no">Fills buffers → bufferbloat</td></tr>
+<tr><td><b>BBR</b></td><td>Bandwidth + RTT estimate</td><td>Models the bottleneck, paces to it</td><td class="yes">Lossy links, high throughput, lower queueing latency</td><td>Fairness against CUBIC is contested</td></tr>
+<tr><td><b>DCTCP</b></td><td>ECN marks</td><td>Proportional reduction</td><td class="yes">Datacenter, very low latency</td><td>Needs ECN support end to end</td></tr>
+</tbody></table></div>
+<div class="math"><div class="lbl">Slow start — it is exponential, and the name is a lie</div>
+\[
+\text{cwnd}_{n} = \text{IW}\cdot 2^{\,n} \quad\text{(per RTT, until ssthresh or loss)}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">Initial window is 10 MSS ≈ 14.6 KB (RFC 6928). So the
+bytes deliverable after \(n\) round trips are ~14.6 KB, 29 KB, 58 KB, 117 KB, 234 KB…</p></div>
+<p><b>Design consequence:</b> a 100 KB page needs roughly 4 RTTs to transfer on a fresh connection, no
+matter how much bandwidth exists. At 150 ms RTT that is 600 ms of protocol, and it is why (a) getting
+your critical CSS under ~14 KB genuinely matters, (b) connection reuse is worth more than compression
+for small responses, and (c) TLS 1.3's saved round trip is measurable.</p>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Slow start and congestion avoidance timeline">
+<text class="svgh" x="0" y="12">cwnd over time — why the first request is always the slowest</text>
+<line x1="46" y1="180" x2="676" y2="180" stroke="#0B2239"/><line x1="46" y1="26" x2="46" y2="180" stroke="#0B2239"/>
+<text class="svgs" x="0" y="34">cwnd</text>
+<path d="M46,176 L96,170 L146,158 L196,134 L246,86 L296,40" fill="none" stroke="#1B6E9B" stroke-width="2.4"/>
+<text class="svgm" x="120" y="120" fill="#1B6E9B">slow start (exponential)</text>
+<circle cx="296" cy="40" r="4.5" fill="#B4232C"/><text class="svgm" x="240" y="34" fill="#B4232C">packet loss</text>
+<path d="M296,40 L306,110 L356,102 L406,94 L456,86 L506,78" fill="none" stroke="#0E6E63" stroke-width="2.4"/>
+<text class="svgm" x="360" y="126" fill="#0E6E63">congestion avoidance (linear / cubic)</text>
+<circle cx="506" cy="78" r="4.5" fill="#B4232C"/>
+<path d="M506,78 L516,128 L566,122 L616,116 L664,110" fill="none" stroke="#0E6E63" stroke-width="2.4"/>
+<line x1="46" y1="60" x2="676" y2="60" stroke="#9A6A00" stroke-dasharray="4 3"/>
+<text class="svgm" x="600" y="54" fill="#9A6A00">ssthresh</text>
+<text class="svgs" x="46" y="196">RTT 1</text><text class="svgs" x="190" y="196">RTT 4</text>
+<text class="svgs" x="336" y="196">RTT 7</text><text class="svgs" x="620" y="196">time</text>
+<text class="svgs" x="46" y="212">Bytes deliverable per RTT: 14.6 KB → 29 → 58 → 117 → 234 …  A 100 KB response needs ~4 RTTs regardless of link speed.</text>
+</svg></div>
+<figcaption><b>FIG 15.2</b> · Every new connection restarts this climb. Keep-alive is not a micro-optimisation;
+it is skipping the entire ramp.</figcaption></figure>
+
+<h4>Deep dive — retransmission, RTO and fast retransmit</h4>
+<ul>
+<li><b>RTO (retransmission timeout)</b> is computed from a smoothed RTT estimate and its variance
+(Jacobson/Karels). The minimum RTO in Linux is <b>200 ms</b> — so a single lost packet on a 1 ms
+intra-DC path can cost 200 ms if the loss is detected by timeout.</li>
+<li><b>Fast retransmit</b> avoids that: three duplicate ACKs trigger immediate resend without waiting
+for the timer. It requires subsequent packets to arrive, so it does not help at the tail of a
+transfer — which is why <b>tail loss</b> is disproportionately painful and why Tail Loss Probe exists.</li>
+<li><b>SACK</b> lets the receiver report exactly which blocks arrived, so the sender resends only the
+gaps instead of everything after the loss.</li>
+</ul>
+<p class="note"><strong>The number to remember:</strong> 200 ms minimum RTO. If you see a bimodal
+latency distribution with a cluster near 200 ms or 400 ms above your p50, you are almost certainly
+looking at packet loss and timeout-based recovery, not at your application.</p>
+
+<h4>Head-of-line blocking, TIME_WAIT, and Nagle</h4>
+<h5>Head-of-line blocking (the TCP kind)</h5>
+<p>TCP guarantees in-order delivery to the application. If segment 5 is lost, segments 6–20 sit in the
+receiver's buffer, received but undeliverable, until 5 arrives. With HTTP/2 multiplexing many streams
+over one TCP connection, <b>one lost packet stalls every stream</b> — the problem HTTP/3 exists to
+solve (D016).</p>
+
+<h5>TIME_WAIT is not a bug</h5>
+<p>The side that closes first holds the 5-tuple for 2×MSL (60 s on Linux) so that delayed duplicates
+from the old connection cannot be accepted by a new one reusing the same tuple. Practical guidance:</p>
+<ul>
+<li>Let the <b>client</b> close where possible, so <code>TIME_WAIT</code> accumulates on machines that have fewer connections.</li>
+<li>Use keep-alive so you close far fewer connections.</li>
+<li><code>tcp_tw_reuse</code> (safe for outbound with timestamps) is fine; <code>tcp_tw_recycle</code> was removed from Linux because it broke NAT'd clients badly.</li>
+<li><code>SO_LINGER 0</code> sends RST and skips TIME_WAIT — it also discards unsent data. Use it only when you know what you are throwing away.</li>
+</ul>
+
+<h5>Nagle × delayed ACK — a 40 ms trap</h5>
+<p>Nagle's algorithm buffers small writes until the previous data is acknowledged, to avoid flooding
+the network with tiny packets. Delayed ACK holds acknowledgements up to ~40 ms hoping to piggyback
+them on a response. Combine them and you get a standoff: the sender waits for an ACK before sending
+the rest, and the receiver waits ~40 ms before ACKing. The result is a reproducible 40 ms stall on
+request/response protocols that write headers and body separately.</p>
+<p><b>Fix:</b> set <code>TCP_NODELAY</code> (disable Nagle) on latency-sensitive sockets, and write
+your request in one <code>write()</code> call. Every RPC framework does the first; not all
+application code does the second.</p>
+
+<div class="war"><b>War story</b>
+The 40 ms Nagle/delayed-ACK interaction has been rediscovered independently by dozens of teams —
+Ruby on Rails, Node, various RPC stacks — always presenting as "exactly 40 ms of unexplained latency,
+only on some requests". It is the best-documented example of two individually reasonable optimisations
+producing a pathological interaction, and a good argument for reading protocol RFCs before tuning.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "why is our API slow over WAN?", "what does keep-alive buy you?", "why is throughput low on a
+fast link?"
+<ul class="wrong">
+<li>"TCP is reliable so packets never get lost." TCP <em>recovers</em> from loss; recovery costs time.</li>
+<li>Not knowing the handshake costs an RTT before TLS. This is the entire reason for connection pooling.</li>
+<li>Blaming bandwidth for a throughput problem that is actually window-limited. Compute BDP first.</li>
+<li>Treating <code>TIME_WAIT</code> accumulation as a leak to be tuned away rather than a signal that connections are not being reused.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Measure the same request twice: once with keep-alive enabled and once with
+<code>Connection: close</code>. Do it against a host at least 3,000 km away. Record the difference,
+then compute how many RTTs that difference represents, and check it matches handshake + TLS + slow
+start.</div>
+</div></article>
+
+<!-- ============================================ D016 -->
+<article class="lesson" id="d016">
+<div class="lhead"><div class="day">D016</div><div>
+  <h3>UDP, QUIC &amp; HTTP/3</h3>
+  <p class="lmeta">28 min · Phase 1 · Prereq: D015 · Homework: 25 min</p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A video call over TCP: one packet is lost. TCP retransmits it, and the receiver holds every packet
+that arrived afterwards until the missing one shows up 200 ms later. The user sees the video freeze
+and then fast-forward. But the frame that was lost is now 200 ms stale and worthless — the correct
+behaviour was to skip it and keep going. TCP's reliability guarantee, which is exactly what you want
+for a database, is actively harmful here.</div>
+
+<h4>Core concept — what UDP does not give you, and why that helps</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Property</th><th>TCP</th><th>UDP</th><th>Why the UDP answer can be right</th></tr></thead>
+<tbody>
+<tr><td>Connection</td><td>Handshake required</td><td class="yes">None</td><td>No setup RTT; send immediately</td></tr>
+<tr><td>Reliability</td><td>Retransmits</td><td class="no">Fire and forget</td><td>Late data is useless data for realtime media</td></tr>
+<tr><td>Ordering</td><td>Strict</td><td class="no">None</td><td>Application can use what arrived</td></tr>
+<tr><td>Flow/congestion control</td><td>Built in</td><td class="no">Yours to implement</td><td>You can implement one tuned to your workload</td></tr>
+<tr><td>Header</td><td>20–60 B</td><td class="yes">8 B</td><td>Matters at millions of small messages/s</td></tr>
+<tr><td>Multiplexing</td><td>One byte stream</td><td class="yes">Message-oriented</td><td>Message boundaries are preserved</td></tr>
+</tbody></table></div>
+<p><b>Choose UDP when late data is worthless, or when you need message semantics.</b> Real uses: live
+voice and video (RTP), gaming state updates, DNS queries (single request/response — a handshake would
+double the cost), metrics/logging (StatsD), NTP, service discovery, and QUIC.</p>
+
+<h4>Core concept — QUIC, and what it actually fixes</h4>
+<p>QUIC is a transport protocol built on UDP that reimplements the useful parts of TCP in user space,
+plus TLS 1.3, plus multiplexing. The reason it lives on UDP is not technical superiority — it is
+<em>deployability</em>: middleboxes on the internet understand UDP and would drop a genuinely new IP
+protocol.</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Feature</th><th>What it solves</th></tr></thead>
+<tbody>
+<tr><td><b>Independent streams</b></td><td class="yes">Loss on stream A does not block stream B. This is the head-of-line fix.</td></tr>
+<tr><td><b>1-RTT handshake (0-RTT on resume)</b></td><td>TLS is merged into the transport handshake instead of layered on top, saving a full round trip vs TCP+TLS 1.3.</td></tr>
+<tr><td><b>Connection IDs</b></td><td class="yes">Connection identity is not the 4-tuple, so switching from Wi-Fi to cellular does not break it. Huge for mobile.</td></tr>
+<tr><td><b>Always encrypted</b></td><td>Headers as well as payload, so middleboxes cannot ossify the protocol. Upgrades become possible.</td></tr>
+<tr><td><b>User-space implementation</b></td><td>Congestion control can be updated by deploying an app, not by upgrading kernels.</td></tr>
+<tr><td><b>Better loss recovery</b></td><td>Monotonic packet numbers remove TCP's retransmission ambiguity, giving accurate RTT samples.</td></tr>
+</tbody></table></div>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Packet loss impact on HTTP/2 versus HTTP/3">
+<text class="svgh" x="0" y="12">One lost packet, three streams in flight</text>
+<g transform="translate(0,22)">
+<text class="svgh" x="0" y="10" fill="#B4232C">HTTP/2 over TCP — one byte stream</text>
+<rect x="0" y="18" width="700" height="76" rx="3" fill="#FCF1F1" stroke="#B4232C"/>
+<g>
+<rect x="14" y="30" width="52" height="18" rx="2" fill="#0E6E63"/><text class="svgm" x="30" y="43" fill="#fff">A1</text>
+<rect x="70" y="30" width="52" height="18" rx="2" fill="#1B6E9B"/><text class="svgm" x="86" y="43" fill="#fff">B1</text>
+<rect x="126" y="30" width="52" height="18" rx="2" fill="#B4232C"/><text class="svgm" x="140" y="43" fill="#fff">C1 ✕</text>
+<rect x="182" y="30" width="52" height="18" rx="2" fill="#0E6E63" opacity=".45"/><text class="svgm" x="198" y="43" fill="#fff">A2</text>
+<rect x="238" y="30" width="52" height="18" rx="2" fill="#1B6E9B" opacity=".45"/><text class="svgm" x="254" y="43" fill="#fff">B2</text>
+<rect x="294" y="30" width="52" height="18" rx="2" fill="#0E6E63" opacity=".45"/><text class="svgm" x="310" y="43" fill="#fff">A3</text>
+</g>
+<rect x="178" y="26" width="176" height="26" rx="2" fill="none" stroke="#B4232C" stroke-dasharray="3 2"/>
+<text class="svgm" x="360" y="43" fill="#B4232C">held in the kernel buffer, undeliverable</text>
+<text class="svgs" x="14" y="70">The application on streams A and B receives nothing until C1 is retransmitted — one RTT later, or 200 ms if it needs a timeout.</text>
+<text class="svgs" x="14" y="86">Worse than HTTP/1.1 with 6 connections on a lossy link, which is why domain sharding sometimes still won.</text>
+</g>
+<g transform="translate(0,124)">
+<text class="svgh" x="0" y="10" fill="#0E6E63">HTTP/3 over QUIC — independent streams</text>
+<rect x="0" y="18" width="700" height="76" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<g>
+<rect x="14" y="30" width="52" height="18" rx="2" fill="#0E6E63"/><text class="svgm" x="30" y="43" fill="#fff">A1</text>
+<rect x="70" y="30" width="52" height="18" rx="2" fill="#1B6E9B"/><text class="svgm" x="86" y="43" fill="#fff">B1</text>
+<rect x="126" y="30" width="52" height="18" rx="2" fill="#B4232C"/><text class="svgm" x="140" y="43" fill="#fff">C1 ✕</text>
+<rect x="182" y="30" width="52" height="18" rx="2" fill="#0E6E63"/><text class="svgm" x="198" y="43" fill="#fff">A2</text>
+<rect x="238" y="30" width="52" height="18" rx="2" fill="#1B6E9B"/><text class="svgm" x="254" y="43" fill="#fff">B2</text>
+<rect x="294" y="30" width="52" height="18" rx="2" fill="#0E6E63"/><text class="svgm" x="310" y="43" fill="#fff">A3</text>
+</g>
+<text class="svgm" x="360" y="43" fill="#0E6E63">A and B delivered immediately; only C waits</text>
+<text class="svgs" x="14" y="70">Each stream has its own delivery guarantee. Loss is contained to the stream that lost a packet.</text>
+<text class="svgs" x="14" y="86">Note: HTTP/3's HPACK replacement (QPACK) must also avoid cross-stream head-of-line blocking on the header table.</text>
+</g>
+</svg></div>
+<figcaption><b>FIG 16.1</b> · The multiplexing HTTP/2 gained at L7 was undermined by TCP at L4.
+HTTP/3 moves multiplexing down into the transport, where it can actually work.</figcaption></figure>
+
+<h4>Deep dive — handshake round trips compared</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Stack</th><th class="num">RTTs to first byte</th><th class="num">At 150 ms RTT</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>TCP + TLS 1.2</td><td class="num">3</td><td class="num">450 ms</td><td>1 for TCP, 2 for TLS</td></tr>
+<tr><td>TCP + TLS 1.3</td><td class="num">2</td><td class="num">300 ms</td><td>TLS 1.3 halved its own cost</td></tr>
+<tr><td>TCP + TLS 1.3 + TFO</td><td class="num">1</td><td class="num">150 ms</td><td>TCP Fast Open is widely blocked by middleboxes</td></tr>
+<tr><td>QUIC, new connection</td><td class="num">1</td><td class="num">150 ms</td><td>Transport and crypto handshake are the same handshake</td></tr>
+<tr><td>QUIC, resumed (0-RTT)</td><td class="num">0</td><td class="num">~0 ms</td><td class="mid">Early data is replayable — only for idempotent requests</td></tr>
+</tbody></table></div>
+<p class="note"><strong>0-RTT's replay caveat is a real security constraint, not a footnote.</strong> An
+attacker who captures 0-RTT early data can replay it. Servers must only accept idempotent requests in
+early data — <code>GET</code>, not <code>POST /transfer</code>. If your framework puts arbitrary
+requests in early data, you have a replay vulnerability.</p>
+
+<h4>Where HTTP/3 does <em>not</em> help</h4>
+<ul>
+<li><b>Clean, low-latency networks.</b> With no loss, HTTP/2's head-of-line problem does not manifest. Inside a datacenter, gRPC over HTTP/2 remains the norm.</li>
+<li><b>CPU cost.</b> QUIC processing happens in user space with per-packet syscalls; measured CPU per byte has historically been ~2× TCP, though GSO/GRO and kernel offloads have narrowed it.</li>
+<li><b>Networks that block or throttle UDP.</b> Some corporate firewalls do. Clients must fall back to HTTP/2, which means you maintain both.</li>
+<li><b>Observability.</b> Encrypted transport headers mean your existing packet-level tooling sees much less. You need application-level telemetry (Phase 8).</li>
+</ul>
+<p>The clear wins are <b>mobile</b> (connection migration across networks) and <b>lossy/high-latency
+links</b> (last-mile, emerging markets, satellite). If your users are on phones or far away, HTTP/3 is
+worth it. If they are your own services in the same rack, it is not.</p>
+
+<h4>Choosing a transport — decision list</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Workload</th><th>Transport</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td>Public web, mobile-heavy</td><td>HTTP/3 with HTTP/2 fallback</td><td>Migration + loss resilience</td></tr>
+<tr><td>Internal RPC, same DC</td><td>gRPC over HTTP/2</td><td>Loss is rare; tooling and CPU favour TCP</td></tr>
+<tr><td>Live voice/video</td><td>UDP + RTP (WebRTC, D023)</td><td>Late frames are useless</td></tr>
+<tr><td>Game state sync</td><td>UDP + custom reliability per message class</td><td>Position updates unreliable, chat reliable</td></tr>
+<tr><td>Bulk transfer</td><td>TCP (BBR) or QUIC</td><td>Throughput-bound, ordering is free</td></tr>
+<tr><td>Metrics emission</td><td>UDP</td><td>Dropping a data point beats blocking the app</td></tr>
+<tr><td>DNS</td><td>UDP, TCP on truncation, DoH/DoT for privacy</td><td>One round trip for one question</td></tr>
+</tbody></table></div>
+
+<div class="war"><b>War story</b>
+QUIC began as an experiment at Google, deployed first between Chrome and Google's own servers, which
+let them iterate on the protocol without waiting for standards or kernels. That deployment model — a
+transport protocol shipped as part of an application, upgraded on the application's release cadence —
+is arguably the most important thing QUIC demonstrated. TCP evolves at the speed of operating system
+upgrades and middlebox replacement, which is to say, barely.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "would you use UDP here?", "what does HTTP/3 give you over HTTP/2?", "how do you handle
+packet loss for live video?"
+<ul class="wrong">
+<li>"UDP is faster than TCP." UDP is <em>thinner</em>. If you need reliability you will reimplement TCP, badly.</li>
+<li>Claiming HTTP/3 solves head-of-line blocking without saying <em>which</em> head-of-line blocking — HTTP/1.1's was at the application layer and HTTP/2 already fixed that one.</li>
+<li>Proposing 0-RTT for non-idempotent requests.</li>
+<li>Forgetting UDP has no congestion control, so a naive UDP flood harms every other flow on the path — including your own.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Load the same site over HTTP/2 and HTTP/3 (Chrome DevTools shows the protocol per request; you can
+force h2 with a flag). Compare time-to-first-byte on a fast connection, then repeat with network
+throttling that adds 2% packet loss. The second measurement is where the difference lives.</div>
+</div></article>
+
+<!-- ============================================ D017 -->
+<article class="lesson" id="d017">
+<div class="lhead"><div class="day">D017</div><div>
+  <h3>DNS Deep Dive</h3>
+  <p class="lmeta">30 min · Phase 1 · Prereq: D014 · Homework: 25 min</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A team fails over to their standby region by changing a DNS record. They set the TTL to 60 seconds
+the morning of the migration. Traffic moves&hellip; about 70% of it. The rest keeps hitting the dead
+region for hours. Corporate resolvers ignore short TTLs, some Java clients cached the first
+resolution for the lifetime of the JVM, and the record they changed was a CNAME pointing at another
+record whose TTL was 3,600. DNS is a distributed cache with no invalidation, and you cannot recall
+an answer you already gave.</div>
+
+<h4>Core concept — the full resolution path</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DNS resolution from stub resolver to authoritative server">
+<text class="svgh" x="0" y="12">Resolving api.example.com — five parties, up to four round trips</text>
+<defs><marker id="d17" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#5B7189"/></marker></defs>
+<rect x="0" y="26" width="120" height="46" rx="3" fill="#fff" stroke="#23415E" stroke-width="1.4"/>
+<text class="svgt" x="10" y="46">Stub resolver</text><text class="svgs" x="10" y="62">OS + browser cache</text>
+<rect x="160" y="26" width="140" height="46" rx="3" fill="#EEF3F8" stroke="#1B6E9B" stroke-width="1.4"/>
+<text class="svgt" x="170" y="46">Recursive resolver</text><text class="svgs" x="170" y="62">ISP / 8.8.8.8 / 1.1.1.1</text>
+<line x1="120" y1="49" x2="156" y2="49" stroke="#5B7189" marker-end="url(#d17)"/>
+<text class="svgs" x="122" y="42">1</text>
+<rect x="400" y="20" width="120" height="34" rx="3" fill="#fff" stroke="#9A6A00"/>
+<text class="svgm" x="410" y="34">Root (.)</text><text class="svgs" x="410" y="48">13 anycast sets</text>
+<rect x="400" y="66" width="120" height="34" rx="3" fill="#fff" stroke="#9A6A00"/>
+<text class="svgm" x="410" y="80">TLD (.com)</text><text class="svgs" x="410" y="94">Verisign</text>
+<rect x="400" y="112" width="180" height="34" rx="3" fill="#EAF4F1" stroke="#0E6E63" stroke-width="1.4"/>
+<text class="svgm" x="410" y="126">Authoritative (example.com)</text><text class="svgs" x="410" y="140">Route 53 / NS1 / Cloudflare</text>
+<path d="M300,42 L396,34" stroke="#5B7189" fill="none" marker-end="url(#d17)"/>
+<text class="svgs" x="316" y="30">2 · "who serves .com?"</text>
+<path d="M300,52 L396,80" stroke="#5B7189" fill="none" marker-end="url(#d17)"/>
+<text class="svgs" x="316" y="68">3 · "who serves example.com?"</text>
+<path d="M300,62 L396,126" stroke="#5B7189" fill="none" marker-end="url(#d17)"/>
+<text class="svgs" x="308" y="112">4 · "A record for api?"</text>
+<path d="M396,140 L300,66" stroke="#0E6E63" fill="none" stroke-dasharray="3 2" marker-end="url(#d17)"/>
+<text class="svgm" x="220" y="94" fill="#0E6E63">203.0.113.9  TTL 60</text>
+<rect x="0" y="170" width="700" height="46" rx="3" fill="#FBF5E7" stroke="#9A6A00"/>
+<text class="svgh" x="10" y="188" fill="#9A6A00">Caching happens at every hop</text>
+<text class="svgs" x="10" y="204">Browser (~60 s, its own policy) · OS stub · recursive resolver (honours TTL, mostly) · corporate forwarder (may not) · your app's runtime (JVM caches forever by default)</text>
+<text class="svgs" x="0" y="240">Cold path: 4 round trips, 20–120 ms. Warm path: 0 ms. The difference is why a cold DNS lookup shows up as a p99 outlier that never reproduces.</text>
+<text class="svgs" x="0" y="258">Negative answers (NXDOMAIN) are cached too, governed by the SOA record's minimum field — a typo'd hostname can stay broken after you fix it.</text>
+</svg></div>
+<figcaption><b>FIG 17.1</b> · The authoritative server is the only one that knows the truth. Everyone
+between you and it is serving a copy with an expiry date they chose to respect or not.</figcaption></figure>
+
+<h4>Record types that matter</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Type</th><th>Maps</th><th>Notes and traps</th></tr></thead>
+<tbody>
+<tr><td><b>A / AAAA</b></td><td>name → IPv4 / IPv6</td><td>Multiple A records = client-side round robin, with no health awareness</td></tr>
+<tr><td><b>CNAME</b></td><td>name → another name</td><td class="no">Cannot coexist with other records at the same name, so <em>never</em> at the zone apex</td></tr>
+<tr><td><b>ALIAS / ANAME</b></td><td>apex name → another name</td><td>Provider-specific synthetic record; resolves server-side and returns A records</td></tr>
+<tr><td><b>NS</b></td><td>zone → authoritative servers</td><td>Delegation. Getting these wrong breaks the whole zone</td></tr>
+<tr><td><b>MX</b></td><td>domain → mail servers</td><td>Priority field; lower number wins</td></tr>
+<tr><td><b>TXT</b></td><td>name → free text</td><td>SPF, DKIM, DMARC, domain-ownership proofs. 255-byte string chunks</td></tr>
+<tr><td><b>SRV</b></td><td>service → host + port</td><td>Priority, weight, port. Used by SIP, XMPP, Kubernetes headless services</td></tr>
+<tr><td><b>CAA</b></td><td>domain → allowed CAs</td><td>Stops an unauthorised CA issuing a cert for you. Cheap, underused</td></tr>
+<tr><td><b>SOA</b></td><td>zone metadata</td><td>Its <code>minimum</code> field sets negative-caching TTL</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — TTL is a failover budget, not a config value</h4>
+<div class="math"><div class="lbl">Worst-case propagation delay</div>
+\[
+T_{\text{cutover}} \;\le\; \text{TTL}_{\text{record}} \;+\; \text{TTL}_{\text{parent chain}} \;+\; T_{\text{noncompliant clients}}
+\]</div>
+<p>The third term is unbounded, which is the uncomfortable truth. Practical policy:</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Record</th><th class="num">TTL</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td>Records you fail over</td><td class="num">30–60 s</td><td>Failover speed; costs more resolver queries</td></tr>
+<tr><td>Stable app endpoints</td><td class="num">300 s</td><td>Balance of agility and query load</td></tr>
+<tr><td>CDN hostnames</td><td class="num">20–60 s</td><td>Provider steers traffic constantly</td></tr>
+<tr><td>MX, NS, TXT</td><td class="num">3,600–86,400 s</td><td>Rarely change; long TTL is protection</td></tr>
+<tr><td><b>Before a planned migration</b></td><td class="num">lower it 48 h ahead</td><td>The old TTL governs how long stale answers live</td></tr>
+</tbody></table></div>
+<p class="note"><strong>"DNS propagation" is a myth.</strong> Nothing propagates. Records are pulled on
+demand and expire from caches independently. If someone says "waiting for propagation", they mean
+"waiting for the previous TTL to elapse everywhere", and that number was fixed before you made the
+change.</p>
+
+<h4>DNS as a load balancer</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Policy</th><th>How it decides</th><th>Good for</th><th>Limitation</th></tr></thead>
+<tbody>
+<tr><td>Simple / multi-A</td><td>Client picks from the list</td><td>Cheap spreading</td><td class="no">No health checks, no weighting</td></tr>
+<tr><td>Weighted</td><td>Answer proportions</td><td>Canary, blue-green, gradual migration</td><td>Granularity limited by cache behaviour</td></tr>
+<tr><td>Latency-based</td><td>Resolver's measured latency to each region</td><td>Global apps</td><td>Uses the <em>resolver's</em> location, not the user's, unless EDNS Client Subnet is honoured</td></tr>
+<tr><td>Geolocation</td><td>Resolver IP → country</td><td>Compliance, localisation</td><td>VPNs and public resolvers distort it</td></tr>
+<tr><td>Failover</td><td>Health check the primary; answer with secondary if down</td><td>DR</td><td class="no">Failover speed floored by TTL</td></tr>
+<tr><td>Anycast (not DNS at all)</td><td>BGP routes one IP to the nearest PoP</td><td class="yes">Fastest failover; no client caching problem</td><td>Requires owning address space and peering</td></tr>
+</tbody></table></div>
+
+<h4>Failure modes</h4>
+<ul>
+<li><b>Dependency you forgot you had.</b> Every service call, every database connection, every S3 put resolves a name first. DNS is on the critical path of everything.</li>
+<li><b>Resolver overload.</b> Losing your resolvers takes down services whose backends are perfectly healthy.</li>
+<li><b>Negative caching.</b> Deploy with a typo, fix it in 30 seconds, and clients keep getting NXDOMAIN until the SOA minimum expires.</li>
+<li><b>JVM's <code>networkaddress.cache.ttl</code></b> historically defaulted to caching forever with a security manager. Long-running JVMs pinned to a dead IP after failover is a genuinely common outage.</li>
+<li><b>Kubernetes <code>ndots:5</code></b>. The default search-domain config makes external lookups try five internal suffixes first — five failed queries per external resolution, which has caused CoreDNS saturation in many clusters. Fix by using fully-qualified names with a trailing dot or lowering <code>ndots</code>.</li>
+</ul>
+
+<div class="war"><b>War story</b>
+The October 2016 attack on Dyn's managed DNS used the Mirai botnet — largely compromised IoT cameras
+and routers — to flood Dyn's infrastructure. Users could not reach Twitter, Reddit, Spotify, GitHub
+and many others, even though those services were themselves healthy. The lesson taken by the industry
+afterwards was concrete: use <em>two independent DNS providers</em> with NS records delegated to both,
+so no single provider's outage removes your name from the internet. It is one of the few architectural
+lessons from an outage that became a near-universal practice.</div>
+
+<div class="iv"><b>Interview angle</b>
+DNS appears whenever failover or global routing is discussed.
+<ul class="wrong">
+<li>Proposing DNS failover with a "fast" 60 s TTL and claiming a 60 s RTO. Non-compliant caches make the real number much larger; use anycast or a global accelerator if you need seconds.</li>
+<li>Putting a CNAME at the zone apex. It is invalid; you need ALIAS/ANAME.</li>
+<li>Forgetting DNS is a hard dependency when computing composite availability (D006).</li>
+<li>Ignoring that latency-based routing sees the resolver, not the user.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Run <code>dig +trace</code> for three domains and record every TTL you see at every level. Then find
+one domain that uses two DNS providers (check its NS records) and one that uses one. Write down which
+of your own services would break if your DNS provider went dark for an hour.</div>
+</div></article>
+
+<!-- ============================================ D018 -->
+<article class="lesson" id="d018">
+<div class="lhead"><div class="day">D018</div><div>
+  <h3>HTTP Evolution: 1.0 → 1.1 → 2 → 3</h3>
+  <p class="lmeta">30 min · Phase 1 · Prereq: D015, D016 · Homework: 25 min</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A frontend team shards assets across <code>img1.example.com</code> through
+<code>img4.example.com</code> to beat the browser's six-connections-per-host limit. It worked
+beautifully on HTTP/1.1. After the CDN enables HTTP/2, page load gets <em>slower</em>: four hostnames
+mean four TLS handshakes, four congestion windows starting from scratch, and no shared prioritisation
+— all to work around a limit that no longer exists. The optimisation became the bottleneck.</div>
+
+<h4>Core concept — what changed, version by version</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>HTTP/1.0</th><th>HTTP/1.1</th><th>HTTP/2</th><th>HTTP/3</th></tr></thead>
+<tbody>
+<tr><td>Year</td><td>1996</td><td>1997</td><td>2015</td><td>2022</td></tr>
+<tr><td>Connection</td><td class="no">New per request</td><td class="yes">Persistent (keep-alive)</td><td class="yes">One, multiplexed</td><td class="yes">One QUIC connection</td></tr>
+<tr><td>Framing</td><td>Text</td><td>Text</td><td class="yes">Binary frames</td><td class="yes">Binary over QUIC streams</td></tr>
+<tr><td>Concurrency</td><td>N connections</td><td>6 per host, pipelining broken</td><td class="yes">Streams over one connection</td><td class="yes">Independent streams</td></tr>
+<tr><td>Header compression</td><td class="no">None</td><td class="no">None</td><td>HPACK</td><td>QPACK</td></tr>
+<tr><td>Head-of-line blocking</td><td>Per connection</td><td class="no">At L7 — pipelining stalls</td><td class="mid">Fixed at L7, remains at TCP</td><td class="yes">Gone</td></tr>
+<tr><td>Prioritisation</td><td>—</td><td>—</td><td>Dependency tree (largely unused)</td><td>Extensible priorities</td></tr>
+<tr><td>Server push</td><td>—</td><td>—</td><td class="no">Yes — removed from browsers, use 103 Early Hints</td><td>Discouraged</td></tr>
+<tr><td>Encryption</td><td>Optional</td><td>Optional</td><td class="mid">Optional in spec, mandatory in browsers</td><td class="yes">Mandatory</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — HTTP/1.1's pipelining failure</h4>
+<p>Pipelining lets a client send request 2 before response 1 arrives. It was specified and it
+essentially never worked, because responses must be returned <em>in order</em>: a slow first response
+blocks the rest, and any buggy proxy in the path corrupts the sequence. Browsers disabled it. The
+consequence was six parallel connections per origin as the concurrency mechanism, and every
+HTTP/1-era frontend optimisation — sprite sheets, file concatenation, inlining, domain sharding —
+existed to work around that limit.</p>
+<div class="math"><div class="lbl">Why HTTP/1.1 page load was RTT-bound</div>
+\[
+T_{\text{load}} \;\approx\; \left\lceil \frac{N_{\text{assets}}}{6} \right\rceil \times \text{RTT}
+\;+\;\text{transfer}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">80 assets ÷ 6 connections ≈ 14 sequential rounds. At 100 ms
+RTT that is 1.4 s before bandwidth even matters.</p></div>
+
+<figure><div class="canvas">
+<svg viewBox="0 0 700 230" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Waterfall comparison HTTP1.1 versus HTTP2">
+<text class="svgh" x="0" y="12">Same 18 assets, same bandwidth, 100 ms RTT</text>
+<g transform="translate(0,20)">
+<text class="svgh" x="0" y="10" fill="#B4232C">HTTP/1.1 — 6 connections</text>
+<g fill="#B4232C" opacity=".8">
+<rect x="0" y="18" width="60" height="8" rx="2"/><rect x="0" y="30" width="60" height="8" rx="2"/>
+<rect x="0" y="42" width="60" height="8" rx="2"/><rect x="0" y="54" width="60" height="8" rx="2"/>
+<rect x="0" y="66" width="60" height="8" rx="2"/><rect x="0" y="78" width="60" height="8" rx="2"/>
+<rect x="64" y="18" width="60" height="8" rx="2"/><rect x="64" y="30" width="60" height="8" rx="2"/>
+<rect x="64" y="42" width="60" height="8" rx="2"/><rect x="64" y="54" width="60" height="8" rx="2"/>
+<rect x="64" y="66" width="60" height="8" rx="2"/><rect x="64" y="78" width="60" height="8" rx="2"/>
+<rect x="128" y="18" width="60" height="8" rx="2"/><rect x="128" y="30" width="60" height="8" rx="2"/>
+<rect x="128" y="42" width="60" height="8" rx="2"/><rect x="128" y="54" width="60" height="8" rx="2"/>
+<rect x="128" y="66" width="60" height="8" rx="2"/><rect x="128" y="78" width="60" height="8" rx="2"/>
+</g>
+<line x1="192" y1="14" x2="192" y2="92" stroke="#B4232C" stroke-dasharray="3 2"/>
+<text class="svgm" x="198" y="56" fill="#B4232C">3 sequential rounds · ~300 ms + transfer</text>
+<text class="svgs" x="0" y="104">Each connection: own handshake, own congestion window, own slow start.</text>
+</g>
+<g transform="translate(0,138)">
+<text class="svgh" x="0" y="10" fill="#0E6E63">HTTP/2 — 1 connection, 18 streams</text>
+<g fill="#0E6E63" opacity=".85">
+<rect x="0" y="18" width="72" height="6" rx="2"/><rect x="0" y="27" width="72" height="6" rx="2"/>
+<rect x="0" y="36" width="72" height="6" rx="2"/><rect x="0" y="45" width="72" height="6" rx="2"/>
+<rect x="0" y="54" width="72" height="6" rx="2"/><rect x="0" y="63" width="72" height="6" rx="2"/>
+<rect x="0" y="72" width="72" height="6" rx="2"/>
+<rect x="76" y="18" width="72" height="6" rx="2"/><rect x="76" y="27" width="72" height="6" rx="2"/>
+<rect x="76" y="36" width="72" height="6" rx="2"/><rect x="76" y="45" width="72" height="6" rx="2"/>
+<rect x="76" y="54" width="72" height="6" rx="2"/><rect x="76" y="63" width="72" height="6" rx="2"/>
+</g>
+<line x1="76" y1="14" x2="76" y2="82" stroke="#0E6E63" stroke-dasharray="3 2"/>
+<text class="svgm" x="160" y="46" fill="#0E6E63">1 handshake, 1 window, streams interleaved · ~120 ms + transfer</text>
+<text class="svgs" x="0" y="94">Header compression removes ~500 B of repeated cookies per request — often 30–50% of small-asset bytes.</text>
+</g>
+</svg></div>
+<figcaption><b>FIG 18.1</b> · HTTP/2's win is mostly removing round trips and duplicate handshakes,
+not raw bandwidth. On a fast local network the difference nearly vanishes.</figcaption></figure>
+
+<h4>Deep dive — HPACK, and the reason header compression matters</h4>
+<p>A typical request carries 400–800 bytes of headers, almost all identical to the previous request:
+the same <code>User-Agent</code>, the same cookies, the same <code>Accept</code> values. HPACK keeps
+a shared, indexed table on both ends: a static table of 61 common header entries, plus a dynamic
+table of recently seen ones. A repeated header becomes a single index byte.</p>
+<div class="math"><div class="lbl">Header cost at scale</div>
+\[
+100\ \text{requests}\times 700\ \text{B} = 70\ \text{KB}\;\longrightarrow\;\text{HPACK}\;\approx 2\text{–}5\ \text{KB}
+\]</div>
+<p class="note"><strong>HPACK's own head-of-line problem</strong> is why QPACK exists: because the
+dynamic table is order-dependent, a lost header block would block later ones. QPACK adds a mechanism
+to decouple table updates from stream order, at the cost of some compression efficiency.</p>
+
+<h4>Status codes you should be deliberate about</h4>
+<div class="tblwrap"><table>
+<thead><tr><th class="num">Code</th><th>Meaning</th><th>When to use it</th></tr></thead>
+<tbody>
+<tr><td class="num">201</td><td>Created</td><td>Resource created; return <code>Location</code></td></tr>
+<tr><td class="num">202</td><td>Accepted</td><td class="yes">Async work started; return a status URL (D106)</td></tr>
+<tr><td class="num">204</td><td>No Content</td><td>Successful DELETE / PUT with nothing to return</td></tr>
+<tr><td class="num">301 / 308</td><td>Permanent redirect</td><td>301 may change method to GET; 308 preserves it</td></tr>
+<tr><td class="num">302 / 307</td><td>Temporary redirect</td><td>307 preserves method and body</td></tr>
+<tr><td class="num">304</td><td>Not Modified</td><td>Conditional GET hit — saves the body, not the round trip</td></tr>
+<tr><td class="num">400 vs 422</td><td>Malformed vs semantically invalid</td><td>400 = cannot parse; 422 = parsed but rules failed</td></tr>
+<tr><td class="num">401 vs 403</td><td>Unauthenticated vs unauthorised</td><td>401 means "who are you"; 403 means "not you"</td></tr>
+<tr><td class="num">409</td><td>Conflict</td><td>Optimistic concurrency failure, duplicate resource</td></tr>
+<tr><td class="num">412 / 428</td><td>Precondition failed / required</td><td>Enforce <code>If-Match</code> for lost-update protection</td></tr>
+<tr><td class="num">429</td><td>Too Many Requests</td><td class="yes">Always with <code>Retry-After</code> (D025)</td></tr>
+<tr><td class="num">503 vs 500</td><td>Temporarily unavailable vs broken</td><td>503 is retryable and should carry <code>Retry-After</code></td></tr>
+</tbody></table></div>
+
+<h4>Headers with architectural consequences</h4>
+<ul>
+<li><code>Cache-Control</code>, <code>ETag</code>, <code>Vary</code> — the whole CDN story (D026). <code>Vary: Cookie</code> silently destroys your cache hit ratio.</li>
+<li><code>Content-Encoding</code> — gzip is universal; Brotli is ~15–20% smaller for text at higher compression cost. Compress text, never re-compress JPEG/PNG/video.</li>
+<li><code>Transfer-Encoding: chunked</code> vs <code>Content-Length</code> — chunked lets you stream before you know the size, which is how streaming APIs and SSE work.</li>
+<li><b>CORS</b> — <code>Access-Control-Allow-Origin</code> plus a preflight <code>OPTIONS</code> for non-simple requests. Preflights add an RTT; cache them with <code>Access-Control-Max-Age</code>.</li>
+<li><b>Cookies</b> — <code>Secure</code>, <code>HttpOnly</code>, <code>SameSite</code>. Cookies are sent on every request to the domain, so a fat cookie taxes every asset fetch. This is one reason static assets historically lived on a cookie-free domain.</li>
+</ul>
+
+<div class="war"><b>War story</b>
+HTTP/2 Server Push was specified to let a server send resources before the client asks. In practice
+servers could not know what the client already had cached, so pushes were frequently wasted bandwidth,
+and the feature added complexity to every implementation. Chrome removed support in 2022. The
+replacement is <code>103 Early Hints</code>: the server sends a hint that the client should start
+preloading specific URLs, and the client decides. The lesson is a general one — <em>a protocol feature
+that requires the sender to guess the receiver's state usually fails.</em></div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "which HTTP version and why?", "how would you speed up this page?", "what does a 429 mean to
+your client library?"
+<ul class="wrong">
+<li>Recommending domain sharding or file concatenation on an HTTP/2 origin.</li>
+<li>Using 200 with an error body. Clients, proxies and monitoring all key off status codes.</li>
+<li>Returning 500 for a retryable condition, or 503 without <code>Retry-After</code>.</li>
+<li>Assuming HTTP/2 removes the need for a CDN. It removes round trips, not distance (D004).</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Open a real site's network waterfall. Identify the protocol per request, find the longest chain of
+dependent requests (the critical path), and estimate how many RTTs it contains. Then look for any
+asset still being served from a second hostname and ask whether it is earning its handshake.</div>
+</div></article>
+
+<!-- ============================================ D019 -->
+<article class="lesson" id="d019">
+<div class="lhead"><div class="day">D019</div><div>
+  <h3>TLS, HTTPS &amp; PKI</h3>
+  <p class="lmeta">32 min · Phase 1 · Prereq: D015 · Homework: 25 min</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+At 00:00 UTC an entire product goes dark. Every client gets a certificate error. The certificate did
+not expire — the <em>intermediate</em> certificate in the chain did, and the server had been serving a
+chain that clients could no longer validate. Monitoring watched the leaf certificate's expiry date and
+reported 60 days remaining. Certificate expiry remains one of the most common causes of self-inflicted
+outages, and it is entirely preventable by automation.</div>
+
+<h4>Core concept — what TLS actually provides</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Property</th><th>Mechanism</th><th>What breaks without it</th></tr></thead>
+<tbody>
+<tr><td>Confidentiality</td><td>Symmetric AEAD cipher (AES-GCM, ChaCha20-Poly1305)</td><td>Anyone on the path reads everything</td></tr>
+<tr><td>Integrity</td><td>The AEAD tag</td><td>Anyone on the path modifies content silently</td></tr>
+<tr><td>Authentication</td><td>Certificate signed by a trusted CA</td><td class="no">You encrypt perfectly — to an attacker</td></tr>
+<tr><td>Forward secrecy</td><td>Ephemeral Diffie–Hellman (ECDHE)</td><td>A future key compromise decrypts recorded past traffic</td></tr>
+</tbody></table></div>
+<p><b>Asymmetric crypto authenticates and establishes a shared secret; symmetric crypto does the bulk
+work.</b> RSA/ECDSA operations cost ~0.1–1 ms; AES-GCM with hardware acceleration runs at gigabytes
+per second. That asymmetry is why the handshake is the expensive part and session resumption matters.</p>
+
+<h4>Deep dive — the TLS 1.3 handshake</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TLS 1.3 handshake message flow">
+<text class="svgh" x="0" y="12">TLS 1.3 — one round trip, application data on the second flight</text>
+<line x1="130" y1="24" x2="130" y2="212" stroke="#0B2239"/><line x1="570" y1="24" x2="570" y2="212" stroke="#0B2239"/>
+<text class="svgh" x="96" y="20">Client</text><text class="svgh" x="546" y="20">Server</text>
+<defs><marker id="t19" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#4A3C9E"/></marker>
+<marker id="t19r" markerWidth="8" markerHeight="8" refX="1" refY="3.2" orient="auto">
+<path d="M8,0 L0,3.2 L8,6.4 z" fill="#0E6E63"/></marker></defs>
+<line x1="130" y1="46" x2="566" y2="46" stroke="#4A3C9E" stroke-width="1.6" marker-end="url(#t19)"/>
+<text class="svgm" x="150" y="42" fill="#4A3C9E">ClientHello</text>
+<text class="svgs" x="150" y="60">versions · cipher suites · key_share (guessed group) · SNI (plaintext) · ALPN</text>
+<line x1="570" y1="88" x2="134" y2="88" stroke="#0E6E63" stroke-width="1.6" marker-end="url(#t19r)"/>
+<text class="svgm" x="150" y="84" fill="#0E6E63">ServerHello + {EncryptedExtensions, Certificate, CertVerify, Finished}</text>
+<text class="svgs" x="150" y="102">key_share → shared secret derived · everything in braces is already encrypted</text>
+<line x1="130" y1="130" x2="566" y2="130" stroke="#4A3C9E" stroke-width="1.6" marker-end="url(#t19)"/>
+<text class="svgm" x="150" y="126" fill="#4A3C9E">{Finished} + application data</text>
+<rect x="140" y="142" width="420" height="22" rx="2" fill="#EAF4F1" stroke="#0E6E63" stroke-dasharray="3 2"/>
+<text class="svgm" x="196" y="157">1 RTT total. TLS 1.2 needed 2 — it negotiated the group first, then exchanged keys.</text>
+<rect x="0" y="176" width="700" height="42" rx="3" fill="#FBF5E7" stroke="#9A6A00"/>
+<text class="svgh" x="10" y="194" fill="#9A6A00">Resumption: 0-RTT</text>
+<text class="svgs" x="10" y="210">A pre-shared key from a previous session lets the client send data in its first flight — with no replay protection. Idempotent requests only.</text>
+<text class="svgs" x="0" y="240">TLS 1.3 also removed: RSA key transport (no forward secrecy), CBC modes, RC4, SHA-1, compression, renegotiation. Fewer knobs, fewer footguns.</text>
+</svg></div>
+<figcaption><b>FIG 19.1</b> · TLS 1.3 cut the handshake in half by having the client guess the key
+exchange group up front. A wrong guess costs a HelloRetryRequest and one extra round trip.</figcaption></figure>
+
+<h4>Certificates, chains and where they break</h4>
+<p>A certificate binds a public key to a name, signed by a Certificate Authority. Browsers trust root
+CAs; roots sign intermediates; intermediates sign your leaf. <b>The server must send the leaf and all
+intermediates</b> — clients are not required to fetch missing ones, though some do.</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Failure</th><th>Symptom</th><th>Prevention</th></tr></thead>
+<tbody>
+<tr><td>Leaf expired</td><td>Universal error at a precise timestamp</td><td>ACME automation; alert at 30 <em>and</em> 14 days</td></tr>
+<tr><td>Intermediate expired / missing</td><td>Fails on some clients only</td><td>Test with <code>openssl s_client -showcerts</code> from outside</td></tr>
+<tr><td>Wrong SAN</td><td>Name mismatch</td><td>CN is ignored by modern clients; SANs are what count</td></tr>
+<tr><td>Clock skew on client</td><td>"Not yet valid"</td><td>Nothing you control — but do not backdate certs</td></tr>
+<tr><td>Pinned cert rotated</td><td>Mobile app cannot connect, cannot be fixed remotely</td><td class="no">Pin to a CA or a backup key, never a single leaf</td></tr>
+<tr><td>OCSP responder down</td><td>Hard-fail clients cannot connect</td><td>OCSP stapling — the server fetches and caches the proof</td></tr>
+</tbody></table></div>
+
+<h4>Where to terminate TLS</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Termination point</th><th>Pros</th><th>Cons</th></tr></thead>
+<tbody>
+<tr><td><b>CDN / edge</b></td><td>Handshake happens near the user — saves the most RTT; DDoS absorbed at the edge</td><td>Provider sees plaintext; you must trust and configure origin encryption separately</td></tr>
+<tr><td><b>Load balancer</b></td><td>One place for certs; L7 routing becomes possible</td><td>Traffic behind it is plaintext unless re-encrypted</td></tr>
+<tr><td><b>Service mesh sidecar</b></td><td class="yes">mTLS everywhere, identity-based authz, zero-trust (D101)</td><td>Latency, memory and operational complexity per pod</td></tr>
+<tr><td><b>Application</b></td><td>End-to-end; nobody in the middle reads it</td><td>Cert management in every service; no L7 routing possible</td></tr>
+</tbody></table></div>
+<p class="note"><strong>The common production answer:</strong> terminate at the edge for the public
+internet (latency), then re-encrypt to origin, and use mTLS between internal services. "Encrypted at
+the edge, plaintext inside the VPC" was acceptable when the network perimeter was the security
+boundary; it is not the assumption modern designs make.</p>
+
+<h4>mTLS in one paragraph</h4>
+<p>Mutual TLS means the <em>client</em> also presents a certificate, so both ends authenticate. For
+service-to-service traffic this replaces shared secrets and API keys with cryptographic workload
+identity: the certificate says "I am the checkout service in namespace prod", and authorisation
+policies key off that. The hard part is not the protocol — it is issuing and rotating short-lived
+certificates for every workload, which is exactly what SPIFFE/SPIRE and service meshes automate.</p>
+
+<h4>Performance facts worth knowing</h4>
+<ul>
+<li><b>Session resumption</b> (session tickets / PSK) turns a full handshake into a resumed one, eliminating asymmetric operations. Ticket keys must be shared across your LB fleet or resumption silently fails.</li>
+<li><b>ECDSA over RSA</b>: a P-256 signature is roughly an order of magnitude cheaper to compute than RSA-2048 on the server side and the certificate is smaller. Dual-cert setups serve ECDSA to modern clients and RSA to legacy ones.</li>
+<li><b>ChaCha20-Poly1305</b> beats AES-GCM on devices without AES hardware — most relevant for older phones.</li>
+<li><b>HSTS</b> (<code>Strict-Transport-Security</code>) tells browsers to refuse plaintext for your domain, eliminating the initial HTTP → HTTPS redirect and the downgrade attack that lives there. Preloading is a one-way door; test with a short max-age first.</li>
+</ul>
+
+<div class="war"><b>War story</b>
+Heartbleed (2014) was a buffer over-read in OpenSSL's heartbeat extension that let any client read up
+to 64 KB of server memory — including private keys — leaving no trace in logs. The remediation was not
+just patching: every affected certificate had to be revoked and reissued, and every session token and
+password had to be treated as compromised. The architectural takeaway is the one that keeps mattering:
+<em>plan for key compromise as an operational scenario</em>. Short-lived certificates and automated
+rotation exist so that this is a Tuesday, not a company-wide emergency.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "where do you terminate TLS?", "how do services authenticate each other?", "what happens if a
+cert expires?"
+<ul class="wrong">
+<li>"We use HTTPS so we're secure." TLS protects data in transit. It says nothing about authz, injection, or data at rest.</li>
+<li>Pinning a leaf certificate in a mobile app. You will eventually rotate it and brick every installed copy.</li>
+<li>Not accounting for the handshake in latency budgets — 1–2 RTTs is often the largest single term for a cold connection.</li>
+<li>Assuming internal traffic does not need encryption because it is "inside the network".</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Run <code>openssl s_client -connect example.com:443 -showcerts</code> and identify every certificate
+in the chain, its issuer and its expiry. Then find the earliest expiry in the chain — that, not the
+leaf, is your real deadline.</div>
+</div></article>
+
+<!-- ============================================ D020 -->
+<article class="lesson" id="d020">
+<div class="lhead"><div class="day">D020</div><div>
+  <h3>REST API Design in Depth</h3>
+  <p class="lmeta">34 min · Phase 1 · Prereq: D018 · Homework: 40 min</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A mobile client pages through a feed with <code>?offset=200&amp;limit=20</code>. While the user
+scrolls, three new posts arrive at the top. Page 11 now returns three items the user already saw, and
+three items they will never see have been pushed past the boundary. Nobody wrote a bug. Offset
+pagination over a mutable, freshly-sorted list is mathematically incapable of being correct.</div>
+
+<h4>Core concept — resources, not actions</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Instead of</th><th>Use</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>POST /getUserById</code></td><td><code>GET /users/{id}</code></td><td>Cacheable, idempotent, bookmarkable</td></tr>
+<tr><td><code>POST /deactivateUser</code></td><td><code>PATCH /users/{id}</code> <span class="k">{"status":"inactive"}</span></td><td>State change on a resource</td></tr>
+<tr><td><code>GET /searchOrdersByDate</code></td><td><code>GET /orders?created_after=…</code></td><td>One collection, many filters</td></tr>
+<tr><td><code>POST /users/{id}/sendWelcomeEmail</code></td><td><code>POST /users/{id}/emails</code> or an event</td><td>Creating a resource, not calling a function</td></tr>
+</tbody></table></div>
+<p class="note">When an operation genuinely is not CRUD — <code>POST /transfers</code>,
+<code>POST /orders/{id}/cancellations</code> — model the <em>action as a resource</em>. That gives it
+an ID, a status, an audit trail and a retry story. "Purist REST" is not the goal; consistency and
+idempotency are.</p>
+
+<h4>Deep dive — method semantics and idempotency</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Method</th><th>Safe</th><th>Idempotent</th><th>Cacheable</th><th>Has body</th></tr></thead>
+<tbody>
+<tr><td>GET</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>No</td></tr>
+<tr><td>HEAD</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>No</td></tr>
+<tr><td>PUT</td><td class="no">No</td><td class="yes">Yes</td><td class="no">No</td><td>Yes</td></tr>
+<tr><td>DELETE</td><td class="no">No</td><td class="yes">Yes</td><td class="no">No</td><td>Optional</td></tr>
+<tr><td>POST</td><td class="no">No</td><td class="no">No</td><td class="mid">Only with explicit freshness</td><td>Yes</td></tr>
+<tr><td>PATCH</td><td class="no">No</td><td class="no">Not by default</td><td class="no">No</td><td>Yes</td></tr>
+</tbody></table></div>
+<p><b>Idempotent means repeating it has the same effect as doing it once.</b> This is not a philosophy
+question — every proxy, client library and mobile network in the path will retry, and the ones that
+retry automatically only retry idempotent methods. To make POST safe to retry, accept an
+<code>Idempotency-Key</code> header, store the key with the response, and return the stored response
+on a repeat (D079, D106).</p>
+<p><code>PATCH</code> is idempotent if the patch is absolute (<code>{"status":"paid"}</code>) and not
+if it is relative (<code>{"increment_balance":10}</code>). Prefer absolute patches, or use JSON Patch
+with a test operation.</p>
+
+<h4>Deep dive — pagination, with the correctness argument</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Offset / limit</th><th>Cursor (keyset)</th><th>Page token (opaque)</th></tr></thead>
+<tbody>
+<tr><td>Query</td><td><code>OFFSET 20000 LIMIT 20</code></td><td><code>WHERE (created_at,id) &lt; (?,?) LIMIT 20</code></td><td>Server-encoded state</td></tr>
+<tr><td>Cost at page N</td><td class="no">O(N) — the DB scans and discards</td><td class="yes">O(log n) index seek</td><td class="yes">O(log n)</td></tr>
+<tr><td>Correct under inserts</td><td class="no">No — duplicates and skips</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+<tr><td>Jump to page 500</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+<tr><td>Total count</td><td>Easy (and expensive)</td><td>Not natural</td><td>Not natural</td></tr>
+</tbody></table></div>
+<div class="math"><div class="lbl">Why deep offsets die</div>
+\[
+\text{rows examined} = \text{offset} + \text{limit}
+\]
+<p style="margin:6px 0 0;font-size:14.5px">Page 1,000 at 20 per page examines 20,020 rows to return 20.
+The database cannot skip rows it has not read, because it must apply the sort first.</p></div>
+<p><b>Keyset pagination requires a stable, total sort order.</b> Sorting by <code>created_at</code>
+alone is not total — ties break arbitrarily. Sort by <code>(created_at, id)</code> and compare the
+tuple. That composite is also the index you need.</p>
+<pre><code><span class="c">-- correct keyset page, stable under concurrent inserts</span>
+<span class="kw">SELECT</span> id, created_at, title
+<span class="kw">FROM</span> posts
+<span class="kw">WHERE</span> feed_id = $1
+  <span class="kw">AND</span> (created_at, id) &lt; ($2, $3)   <span class="c">-- cursor</span>
+<span class="kw">ORDER BY</span> created_at <span class="kw">DESC</span>, id <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> 21;                          <span class="c">-- 21 to detect has_next without a count</span>
+<span class="c">-- index: (feed_id, created_at DESC, id DESC)</span></code></pre>
+<p class="note"><strong>Encode cursors opaquely</strong> (base64 of a signed JSON blob). Clients must
+not construct them, or the cursor format becomes a public contract you can never change.</p>
+
+<h4>Errors: use RFC 7807</h4>
+<pre><code>HTTP/1.1 422 Unprocessable Content
+Content-Type: application/problem+json
+
+{
+  "type":     "https://api.example.com/errors/insufficient-funds",
+  "title":    "Insufficient funds",
+  "status":   422,
+  "detail":   "Account 4f2c has a balance of 12.50 USD; 40.00 USD required.",
+  "instance": "/transfers/9a1b",
+  "balance":  "12.50",
+  "required": "40.00",
+  "trace_id": "01HQ8Z3K7M"
+}</code></pre>
+<ul>
+<li><b>A stable machine-readable <code>type</code></b> so clients branch on it. Never make clients parse <code>detail</code>.</li>
+<li><b>Include the trace ID</b> so a user's screenshot is enough to find the request (D110).</li>
+<li>Return <em>all</em> validation failures at once, not the first one — otherwise clients round-trip once per field.</li>
+<li>Never leak internals: stack traces, SQL, or internal hostnames in error bodies are an information-disclosure finding.</li>
+</ul>
+
+<h4>Versioning and deprecation</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Strategy</th><th>Example</th><th>Pros</th><th>Cons</th></tr></thead>
+<tbody>
+<tr><td>URI path</td><td><code>/v2/orders</code></td><td class="yes">Obvious, easy to route and cache</td><td>Purists object; duplicates routes</td></tr>
+<tr><td>Custom header</td><td><code>API-Version: 2024-06-01</code></td><td>Clean URLs; date-based works well</td><td class="no">Invisible in logs and browsers; easy to forget</td></tr>
+<tr><td>Media type</td><td><code>Accept: application/vnd.acme.v2+json</code></td><td>Formally correct</td><td class="no">Awkward for everyone in practice</td></tr>
+<tr><td>No versioning</td><td>Only additive changes, ever</td><td class="yes">Best if you can hold the line</td><td>Requires real discipline</td></tr>
+</tbody></table></div>
+<p><b>The rule that prevents most breakage:</b> additive changes only. Adding a field is safe; removing
+or renaming one is not; changing a type or making an optional field required is not; changing default
+sort order or pagination size is not. Clients must ignore unknown fields — say so in your docs, and
+test it.</p>
+<p>A deprecation policy is a schedule with dates: announce, emit <code>Deprecation</code> and
+<code>Sunset</code> headers, monitor per-version usage, contact remaining consumers by name, then
+brown-out (return errors for short windows) before removal.</p>
+
+<h4>HATEOAS, honestly</h4>
+<p>The idea — responses contain links describing available transitions — is elegant and is largely not
+used, because generated clients and mobile apps hard-code URLs anyway. Where it does earn its keep:
+paging links (<code>next</code>, <code>prev</code>), and long-running operations where the status URL
+should be returned rather than constructed. Adopt those two; skip the rest without guilt.</p>
+
+<div class="war"><b>War story</b>
+Stripe's API versioning is the industry reference: every account is pinned to the API version that was
+current when it was created, and upgrading is an explicit, opt-in action with a documented changelog
+of behavioural differences. The cost is that the backend must maintain transformation layers for many
+historical versions simultaneously. The benefit is that integrations written years ago keep working
+untouched — which, for a payments API, is the product.</div>
+
+<div class="iv"><b>Interview angle</b>
+API design shows up in step 3 of the seven-step template (D001) and is frequently where candidates
+rush. Spend the four minutes.
+<ul class="wrong">
+<li>Offset pagination on a real-time feed.</li>
+<li>Returning 200 with <code>{"error": ...}</code>.</li>
+<li>Making POST endpoints without an idempotency story, then adding retries in the client.</li>
+<li>Exposing internal database IDs and internal enum values as the public contract.</li>
+<li>Unbounded list endpoints with no default page size — the classic accidental DoS on your own database.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Take a public API you dislike and rewrite its five worst endpoints: fix resource naming, method
+choice, status codes, pagination and error format. Then write the migration note you would send to
+existing consumers, including a sunset date.</div>
+</div></article>
+
+<!-- ============================================ D021 -->
+<article class="lesson" id="d021">
+<div class="lhead"><div class="day">D021</div><div>
+  <h3>GraphQL</h3>
+  <p class="lmeta">30 min · Phase 1 · Prereq: D020 · Homework: 35 min</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A GraphQL endpoint serves a list of 50 posts, each with an author. The resolver for
+<code>Post.author</code> runs one query per post. The client sent <em>one</em> request; the database
+received 51. Then someone requests each author's last 10 posts, and each of those posts' authors. One
+innocuous query becomes 5,000 database round trips and the database CPU pegs. GraphQL moved the cost
+from the network to your data layer, and made it invisible in your HTTP logs.</div>
+
+<h4>Core concept — what GraphQL actually changes</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>REST</th><th>GraphQL</th></tr></thead>
+<tbody>
+<tr><td>Endpoints</td><td>Many, one per resource</td><td>One (<code>POST /graphql</code>)</td></tr>
+<tr><td>Response shape</td><td>Server decides</td><td class="yes">Client decides</td></tr>
+<tr><td>Over/under-fetching</td><td class="no">Common — hence BFFs</td><td class="yes">Solved by design</td></tr>
+<tr><td>HTTP caching</td><td class="yes">Free — URLs, ETags, CDN</td><td class="no">Hard — one URL, POST body varies</td></tr>
+<tr><td>Status codes</td><td>Per request</td><td class="no">Usually 200 with an <code>errors</code> array</td></tr>
+<tr><td>Rate limiting</td><td>Per endpoint, easy</td><td class="no">Must be cost-based, not request-based</td></tr>
+<tr><td>Versioning</td><td>Explicit</td><td class="yes">Deprecate fields, evolve continuously</td></tr>
+<tr><td>Observability</td><td>URL tells you what happened</td><td class="no">All requests look identical in access logs</td></tr>
+</tbody></table></div>
+<p class="note"><strong>The honest framing:</strong> GraphQL trades server-side simplicity for
+client-side flexibility. It is a strong fit when many heterogeneous clients need different slices of a
+graph-shaped domain, and a poor fit for a public API with untrusted callers, or for a service with two
+consumers and simple data.</p>
+
+<h4>Schema, resolvers, execution</h4>
+<pre><code><span class="kw">type</span> <span class="nm">Post</span> {
+  id: ID!
+  title: String!
+  author: <span class="nm">User</span>!          <span class="c"># each field has its own resolver</span>
+  comments(first: Int = 10, after: String): CommentConnection!
+}
+<span class="kw">type</span> <span class="nm">Query</span> {
+  feed(first: Int = 20, after: String): PostConnection!
+}
+<span class="kw">type</span> <span class="nm">Mutation</span> {
+  publishPost(input: PublishPostInput!): PublishPostPayload!
+}</code></pre>
+<p>Execution walks the query tree, calling a resolver per field per object. That per-field, per-object
+model is what makes GraphQL flexible <em>and</em> what makes N+1 the default rather than the
+exception.</p>
+
+<h4>Deep dive — N+1 and DataLoader batching</h4>
+<div class="math"><div class="lbl">Query count without batching</div>
+\[
+Q \;=\; 1 \;+\; \sum_{d=1}^{D} \prod_{i=1}^{d} n_i
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(n_i\) = fan-out at depth \(i\). Feed of 50 posts, each
+with an author, each author with 10 posts: \(1 + 50 + 50 + 500 = 601\) queries for one HTTP request.</p></div>
+<p><b>DataLoader</b> fixes this with two mechanisms: it defers loads until the end of the event-loop
+tick, batching all keys requested in that window into one query; and it memoises per request so the
+same key is never fetched twice.</p>
+<pre><code><span class="kw">const</span> userLoader = <span class="kw">new</span> <span class="fn">DataLoader</span>(<span class="kw">async</span> (ids) => {
+  <span class="c">// one query for all ids collected in this tick</span>
+  <span class="kw">const</span> rows = <span class="kw">await</span> db.<span class="fn">query</span>(<span class="st">'SELECT * FROM users WHERE id = ANY($1)'</span>, [ids]);
+  <span class="kw">const</span> byId = <span class="kw">new</span> <span class="fn">Map</span>(rows.<span class="fn">map</span>(r => [r.id, r]));
+  <span class="c">// MUST return results in the same order as ids, nulls included</span>
+  <span class="kw">return</span> ids.<span class="fn">map</span>(id => byId.<span class="fn">get</span>(id) ?? <span class="kw">null</span>);
+});
+
+<span class="c">// resolver becomes:  Post.author = (post) =&gt; userLoader.load(post.author_id)</span>
+<span class="c">// 601 queries -&gt; 4 queries (one per depth level)</span></code></pre>
+<p class="note"><strong>Create loaders per request, never globally.</strong> A global loader caches
+across users and will leak one user's data into another's response — a real and repeatedly-shipped
+vulnerability.</p>
+
+<h4>Deep dive — query cost analysis</h4>
+<p>A single legal query can be catastrophically expensive. You need three defences:</p>
+<ol>
+<li><b>Depth limit</b> — reject queries nested beyond ~10 levels. Stops trivially recursive attacks
+(<code>author { posts { author { posts { … } } } }</code>).</li>
+<li><b>Complexity/cost limit</b> — assign a cost to each field, multiply by requested list sizes, and
+reject above a budget. This is also the unit your rate limiter should consume.</li>
+<li><b>Persisted queries</b> — clients register queries at build time and send a hash at runtime. The
+server executes only known queries. This eliminates arbitrary-query risk entirely, makes GETs (and
+therefore CDN caching) possible, and shrinks request size.</li>
+</ol>
+<div class="math"><div class="lbl">A workable cost model</div>
+\[
+\text{cost}(f) = c_f + m_f \sum_{c\,\in\,\text{children}(f)} \text{cost}(c)
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(c_f\) is the field's own cost; \(m_f\) is its list
+multiplier (the requested <code>first:</code> value). Reject when the root cost exceeds the caller's
+budget, and return the cost in a response header so clients can self-regulate.</p></div>
+
+<h4>Caching, which is the real cost of adopting GraphQL</h4>
+<ul>
+<li><b>HTTP layer:</b> lost by default. Recoverable with persisted queries over GET plus
+<code>Cache-Control</code>, which lets a CDN cache responses again.</li>
+<li><b>Client layer:</b> normalised caches (Apollo, Relay, urql) key objects by
+<code>__typename:id</code> and share them across queries. This is genuinely excellent — and it is why
+returning globally unique IDs matters.</li>
+<li><b>Server layer:</b> cache per-resolver, keyed by the underlying entity, not by the query. This is
+where DataLoader and a distributed cache combine (Phase 3).</li>
+</ul>
+
+<h4>Federation, briefly</h4>
+<p>With microservices, each team owns a slice of the schema and a gateway composes them into one graph.
+Subgraphs declare which types they own and which they extend by key. The gateway builds a query plan
+and fans out. The tradeoffs are real: the gateway is a new critical dependency and a latency hop, the
+query plan can hide expensive cross-service joins, and schema composition becomes a CI concern. It is
+the right tool when many teams must present one API; it is heavy machinery for three services.</p>
+
+<div class="war"><b>War story</b>
+GraphQL came out of Facebook's mobile rewrite, where the problem was concrete: a news feed screen
+needed data from many places, and each REST round trip on a 2G connection cost hundreds of
+milliseconds. One request that returns exactly the screen's data was a large win in that context. That
+context — many device types, hostile networks, one company owning both ends — is the one where GraphQL
+pays off most clearly. Adopting it for a service-to-service API inside a datacenter inherits the costs
+without the benefit.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "REST or GraphQL?" The strong answer names the client situation and the caching consequence.
+<ul class="wrong">
+<li>"GraphQL avoids over-fetching, so it is faster." It moves work to your resolvers and gives up HTTP caching.</li>
+<li>Not mentioning N+1 when asked about GraphQL performance. It is the first thing an interviewer is listening for.</li>
+<li>Proposing GraphQL for a public API without depth limits, cost analysis or persisted queries.</li>
+<li>Forgetting that a 200 response can contain errors, so your monitoring must parse bodies.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Build a three-type schema (User, Post, Comment), log every database query, and run a query that
+triggers N+1. Record the query count. Add DataLoader, re-run, and record it again. Then write the
+depth and cost limits you would enforce if this were public.</div>
+</div></article>
+
+<!-- ============================================ D022 -->
+<article class="lesson" id="d022">
+<div class="lhead"><div class="day">D022</div><div>
+  <h3>gRPC &amp; Protocol Buffers</h3>
+  <p class="lmeta">30 min · Phase 1 · Prereq: D018 · Homework: 35 min</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A team removes a deprecated field from a protobuf message and, to keep things tidy, renumbers the
+remaining fields so they run 1, 2, 3 again. The new server deploys. Old clients start receiving
+garbage: a string decoded as an integer, a user ID appearing in the email field. Protobuf does not
+send field names — it sends field <em>numbers</em>. Renumbering is not a refactor. It is a wire-format
+break with no error message.</div>
+
+<h4>Core concept — IDL first</h4>
+<pre><code><span class="kw">syntax</span> = <span class="st">"proto3"</span>;
+<span class="kw">package</span> orders.v1;
+
+<span class="kw">message</span> <span class="nm">Order</span> {
+  <span class="kw">string</span> id            = <span class="fn">1</span>;
+  <span class="kw">string</span> customer_id   = <span class="fn">2</span>;
+  <span class="kw">int64</span>  amount_cents  = <span class="fn">3</span>;   <span class="c">// never float for money (D136)</span>
+  Status status         = <span class="fn">4</span>;
+  <span class="kw">reserved</span> <span class="fn">5</span>, <span class="fn">6</span>;              <span class="c">// removed fields — numbers can never be reused</span>
+  <span class="kw">reserved</span> <span class="st">"legacy_ref"</span>;
+}
+<span class="kw">enum</span> <span class="nm">Status</span> {
+  STATUS_UNSPECIFIED = <span class="fn">0</span>;      <span class="c">// proto3 requires a zero value; make it "unknown"</span>
+  STATUS_PENDING     = <span class="fn">1</span>;
+  STATUS_PAID        = <span class="fn">2</span>;
+}
+<span class="kw">service</span> <span class="nm">OrderService</span> {
+  <span class="kw">rpc</span> GetOrder(GetOrderRequest) <span class="kw">returns</span> (Order);
+  <span class="kw">rpc</span> WatchOrders(WatchRequest) <span class="kw">returns</span> (<span class="kw">stream</span> Order);
+}</code></pre>
+<p>The <code>.proto</code> file is the contract. Code generation produces types and stubs for every
+language, so the contract cannot drift from the implementation — the single biggest practical advantage
+over hand-written REST clients.</p>
+
+<h4>Deep dive — the wire format, and why field numbers are sacred</h4>
+<p>Each field is encoded as a <b>tag</b> followed by a value. The tag packs the field number and the
+wire type:</p>
+<div class="math"><div class="lbl">Tag encoding</div>
+\[
+\text{tag} \;=\; (\text{field\_number} \ll 3) \;\;|\;\; \text{wire\_type}
+\]</div>
+<div class="tblwrap"><table>
+<thead><tr><th class="num">Wire type</th><th>Meaning</th><th>Used by</th></tr></thead>
+<tbody>
+<tr><td class="num">0</td><td>Varint</td><td>int32, int64, uint, bool, enum</td></tr>
+<tr><td class="num">1</td><td>64-bit fixed</td><td>double, fixed64</td></tr>
+<tr><td class="num">2</td><td>Length-delimited</td><td>string, bytes, embedded messages, packed repeated</td></tr>
+<tr><td class="num">5</td><td>32-bit fixed</td><td>float, fixed32</td></tr>
+</tbody></table></div>
+<ul>
+<li><b>Varints</b> use 7 bits per byte with a continuation bit, so small numbers cost one byte. Values under 128 are 1 byte; under 16,384 are 2.</li>
+<li><b>Field numbers 1–15 cost one byte of tag; 16 and above cost two.</b> Reserve the low numbers for fields that appear in every message.</li>
+<li><b>Negative ints:</b> plain <code>int32</code> encodes −1 as ten bytes. Use <code>sint32</code>/<code>sint64</code> (zigzag) when values can be negative.</li>
+<li><b>Unknown fields are preserved</b> on round trip in most implementations, which is what makes proxies and partial upgrades safe.</li>
+</ul>
+
+<h5>Schema evolution: what is safe and what is not</h5>
+<div class="tblwrap"><table>
+<thead><tr><th>Change</th><th>Safe?</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Add a new field with a new number</td><td class="yes">Yes</td><td>Old readers skip unknown tags</td></tr>
+<tr><td>Remove a field</td><td class="mid">Yes, if you <code>reserved</code> the number and name</td><td>Prevents future reuse</td></tr>
+<tr><td>Rename a field</td><td class="yes">Yes on the wire</td><td>Names are not transmitted — but it breaks JSON mapping and generated code</td></tr>
+<tr><td>Change field number</td><td class="no">Never</td><td>Silent data corruption</td></tr>
+<tr><td>Change type within a varint family (int32↔int64↔bool)</td><td class="mid">Mostly</td><td>Truncation risk on narrowing</td></tr>
+<tr><td>Change <code>string</code> ↔ <code>bytes</code></td><td class="yes">Yes</td><td>Same wire type, if data is valid UTF-8</td></tr>
+<tr><td>Change scalar ↔ message</td><td class="no">No</td><td>Different wire semantics</td></tr>
+<tr><td>Add an enum value</td><td class="mid">Yes, if clients handle unknown</td><td>Old clients see the raw number; always have an <code>UNSPECIFIED</code> = 0</td></tr>
+<tr><td>Move a field into a <code>oneof</code></td><td class="no">No</td><td>Changes presence semantics</td></tr>
+</tbody></table></div>
+
+<h4>Size and speed, measured honestly</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Payload</th><th class="num">JSON</th><th class="num">JSON + gzip</th><th class="num">Protobuf</th><th class="num">Protobuf + gzip</th></tr></thead>
+<tbody>
+<tr><td>Small record (~8 fields)</td><td class="num">~220 B</td><td class="num">~170 B</td><td class="num">~60 B</td><td class="num">~65 B</td></tr>
+<tr><td>List of 1,000 records</td><td class="num">~220 KB</td><td class="num">~28 KB</td><td class="num">~60 KB</td><td class="num">~22 KB</td></tr>
+<tr><td>Parse cost, relative</td><td class="num">1.0×</td><td class="num">1.3×</td><td class="num">~0.2×</td><td class="num">~0.4×</td></tr>
+</tbody></table></div>
+<p class="note"><strong>Note the second row.</strong> Gzipped JSON is competitive with protobuf on
+size for repetitive data, because compression exploits the repeated field names. Protobuf's durable
+advantages are <em>parse cost</em> (no string scanning, no allocation per key) and <em>schema
+enforcement</em> — not raw bytes. Choose it for CPU and contracts, not for a bandwidth headline.</p>
+
+<h4>The four RPC shapes</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Shape</th><th>Client</th><th>Server</th><th>Use for</th></tr></thead>
+<tbody>
+<tr><td>Unary</td><td>1 message</td><td>1 message</td><td>Ordinary RPC</td></tr>
+<tr><td>Server streaming</td><td>1</td><td class="yes">stream</td><td>Feeds, tailing logs, large result sets, progress</td></tr>
+<tr><td>Client streaming</td><td class="yes">stream</td><td>1</td><td>Uploads, batch ingest, telemetry</td></tr>
+<tr><td>Bidirectional</td><td class="yes">stream</td><td class="yes">stream</td><td>Chat, realtime sync, long-lived control planes</td></tr>
+</tbody></table></div>
+
+<h4>Deadlines, cancellation and metadata — the part people skip</h4>
+<ul>
+<li><b>Deadlines, not timeouts.</b> A gRPC deadline is an absolute time propagated across every hop.
+Service A calls B with 300 ms remaining; B calls C and C sees the <em>remaining</em> budget, not a
+fresh 300 ms. This prevents the classic failure where a 5-hop chain each with a 1 s timeout waits 5 s.
+Deadline propagation is the single best feature gRPC gives you for free (D100).</li>
+<li><b>Cancellation is real.</b> When a client goes away, the server's context is cancelled and it can
+stop working. In HTTP/1.1 this information is largely unavailable.</li>
+<li><b>Metadata</b> is the header equivalent: auth tokens, trace context, tenant IDs. Binary values use
+a <code>-bin</code> suffix.</li>
+<li><b>Interceptors</b> are the middleware layer — auth, logging, metrics, retries — and belong there,
+not in handlers.</li>
+</ul>
+
+<h4>The load balancing problem</h4>
+<p>gRPC runs over HTTP/2, and HTTP/2 keeps <b>one long-lived connection</b> per backend. A classic L4
+balancer assigns that connection once and then every subsequent request goes to the same backend
+forever — so scaling out adds capacity that receives no traffic. Three answers:</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Approach</th><th>How</th><th>Cost</th></tr></thead>
+<tbody>
+<tr><td>L7 proxy</td><td>Envoy/nginx terminates HTTP/2 and balances per request</td><td>Extra hop, extra latency</td></tr>
+<tr><td>Client-side (proxyless)</td><td>Client resolves all endpoints and balances itself</td><td class="yes">No hop; needs service discovery + xDS (D061)</td></tr>
+<tr><td>Service mesh sidecar</td><td>Sidecar does L7 balancing locally</td><td>Mesh complexity (D101)</td></tr>
+</tbody></table></div>
+<p><b>gRPC-Web</b> exists because browsers cannot speak raw gRPC — no access to HTTP/2 frames. It needs
+a proxy to translate, and does not support client streaming. For browser clients, REST or GraphQL is
+usually the simpler answer; keep gRPC for service-to-service.</p>
+
+<h4>When JSON still wins</h4>
+<ul>
+<li>Public APIs where third parties must integrate with <code>curl</code> and no toolchain.</li>
+<li>Debuggability — you can read a JSON body in a log; you cannot read a protobuf one.</li>
+<li>Browser clients without a translating proxy.</li>
+<li>Small-scale internal services where codegen and build integration cost more than they save.</li>
+</ul>
+
+<div class="war"><b>War story</b>
+gRPC descends from Stubby, Google's internal RPC system, which handled a reported tens of billions of
+requests per second across the fleet. The features that look like over-engineering at small scale —
+deadline propagation, per-call cancellation, structured status codes, interceptors — are exactly the
+features that make a large mesh of services debuggable. If you adopt gRPC, adopt those; the wire format
+is the least interesting part of the package.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "REST or gRPC between services?", "how do you evolve a schema without downtime?"
+<ul class="wrong">
+<li>"gRPC is faster." Say <em>why</em>: parse cost, header compression, connection reuse, deadline propagation.</li>
+<li>Not knowing that an L4 balancer in front of gRPC pins connections and defeats scale-out.</li>
+<li>Reusing or renumbering field numbers.</li>
+<li>Proposing gRPC for a browser-facing API without mentioning gRPC-Web and its proxy.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Define a service, generate stubs in two languages, and exchange a message. Then evolve the schema
+three times — add a field, deprecate one with <code>reserved</code>, add an enum value — and verify an
+old client still works against the new server each time.</div>
+</div></article>
+
+<!-- ============================================ D023 -->
+<article class="lesson" id="d023">
+<div class="lhead"><div class="day">D023</div><div>
+  <h3>Realtime: WebSockets, SSE, Long Polling, WebRTC</h3>
+  <p class="lmeta">32 min · Phase 1 · Prereq: D015, D016 · Homework: 45 min</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A chat service deploys a routine update. Two hundred thousand WebSocket connections drop
+simultaneously and every client reconnects at once, with no jitter. The reconnect storm exhausts the
+accept queue, so half fail and retry immediately, and each successful reconnect triggers a full
+message-history fetch. The deploy took four seconds. The outage took forty minutes. Stateful
+connections turn every restart into a thundering herd unless you design for it.</div>
+
+<h4>Core concept — the decision tree</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Realtime transport decision tree">
+<text class="svgh" x="0" y="12">Choosing a realtime transport</text>
+<rect x="250" y="22" width="200" height="30" rx="3" fill="#0B2239"/>
+<text class="svgm" x="262" y="41" fill="#fff">Who needs to send data?</text>
+<line x1="300" y1="52" x2="150" y2="72" stroke="#5B7189"/><line x1="400" y1="52" x2="560" y2="72" stroke="#5B7189"/>
+<text class="svgs" x="180" y="66">server only</text><text class="svgs" x="470" y="66">both directions</text>
+<rect x="52" y="74" width="200" height="30" rx="3" fill="#EEF3F8" stroke="#1B6E9B"/>
+<text class="svgm" x="62" y="93">How often?</text>
+<line x1="100" y1="104" x2="70" y2="124" stroke="#5B7189"/><line x1="200" y1="104" x2="220" y2="124" stroke="#5B7189"/>
+<rect x="0" y="126" width="150" height="44" rx="3" fill="#fff" stroke="#0E6E63"/>
+<text class="svgm" x="8" y="144">rarely</text><text class="svgs" x="8" y="160">long polling — simplest, works everywhere</text>
+<rect x="160" y="126" width="150" height="44" rx="3" fill="#EAF4F1" stroke="#0E6E63" stroke-width="1.6"/>
+<text class="svgm" x="168" y="144">often</text><text class="svgs" x="168" y="160">SSE — HTTP, auto-reconnect, Last-Event-ID</text>
+<rect x="430" y="74" width="240" height="30" rx="3" fill="#F3F0FA" stroke="#4A3C9E"/>
+<text class="svgm" x="440" y="93">Is it media, or is latency &lt; 100 ms critical?</text>
+<line x1="490" y1="104" x2="440" y2="124" stroke="#5B7189"/><line x1="610" y1="104" x2="640" y2="124" stroke="#5B7189"/>
+<rect x="350" y="126" width="170" height="44" rx="3" fill="#F3F0FA" stroke="#4A3C9E" stroke-width="1.6"/>
+<text class="svgm" x="358" y="144">no — messages</text><text class="svgs" x="358" y="160">WebSocket — full duplex, framed</text>
+<rect x="530" y="126" width="170" height="44" rx="3" fill="#FBF5E7" stroke="#9A6A00" stroke-width="1.6"/>
+<text class="svgm" x="538" y="144">yes — audio/video</text><text class="svgs" x="538" y="160">WebRTC — UDP, peer-to-peer or SFU</text>
+<text class="svgs" x="0" y="196">Short polling is missing from this tree on purpose: it is only correct when the update interval is genuinely long (minutes) and simplicity dominates.</text>
+<text class="svgs" x="0" y="214">A useful default: SSE for server-push feeds, WebSocket when the client also sends frequently. Most "we need WebSockets" requirements are actually SSE.</text>
+<text class="svgs" x="0" y="232">Note SSE over HTTP/1.1 consumes one of the browser's six connections per host; over HTTP/2 it is one stream, which removes the historic objection.</text>
+</svg></div>
+<figcaption><b>FIG 23.1</b> · Pick the least stateful option that satisfies the requirement. Every step
+right costs you operational complexity.</figcaption></figure>
+
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Short polling</th><th>Long polling</th><th>SSE</th><th>WebSocket</th><th>WebRTC data</th></tr></thead>
+<tbody>
+<tr><td>Direction</td><td>Pull</td><td>Pull</td><td>Server → client</td><td class="yes">Both</td><td class="yes">Both, peer to peer</td></tr>
+<tr><td>Transport</td><td>HTTP</td><td>HTTP</td><td>HTTP</td><td>TCP upgrade</td><td>UDP (SCTP/DTLS)</td></tr>
+<tr><td>Latency</td><td class="no">Half the interval</td><td class="mid">~RTT</td><td class="yes">~RTT</td><td class="yes">~RTT</td><td class="yes">Lowest</td></tr>
+<tr><td>Server cost per client</td><td class="yes">None between polls</td><td class="no">One held connection</td><td class="no">One held connection</td><td class="no">One held connection</td><td>Signalling only, if P2P</td></tr>
+<tr><td>Reconnect built in</td><td>n/a</td><td>Manual</td><td class="yes">Yes, with <code>Last-Event-ID</code></td><td class="no">Manual</td><td>Manual</td></tr>
+<tr><td>Proxy friendliness</td><td class="yes">Total</td><td class="yes">Good</td><td class="yes">Good</td><td class="mid">Needs upgrade support</td><td class="no">Needs STUN/TURN</td></tr>
+<tr><td>Binary</td><td>Yes</td><td>Yes</td><td class="no">Text only (base64 otherwise)</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — WebSocket mechanics</h4>
+<ul>
+<li><b>Handshake:</b> an HTTP GET with <code>Upgrade: websocket</code> and
+<code>Sec-WebSocket-Key</code>; the server replies <code>101 Switching Protocols</code>. From then on
+the TCP connection carries WebSocket frames, not HTTP.</li>
+<li><b>Framing:</b> 2–14 byte header, opcode (text/binary/close/ping/pong), and a mask that
+client→server frames must apply. Frames can be fragmented.</li>
+<li><b>Ping/pong:</b> the only reliable way to detect a dead peer. TCP keep-alive defaults to two
+hours; intermediaries drop idle connections in 30–120 seconds. Send an application-level heartbeat
+every 20–30 s, and treat two missed pongs as dead.</li>
+<li><b>Reconnection must have exponential backoff <em>with full jitter</em></b>, or you build the
+outage in the hook. And it must be resumable: the client sends the last message ID it saw and the
+server replays the gap from a per-conversation log.</li>
+</ul>
+
+<h4>Deep dive — scaling one million connections</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Topology for one million concurrent WebSocket connections">
+<text class="svgh" x="0" y="12">1M concurrent connections — the full topology</text>
+<defs><marker id="w23" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#5B7189"/></marker></defs>
+<g class="svgm" fill="#5B7189"><text x="0" y="34">clients</text></g>
+<rect x="0" y="40" width="86" height="26" rx="3" fill="#fff" stroke="#23415E"/><text class="svgm" x="12" y="57">1,000,000</text>
+<line x1="86" y1="53" x2="126" y2="53" stroke="#5B7189" marker-end="url(#w23)"/>
+<rect x="128" y="40" width="120" height="26" rx="3" fill="#EEF3F8" stroke="#1B6E9B"/>
+<text class="svgm" x="136" y="57">L4 LB (no TLS term.)</text>
+<line x1="248" y1="53" x2="288" y2="53" stroke="#5B7189" marker-end="url(#w23)"/>
+<g>
+<rect x="290" y="30" width="150" height="22" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="298" y="45">gateway-1 · 50k conns</text>
+<rect x="290" y="56" width="150" height="22" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="298" y="71">gateway-2 · 50k conns</text>
+<rect x="290" y="82" width="150" height="22" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="298" y="97">… 20 gateways total</text>
+</g>
+<text class="svgs" x="450" y="45">Stateless except for the socket:</text>
+<text class="svgs" x="450" y="60">holds fd + user ID + subscriptions.</text>
+<text class="svgs" x="450" y="75">~10 KB/conn → 50k = ~500 MB.</text>
+<text class="svgs" x="450" y="90">Tune: ulimit, somaxconn, rmem/wmem.</text>
+<line x1="365" y1="104" x2="365" y2="128" stroke="#5B7189" marker-end="url(#w23)"/>
+<rect x="180" y="130" width="370" height="30" rx="3" fill="#F3F0FA" stroke="#4A3C9E" stroke-width="1.6"/>
+<text class="svgm" x="192" y="149">Pub/sub backplane — Redis Cluster / Kafka / NATS</text>
+<text class="svgs" x="180" y="176">Every gateway subscribes to the channels for the users it holds. A message published once is delivered to whichever gateway owns that user.</text>
+<line x1="365" y1="160" x2="365" y2="196" stroke="#5B7189" marker-end="url(#w23)"/>
+<rect x="180" y="198" width="170" height="28" rx="3" fill="#fff" stroke="#7A4C1E"/>
+<text class="svgm" x="190" y="216">Presence store (Redis)</text>
+<rect x="380" y="198" width="170" height="28" rx="3" fill="#fff" stroke="#7A4C1E"/>
+<text class="svgm" x="390" y="216">Message log (per conversation)</text>
+<rect x="0" y="242" width="700" height="50" rx="3" fill="#FCF1F1" stroke="#B4232C"/>
+<text class="svgh" x="10" y="260" fill="#B4232C">The three things that will hurt you</text>
+<text class="svgs" x="10" y="276">1 · Deploys drop every socket → drain slowly, stagger gateways, and make clients reconnect with jittered backoff and a resume token.</text>
+<text class="svgs" x="10" y="290">2 · Presence fan-out: 1M users × friends × status changes is a write storm. Batch, debounce, and only publish to users actively viewing.  3 · Unbounded per-connection send buffers turn a slow client into an OOM.</text>
+</svg></div>
+<figcaption><b>FIG 23.2</b> · The gateway tier is the only stateful part. Everything else is normal.
+Keep business logic out of the gateways so you can restart them freely.</figcaption></figure>
+
+<div class="math"><div class="lbl">Capacity per gateway node</div>
+\[
+N_{\text{conns}} \;=\; \min\!\left(\frac{\text{RAM}}{\text{bytes per conn}},\ \text{fd limit},\ \frac{\text{CPU}}{\text{msg rate}\times\text{cost per msg}}\right)
+\]
+<p style="margin:6px 0 0;font-size:14.5px">Usually memory or fd-bound when idle, CPU-bound when
+chatty. 50k–200k connections per node is a realistic planning range; above that, tail latency during
+GC or reconnect storms gets ugly.</p></div>
+
+<h4>WebRTC, in the detail you need for an interview</h4>
+<ul>
+<li><b>Signalling is not part of WebRTC.</b> You must build it — usually a WebSocket channel — to
+exchange SDP offers/answers and ICE candidates.</li>
+<li><b>NAT traversal:</b> <b>STUN</b> tells a peer its public address (cheap, works for ~80% of
+networks). <b>TURN</b> relays media when direct connectivity fails (expensive — you pay for all that
+bandwidth). <b>ICE</b> is the algorithm that tries candidate pairs and picks one. Budget for TURN;
+it is the line item people forget.</li>
+<li><b>Group calls:</b> mesh (each peer sends to every other) is \(O(n^2)\) uplink and dies past 4–5
+participants. <b>SFU</b> (selective forwarding unit) receives each stream once and forwards it —
+scales well, no transcoding, each client still decodes \(n-1\) streams. <b>MCU</b> mixes into one
+stream — cheapest for clients, very expensive in server CPU. SFU is the standard answer today.</li>
+</ul>
+<div class="math"><div class="lbl">Why mesh does not scale</div>
+\[
+\text{uplink streams per peer} = n-1,\qquad \text{total streams} = n(n-1)
+\]
+<p style="margin:6px 0 0;font-size:14.5px">At \(n=10\): 90 streams and each participant uploads 9 copies
+of their video. With an SFU each peer uploads once — 10 total uploads.</p></div>
+
+<div class="war"><b>War story</b>
+Slack's published account of their WebSocket architecture describes a problem specific to this design:
+when a large team's connections reconnect, each client historically re-downloaded a large amount of
+state, so a mass reconnect produced a load spike far larger than the connection count implied. Their
+work focused on making reconnection <em>incremental</em> — resume from a sequence number rather than
+refetch. That is the general lesson: for stateful connections, the cost of reconnecting matters more
+than the cost of connecting.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "how do you push updates to clients?", "how do you scale to a million connections?", "what
+happens on deploy?"
+<ul class="wrong">
+<li>Reaching for WebSockets when the requirement is one-directional. SSE is simpler and reconnects itself.</li>
+<li>Forgetting the pub/sub backplane. Without it, a message can only reach users connected to the same node.</li>
+<li>No heartbeat, so half-open connections accumulate and messages vanish silently.</li>
+<li>Reconnect without jitter — you have designed a self-inflicted DDoS.</li>
+<li>Proposing a mesh for a 10-person video call.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Build a two-node chat where each node holds WebSocket connections and messages route between them via
+Redis pub/sub. Then kill one node while a client is connected, and make the client reconnect with
+jittered backoff and replay every message it missed using a sequence number. The replay is the part
+that teaches you something.</div>
+</div></article>
+
+<!-- ============================================ D024 -->
+<article class="lesson" id="d024">
+<div class="lhead"><div class="day">D024</div><div>
+  <h3>Proxies, Reverse Proxies, API Gateways &amp; BFF</h3>
+  <p class="lmeta">28 min · Phase 1 · Prereq: D013, D020 · Homework: 30 min</p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+An API gateway grows over three years. First it did auth and rate limiting. Then someone added a
+response transformation. Then a small piece of pricing logic, because "it's just a lookup". Then
+request enrichment from a third service. Now the gateway is the highest-traffic service in the
+company, it is owned by no team, it cannot be deployed without a change-advisory meeting, and it is a
+single point of failure for every product. The gateway did not fail. It succeeded at absorbing
+responsibilities that never belonged to it.</div>
+
+<h4>Core concept — forward vs reverse proxy</h4>
+<div class="tblwrap"><table>
+<thead><tr><th></th><th>Forward proxy</th><th>Reverse proxy</th></tr></thead>
+<tbody>
+<tr><td>Acts on behalf of</td><td>The client</td><td>The server</td></tr>
+<tr><td>Who knows it exists</td><td>The client configured it</td><td class="yes">Nobody — clients think it <em>is</em> the server</td></tr>
+<tr><td>Typical purpose</td><td>Egress control, corporate filtering, caching, anonymity</td><td>TLS termination, load balancing, caching, routing, security</td></tr>
+<tr><td>Example</td><td>Squid, corporate egress proxy, NAT gateway (conceptually)</td><td>nginx, Envoy, HAProxy, CDN, ALB</td></tr>
+</tbody></table></div>
+
+<h4>Core concept — what a gateway should and should not do</h4>
+<div class="grid2">
+<div><h5 style="color:var(--signal)">Belongs in the gateway</h5>
+<ul class="right wrong">
+<li>Authentication (validate the token, reject early)</li>
+<li>Rate limiting and quota enforcement</li>
+<li>Routing by path, host, header, version</li>
+<li>Request/response logging, tracing, correlation IDs</li>
+<li>TLS termination and mTLS to upstreams</li>
+<li>Protocol translation (REST → gRPC at the edge)</li>
+<li>Payload size limits, timeouts, circuit breaking</li>
+<li>CORS, security headers, WAF integration</li>
+</ul></div>
+<div><h5 style="color:var(--hot)">Does not belong in the gateway</h5>
+<ul class="wrong">
+<li>Business rules of any kind</li>
+<li>Data access or joins across services</li>
+<li>Complex orchestration and sagas</li>
+<li>Per-customer bespoke logic</li>
+<li>Anything requiring a database of its own</li>
+<li>Anything one product team needs to deploy weekly</li>
+</ul>
+<p style="font-size:14px;color:var(--ink-mid)">The test: if a change to the gateway requires
+understanding a domain concept, it belongs in a service.</p></div>
+</div>
+
+<h4>Deep dive — the gateway as a single point of failure</h4>
+<p>Every request traverses it, so its availability multiplies against everything behind it (D006).
+Mitigations, in order of value:</p>
+<ol>
+<li><b>Run it stateless and horizontally</b>, at least N+2 per AZ, behind an L4 balancer or anycast.</li>
+<li><b>Keep it dumb.</b> Fewer features means fewer deploys means fewer incidents.</li>
+<li><b>Separate edge and internal gateways.</b> The edge handles hostile traffic; internal
+service-to-service calls should not traverse it at all — that creates a hairpin and a shared fate.</li>
+<li><b>Fail open where safe.</b> If the rate-limiter store is down, decide deliberately: fail open (accept
+traffic, risk overload) or fail closed (reject, guarantee outage). For rate limiting, fail open with a
+local fallback limit. For authentication, always fail closed.</li>
+<li><b>Config changes are deploys.</b> Route config has caused more gateway outages than code. Version
+it, review it, canary it (D108).</li>
+</ol>
+
+<h4>Backend for Frontend</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Edge gateway, BFF layer and services">
+<text class="svgh" x="0" y="12">Edge → gateway → BFF → services</text>
+<defs><marker id="b24" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
+<path d="M0,0 L8,3.2 L0,6.4 z" fill="#5B7189"/></marker></defs>
+<g>
+<rect x="0" y="26" width="96" height="24" rx="3" fill="#fff" stroke="#23415E"/><text class="svgm" x="24" y="42">iOS app</text>
+<rect x="0" y="58" width="96" height="24" rx="3" fill="#fff" stroke="#23415E"/><text class="svgm" x="12" y="74">Android app</text>
+<rect x="0" y="90" width="96" height="24" rx="3" fill="#fff" stroke="#23415E"/><text class="svgm" x="20" y="106">Web SPA</text>
+<rect x="0" y="122" width="96" height="24" rx="3" fill="#fff" stroke="#23415E"/><text class="svgm" x="16" y="138">Partner API</text>
+</g>
+<rect x="126" y="26" width="86" height="120" rx="3" fill="#EEF3F8" stroke="#1B6E9B" stroke-width="1.5"/>
+<text class="svgm" x="134" y="72">CDN +</text><text class="svgm" x="134" y="88">edge</text><text class="svgm" x="134" y="104">gateway</text>
+<g stroke="#5B7189"><line x1="96" y1="38" x2="122" y2="60" marker-end="url(#b24)"/>
+<line x1="96" y1="70" x2="122" y2="76" marker-end="url(#b24)"/>
+<line x1="96" y1="102" x2="122" y2="92" marker-end="url(#b24)"/>
+<line x1="96" y1="134" x2="122" y2="108" marker-end="url(#b24)"/></g>
+<text class="svgs" x="126" y="160">authn · rate limit</text><text class="svgs" x="126" y="172">routing · WAF</text>
+<g>
+<rect x="248" y="26" width="120" height="26" rx="3" fill="#EAF4F1" stroke="#0E6E63"/><text class="svgm" x="256" y="43">BFF · mobile</text>
+<rect x="248" y="60" width="120" height="26" rx="3" fill="#EAF4F1" stroke="#0E6E63"/><text class="svgm" x="256" y="77">BFF · web</text>
+<rect x="248" y="94" width="120" height="26" rx="3" fill="#EAF4F1" stroke="#0E6E63"/><text class="svgm" x="256" y="111">BFF · partner</text>
+</g>
+<line x1="212" y1="86" x2="244" y2="72" stroke="#5B7189" marker-end="url(#b24)"/>
+<text class="svgs" x="248" y="136">Owned by the client team.</text>
+<text class="svgs" x="248" y="148">Aggregates, trims, shapes.</text>
+<text class="svgs" x="248" y="160">Deploys with the client.</text>
+<g>
+<rect x="430" y="20" width="110" height="24" rx="3" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="452" y="36">users</text>
+<rect x="430" y="50" width="110" height="24" rx="3" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="452" y="66">orders</text>
+<rect x="430" y="80" width="110" height="24" rx="3" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="446" y="96">catalogue</text>
+<rect x="430" y="110" width="110" height="24" rx="3" fill="#fff" stroke="#4A3C9E"/><text class="svgm" x="452" y="126">pricing</text>
+</g>
+<g stroke="#5B7189"><line x1="368" y1="40" x2="426" y2="32" marker-end="url(#b24)"/>
+<line x1="368" y1="46" x2="426" y2="62" marker-end="url(#b24)"/>
+<line x1="368" y1="74" x2="426" y2="92" marker-end="url(#b24)"/>
+<line x1="368" y1="108" x2="426" y2="120" marker-end="url(#b24)"/></g>
+<text class="svgs" x="560" y="36">gRPC, internal only</text>
+<text class="svgs" x="560" y="52">no public exposure</text>
+<text class="svgs" x="0" y="192">Without BFFs, either every client gets a lowest-common-denominator API (over-fetching, N+1 round trips) or the services grow client-specific endpoints.</text>
+<text class="svgs" x="0" y="208">The BFF's cost: another deployable per client type, and a real risk of business logic leaking into it. Keep it to aggregation and shaping.</text>
+</svg></div>
+<figcaption><b>FIG 24.1</b> · A BFF is owned by the client team, not the platform team. That ownership
+is the point — it is what stops the shared gateway from accumulating client-specific behaviour.</figcaption></figure>
+
+<h4>Product comparison</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Tool</th><th>Shape</th><th>Strength</th><th>Watch out for</th></tr></thead>
+<tbody>
+<tr><td><b>nginx</b></td><td>Reverse proxy + LB</td><td>Fast, battle-tested, tiny footprint, great static/caching</td><td>Dynamic config needs reloads or the commercial build</td></tr>
+<tr><td><b>Envoy</b></td><td>L7 proxy, mesh data plane</td><td class="yes">Dynamic xDS config, outlier detection, first-class observability</td><td>Steep config learning curve; usually driven by a control plane</td></tr>
+<tr><td><b>HAProxy</b></td><td>L4/L7 LB</td><td>Excellent TCP mode, stick tables, mature</td><td>Less of an "API gateway" feature set</td></tr>
+<tr><td><b>Kong</b></td><td>Gateway on nginx/Envoy</td><td>Plugin ecosystem, auth/rate-limit out of the box</td><td>Plugin sprawl is how gateways gain business logic</td></tr>
+<tr><td><b>AWS API Gateway</b></td><td>Managed</td><td>Zero ops, IAM integration, per-request pricing</td><td class="no">Per-request cost dominates at high volume; hard limits on payload and timeout</td></tr>
+<tr><td><b>Apigee / Azure APIM</b></td><td>Managed, enterprise</td><td>Developer portal, monetisation, policy tooling</td><td>Heavyweight; latency; cost</td></tr>
+</tbody></table></div>
+
+<h5>Gateway vs service mesh — the boundary</h5>
+<p><b>North–south</b> traffic (external clients → your system) belongs to the gateway: it handles
+untrusted callers, authentication, quotas, and public contracts. <b>East–west</b> traffic (service →
+service) belongs to the mesh: mTLS, retries, circuit breaking, per-service authorisation. They overlap
+technically — both are often Envoy — but they have different threat models and different owners. Using
+the edge gateway for internal calls creates a hairpin through your most contended component.</p>
+
+<div class="war"><b>War story</b>
+The "gateway accretes logic" pattern is the most common architectural failure in service-oriented
+organisations, and it happens for a rational reason: the gateway is the one place a change can be made
+without coordinating across teams. That convenience is exactly the danger. The countermeasure is
+organisational rather than technical — a written charter for what the gateway does, and a named owner
+empowered to say no.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "where does authentication happen?", "how do mobile and web clients get different data?"
+<ul class="wrong">
+<li>Putting business logic in the gateway.</li>
+<li>Only authenticating at the gateway and trusting everything behind it — services should still verify identity (D101, D117).</li>
+<li>Forgetting the gateway multiplies into every service's availability.</li>
+<li>One BFF for all clients. That is just a gateway with extra steps.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Put a reverse proxy in front of two services with path-based routing. Add a request ID header if
+absent, propagate it, and set an upstream timeout. Then kill one backend and confirm the proxy returns
+a fast 503 rather than hanging until the client gives up.</div>
+</div></article>
+
+<!-- ============================================ D025 -->
+<article class="lesson" id="d025">
+<div class="lhead"><div class="day">D025</div><div>
+  <h3>Rate Limiting Algorithms</h3>
+  <p class="lmeta">34 min · Phase 1 · Prereq: D024 · Homework: 45 min</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+An API enforces 100 requests per minute with a fixed window. A client sends 100 requests at 11:59:59
+and another 100 at 12:00:01. Both windows are within their limit. The backend saw 200 requests in two
+seconds — twice the intended rate, delivered as a burst. The rate limiter reported full compliance
+while the database fell over.</div>
+
+<h4>Core concept — five algorithms</h4>
+<figure><div class="canvas">
+<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Fixed window burst flaw versus sliding window">
+<text class="svgh" x="0" y="12">The fixed-window boundary burst, and how sliding fixes it</text>
+<g transform="translate(0,20)">
+<text class="svgh" x="0" y="10" fill="#B4232C">Fixed window — limit 100/min</text>
+<line x1="0" y1="52" x2="680" y2="52" stroke="#0B2239"/>
+<line x1="340" y1="24" x2="340" y2="60" stroke="#B4232C" stroke-width="1.6"/>
+<text class="svgm" x="300" y="72" fill="#B4232C">12:00:00</text>
+<rect x="20" y="30" width="316" height="20" rx="2" fill="#EEF3F8" stroke="#1B6E9B"/>
+<text class="svgm" x="30" y="45">window A · counter = 100</text>
+<rect x="344" y="30" width="316" height="20" rx="2" fill="#EEF3F8" stroke="#1B6E9B"/>
+<text class="svgm" x="354" y="45">window B · counter reset to 0</text>
+<g fill="#B4232C">
+<rect x="318" y="34" width="4" height="12"/><rect x="324" y="34" width="4" height="12"/>
+<rect x="330" y="34" width="4" height="12"/><rect x="346" y="34" width="4" height="12"/>
+<rect x="352" y="34" width="4" height="12"/><rect x="358" y="34" width="4" height="12"/>
+</g>
+<text class="svgs" x="380" y="72">200 requests in a 2-second span — both windows "compliant"</text>
+</g>
+<g transform="translate(0,110)">
+<text class="svgh" x="0" y="10" fill="#0E6E63">Sliding window counter — weighted blend of both windows</text>
+<rect x="0" y="22" width="680" height="60" rx="3" fill="#EAF4F1" stroke="#0E6E63"/>
+<text class="svgm" x="12" y="42">count = current_window_count + previous_window_count × (overlap fraction)</text>
+<text class="svgs" x="12" y="60">At 12:00:01, 98.3% of the previous window still overlaps the trailing 60 s, so ~100 of those</text>
+<text class="svgs" x="12" y="74">requests still count. The burst is rejected. One counter per window, O(1) memory.</text>
+</g>
+<text class="svgs" x="0" y="214">Sliding window log stores every timestamp and is exact — but memory is O(requests) per key, which is why the counter approximation is the production default.</text>
+<text class="svgs" x="0" y="232">Approximation error is bounded and small: it assumes a uniform request distribution inside the previous window.</text>
+</svg></div>
+<figcaption><b>FIG 25.1</b> · The fixed-window flaw permits a 2× burst at every boundary. The sliding
+counter costs one extra integer and removes it.</figcaption></figure>
+
+<div class="tblwrap"><table>
+<thead><tr><th>Algorithm</th><th>State per key</th><th>Bursts</th><th>Exact?</th><th>Best for</th></tr></thead>
+<tbody>
+<tr><td><b>Token bucket</b></td><td>tokens + last refill time</td><td class="yes">Allows a controlled burst up to capacity</td><td>Yes</td><td class="yes">Most APIs — the default choice</td></tr>
+<tr><td><b>Leaky bucket</b></td><td>queue or level + last leak</td><td class="no">Smooths completely; no burst</td><td>Yes</td><td>Protecting a downstream with fixed capacity</td></tr>
+<tr><td><b>Fixed window</b></td><td>1 counter</td><td class="no">Up to 2× at boundaries</td><td>No</td><td>Cheap, coarse quota counting</td></tr>
+<tr><td><b>Sliding window log</b></td><td>timestamp per request</td><td class="yes">None</td><td class="yes">Exact</td><td>Low-volume, high-value limits</td></tr>
+<tr><td><b>Sliding window counter</b></td><td>2 counters</td><td class="yes">Bounded</td><td>Approximate</td><td class="yes">High volume, distributed</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — token bucket, with the maths</h4>
+<div class="math"><div class="lbl">Lazy refill — no background timer needed</div>
+\[
+\text{tokens} \;\leftarrow\; \min\bigl(B,\; \text{tokens} + r\,(t_{\text{now}}-t_{\text{last}})\bigr)
+\]
+<p style="margin:6px 0 0;font-size:14.5px">\(B\) = bucket capacity (max burst), \(r\) = refill rate
+(sustained requests/second). Allow the request if \(\text{tokens} \ge 1\), then decrement.</p></div>
+<p>Two parameters give you two independent controls: <b>\(r\) sets the sustained rate</b>, <b>\(B\)
+sets how much burst you tolerate</b>. A client that has been idle accumulates up to \(B\) tokens and
+can spend them at once — which is usually what you want, because idle clients bursting briefly is
+normal and harmless.</p>
+<div class="math"><div class="lbl">Worst-case burst and recovery</div>
+\[
+\text{max instantaneous} = B,\qquad
+t_{\text{refill}} = \frac{B}{r}
+\]</div>
+
+<h4>Deep dive — doing it correctly in a distributed system</h4>
+<p>The naive Redis implementation — <code>GET</code>, check, <code>SET</code> — has a race: two
+gateway instances both read 99, both allow, and the counter ends at 101. Under load this is not rare;
+it is constant. The fix is atomicity, which means a Lua script (Redis executes scripts atomically) or
+the newer <code>CL.THROTTLE</code>-style modules.</p>
+<pre><code><span class="c">-- KEYS[1] = bucket key   ARGV = capacity, refill_rate, now_ms, cost</span>
+<span class="kw">local</span> b   = redis.<span class="fn">call</span>(<span class="st">'HMGET'</span>, KEYS[1], <span class="st">'tokens'</span>, <span class="st">'ts'</span>)
+<span class="kw">local</span> cap = <span class="fn">tonumber</span>(ARGV[1])
+<span class="kw">local</span> rate= <span class="fn">tonumber</span>(ARGV[2])      <span class="c">-- tokens per ms</span>
+<span class="kw">local</span> now = <span class="fn">tonumber</span>(ARGV[3])
+<span class="kw">local</span> cost= <span class="fn">tonumber</span>(ARGV[4])
+<span class="kw">local</span> tokens = <span class="fn">tonumber</span>(b[1]) <span class="kw">or</span> cap
+<span class="kw">local</span> ts     = <span class="fn">tonumber</span>(b[2]) <span class="kw">or</span> now
+
+tokens = math.<span class="fn">min</span>(cap, tokens + (now - ts) * rate)   <span class="c">-- lazy refill</span>
+<span class="kw">local</span> allowed = tokens &gt;= cost
+<span class="kw">if</span> allowed <span class="kw">then</span> tokens = tokens - cost <span class="kw">end</span>
+
+redis.<span class="fn">call</span>(<span class="st">'HMSET'</span>, KEYS[1], <span class="st">'tokens'</span>, tokens, <span class="st">'ts'</span>, now)
+redis.<span class="fn">call</span>(<span class="st">'PEXPIRE'</span>, KEYS[1], math.<span class="fn">ceil</span>(cap / rate) * 2)  <span class="c">-- self-cleaning</span>
+<span class="kw">return</span> { allowed <span class="kw">and</span> 1 <span class="kw">or</span> 0, math.<span class="fn">floor</span>(tokens), math.<span class="fn">ceil</span>((cost - tokens) / rate) }</code></pre>
+<p class="note"><strong>Note the <code>PEXPIRE</code>.</strong> Without it you accumulate one key per
+client forever and eventually run out of memory. Every rate-limit key must expire.</p>
+
+<h5>Exact vs approximate at scale</h5>
+<div class="tblwrap"><table>
+<thead><tr><th>Approach</th><th>Latency added</th><th>Accuracy</th><th>Failure behaviour</th></tr></thead>
+<tbody>
+<tr><td>Central Redis, atomic</td><td class="mid">0.3–1 ms per request</td><td class="yes">Exact</td><td class="no">Redis down = decide fail open/closed</td></tr>
+<tr><td>Local bucket per node, limit ÷ N</td><td class="yes">0</td><td class="no">Wrong under uneven load</td><td class="yes">No dependency</td></tr>
+<tr><td>Local + async sync (gossip / periodic flush)</td><td class="yes">~0</td><td class="mid">Small overshoot, bounded by sync interval</td><td class="yes">Degrades gracefully</td></tr>
+<tr><td>Two-tier: local burst budget + central sustained</td><td class="yes">Amortised</td><td class="yes">Good</td><td class="yes">Local tier survives central outage</td></tr>
+</tbody></table></div>
+<p>The two-tier design is what large platforms converge on: each node holds a small local allowance it
+can spend without coordination, and refills it from the central store in batches. You get single-digit
+microsecond decisions for most requests and bounded global accuracy.</p>
+
+<div class="demo" id="dm-rl">
+  <h6>Demo · algorithm behaviour under a burst</h6>
+  <div class="ctrl">
+    <label>Limit (requests / 60 s)</label><input type="range" id="r1" min="10" max="600" step="10" value="100"><output id="r1o">100</output>
+    <label>Burst size at the boundary</label><input type="range" id="r2" min="10" max="400" step="10" value="100"><output id="r2o">100</output>
+    <label>Token bucket capacity <i>B</i></label><input type="range" id="r3" min="1" max="300" step="1" value="20"><output id="r3o">20</output>
+  </div>
+  <div class="bars" id="rlbars"></div>
+  <div class="readout">
+    <div><span class="v" id="rr1">—</span><span class="l">Fixed window worst case</span></div>
+    <div><span class="v" id="rr2">—</span><span class="l">Sliding counter allows</span></div>
+    <div><span class="v" id="rr3">—</span><span class="l">Token bucket allows</span></div>
+    <div><span class="v" id="rr4">—</span><span class="l">Refill time for full bucket</span></div>
+  </div>
+</div>
+
+<h4>Dimensions, headers and semantics</h4>
+<p>Limit on more than one axis, and pick the key deliberately:</p>
+<div class="tblwrap"><table>
+<thead><tr><th>Key</th><th>Protects against</th><th>Weakness</th></tr></thead>
+<tbody>
+<tr><td>API key / tenant</td><td>One customer starving others</td><td>Requires authentication first</td></tr>
+<tr><td>User ID</td><td>Abusive individual accounts</td><td>Sybil accounts</td></tr>
+<tr><td>IP address</td><td>Unauthenticated abuse, scraping</td><td class="no">Shared NAT punishes whole offices; IPv6 users have many addresses</td></tr>
+<tr><td>Endpoint + key</td><td>One expensive endpoint being hammered</td><td>More keys, more state</td></tr>
+<tr><td>Cost units, not requests</td><td class="yes">Expensive queries (GraphQL, search)</td><td>Needs a cost model (D021)</td></tr>
+</tbody></table></div>
+<pre><code>HTTP/1.1 429 Too Many Requests
+RateLimit-Limit: 100
+RateLimit-Remaining: 0
+RateLimit-Reset: 37          <span class="c"># seconds until tokens return</span>
+Retry-After: 37              <span class="c"># the one clients and CDNs actually respect</span></code></pre>
+<p><b>Always send <code>Retry-After</code>.</b> Without it, well-behaved clients guess, and guessing
+means retrying immediately, which means your rate limiter is now generating the load it exists to
+prevent.</p>
+
+<h5>Throttling vs shedding vs quotas</h5>
+<ul>
+<li><b>Rate limiting / throttling</b> — fairness and abuse prevention. Policy-driven, per-caller, predictable, returns 429.</li>
+<li><b>Load shedding</b> — self-preservation. Triggered by <em>your</em> health, not their behaviour; drops cheap or low-priority traffic first; returns 503 (D063).</li>
+<li><b>Quotas</b> — business limits over long windows (per day, per month). Billing concern, not a latency concern.</li>
+</ul>
+<p>They are different systems with different triggers, and conflating them means you shed traffic from
+your best customer during an incident while a scraper stays inside its limit.</p>
+
+<div class="war"><b>War story</b>
+Stripe published a description of their rate-limiting design that separates limiters by purpose: a
+request-rate limiter, a concurrency limiter for expensive in-flight operations, and a fleet-usage load
+shedder that reserves capacity for critical traffic during incidents. The important idea is the
+separation — one limiter cannot express "this caller is over their fair share" and "the whole system is
+in trouble" at the same time, because those need different keys and different responses.</div>
+
+<div class="iv"><b>Interview angle</b>
+Expect: "design a rate limiter" (it is Day 123 as a full case study). Signal comes from naming the
+algorithm, making the distributed counter atomic, and deciding fail-open vs fail-closed out loud.
+<ul class="wrong">
+<li>Fixed window without acknowledging the boundary burst.</li>
+<li><code>GET</code>-then-<code>SET</code> in Redis with no atomicity.</li>
+<li>Rate limiting by IP only.</li>
+<li>Returning 429 without <code>Retry-After</code>.</li>
+<li>Not deciding what happens when the limiter's datastore is unavailable.</li>
+<li>Forgetting key expiry — an unbounded key space is a memory leak with a schedule.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Implement token bucket and sliding-window-counter over Redis with Lua. Then attack both: send a
+boundary burst, and run two client processes concurrently to try to exceed the limit through a race.
+Record the actual number admitted in each case.</div>
+</div></article>
+
+<!-- ============================================ D026 -->
+<article class="lesson" id="d026">
+<div class="lhead"><div class="day">D026</div><div>
+  <h3>CDNs &amp; Edge Delivery</h3>
+  <p class="lmeta">32 min · Phase 1 · Prereq: D004, D018 · Homework: 35 min · <b>Phase 1 finale</b></p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+
+<div class="hook"><b>Hook — watch it break</b>
+A team puts a CDN in front of their API and celebrates. Two weeks later the origin bill is unchanged
+and hit ratio is 4%. The cause: every response carries <code>Vary: Cookie</code> and every visitor
+has a unique session cookie, so every response is a unique cache entry. The CDN is working perfectly.
+It is caching a million objects that will each be requested exactly once.</div>
+
+<h4>Core concept — what a CDN is made of</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Component</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td><b>PoP</b> (point of presence)</td><td>A cluster of caching servers in a city, close to users. Hundreds worldwide.</td></tr>
+<tr><td><b>Anycast</b></td><td>One IP announced from every PoP; BGP routes each user to the nearest one. This is why CDN failover is fast — no DNS TTL involved (D017).</td></tr>
+<tr><td><b>Tiered / shield cache</b></td><td>A regional mid-tier between edge PoPs and origin. Without it, 300 PoPs each miss independently and hammer origin 300×.</td></tr>
+<tr><td><b>Origin shield</b></td><td>A single designated PoP that all others fetch through — collapses origin requests to one per object.</td></tr>
+<tr><td><b>Request collapsing</b></td><td>Many simultaneous misses for the same object become one origin fetch. This is stampede protection (D055) built into the CDN.</td></tr>
+</tbody></table></div>
+
+<h4>Deep dive — the hit-ratio economics</h4>
+<div class="math"><div class="lbl">Origin traffic and effective latency</div>
+\[
+\text{origin bytes} = (1-h)\cdot B_{\text{total}}
+\qquad
+L_{\text{eff}} = h\,L_{\text{edge}} + (1-h)\,L_{\text{origin}}
+\]</div>
+<p>The nonlinearity is the point. Going from 90% to 95% hit ratio does not cut origin load by 5% — it
+<em>halves</em> it, because you are cutting the <em>miss</em> fraction from 10% to 5%.</p>
+<div class="math"><div class="lbl">Miss reduction from a hit-ratio improvement</div>
+\[
+\frac{\text{misses after}}{\text{misses before}} = \frac{1-h_2}{1-h_1}
+\qquad
+\frac{1-0.95}{1-0.90} = 0.5
+\]</div>
+
+<div class="demo" id="dm-cdn">
+  <h6>Demo · hit ratio, latency and the bill</h6>
+  <div class="ctrl">
+    <label>Monthly egress</label><input type="range" id="c1" min="1" max="10000" step="1" value="1000"><output id="c1o">1,000 TB</output>
+    <label>Cache hit ratio</label><input type="range" id="c2" min="0" max="99" step="1" value="85"><output id="c2o">85%</output>
+    <label>Edge latency</label><input type="range" id="c3" min="5" max="80" step="1" value="25"><output id="c3o">25 ms</output>
+    <label>Origin latency</label><input type="range" id="c4" min="50" max="600" step="10" value="220"><output id="c4o">220 ms</output>
+  </div>
+  <div class="readout">
+    <div><span class="v" id="cr1">—</span><span class="l">Origin egress / month</span></div>
+    <div><span class="v" id="cr2">—</span><span class="l">Effective latency</span></div>
+    <div><span class="v" id="cr3">—</span><span class="l">Est. monthly cost</span></div>
+    <div><span class="v" id="cr4">—</span><span class="l">Saving vs 0% hit</span></div>
+    <div><span class="v" id="cr5">—</span><span class="l">If you reach 95%</span></div>
+  </div>
+  <p style="font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);margin:12px 0 0">
+  Assumes origin egress at $0.085/GB and CDN egress at $0.020/GB — order-of-magnitude figures, not a
+  quote. The shape is what matters: origin egress is the expensive term, so every point of hit ratio
+  is worth real money.</p>
+</div>
+
+<h4>Cache keys, and the headers that control them</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Directive</th><th>Meaning</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td><code>max-age=N</code></td><td>Fresh for N seconds (browser and shared caches)</td><td>Browser caches obey this too — pick carefully</td></tr>
+<tr><td><code>s-maxage=N</code></td><td>Fresh for N seconds in <em>shared</em> caches only</td><td class="yes">Lets you cache long at the CDN and short in browsers</td></tr>
+<tr><td><code>stale-while-revalidate=N</code></td><td>Serve stale for N s while refreshing in background</td><td class="yes">The single best directive for availability — origin blips become invisible</td></tr>
+<tr><td><code>stale-if-error=N</code></td><td>Serve stale if origin returns 5xx</td><td class="yes">Free graceful degradation</td></tr>
+<tr><td><code>private</code> / <code>no-store</code></td><td>Do not cache in shared caches / do not store at all</td><td>Use <code>no-store</code> for anything personal</td></tr>
+<tr><td><code>ETag</code> + <code>If-None-Match</code></td><td>Conditional revalidation → 304</td><td>Saves bytes, not the round trip</td></tr>
+<tr><td><code>Vary</code></td><td>Which request headers form part of the cache key</td><td class="no"><code>Vary: Cookie</code> or <code>Vary: User-Agent</code> destroys hit ratio</td></tr>
+</tbody></table></div>
+<p class="note"><strong>The cache key is the whole game.</strong> By default it is method + host + path
++ query. Normalise it: strip tracking parameters (<code>utm_*</code>, <code>fbclid</code>), sort query
+parameters, lowercase the host. An unnormalised key means the same object is cached separately for
+every marketing link that points at it.</p>
+
+<h4>Invalidation: versioned URLs beat purging</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Strategy</th><th>Propagation</th><th>Reliability</th><th>Use for</th></tr></thead>
+<tbody>
+<tr><td><b>Versioned / fingerprinted URLs</b><br><code>/app.9f2c1b.js</code></td><td class="yes">Instant — it is a different object</td><td class="yes">Perfect</td><td class="yes">All static assets. Set <code>max-age=31536000, immutable</code></td></tr>
+<tr><td>Purge by URL</td><td>Seconds to minutes across PoPs</td><td class="mid">Good, but eventually consistent</td><td>Correcting a mistake</td></tr>
+<tr><td>Purge by tag / surrogate key</td><td>Seconds</td><td class="yes">Good</td><td class="yes">Dynamic content — tag a page with the entity IDs it contains, purge by entity</td></tr>
+<tr><td>Purge everything</td><td>Minutes</td><td class="no">Causes a cold-cache origin stampede (D055)</td><td>Emergencies only</td></tr>
+<tr><td>Short TTL</td><td>Bounded by TTL</td><td class="yes">Simple</td><td>Content where staleness is tolerable</td></tr>
+</tbody></table></div>
+<p>The versioned-URL pattern is worth stating plainly because it eliminates a whole class of problem:
+if the content changes, the URL changes, so there is nothing to invalidate. Cache forever, deploy a new
+filename, done. HTML references the new name; HTML itself gets a short TTL.</p>
+
+<h4>Beyond static: dynamic acceleration, private media, edge compute</h4>
+<ul>
+<li><b>Dynamic acceleration</b> — even uncacheable requests benefit: the user's TCP and TLS handshakes
+terminate at a nearby PoP, and the PoP holds a warm, tuned, long-lived connection to origin. You can
+save 100–200 ms on a cross-continent request with a 0% hit ratio.</li>
+<li><b>Signed URLs / token auth</b> — private media (a paid video, a user's document) is cached at the
+edge but access is gated by a signature with an expiry and often a client-IP binding. The object is
+public to the cache and private to the world.</li>
+<li><b>Edge compute</b> (Workers, Lambda@Edge, edge middleware) — good for A/B assignment, auth checks,
+redirects, header manipulation, request routing, personalisation of otherwise-cacheable pages. Bad for
+anything needing a database, because your database is not at the edge (D104).</li>
+</ul>
+
+<h4>Cost model and the traps</h4>
+<div class="tblwrap"><table>
+<thead><tr><th>Line item</th><th>Order of magnitude</th><th>Trap</th></tr></thead>
+<tbody>
+<tr><td>CDN egress</td><td>$0.005–0.09 / GB, tiered by region and volume</td><td>Asia and South America cost several times North America</td></tr>
+<tr><td>Origin egress</td><td>$0.05–0.09 / GB</td><td class="no">The expensive one; every cache miss pays it</td></tr>
+<tr><td>Requests</td><td>~$0.005–0.01 per 10k</td><td>Dominates for many tiny objects — bundle them</td></tr>
+<tr><td>Edge compute invocations</td><td>Per million + per GB-s</td><td>Running on 100% of requests, including cache hits</td></tr>
+<tr><td>Purge operations</td><td>Often free, sometimes rate-limited</td><td>A purge-per-write design will hit the limit</td></tr>
+</tbody></table></div>
+<p><b>Multi-CDN</b> — using two providers steered by DNS or a real-user-monitoring-driven load balancer
+— buys availability (no single provider outage takes you down) and negotiating leverage. It costs
+complexity: two configs to keep in sync, two purge paths, two sets of edge logic, and cache hit ratio
+split across both. Worth it above a certain traffic volume; premature below it.</p>
+
+<div class="war"><b>War story</b>
+Netflix's Open Connect takes the CDN idea to its endpoint: rather than renting capacity, they build
+storage appliances and place them inside ISP networks, then pre-position content overnight based on
+predicted regional demand. Because their catalogue is finite and their viewing patterns are
+predictable, they can push content <em>before</em> anyone requests it — turning a pull cache into a
+push distribution network. It only works because of that predictability, which is the general lesson:
+the right caching strategy is a function of how well you can predict demand.</div>
+
+<div class="iv"><b>Interview angle</b>
+A CDN appears in most Phase 9 case studies. Signal comes from cache-key design and invalidation, not
+from saying the word "CDN".
+<ul class="wrong">
+<li>"Add a CDN" with no discussion of what is cacheable and what the key is.</li>
+<li>Ignoring <code>Vary</code> and cookie-based key explosion.</li>
+<li>Purge-on-every-write as the invalidation strategy.</li>
+<li>Forgetting <code>stale-while-revalidate</code> — it is the cheapest availability win in this lesson.</li>
+<li>Assuming a CDN protects the origin during a cold start. Without request collapsing and a shield tier, it amplifies the stampede.</li>
+</ul></div>
+
+<div class="hw"><b>Homework</b>
+Put a CDN in front of static assets. Measure hit ratio, then tune: fingerprint filenames, set
+<code>max-age=31536000, immutable</code>, strip <code>utm_*</code> from the cache key, and remove any
+unnecessary <code>Vary</code>. Measure again. Then compute what the difference would be worth per
+month at 1 PB of traffic.</div>
+</div></article>
+
+<div class="nextprev">
+  <a href="phase-00.html"><span>Previous phase</span><b>← 00 · Foundations</b></a>
+  <a href="index.html"><span>Hub</span><b>All 145 lessons →</b></a>
+</div>
+
+<div class="foot">
+  <span>Phase 1 · Days 13–26 · 7h 00m · Review checkpoint after Day 26</span>
+  <span><a href="index.html">← Back to hub</a></span>
+</div>
+
+<script>
+/* ---- D025 rate limiter ---- */
+wire("#dm-rl", el=>{
+  const lim=+$("#r1",el).value, burst=+$("#r2",el).value, cap=+$("#r3",el).value;
+  setv(el,"#r1o",lim); setv(el,"#r2o",burst); setv(el,"#r3o",cap);
+  const rate=lim/60;                       // tokens per second
+  const fixedWorst=Math.min(burst,lim)*2;  // both sides of the boundary
+  const sliding=Math.min(burst, Math.max(0, lim-Math.round(lim*0.983)) + lim - lim); // ~0 extra
+  const slidingAllow=Math.max(0, Math.min(burst, Math.round(lim*0.017)));
+  const bucketAllow=Math.min(burst, cap);
+  setv(el,"#rr1",fixedWorst+" in 2 s");
+  setv(el,"#rr2",slidingAllow+" of "+burst);
+  setv(el,"#rr3",bucketAllow+" of "+burst);
+  setv(el,"#rr4",(cap/rate).toFixed(1)+" s");
+  const rows=[["Fixed window",fixedWorst,"hot"],["Sliding counter",slidingAllow,""],
+              ["Sliding log (exact)",slidingAllow,""],["Token bucket",bucketAllow,"amb"],
+              ["Leaky bucket",Math.min(burst,Math.max(1,Math.round(rate))),""]];
+  const mx=Math.max(...rows.map(r=>r[1]),1);
+  $("#rlbars",el).innerHTML=rows.map(([n,v,c])=>
+    `<div class="bar"><span>${n}</span><span class="t"><i class="${c}" style="width:${(v/mx*100).toFixed(1)}%"></i></span><span class="v">${v}</span></div>`
+  ).join("")+`<p style="font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);margin:10px 0 0">
+  Requests admitted from a burst of ${burst} arriving at a window boundary. Lower is stricter — but
+  stricter is not automatically better: the token bucket deliberately admits up to <b>B</b> so that idle
+  clients are not punished for a normal short spike.</p>`;
+});
+/* ---- D026 CDN economics ---- */
+wire("#dm-cdn", el=>{
+  const tb=+$("#c1",el).value, h=+$("#c2",el).value/100;
+  const le=+$("#c3",el).value, lo=+$("#c4",el).value;
+  setv(el,"#c1o",tb.toLocaleString()+" TB"); setv(el,"#c2o",(h*100).toFixed(0)+"%");
+  setv(el,"#c3o",le+" ms"); setv(el,"#c4o",lo+" ms");
+  const GB=tb*1024, originGB=GB*(1-h);
+  const cost=originGB*0.085 + GB*h*0.020;
+  const base=GB*0.085;
+  setv(el,"#cr1",originGB>=1024?(originGB/1024).toFixed(1)+" TB":Math.round(originGB)+" GB");
+  setv(el,"#cr2",(h*le+(1-h)*lo).toFixed(0)+" ms");
+  setv(el,"#cr3","$"+Math.round(cost).toLocaleString());
+  setv(el,"#cr4",Math.round((1-cost/base)*100)+"%");
+  const c95=GB*0.05*0.085+GB*0.95*0.020;
+  setv(el,"#cr5","$"+Math.round(c95).toLocaleString());
+});
+</script>
+</div></main></div><script>/* ---------- signature element: the chapter ribbon ---------- */
+const SPEC = {
+  std: [
+    ["Hook — watch it break", 5,  "#B4232C"],
+    ["What you'll be able to do", 3, "#C97B2E"],
+    ["Prerequisite recap", 5, "#9A6A00"],
+    ["Core concept — whiteboard", 30, "#0E6E63"],
+    ["Deep dive — internals / math", 30, "#1B6E9B"],
+    ["Tradeoffs table", 10, "#4A3C9E"],
+    ["Real-world war story", 8, "#8A2E68"],
+    ["Interview angle", 6, "#5A5270"],
+    ["Homework + teaser", 3, "#23415E"]
+  ],
+  case: [
+    ["Problem + scoping questions", 6, "#B4232C"],
+    ["Functional + non-functional reqs", 8, "#C97B2E"],
+    ["Back-of-envelope estimation", 8, "#9A6A00"],
+    ["API design", 7, "#2E6E36"],
+    ["Data model + storage choice", 12, "#0E6E63"],
+    ["High-level architecture", 15, "#1B6E9B"],
+    ["Deep dive 1 — the hard part", 15, "#4A3C9E"],
+    ["Deep dive 2", 12, "#8A2E68"],
+    ["Bottlenecks + failure modes", 10, "#5A5270"],
+    ["Interview follow-ups", 7, "#23415E"]
+  ]
+};
+function fmtClock(min){const m=Math.floor(min),s=Math.round((min-m)*60);return m+":"+String(s).padStart(2,"0");}
+function buildRibbons(){
+  document.querySelectorAll(".ribbon").forEach(r=>{
+    const rt=parseFloat(r.dataset.runtime||"30");
+    const spec=SPEC[r.dataset.spec||"std"];
+    let acc=0;
+    r.innerHTML=spec.map(([label,pct,col])=>{
+      const start=acc*rt/100; acc+=pct;
+      return `<i style="width:${pct}%;background:${col}" data-l="${fmtClock(start)} · ${label} · ${Math.round(pct*rt/100*10)/10}m"></i>`;
+    }).join("");
+  });
+}
+
+/* ---------- scroll-spy table of contents ---------- */
+function spy(){
+  const links=[...document.querySelectorAll(".toc a")];
+  if(!links.length) return;
+  const map=new Map();
+  links.forEach(a=>{const el=document.querySelector(a.getAttribute("href"));if(el)map.set(el,a);});
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove("on"));
+        const a=map.get(e.target); if(a){a.classList.add("on");
+          const r=a.closest(".rail");
+          if(r&&window.innerWidth>980){const t=a.offsetTop-r.clientHeight/2;r.scrollTo({top:t,behavior:"smooth"});}}
+      }
+    });
+  },{rootMargin:"-8% 0px -80% 0px",threshold:0});
+  map.forEach((a,el)=>io.observe(el));
+}
+
+/* ---------- helpers used by inline demos ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function num(n,d=0){return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});}
+function bytes(b){
+  const u=["B","KB","MB","GB","TB","PB","EB"];let i=0;
+  while(b>=1024&&i<u.length-1){b/=1024;i++;}
+  return (b<10?b.toFixed(2):b<100?b.toFixed(1):Math.round(b))+" "+u[i];
+}
+function eng(n){
+  if(n>=1e12)return (n/1e12).toFixed(2)+"T";
+  if(n>=1e9) return (n/1e9).toFixed(2)+"B";
+  if(n>=1e6) return (n/1e6).toFixed(2)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(2)+"K";
+  return n.toFixed(n<10?2:0);
+}
+function wire(root,fn){
+  const el=typeof root==="string"?$(root):root; if(!el)return;
+  $$("input,select",el).forEach(i=>i.addEventListener("input",()=>fn(el)));
+  $$("button[data-act]",el).forEach(b=>b.addEventListener("click",()=>fn(el,b.dataset.act)));
+  fn(el);
+}
+function setv(el,sel,val){const t=$(sel,el);if(t)t.textContent=val;}
+function setbar(el,sel,pct,cls){
+  const t=$(sel,el); if(!t)return;
+  t.style.width=Math.max(0,Math.min(100,pct))+"%";
+  t.className=cls||"";
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  buildRibbons(); spy();
+  const b=document.createElement("button");
+  b.className="top"; b.textContent="\u2191"; b.setAttribute("aria-label","Back to top");
+  b.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+  document.body.appendChild(b);
+});
+</script></body></html>

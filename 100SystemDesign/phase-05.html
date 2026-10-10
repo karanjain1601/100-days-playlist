@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 05 · Distributed Systems Theory — System Design Notes</title>
+<meta name="description" content="Days 67–84: Understand why distributed systems fail, and name the guarantee you are trading away.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true,
+       macros:{RR:"{\\mathbb{R}}"}},
+  options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},
+  chtml:{scale:1.0,matchFontHeight:false},
+  startup:{typeset:true}
+};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+<style>:root{
+  --paper:#E7EDF2; --card:#FAFCFD; --card-2:#F1F5F8;
+  --ink:#0B2239; --ink-mid:#42596E; --ink-soft:#6E8299;
+  --grid:#D3DFE9; --rule:#C2D2DF; --rule-soft:#DFE8EF;
+  --signal:#0E6E63; --hot:#B4232C; --amber:#9A6A00; --violet:#54399A;
+  --p0:#23415E; --p1:#0E6E63; --p2:#7A4C1E; --p3:#8A2E68; --p4:#1B6E9B;
+  --p5:#4A3C9E; --p6:#2E6E36; --p7:#9E4A05; --p8:#B4232C; --p9:#5A5270; --p10:#0B2239;
+  --disp:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --sans:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --accent:var(--p0);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:1.5rem}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:16.5px;line-height:1.62;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;background-position:-1px -1px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:286px minmax(0,1fr);gap:0;max-width:1680px;margin:0 auto}
+.rail{position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--rule);
+  background:linear-gradient(180deg,var(--card) 0%,var(--card-2) 100%);padding:22px 18px 60px}
+.rail::-webkit-scrollbar{width:8px}.rail::-webkit-scrollbar-thumb{background:var(--rule);border-radius:8px}
+.main{padding:34px 40px 140px;min-width:0}
+.wrap{max-width:900px;margin:0 auto}
+@media(max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule)}
+  .main{padding:20px 16px 90px}
+}
+
+/* ---------- rail contents ---------- */
+.brandmark{font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px}
+.brandtitle{font-family:var(--disp);font-weight:600;font-size:25px;line-height:1.08;margin:0 0 14px;letter-spacing:-.01em}
+.brandtitle a{color:var(--ink);text-decoration:none}
+.railmeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);line-height:1.7;
+  border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft);padding:9px 0;margin-bottom:16px}
+.railsec{font-family:var(--disp);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-soft);margin:20px 0 8px;font-weight:600}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:0}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:4px 8px;border-radius:4px;text-decoration:none;
+  color:var(--ink-mid);font-family:var(--sans);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
+.toc a:hover{background:#fff;color:var(--ink)}
+.toc a.on{background:#fff;color:var(--ink);border-left-color:var(--accent);font-weight:600}
+.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-soft);flex:0 0 30px;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.phaselinks{list-style:none;margin:0;padding:0;font-family:var(--sans);font-size:12.5px}
+.phaselinks a{display:block;padding:3px 8px;color:var(--ink-mid);text-decoration:none;border-radius:4px}
+.phaselinks a:hover{background:#fff;color:var(--ink)}
+.phaselinks a[aria-current]{font-weight:700;color:var(--ink);background:#fff}
+.phaselinks .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+
+/* ---------- page head ---------- */
+.phasehead{border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:26px 30px;margin-bottom:34px;position:relative;overflow:hidden}
+.phasehead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 6px;font-weight:600}
+h1{font-family:var(--disp);font-size:clamp(30px,4.6vw,46px);line-height:1.03;margin:0 0 10px;
+  font-weight:600;letter-spacing:-.018em}
+.lede{font-size:17px;color:var(--ink-mid);margin:0 0 16px;max-width:62ch}
+.statrow{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule-soft);padding-top:14px}
+.stat{padding-right:26px;margin-right:26px;border-right:1px solid var(--rule-soft)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-family:var(--mono);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+.stat span{font-family:var(--disp);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* ---------- lesson card ---------- */
+.lesson{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  margin:0 0 30px;overflow:hidden;scroll-margin-top:16px}
+.lhead{display:flex;gap:16px;align-items:flex-start;padding:20px 26px 14px;
+  border-bottom:1px solid var(--rule-soft);background:linear-gradient(180deg,#fff,var(--card))}
+.day{flex:0 0 auto;font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.05em;
+  color:#fff;background:var(--accent);padding:6px 9px;border-radius:3px;margin-top:3px}
+.lhead h3{font-family:var(--disp);font-size:26px;font-weight:600;margin:0 0 3px;line-height:1.12;letter-spacing:-.012em}
+.lmeta{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);margin:0;letter-spacing:.02em}
+.lbody{padding:22px 26px 26px}
+@media(max-width:600px){.lhead{padding:16px}.lbody{padding:16px}.lhead h3{font-size:21px}}
+
+/* ---------- signature: chapter ribbon ---------- */
+.ribbon{display:flex;height:22px;width:100%;border-bottom:1px solid var(--rule-soft);
+  font-family:var(--mono);font-size:9px;cursor:default;background:var(--card-2)}
+.ribbon i{display:block;height:100%;position:relative;border-right:1px solid rgba(255,255,255,.75);
+  transition:filter .15s;transform-origin:left}
+.ribbon i:last-child{border-right:0}
+.ribbon i:hover{filter:brightness(1.35)}
+.ribbon i::after{content:attr(data-l);position:absolute;left:50%;bottom:calc(100% + 5px);transform:translateX(-50%);
+  white-space:nowrap;background:var(--ink);color:#fff;padding:3px 7px;border-radius:3px;font-size:10.5px;
+  opacity:0;pointer-events:none;transition:opacity .12s;z-index:20;font-family:var(--sans)}
+.ribbon i:hover::after{opacity:1}
+.ribbonkey{font-family:var(--mono);font-size:10px;color:var(--ink-soft);padding:5px 26px 0;letter-spacing:.04em}
+
+/* ---------- prose ---------- */
+.lbody h4{font-family:var(--disp);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin:26px 0 8px;font-weight:700;display:flex;align-items:center;gap:10px}
+.lbody h4::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+.lbody h5{font-family:var(--sans);font-size:15px;font-weight:600;margin:18px 0 5px;color:var(--ink)}
+.lbody p{margin:0 0 12px}
+.lbody ul,.lbody ol{margin:0 0 13px;padding-left:22px}
+.lbody li{margin-bottom:5px}
+.lbody li::marker{color:var(--ink-soft)}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.86em;background:#E3EAF0;padding:1px 5px;border-radius:3px;color:#12354F}
+a{color:var(--signal)}
+.k{font-family:var(--mono);font-size:.88em;background:var(--ink);color:#EAF2F8;padding:1px 6px;border-radius:3px}
+
+/* callouts */
+.hook{border-left:3px solid var(--hot);background:#FCF1F1;padding:12px 16px;margin:0 0 18px;border-radius:0 3px 3px 0}
+.hook b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--hot);display:block;margin-bottom:3px}
+.war{border-left:3px solid var(--amber);background:#FBF5E7;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.war b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--amber);display:block;margin-bottom:3px}
+.iv{border-left:3px solid var(--violet);background:#F3F0FA;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.iv b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--violet);display:block;margin-bottom:3px}
+.hw{border:1px dashed var(--rule);background:var(--card-2);padding:12px 16px;margin:18px 0 0;border-radius:3px}
+.hw b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--ink-soft);display:block;margin-bottom:3px}
+.note{background:#EDF3F7;border:1px solid var(--rule-soft);padding:10px 14px;border-radius:3px;margin:14px 0;font-size:15.3px}
+.wrong{list-style:none;padding-left:0}
+.wrong li{padding-left:24px;position:relative;margin-bottom:7px}
+.wrong li::before{content:"\2715";position:absolute;left:2px;top:1px;color:var(--hot);font-size:12px;font-weight:700}
+.right li::before{content:"\2713";color:var(--signal)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-family:var(--sans);font-size:14px;background:#fff}
+th{font-family:var(--disp);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;text-align:left;
+  padding:8px 11px;border-bottom:2px solid var(--ink);color:var(--ink);font-weight:700;vertical-align:bottom}
+td{padding:8px 11px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tbody tr:hover{background:var(--card-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tblwrap{overflow-x:auto;margin:14px 0}
+.tblwrap table{margin:0;min-width:520px}
+.yes{color:var(--signal);font-weight:700}.no{color:var(--hot);font-weight:700}.mid{color:var(--amber);font-weight:700}
+
+/* ---------- figures ---------- */
+figure{margin:20px 0;border:1px solid var(--rule);background:#fff;border-radius:3px;overflow:hidden}
+figure .canvas{background-image:linear-gradient(#E8EFF5 1px,transparent 1px),linear-gradient(90deg,#E8EFF5 1px,transparent 1px);
+  background-size:20px 20px;padding:14px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);padding:9px 14px;
+  border-top:1px solid var(--rule-soft);background:var(--card-2)}
+figcaption b{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.06em}
+.svgt{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:12px;fill:#0B2239}
+.svgs{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:10.5px;fill:#5B7189}
+.svgm{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:#0B2239}
+.svgh{font-family:"IBM Plex Sans Condensed",Arial,sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;fill:#5B7189}
+
+/* ---------- math ---------- */
+.math{background:#FCFAF3;border:1px solid #EADFC0;border-left:3px solid var(--amber);
+  padding:12px 16px;border-radius:0 3px 3px 0;margin:16px 0;overflow-x:auto}
+.math .lbl{font-family:var(--disp);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);font-weight:700;margin-bottom:4px}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
+mjx-container[display]{margin:.6em 0!important}
+
+/* ---------- code ---------- */
+pre{background:#0E2033;color:#DDE8F2;padding:14px 16px;border-radius:3px;overflow-x:auto;
+  font-family:var(--mono);font-size:12.6px;line-height:1.6;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+pre .c{color:#7C93A8;font-style:italic}
+pre .kw{color:#F0A868}
+pre .st{color:#8FCFA0}
+pre .fn{color:#77BEE8}
+pre .nm{color:#E0A0C8}
+
+/* ---------- demo widgets ---------- */
+.demo{border:1px solid var(--rule);border-top:3px solid var(--signal);background:#fff;
+  border-radius:3px;padding:16px 18px;margin:20px 0}
+.demo>h6{font-family:var(--disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--signal);margin:0 0 12px;font-weight:700;display:flex;gap:8px;align-items:center}
+.demo>h6::before{content:"\25B8";font-size:11px}
+.ctrl{display:grid;grid-template-columns:auto 1fr auto;gap:9px 12px;align-items:center;margin-bottom:5px}
+.ctrl label{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);white-space:nowrap}
+.ctrl output{font-family:var(--mono);font-size:12.5px;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums;min-width:82px}
+input[type=range]{width:100%;accent-color:var(--signal);height:4px}
+select,input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;padding:5px 8px;
+  border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+button{font-family:var(--disp);font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;
+  padding:7px 13px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:3px;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink)}
+button:hover{filter:brightness(1.18)}
+.readout{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-soft);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:12px}
+.readout div{background:var(--card-2);border-radius:3px;padding:8px 10px}
+.readout .v{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);
+  display:block;font-variant-numeric:tabular-nums;line-height:1.25}
+.readout .l{font-family:var(--disp);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft)}
+.bars{margin-top:12px}
+.bar{display:grid;grid-template-columns:118px 1fr 74px;gap:9px;align-items:center;margin-bottom:5px;
+  font-family:var(--mono);font-size:11.5px}
+.bar .t{background:var(--card-2);height:15px;border-radius:2px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--signal);transition:width .25s}
+.bar .t i.hot{background:var(--hot)}
+.bar .t i.amb{background:var(--amber)}
+.bar .v{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- misc ---------- */
+.pillrow{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pill{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--rule);
+  border-radius:20px;background:#fff;color:var(--ink-mid)}
+.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.foot{border-top:1px solid var(--rule);margin-top:44px;padding-top:18px;font-family:var(--mono);
+  font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot a{color:var(--ink-mid);text-decoration:none;border-bottom:1px solid var(--rule)}
+.nextprev{display:flex;justify-content:space-between;gap:14px;margin-top:30px;flex-wrap:wrap}
+.nextprev a{flex:1 1 220px;border:1px solid var(--rule);background:var(--card);padding:12px 15px;
+  border-radius:3px;text-decoration:none;color:var(--ink)}
+.nextprev a span{display:block;font-family:var(--disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft)}
+.nextprev a b{font-family:var(--disp);font-size:16px;font-weight:600}
+.top{position:fixed;right:18px;bottom:18px;z-index:40;background:var(--ink);color:#fff;border:0;
+  width:40px;height:40px;border-radius:50%;font-size:15px;opacity:.28;padding:0}
+.top:hover{opacity:1}
+:focus-visible{outline:2.5px solid var(--signal);outline-offset:2px}
+
+:root{--accent:var(--p5)}</style>
+</head><body>
+<div class="shell"><nav class="rail">
+<p class="brandmark">100 Days of System Design</p>
+<h2 class="brandtitle"><a href="index.html">Engineering<br>Notebook</a></h2>
+<div class="railmeta">145 lessons · 75h 48m<br>Phase 05 · Days 67–84</div>
+<p class="railsec">On this page</p>
+<ul class="toc"><li><a href="#d067"><span class="n">D067</span><span>Why Distributed Systems Are Hard</span></a></li><li><a href="#d068"><span class="n">D068</span><span>Time, Clocks &amp; Ordering</span></a></li><li><a href="#d069"><span class="n">D069</span><span>CAP Theorem, Properly</span></a></li><li><a href="#d070"><span class="n">D070</span><span>PACELC &amp; the Latency Tradeoff</span></a></li><li><a href="#d071"><span class="n">D071</span><span>Consistency Models I: Strong Guarantees</span></a></li><li><a href="#d072"><span class="n">D072</span><span>Consistency Models II: Eventual, Session &amp; CRDTs</span></a></li><li><a href="#d073"><span class="n">D073</span><span>Consensus I: The Problem, FLP &amp; Paxos</span></a></li><li><a href="#d074"><span class="n">D074</span><span>Consensus II: Raft in Full Detail</span></a></li><li><a href="#d075"><span class="n">D075</span><span>Coordination Services: ZooKeeper &amp; etcd</span></a></li><li><a href="#d076"><span class="n">D076</span><span>Distributed Locks &amp; Leases in Practice</span></a></li><li><a href="#d077"><span class="n">D077</span><span>Distributed Transactions I: 2PC &amp; 3PC</span></a></li><li><a href="#d078"><span class="n">D078</span><span>Distributed Transactions II: Sagas &amp; Alternatives</span></a></li><li><a href="#d079"><span class="n">D079</span><span>Idempotency &amp; Delivery Semantics</span></a></li><li><a href="#d080"><span class="n">D080</span><span>Failure Detection &amp; Membership</span></a></li><li><a href="#d081"><span class="n">D081</span><span>Quorums, Anti-Entropy &amp; Repair</span></a></li><li><a href="#d082"><span class="n">D082</span><span>Byzantine Fault Tolerance</span></a></li><li><a href="#d083"><span class="n">D083</span><span>Globally Distributed SQL: Spanner, CockroachDB, Calvin</span></a></li><li><a href="#d084"><span class="n">D084</span><span>Distributed Failure Modes Catalogue</span></a></li></ul>
+<p class="railsec">All phases</p>
+<ul class="phaselinks"><li><a href="phase-00.html"><span class="sw" style="background:var(--p0)"></span>00 · Foundations & Mental Models</a></li><li><a href="phase-01.html"><span class="sw" style="background:var(--p1)"></span>01 · Networking & the Web</a></li><li><a href="phase-02.html"><span class="sw" style="background:var(--p2)"></span>02 · Storage & Databases</a></li><li><a href="phase-03.html"><span class="sw" style="background:var(--p3)"></span>03 · Caching</a></li><li><a href="phase-04.html"><span class="sw" style="background:var(--p4)"></span>04 · Load Balancing & Traffic</a></li><li><a href="phase-05.html" aria-current="page"><span class="sw" style="background:var(--p5)"></span>05 · Distributed Systems Theory</a></li><li><a href="phase-06.html"><span class="sw" style="background:var(--p6)"></span>06 · Messaging & Streaming</a></li><li><a href="phase-07.html"><span class="sw" style="background:var(--p7)"></span>07 · Microservices & Patterns</a></li><li><a href="phase-08.html"><span class="sw" style="background:var(--p8)"></span>08 · Reliability, Observability, Security, Cost</a></li><li><a href="phase-09.html"><span class="sw" style="background:var(--p9)"></span>09 · Case Studies</a></li><li><a href="phase-10.html"><span class="sw" style="background:var(--p10)"></span>10 · Interview Mastery & Capstone</a></li></ul>
+</nav><main class="main"><div class="wrap"><div class="phasehead">
+  <p class="eyebrow">Phase 05 · Days 67–84 · 18 lessons · 9h 16m</p>
+  <h1>Distributed Systems Theory</h1>
+  <p class="lede">Understand why distributed systems fail, and name the guarantee you are trading away.</p>
+  <div class="statrow">
+    <div class="stat"><b>18</b><span>Lessons</span></div>
+    <div class="stat"><b>9h 16m</b><span>Runtime</span></div>
+    <div class="stat"><b>31 min</b><span>Average</span></div>
+    <div class="stat"><b>Wk 13.5–17</b><span>At 5 / week</span></div>
+    <div class="stat"><b>D044, D046</b><span>Prerequisites</span></div>
+  </div>
+</div>
+
+<div class="note" style="margin-bottom:26px">
+<b>Where the long-form notes are.</b> Phases 0 and 1 carry the full written treatment — worked
+arithmetic, diagrams, war stories, interview traps and interactive demos. This phase currently carries
+the complete per-lesson breakdown: everything each lesson covers, the whiteboard sequence, and the
+homework. Use it as the study checklist and the recording script; the expanded notes follow the same
+nine-part structure shown by the ribbon on every card.</div>
+<article class="lesson" id="d067">
+<div class="lhead"><div class="day">D067</div><div>
+  <h3>Why Distributed Systems Are Hard</h3>
+  <p class="lmeta">26 min · Phase 05 · Prereq: Day 66</p></div></div>
+<div class="ribbon" data-runtime="26"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>The 8 fallacies of distributed computing, each with a real outage</li><li>Partial failure vs total failure</li><li>The impossibility of distinguishing a slow node from a dead one</li><li>Unbounded message delays</li><li>Independent vs correlated failures</li><li>The &quot;it worked on one machine&quot; trap</li><li>How failure probability compounds with node count</li></ul>
+<div class="note"><b>Whiteboard.</b> 1 node at 99.9% → 100 nodes: what&#x27;s the probability that <em>something</em> is broken right now?</div>
+<div class="hw"><b>Homework</b>List every failure mode in a 3-service call chain (there are more than 15).</div>
+</div></article>
+<article class="lesson" id="d068">
+<div class="lhead"><div class="day">D068</div><div>
+  <h3>Time, Clocks &amp; Ordering</h3>
+  <p class="lmeta">34 min · Phase 05 · Prereq: Day 67</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Wall-clock vs monotonic clocks and the classic bug of using the wrong one</li><li>Clock skew, drift, NTP, leap seconds</li><li>Why timestamps can&#x27;t order distributed events</li><li>Happens-before relations</li><li>Lamport timestamps and their limits</li><li>Vector clocks and version vectors with worked examples</li><li>Hybrid logical clocks</li><li>Google TrueTime, uncertainty intervals, and commit-wait</li></ul>
+<div class="note"><b>Whiteboard.</b> three nodes, concurrent writes, resolved with Lamport vs vector clocks — different answers, explained.</div>
+<div class="hw"><b>Homework</b>Implement vector clocks and detect concurrent updates.</div>
+</div></article>
+<article class="lesson" id="d069">
+<div class="lhead"><div class="day">D069</div><div>
+  <h3>CAP Theorem, Properly</h3>
+  <p class="lmeta">30 min · Phase 05 · Prereq: Day 68</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>The formal statement and precise definitions of C, A, and P</li><li>Why P is not optional in a real network</li><li>CP vs AP as a <em>partition-time</em> decision, not a database personality</li><li>What &quot;consistency&quot; means in CAP vs ACID (they&#x27;re different)</li><li>The misconceptions that get repeated in interviews</li><li>Classifying real systems and why most are configurable</li></ul>
+<div class="note"><b>Whiteboard.</b> a partition happening live — the choice each side must make, and what the user sees.</div>
+<div class="hw"><b>Homework</b>Classify 8 real datastores and defend each classification.</div>
+</div></article>
+<article class="lesson" id="d070">
+<div class="lhead"><div class="day">D070</div><div>
+  <h3>PACELC &amp; the Latency Tradeoff</h3>
+  <p class="lmeta">24 min · Phase 05 · Prereq: Day 69</p></div></div>
+<div class="ribbon" data-runtime="24"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>PACELC as CAP&#x27;s honest extension (else: latency vs consistency, even with no partition)</li><li>Why the normal-operation tradeoff matters more day-to-day than the partition case</li><li>Classifying systems as PA/EL, PC/EC, PA/EC etc</li><li>Cost of strong consistency measured in milliseconds</li><li>Picking per-operation rather than per-system</li></ul>
+<div class="note"><b>Whiteboard.</b> the same read served with 3 consistency settings — latency and staleness for each.</div>
+<div class="hw"><b>Homework</b>Assign a consistency requirement to each operation in a checkout flow.</div>
+</div></article>
+<article class="lesson" id="d071">
+<div class="lhead"><div class="day">D071</div><div>
+  <h3>Consistency Models I: Strong Guarantees</h3>
+  <p class="lmeta">32 min · Phase 05 · Prereq: Day 70</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Linearizability defined precisely (real-time ordering, single-copy illusion)</li><li>Sequential consistency and how it differs</li><li>Strict serializability vs serializability</li><li>The cost of each in round trips</li><li>Causal consistency and its practical sweet spot</li><li>How to test for linearizability (Jepsen, Knossos)</li><li>Consistency of reads vs writes vs read-modify-write</li></ul>
+<div class="note"><b>Whiteboard.</b> an execution history judged linearizable or not, operation by operation.</div>
+<div class="hw"><b>Homework</b>Draw a history that&#x27;s serializable but not linearizable, and explain the user-visible difference.</div>
+</div></article>
+<article class="lesson" id="d072">
+<div class="lhead"><div class="day">D072</div><div>
+  <h3>Consistency Models II: Eventual, Session &amp; CRDTs</h3>
+  <p class="lmeta">32 min · Phase 05 · Prereq: Day 71</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Eventual consistency and what &quot;eventually&quot; costs</li><li>Session guarantees (read-your-writes, monotonic reads, monotonic writes, writes-follow-reads) and how to implement each</li><li>Strong eventual consistency</li><li>CRDTs — G-Counter, PN-Counter, G-Set, OR-Set, LWW-Register, RGA/sequence CRDTs</li><li>State-based vs operation-based</li><li>Where CRDTs shine (collab editing, offline-first) and their metadata cost</li></ul>
+<div class="note"><b>Whiteboard.</b> two offline devices editing the same list, merged with an OR-Set.</div>
+<div class="hw"><b>Homework</b>Implement a PN-Counter and an OR-Set; prove convergence under reordering.</div>
+</div></article>
+<article class="lesson" id="d073">
+<div class="lhead"><div class="day">D073</div><div>
+  <h3>Consensus I: The Problem, FLP &amp; Paxos</h3>
+  <p class="lmeta">34 min · Phase 05 · Prereq: Day 72</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Why consensus is the foundation of everything (leader election, locks, config, atomic commit)</li><li>Safety vs liveness</li><li>The FLP impossibility result and how real systems dodge it (timeouts, randomization, partial synchrony)</li><li>Basic Paxos — proposers, acceptors, learners, two phases, ballot numbers</li><li>Multi-Paxos and the leader optimization</li><li>Why Paxos is famously hard to implement</li></ul>
+<div class="note"><b>Whiteboard.</b> a Paxos round with a competing proposer, message by message.</div>
+<div class="hw"><b>Homework</b>Trace Paxos through a dueling-proposers scenario and identify the livelock.</div>
+</div></article>
+<article class="lesson" id="d074">
+<div class="lhead"><div class="day">D074</div><div>
+  <h3>Consensus II: Raft in Full Detail</h3>
+  <p class="lmeta">36 min · Phase 05 · Prereq: Day 73</p></div></div>
+<div class="ribbon" data-runtime="36"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Raft&#x27;s decomposition — leader election, log replication, safety</li><li>Terms, election timeouts, randomization</li><li>RequestVote and AppendEntries RPCs</li><li>Log matching property, commit index, applying to the state machine</li><li>Handling stale leaders and log divergence</li><li>Membership changes (joint consensus, single-server changes)</li><li>Log compaction and snapshots</li><li>Read-only queries and the lease/read-index optimizations</li><li>Performance characteristics and quorum size math</li></ul>
+<div class="note"><b>Whiteboard.</b> a full election plus a split-vote retry, then a log conflict repaired.</div>
+<div class="hw"><b>Homework</b>Walk through the Raft visualization and force 3 specific failure scenarios.</div>
+</div></article>
+<article class="lesson" id="d075">
+<div class="lhead"><div class="day">D075</div><div>
+  <h3>Coordination Services: ZooKeeper &amp; etcd</h3>
+  <p class="lmeta">30 min · Phase 05 · Prereq: Day 74</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>What a coordination service is for (and what it must never be used as)</li><li>ZooKeeper znodes, ephemeral and sequential nodes, watches, sessions, ZAB</li><li>Etcd&#x27;s Raft-based KV, leases, watches, MVCC revisions</li><li>Recipes — leader election, distributed locks, barriers, group membership, config distribution, service registry</li><li>The herd effect on watches</li><li>Capacity limits and why you don&#x27;t put your data there</li></ul>
+<div class="note"><b>Whiteboard.</b> leader election implemented with ephemeral sequential znodes, including the failover path.</div>
+<div class="hw"><b>Homework</b>Implement leader election on etcd leases and kill the leader.</div>
+</div></article>
+<article class="lesson" id="d076">
+<div class="lhead"><div class="day">D076</div><div>
+  <h3>Distributed Locks &amp; Leases in Practice</h3>
+  <p class="lmeta">28 min · Phase 05 · Prereq: Day 75</p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>What a distributed lock actually guarantees (and doesn&#x27;t)</li><li>Lease-based locks and clock assumptions</li><li>The GC-pause problem that breaks naive locks</li><li>Fencing tokens and monotonic sequence numbers as the correct fix</li><li>Lock granularity and contention</li><li>When to avoid locks entirely (partitioning by key, single-writer-per-partition, optimistic concurrency, idempotency)</li><li>Comparing Redis, ZooKeeper, etcd, and DB-based locks</li></ul>
+<div class="note"><b>Whiteboard.</b> the process-pause timeline that corrupts data despite a &quot;correct&quot; lock.</div>
+<div class="hw"><b>Homework</b>Design a job runner that never double-executes — without a distributed lock.</div>
+</div></article>
+<article class="lesson" id="d077">
+<div class="lhead"><div class="day">D077</div><div>
+  <h3>Distributed Transactions I: 2PC &amp; 3PC</h3>
+  <p class="lmeta">30 min · Phase 05 · Prereq: Day 76</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>The atomic commit problem</li><li>Two-phase commit — prepare and commit phases, coordinator role, participant logging</li><li>The blocking problem when the coordinator dies</li><li>In-doubt transactions and held locks</li><li>3PC and why it still fails under partitions</li><li>XA transactions and their real-world reputation</li><li>When 2PC is genuinely appropriate (single-DB, Kafka transactions, short scopes)</li></ul>
+<div class="note"><b>Whiteboard.</b> coordinator crash after prepare — every participant&#x27;s state and what they can and can&#x27;t do.</div>
+<div class="hw"><b>Homework</b>Enumerate every crash point in 2PC and its recovery action.</div>
+</div></article>
+<article class="lesson" id="d078">
+<div class="lhead"><div class="day">D078</div><div>
+  <h3>Distributed Transactions II: Sagas &amp; Alternatives</h3>
+  <p class="lmeta">34 min · Phase 05 · Prereq: Day 77</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>The saga pattern — a sequence of local transactions with compensating actions</li><li>Choreography vs orchestration with tradeoffs</li><li>Designing compensations for non-reversible actions (email sent, payment captured)</li><li>Semantic locks, commutative updates, pessimistic view ordering</li><li>The transactional outbox and inbox patterns</li><li>TCC (try-confirm-cancel)</li><li>Saga state persistence and recovery</li><li>Observability for long-running sagas</li></ul>
+<div class="note"><b>Whiteboard.</b> a 5-step travel booking saga with a failure at step 4 and full compensation.</div>
+<div class="hw"><b>Homework</b>Implement an orchestrated saga with compensations and force failures at each step.</div>
+</div></article>
+<article class="lesson" id="d079">
+<div class="lhead"><div class="day">D079</div><div>
+  <h3>Idempotency &amp; Delivery Semantics</h3>
+  <p class="lmeta">30 min · Phase 05 · Prereq: Day 78</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>At-most-once, at-least-once, effectively-once — and why exactly-once delivery is impossible while exactly-once <em>processing</em> is achievable</li><li>Idempotency keys, request fingerprints, and storage/TTL design</li><li>Natural idempotency vs enforced</li><li>Deduplication windows and their memory cost</li><li>Idempotency for payments, emails, and non-reversible side effects</li><li>Retries as the reason all of this exists</li></ul>
+<div class="note"><b>Whiteboard.</b> a double-charge bug traced through a retry, then eliminated with an idempotency key.</div>
+<div class="hw"><b>Homework</b>Make a payment endpoint idempotent and prove it under concurrent duplicate requests.</div>
+</div></article>
+<article class="lesson" id="d080">
+<div class="lhead"><div class="day">D080</div><div>
+  <h3>Failure Detection &amp; Membership</h3>
+  <p class="lmeta">30 min · Phase 05 · Prereq: Day 79</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Heartbeats, timeouts, and the impossibility of perfect detection</li><li>The completeness/accuracy tradeoff</li><li>Phi-accrual adaptive failure detectors</li><li>Gossip protocols and epidemic dissemination math</li><li>SWIM (direct + indirect probes, suspicion mechanism)</li><li>Membership lists and convergence time</li><li>False positives from GC pauses and network blips</li><li>Flapping nodes and quarantine</li></ul>
+<div class="note"><b>Whiteboard.</b> a 100-node gossip convergence, round by round.</div>
+<div class="hw"><b>Homework</b>Implement heartbeat-based detection and then defeat it with a 10-second GC pause.</div>
+</div></article>
+<article class="lesson" id="d081">
+<div class="lhead"><div class="day">D081</div><div>
+  <h3>Quorums, Anti-Entropy &amp; Repair</h3>
+  <p class="lmeta">32 min · Phase 05 · Prereq: Day 80</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Quorum math (R + W &gt; N) and what it does and doesn&#x27;t guarantee</li><li>Sloppy quorums and hinted handoff</li><li>Read repair (blocking vs background)</li><li>Merkle trees for efficient replica comparison</li><li>Anti-entropy scheduling and its cost</li><li>Tombstones, grave-yard compaction, and resurrection bugs</li><li>Repair during node replacement</li><li>Quorum choices for different read/write ratios</li></ul>
+<div class="note"><b>Whiteboard.</b> Merkle tree diff between two replicas — finding the one bad key in a million.</div>
+<div class="hw"><b>Homework</b>Choose R and W for 4 workloads and justify latency vs consistency for each.</div>
+</div></article>
+<article class="lesson" id="d082">
+<div class="lhead"><div class="day">D082</div><div>
+  <h3>Byzantine Fault Tolerance</h3>
+  <p class="lmeta">26 min · Phase 05 · Prereq: Day 81</p></div></div>
+<div class="ribbon" data-runtime="26"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Crash faults vs Byzantine faults</li><li>The Byzantine Generals problem</li><li>The 3f+1 bound</li><li>PBFT phases</li><li>Where BFT actually matters (blockchains, aerospace, multi-org systems) and where it&#x27;s overkill</li><li>Blockchain consensus contrasts (PoW, PoS) as a distributed-systems topic</li><li>The cost of BFT in throughput and latency</li></ul>
+<div class="note"><b>Whiteboard.</b> why 3 generals with 1 traitor can&#x27;t agree — and 4 can.</div>
+<div class="hw"><b>Homework</b>Identify which of your systems have a genuine Byzantine threat model (usually zero).</div>
+</div></article>
+<article class="lesson" id="d083">
+<div class="lhead"><div class="day">D083</div><div>
+  <h3>Globally Distributed SQL: Spanner, CockroachDB, Calvin</h3>
+  <p class="lmeta">34 min · Phase 05 · Prereq: Day 82</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>How Spanner gets external consistency (TrueTime + commit wait) and what the atomic clocks buy</li><li>Paxos groups per shard, directory movement</li><li>CockroachDB&#x27;s approach (HLC, Raft ranges, range splits, transaction records) and Serializable-by-default</li><li>Calvin/FaunaDB&#x27;s deterministic pre-ordering approach</li><li>YugabyteDB and TiDB briefly</li><li>Latency cost of a global transaction</li><li>When NewSQL beats a sharded monolith and when it doesn&#x27;t</li></ul>
+<div class="note"><b>Whiteboard.</b> a cross-region transaction&#x27;s timeline including commit-wait, in milliseconds.</div>
+<div class="hw"><b>Homework</b>Estimate the write latency of a 3-continent quorum from raw physics.</div>
+</div></article>
+<article class="lesson" id="d084">
+<div class="lhead"><div class="day">D084</div><div>
+  <h3>Distributed Failure Modes Catalogue</h3>
+  <p class="lmeta">34 min · Phase 05 · Prereq: Day 83</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Split brain and fencing</li><li>Thundering herd and stampedes</li><li>Cascading failure and retry storms</li><li>Metastable failures (the system stays broken after the trigger is gone)</li><li>Gray failure and partial degradation</li><li>Correlated failures and shared fate</li><li>The death spiral of retries plus timeouts</li><li>Feedback loops in autoscaling</li><li>Head-of-line blocking</li><li>Poison pills</li><li>A taxonomy with the mitigation for each</li></ul>
+<div class="note"><b>Whiteboard.</b> a cascading failure spreading through 6 services, then the same architecture with bulkheads and shedding.</div>
+<div class="hw"><b>Homework</b>Write a pre-mortem for your own system: list 10 ways it dies.</div>
+</div></article>
+<div class="nextprev"><a href="phase-04.html"><span>Previous phase</span><b>← 04</b></a><a href="phase-06.html"><span>Next phase</span><b>06 · Messaging, Streaming &amp; Data Pipelines →</b></a></div>
+<div class="foot"><span>Phase 05 · Days 67–84 · 9h 16m</span><span><a href="index.html">← Back to hub</a></span></div></div></main></div><script>/* ---------- signature element: the chapter ribbon ---------- */
+const SPEC = {
+  std: [
+    ["Hook — watch it break", 5,  "#B4232C"],
+    ["What you'll be able to do", 3, "#C97B2E"],
+    ["Prerequisite recap", 5, "#9A6A00"],
+    ["Core concept — whiteboard", 30, "#0E6E63"],
+    ["Deep dive — internals / math", 30, "#1B6E9B"],
+    ["Tradeoffs table", 10, "#4A3C9E"],
+    ["Real-world war story", 8, "#8A2E68"],
+    ["Interview angle", 6, "#5A5270"],
+    ["Homework + teaser", 3, "#23415E"]
+  ],
+  case: [
+    ["Problem + scoping questions", 6, "#B4232C"],
+    ["Functional + non-functional reqs", 8, "#C97B2E"],
+    ["Back-of-envelope estimation", 8, "#9A6A00"],
+    ["API design", 7, "#2E6E36"],
+    ["Data model + storage choice", 12, "#0E6E63"],
+    ["High-level architecture", 15, "#1B6E9B"],
+    ["Deep dive 1 — the hard part", 15, "#4A3C9E"],
+    ["Deep dive 2", 12, "#8A2E68"],
+    ["Bottlenecks + failure modes", 10, "#5A5270"],
+    ["Interview follow-ups", 7, "#23415E"]
+  ]
+};
+function fmtClock(min){const m=Math.floor(min),s=Math.round((min-m)*60);return m+":"+String(s).padStart(2,"0");}
+function buildRibbons(){
+  document.querySelectorAll(".ribbon").forEach(r=>{
+    const rt=parseFloat(r.dataset.runtime||"30");
+    const spec=SPEC[r.dataset.spec||"std"];
+    let acc=0;
+    r.innerHTML=spec.map(([label,pct,col])=>{
+      const start=acc*rt/100; acc+=pct;
+      return `<i style="width:${pct}%;background:${col}" data-l="${fmtClock(start)} · ${label} · ${Math.round(pct*rt/100*10)/10}m"></i>`;
+    }).join("");
+  });
+}
+
+/* ---------- scroll-spy table of contents ---------- */
+function spy(){
+  const links=[...document.querySelectorAll(".toc a")];
+  if(!links.length) return;
+  const map=new Map();
+  links.forEach(a=>{const el=document.querySelector(a.getAttribute("href"));if(el)map.set(el,a);});
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove("on"));
+        const a=map.get(e.target); if(a){a.classList.add("on");
+          const r=a.closest(".rail");
+          if(r&&window.innerWidth>980){const t=a.offsetTop-r.clientHeight/2;r.scrollTo({top:t,behavior:"smooth"});}}
+      }
+    });
+  },{rootMargin:"-8% 0px -80% 0px",threshold:0});
+  map.forEach((a,el)=>io.observe(el));
+}
+
+/* ---------- helpers used by inline demos ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function num(n,d=0){return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});}
+function bytes(b){
+  const u=["B","KB","MB","GB","TB","PB","EB"];let i=0;
+  while(b>=1024&&i<u.length-1){b/=1024;i++;}
+  return (b<10?b.toFixed(2):b<100?b.toFixed(1):Math.round(b))+" "+u[i];
+}
+function eng(n){
+  if(n>=1e12)return (n/1e12).toFixed(2)+"T";
+  if(n>=1e9) return (n/1e9).toFixed(2)+"B";
+  if(n>=1e6) return (n/1e6).toFixed(2)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(2)+"K";
+  return n.toFixed(n<10?2:0);
+}
+function wire(root,fn){
+  const el=typeof root==="string"?$(root):root; if(!el)return;
+  $$("input,select",el).forEach(i=>i.addEventListener("input",()=>fn(el)));
+  $$("button[data-act]",el).forEach(b=>b.addEventListener("click",()=>fn(el,b.dataset.act)));
+  fn(el);
+}
+function setv(el,sel,val){const t=$(sel,el);if(t)t.textContent=val;}
+function setbar(el,sel,pct,cls){
+  const t=$(sel,el); if(!t)return;
+  t.style.width=Math.max(0,Math.min(100,pct))+"%";
+  t.className=cls||"";
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  buildRibbons(); spy();
+  const b=document.createElement("button");
+  b.className="top"; b.textContent="\u2191"; b.setAttribute("aria-label","Back to top");
+  b.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+  document.body.appendChild(b);
+});
+</script></body></html>

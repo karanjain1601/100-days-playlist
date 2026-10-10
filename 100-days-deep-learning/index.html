@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>100 Days of Deep Learning — Study Notes</title>
+<meta name="description" content="Full written notes, derivations, diagrams and live demos for the 100 Days of Deep Learning course.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><b>Course index</b></span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+<section class="wide hero">
+    <p class="eyebrow">Written companion · 121 lessons · 100 days · ~99 hours</p>
+    <h1>Everything the videos say,<br>written down — with the <em>math rendered</em> and the demos running.</h1>
+    <p class="lede">This is the notebook you keep open in the second tab. Full derivations, shape bookkeeping, architecture diagrams, the bugs you are actually going to hit, and demos you can drag. Below is a real neural network, training in your browser right now, on the hardest toy dataset in the business.</p>
+    <ul class="statrow">
+      <li><b>8</b> phases</li>
+      <li><b>121</b> lessons</li>
+      <li><b>99h 20m</b> of video</li>
+      <li>Prereq: <b>high-school math</b></li>
+      <li>Framework: <b>PyTorch</b></li>
+    </ul>
+
+    <div class="demo" id="d-hero">
+      <div class="demo-head"><span class="dot"></span><b>Live</b> · two-spirals classifier · pure JS, no libraries</div>
+      <div class="demo-body">
+        <div class="grid2">
+          <div>
+            <canvas id="heroBoundary" width="520" height="520" aria-label="Decision boundary of the training network"></canvas>
+            <div class="readout" id="heroOut1"></div>
+          </div>
+          <div>
+            <canvas id="heroLoss" width="520" height="250" aria-label="Training loss curve"></canvas>
+            <div class="readout" id="heroOut2"></div>
+            <div class="ctrls">
+              <label class="ctrl"><span>Hidden width <b id="hwv">24</b></span><input type="range" id="hw" min="2" max="64" step="1" value="24"></label>
+              <label class="ctrl"><span>Depth <b id="hdv">3</b></span><input type="range" id="hd" min="1" max="6" step="1" value="3"></label>
+              <label class="ctrl"><span>LR <b id="hlrv">0.30</b></span><input type="range" id="hlr" min="-3" max="0" step="0.05" value="-0.52"></label>
+              <label class="ctrl"><span>Activation</span>
+                <select id="hact"><option value="tanh">tanh</option><option value="relu" selected>ReLU</option><option value="sig">sigmoid</option></select>
+              </label>
+              <button class="btn primary" id="hreset">Restart</button>
+              <button class="btn" id="hpause">Pause</button>
+            </div>
+          </div>
+        </div>
+        <div class="readout" style="margin-top:12px">
+          <span class="k">What to look for:</span> set depth to 1 and it can never separate the arms — no hidden layer means a straight line. Push the LR to the right end and watch the loss detonate. Switch to sigmoid at depth 6 and watch it crawl: that is the vanishing gradient problem from <a href="phases/phase-2.html#l28">Lesson 28</a>, live.
+        </div>
+      </div>
+    </div>
+  </section>
+<section class="wrap">
+    <div class="box intuition">
+      <span class="lbl">How to use this page</span>
+      <p>The <b>chapter list</b> under each lesson title is the same list your video needs as timestamps — the numbering is the running order, not decoration. Notes are written to be read <em>before</em> you code and re-read after you get stuck. Anything marked <span style="color:var(--warn)">Pitfall</span> is a bug that will cost you an afternoon if you meet it cold.</p>
+      <p style="margin-bottom:0">Search the index on the left, or just hit <span class="kbd">Ctrl</span>+<span class="kbd">F</span> — the index on the left works from every page in the site.</p>
+    </div>
+  </section>
+  <section class="wrap">
+<div class="phasecard" id="p1"><p class="pmeta">Phase 1 · Days 1–14 · Lessons 1–15 · 10h 30m <span class="badge on">full notes</span></p><h3><a href="phases/phase-1.html" style="color:inherit;text-decoration:none">Math, Python &amp; Tooling Foundations</a></h3><p class="pintro">Nothing here is deep learning yet. All of it is load-bearing. The most common reason people stall around Day 40 is that they skipped the chain rule and the shape rules, so every debugging session becomes guesswork.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-1.html">Read Phase 1 →</a> <span class="sidehint" style="margin-left:10px">15 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-1.html#l1"><span class="lmeta"><span class="d">Day 1</span><span>L1</span><span class="r">20 min</span></span><span class="lt">Course Intro &amp; The 100-Day Roadmap</span></a><a class="lcard written" href="phases/phase-1.html#l2"><span class="lmeta"><span class="d">Day 2</span><span>L2</span><span class="r">40 min</span></span><span class="lt">Python for Deep Learning (NumPy-first)</span></a><a class="lcard written" href="phases/phase-1.html#l3"><span class="lmeta"><span class="d">Day 3</span><span>L3</span><span class="r">45 min</span></span><span class="lt">Linear Algebra I — Vectors &amp; Matrices</span></a><a class="lcard written" href="phases/phase-1.html#l4"><span class="lmeta"><span class="d">Day 4</span><span>L4</span><span class="r">50 min</span></span><span class="lt">Linear Algebra II — Decompositions</span></a><a class="lcard written" href="phases/phase-1.html#l5"><span class="lmeta"><span class="d">Day 5</span><span>L5</span><span class="r">45 min</span></span><span class="lt">Calculus for DL I — Derivatives &amp; Gradients</span></a><a class="lcard written" href="phases/phase-1.html#l6"><span class="lmeta"><span class="d">Day 6</span><span>L6</span><span class="r">45 min</span></span><span class="lt">Calculus for DL II — Jacobians &amp; Chain Rule</span></a><a class="lcard written" href="phases/phase-1.html#l7"><span class="lmeta"><span class="d">Day 7</span><span>L7</span><span class="r">45 min</span></span><span class="lt">Probability I — The Language of Uncertainty</span></a><a class="lcard written" href="phases/phase-1.html#l8"><span class="lmeta"><span class="d">Day 8</span><span>L8</span><span class="r">50 min</span></span><span class="lt">Probability II — Information Theory &amp; Estimation</span></a><a class="lcard written" href="phases/phase-1.html#l9"><span class="lmeta"><span class="d">Day 9</span><span>L9</span><span class="r">45 min</span></span><span class="lt">Optimization Fundamentals</span></a><a class="lcard written" href="phases/phase-1.html#l10"><span class="lmeta"><span class="d">Day 10</span><span>L10</span><span class="r">35 min</span></span><span class="lt">Numerical Stability &amp; Floating Point</span></a><a class="lcard written" href="phases/phase-1.html#l11"><span class="lmeta"><span class="d">Day 11</span><span>L11</span><span class="r">40 min</span></span><span class="lt">Environment Setup — CPU, GPU &amp; Cloud</span></a><a class="lcard written" href="phases/phase-1.html#l12"><span class="lmeta"><span class="d">Day 12</span><span>L12</span><span class="r">50 min</span></span><span class="lt">PyTorch Tensor Crash Course</span></a><a class="lcard written" href="phases/phase-1.html#l13"><span class="lmeta"><span class="d">Day 12-b</span><span>L13</span><span class="r">25 min</span></span><span class="lt">Framework Landscape — PyTorch vs TF vs JAX</span></a><a class="lcard written" href="phases/phase-1.html#l14"><span class="lmeta"><span class="d">Day 13</span><span>L14</span><span class="r">45 min</span></span><span class="lt">Data Pipelines — Loading, Batching &amp; Splitting</span></a><a class="lcard written" href="phases/phase-1.html#l15"><span class="lmeta"><span class="d">Day 14</span><span>L15</span><span class="r">50 min</span></span><span class="lt">Machine Learning Refresher</span></a></div></div>
+<div class="phasecard" id="p2"><p class="pmeta">Phase 2 · Days 15–28 · Lessons 16–32 · 13h 25m <span class="badge on">full notes</span></p><h3><a href="phases/phase-2.html" style="color:inherit;text-decoration:none">Neural Networks From Scratch</a></h3><p class="pintro">A perceptron, then an autodiff engine, then MNIST at 98% with no framework at all — and only then the same model in PyTorch, so you know exactly what the framework is doing for you.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-2.html">Read Phase 2 →</a> <span class="sidehint" style="margin-left:10px">17 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-2.html#l16"><span class="lmeta"><span class="d">Day 15</span><span>L16</span><span class="r">40 min</span></span><span class="lt">The Perceptron</span></a><a class="lcard written" href="phases/phase-2.html#l17"><span class="lmeta"><span class="d">Day 16</span><span>L17</span><span class="r">45 min</span></span><span class="lt">Logistic Regression as a One-Layer Net</span></a><a class="lcard written" href="phases/phase-2.html#l18"><span class="lmeta"><span class="d">Day 17</span><span>L18</span><span class="r">40 min</span></span><span class="lt">A Single Neuron in Pure NumPy</span></a><a class="lcard written" href="phases/phase-2.html#l19"><span class="lmeta"><span class="d">Day 18</span><span>L19</span><span class="r">45 min</span></span><span class="lt">Multi-Layer Perceptrons</span></a><a class="lcard written" href="phases/phase-2.html#l20"><span class="lmeta"><span class="d">Day 19</span><span>L20</span><span class="r">50 min</span></span><span class="lt">Activation Functions — Deep Dive</span></a><a class="lcard written" href="phases/phase-2.html#l21"><span class="lmeta"><span class="d">Day 20</span><span>L21</span><span class="r">50 min</span></span><span class="lt">Loss Functions — Deep Dive</span></a><a class="lcard written" href="phases/phase-2.html#l22"><span class="lmeta"><span class="d">Day 21</span><span>L22</span><span class="r">60 min</span></span><span class="lt">Backpropagation From First Principles</span></a><a class="lcard written" href="phases/phase-2.html#l23"><span class="lmeta"><span class="d">Day 22</span><span>L23</span><span class="r">50 min</span></span><span class="lt">Backprop By Hand — Numeric Walkthrough</span></a><a class="lcard written" href="phases/phase-2.html#l24"><span class="lmeta"><span class="d">Day 23</span><span>L24</span><span class="r">60 min</span></span><span class="lt">Build Your Own Autodiff Engine</span></a><a class="lcard written" href="phases/phase-2.html#l25"><span class="lmeta"><span class="d">Day 24</span><span>L25</span><span class="r">60 min</span></span><span class="lt">Train an MLP on MNIST — Pure NumPy</span></a><a class="lcard written" href="phases/phase-2.html#l26"><span class="lmeta"><span class="d">Day 25</span><span>L26</span><span class="r">50 min</span></span><span class="lt">The Same Model in PyTorch</span></a><a class="lcard written" href="phases/phase-2.html#l27"><span class="lmeta"><span class="d">Day 25-b</span><span>L27</span><span class="r">40 min</span></span><span class="lt">Weight Initialization</span></a><a class="lcard written" href="phases/phase-2.html#l28"><span class="lmeta"><span class="d">Day 26</span><span>L28</span><span class="r">45 min</span></span><span class="lt">Vanishing &amp; Exploding Gradients</span></a><a class="lcard written" href="phases/phase-2.html#l29"><span class="lmeta"><span class="d">Day 27</span><span>L29</span><span class="r">35 min</span></span><span class="lt">Batch, Mini-Batch &amp; Stochastic GD</span></a><a class="lcard written" href="phases/phase-2.html#l30"><span class="lmeta"><span class="d">Day 27-b</span><span>L30</span><span class="r">35 min</span></span><span class="lt">The Learning Rate</span></a><a class="lcard written" href="phases/phase-2.html#l31"><span class="lmeta"><span class="d">Day 28</span><span>L31</span><span class="r">50 min</span></span><span class="lt">Optimizers I — Momentum &amp; Adaptive Methods</span></a><a class="lcard written" href="phases/phase-2.html#l32"><span class="lmeta"><span class="d">Day 28-b</span><span>L32</span><span class="r">50 min</span></span><span class="lt">Optimizers II — Adam and Modern Successors</span></a></div></div>
+<div class="phasecard" id="p3"><p class="pmeta">Phase 3 · Days 29–40 · Lessons 33–46 · 10h 50m <span class="badge on">full notes</span></p><h3><a href="phases/phase-3.html" style="color:inherit;text-decoration:none">Training Deep Networks Well</a></h3><p class="pintro">The gap between a model that runs and a model that works. Schedules, regularization, normalization, and the diagnostic habits that turn a bad run into a fixed one.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-3.html">Read Phase 3 →</a> <span class="sidehint" style="margin-left:10px">14 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-3.html#l33"><span class="lmeta"><span class="d">Day 29</span><span>L33</span><span class="r">45 min</span></span><span class="lt">Learning Rate Schedules &amp; Warmup</span></a><a class="lcard written" href="phases/phase-3.html#l34"><span class="lmeta"><span class="d">Day 30</span><span>L34</span><span class="r">45 min</span></span><span class="lt">Regularization I — Weight Penalties &amp; Early Stopping</span></a><a class="lcard written" href="phases/phase-3.html#l35"><span class="lmeta"><span class="d">Day 31</span><span>L35</span><span class="r">45 min</span></span><span class="lt">Regularization II — Dropout &amp; Friends</span></a><a class="lcard written" href="phases/phase-3.html#l36"><span class="lmeta"><span class="d">Day 32</span><span>L36</span><span class="r">50 min</span></span><span class="lt">Normalization I — Batch Normalization</span></a><a class="lcard written" href="phases/phase-3.html#l37"><span class="lmeta"><span class="d">Day 33</span><span>L37</span><span class="r">45 min</span></span><span class="lt">Normalization II — Layer, Group, Instance, RMSNorm</span></a><a class="lcard written" href="phases/phase-3.html#l38"><span class="lmeta"><span class="d">Day 34</span><span>L38</span><span class="r">45 min</span></span><span class="lt">Data Augmentation</span></a><a class="lcard written" href="phases/phase-3.html#l39"><span class="lmeta"><span class="d">Day 35</span><span>L39</span><span class="r">45 min</span></span><span class="lt">Hyperparameter Tuning</span></a><a class="lcard written" href="phases/phase-3.html#l40"><span class="lmeta"><span class="d">Day 36</span><span>L40</span><span class="r">50 min</span></span><span class="lt">Debugging Neural Networks</span></a><a class="lcard written" href="phases/phase-3.html#l41"><span class="lmeta"><span class="d">Day 37</span><span>L41</span><span class="r">40 min</span></span><span class="lt">Experiment Tracking &amp; Reproducibility</span></a><a class="lcard written" href="phases/phase-3.html#l42"><span class="lmeta"><span class="d">Day 38</span><span>L42</span><span class="r">40 min</span></span><span class="lt">Reading Loss Curves &amp; Diagnosing Training</span></a><a class="lcard written" href="phases/phase-3.html#l43"><span class="lmeta"><span class="d">Day 39</span><span>L43</span><span class="r">50 min</span></span><span class="lt">Evaluation Metrics Done Properly</span></a><a class="lcard written" href="phases/phase-3.html#l44"><span class="lmeta"><span class="d">Day 39-b</span><span>L44</span><span class="r">45 min</span></span><span class="lt">Mixed Precision, Gradient Accumulation &amp; Memory</span></a><a class="lcard written" href="phases/phase-3.html#l45"><span class="lmeta"><span class="d">Day 40</span><span>L45</span><span class="r">45 min</span></span><span class="lt">Transfer Learning &amp; Fine-Tuning Fundamentals</span></a><a class="lcard written" href="phases/phase-3.html#l46"><span class="lmeta"><span class="d">Day 40-b</span><span>L46</span><span class="r">60 min</span></span><span class="lt">Project Checkpoint 1 — End-to-End Classifier</span></a></div></div>
+<div class="phasecard" id="p4"><p class="pmeta">Phase 4 · Days 41–56 · Lessons 47–65 · 16h 10m <span class="badge on">full notes</span></p><h3><a href="phases/phase-4.html" style="color:inherit;text-decoration:none">CNNs &amp; Computer Vision</a></h3><p class="pintro">Convolution from the arithmetic up, then the architecture lineage from LeNet to ConvNeXt, then the four task families: classification, detection, segmentation, retrieval.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-4.html">Read Phase 4 →</a> <span class="sidehint" style="margin-left:10px">19 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-4.html#l47"><span class="lmeta"><span class="d">Day 41</span><span>L47</span><span class="r">30 min</span></span><span class="lt">Why MLPs Fail on Images</span></a><a class="lcard written" href="phases/phase-4.html#l48"><span class="lmeta"><span class="d">Day 42</span><span>L48</span><span class="r">55 min</span></span><span class="lt">The Convolution Operation</span></a><a class="lcard written" href="phases/phase-4.html#l49"><span class="lmeta"><span class="d">Day 43</span><span>L49</span><span class="r">45 min</span></span><span class="lt">CNN Building Blocks</span></a><a class="lcard written" href="phases/phase-4.html#l50"><span class="lmeta"><span class="d">Day 44</span><span>L50</span><span class="r">55 min</span></span><span class="lt">Build a CNN From Scratch</span></a><a class="lcard written" href="phases/phase-4.html#l51"><span class="lmeta"><span class="d">Day 45</span><span>L51</span><span class="r">50 min</span></span><span class="lt">Classic Architectures I — LeNet to VGG</span></a><a class="lcard written" href="phases/phase-4.html#l52"><span class="lmeta"><span class="d">Day 46</span><span>L52</span><span class="r">55 min</span></span><span class="lt">Classic Architectures II — Inception &amp; ResNet</span></a><a class="lcard written" href="phases/phase-4.html#l53"><span class="lmeta"><span class="d">Day 47</span><span>L53</span><span class="r">55 min</span></span><span class="lt">Modern CNN Architectures</span></a><a class="lcard written" href="phases/phase-4.html#l54"><span class="lmeta"><span class="d">Day 48</span><span>L54</span><span class="r">60 min</span></span><span class="lt">Training a CNN on CIFAR-10 — The Full Recipe</span></a><a class="lcard written" href="phases/phase-4.html#l55"><span class="lmeta"><span class="d">Day 49</span><span>L55</span><span class="r">50 min</span></span><span class="lt">Transfer Learning in Vision, Hands-On</span></a><a class="lcard written" href="phases/phase-4.html#l56"><span class="lmeta"><span class="d">Day 50</span><span>L56</span><span class="r">50 min</span></span><span class="lt">Object Detection I — Foundations</span></a><a class="lcard written" href="phases/phase-4.html#l57"><span class="lmeta"><span class="d">Day 51</span><span>L57</span><span class="r">50 min</span></span><span class="lt">Object Detection II — Two-Stage Detectors</span></a><a class="lcard written" href="phases/phase-4.html#l58"><span class="lmeta"><span class="d">Day 52</span><span>L58</span><span class="r">55 min</span></span><span class="lt">Object Detection III — One-Stage &amp; DETR</span></a><a class="lcard written" href="phases/phase-4.html#l59"><span class="lmeta"><span class="d">Day 53</span><span>L59</span><span class="r">55 min</span></span><span class="lt">Segmentation</span></a><a class="lcard written" href="phases/phase-4.html#l60"><span class="lmeta"><span class="d">Day 54</span><span>L60</span><span class="r">50 min</span></span><span class="lt">Other Vision Tasks</span></a><a class="lcard written" href="phases/phase-4.html#l61"><span class="lmeta"><span class="d">Day 54-b</span><span>L61</span><span class="r">40 min</span></span><span class="lt">Metric Learning &amp; Embeddings</span></a><a class="lcard written" href="phases/phase-4.html#l62"><span class="lmeta"><span class="d">Day 55</span><span>L62</span><span class="r">55 min</span></span><span class="lt">Vision Transformers</span></a><a class="lcard written" href="phases/phase-4.html#l63"><span class="lmeta"><span class="d">Day 55-b</span><span>L63</span><span class="r">50 min</span></span><span class="lt">Self-Supervised Learning for Vision</span></a><a class="lcard written" href="phases/phase-4.html#l64"><span class="lmeta"><span class="d">Day 56</span><span>L64</span><span class="r">50 min</span></span><span class="lt">Interpretability &amp; Adversarial Robustness in Vision</span></a><a class="lcard written" href="phases/phase-4.html#l65"><span class="lmeta"><span class="d">Day 56-b</span><span>L65</span><span class="r">60 min</span></span><span class="lt">Project Checkpoint 2 — Custom Vision System</span></a></div></div>
+<div class="phasecard" id="p5"><p class="pmeta">Phase 5 · Days 57–68 · Lessons 66–79 · 11h 10m <span class="badge on">full notes</span></p><h3><a href="phases/phase-5.html" style="color:inherit;text-decoration:none">Sequence Models &amp; Classical NLP</a></h3><p class="pintro">Everything the transformer replaced, and why it needed replacing. Tokenization, embeddings, RNNs, LSTMs — and attention arriving as the fix for one specific bottleneck.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-5.html">Read Phase 5 →</a> <span class="sidehint" style="margin-left:10px">14 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-5.html#l66"><span class="lmeta"><span class="d">Day 57</span><span>L66</span><span class="r">35 min</span></span><span class="lt">Sequence Data &amp; Why Feedforward Nets Fail</span></a><a class="lcard written" href="phases/phase-5.html#l67"><span class="lmeta"><span class="d">Day 58</span><span>L67</span><span class="r">55 min</span></span><span class="lt">Text Preprocessing &amp; Tokenization</span></a><a class="lcard written" href="phases/phase-5.html#l68"><span class="lmeta"><span class="d">Day 59</span><span>L68</span><span class="r">40 min</span></span><span class="lt">Word Representations I — Count-Based</span></a><a class="lcard written" href="phases/phase-5.html#l69"><span class="lmeta"><span class="d">Day 60</span><span>L69</span><span class="r">55 min</span></span><span class="lt">Word Representations II — Learned Embeddings</span></a><a class="lcard written" href="phases/phase-5.html#l70"><span class="lmeta"><span class="d">Day 61</span><span>L70</span><span class="r">55 min</span></span><span class="lt">Recurrent Neural Networks</span></a><a class="lcard written" href="phases/phase-5.html#l71"><span class="lmeta"><span class="d">Day 62</span><span>L71</span><span class="r">55 min</span></span><span class="lt">LSTM — Long Short-Term Memory</span></a><a class="lcard written" href="phases/phase-5.html#l72"><span class="lmeta"><span class="d">Day 63</span><span>L72</span><span class="r">45 min</span></span><span class="lt">GRU, Bidirectional &amp; Deep RNNs</span></a><a class="lcard written" href="phases/phase-5.html#l73"><span class="lmeta"><span class="d">Day 64</span><span>L73</span><span class="r">55 min</span></span><span class="lt">Build a Character-Level Language Model</span></a><a class="lcard written" href="phases/phase-5.html#l74"><span class="lmeta"><span class="d">Day 65</span><span>L74</span><span class="r">50 min</span></span><span class="lt">Seq2Seq &amp; Encoder-Decoder</span></a><a class="lcard written" href="phases/phase-5.html#l75"><span class="lmeta"><span class="d">Day 66</span><span>L75</span><span class="r">55 min</span></span><span class="lt">The Attention Mechanism</span></a><a class="lcard written" href="phases/phase-5.html#l76"><span class="lmeta"><span class="d">Day 66-b</span><span>L76</span><span class="r">45 min</span></span><span class="lt">Decoding &amp; Generation Strategies</span></a><a class="lcard written" href="phases/phase-5.html#l77"><span class="lmeta"><span class="d">Day 67</span><span>L77</span><span class="r">40 min</span></span><span class="lt">Convolutional &amp; Causal Models for Sequences</span></a><a class="lcard written" href="phases/phase-5.html#l78"><span class="lmeta"><span class="d">Day 67-b</span><span>L78</span><span class="r">45 min</span></span><span class="lt">Deep Learning for Time Series</span></a><a class="lcard written" href="phases/phase-5.html#l79"><span class="lmeta"><span class="d">Day 68</span><span>L79</span><span class="r">40 min</span></span><span class="lt">Evaluating Language Models &amp; Generation</span></a></div></div>
+<div class="phasecard" id="p6"><p class="pmeta">Phase 6 · Days 69–86 · Lessons 80–100 · 18h 45m <span class="badge on">full notes</span></p><h3><a href="phases/phase-6.html" style="color:inherit;text-decoration:none">Transformers &amp; Large Language Models</a></h3><p class="pintro">The architecture that ate the field, built from scratch twice: once as the 2017 paper, once as a modern Llama-style stack. Then scaled, tuned, aligned and served.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-6.html">Read Phase 6 →</a> <span class="sidehint" style="margin-left:10px">21 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-6.html#l80"><span class="lmeta"><span class="d">Day 69</span><span>L80</span><span class="r">60 min</span></span><span class="lt">Attention Is All You Need — Paper Walkthrough</span></a><a class="lcard written" href="phases/phase-6.html#l81"><span class="lmeta"><span class="d">Day 70</span><span>L81</span><span class="r">60 min</span></span><span class="lt">Self-Attention — The Math</span></a><a class="lcard written" href="phases/phase-6.html#l82"><span class="lmeta"><span class="d">Day 71</span><span>L82</span><span class="r">45 min</span></span><span class="lt">Multi-Head Attention</span></a><a class="lcard written" href="phases/phase-6.html#l83"><span class="lmeta"><span class="d">Day 72</span><span>L83</span><span class="r">50 min</span></span><span class="lt">Positional Encoding</span></a><a class="lcard written" href="phases/phase-6.html#l84"><span class="lmeta"><span class="d">Day 73</span><span>L84</span><span class="r">50 min</span></span><span class="lt">Inside the Transformer Block</span></a><a class="lcard written" href="phases/phase-6.html#l85"><span class="lmeta"><span class="d">Day 74</span><span>L85</span><span class="r">60 min</span></span><span class="lt">Build a Transformer From Scratch — Part 1</span></a><a class="lcard written" href="phases/phase-6.html#l86"><span class="lmeta"><span class="d">Day 75</span><span>L86</span><span class="r">60 min</span></span><span class="lt">Build a Transformer From Scratch — Part 2</span></a><a class="lcard written" href="phases/phase-6.html#l87"><span class="lmeta"><span class="d">Day 76</span><span>L87</span><span class="r">55 min</span></span><span class="lt">Encoder-Only Models — BERT &amp; Family</span></a><a class="lcard written" href="phases/phase-6.html#l88"><span class="lmeta"><span class="d">Day 77</span><span>L88</span><span class="r">55 min</span></span><span class="lt">Decoder-Only Models — The GPT Lineage</span></a><a class="lcard written" href="phases/phase-6.html#l89"><span class="lmeta"><span class="d">Day 78</span><span>L89</span><span class="r">45 min</span></span><span class="lt">Encoder-Decoder Models — T5 &amp; BART</span></a><a class="lcard written" href="phases/phase-6.html#l90"><span class="lmeta"><span class="d">Day 79</span><span>L90</span><span class="r">55 min</span></span><span class="lt">Efficient Attention &amp; Long Context</span></a><a class="lcard written" href="phases/phase-6.html#l91"><span class="lmeta"><span class="d">Day 80</span><span>L91</span><span class="r">45 min</span></span><span class="lt">Mixture of Experts</span></a><a class="lcard written" href="phases/phase-6.html#l92"><span class="lmeta"><span class="d">Day 81</span><span>L92</span><span class="r">45 min</span></span><span class="lt">State Space Models &amp; Transformer Alternatives</span></a><a class="lcard written" href="phases/phase-6.html#l93"><span class="lmeta"><span class="d">Day 82</span><span>L93</span><span class="r">50 min</span></span><span class="lt">Scaling Laws &amp; Pretraining Data</span></a><a class="lcard written" href="phases/phase-6.html#l94"><span class="lmeta"><span class="d">Day 83</span><span>L94</span><span class="r">55 min</span></span><span class="lt">Distributed Training at Scale</span></a><a class="lcard written" href="phases/phase-6.html#l95"><span class="lmeta"><span class="d">Day 84</span><span>L95</span><span class="r">50 min</span></span><span class="lt">Instruction Tuning &amp; Supervised Fine-Tuning</span></a><a class="lcard written" href="phases/phase-6.html#l96"><span class="lmeta"><span class="d">Day 84-b</span><span>L96</span><span class="r">55 min</span></span><span class="lt">Parameter-Efficient Fine-Tuning</span></a><a class="lcard written" href="phases/phase-6.html#l97"><span class="lmeta"><span class="d">Day 85</span><span>L97</span><span class="r">60 min</span></span><span class="lt">Alignment I — RLHF</span></a><a class="lcard written" href="phases/phase-6.html#l98"><span class="lmeta"><span class="d">Day 85-b</span><span>L98</span><span class="r">55 min</span></span><span class="lt">Alignment II — DPO and Modern Preference Optimization</span></a><a class="lcard written" href="phases/phase-6.html#l99"><span class="lmeta"><span class="d">Day 86</span><span>L99</span><span class="r">55 min</span></span><span class="lt">LLM Inference, Quantization &amp; Serving</span></a><a class="lcard written" href="phases/phase-6.html#l100"><span class="lmeta"><span class="d">Day 86-b</span><span>L100</span><span class="r">60 min</span></span><span class="lt">Prompting, RAG &amp; Agents</span></a></div></div>
+<div class="phasecard" id="p7"><p class="pmeta">Phase 7 · Days 87–94 · Lessons 101–110 · 8h 45m <span class="badge on">full notes</span></p><h3><a href="phases/phase-7.html" style="color:inherit;text-decoration:none">Generative &amp; Multimodal Models</a></h3><p class="pintro">Learning the distribution instead of the boundary. Autoencoders, VAEs, GANs, flows and diffusion, then the models that put images, text and audio in one shared space.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-7.html">Read Phase 7 →</a> <span class="sidehint" style="margin-left:10px">10 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-7.html#l101"><span class="lmeta"><span class="d">Day 87</span><span>L101</span><span class="r">40 min</span></span><span class="lt">Generative Modeling — The Landscape</span></a><a class="lcard written" href="phases/phase-7.html#l102"><span class="lmeta"><span class="d">Day 88</span><span>L102</span><span class="r">45 min</span></span><span class="lt">Autoencoders</span></a><a class="lcard written" href="phases/phase-7.html#l103"><span class="lmeta"><span class="d">Day 89</span><span>L103</span><span class="r">60 min</span></span><span class="lt">Variational Autoencoders</span></a><a class="lcard written" href="phases/phase-7.html#l104"><span class="lmeta"><span class="d">Day 90</span><span>L104</span><span class="r">55 min</span></span><span class="lt">GANs I — Foundations</span></a><a class="lcard written" href="phases/phase-7.html#l105"><span class="lmeta"><span class="d">Day 90-b</span><span>L105</span><span class="r">55 min</span></span><span class="lt">GANs II — Advanced &amp; Applied</span></a><a class="lcard written" href="phases/phase-7.html#l106"><span class="lmeta"><span class="d">Day 91</span><span>L106</span><span class="r">45 min</span></span><span class="lt">Normalizing Flows &amp; Autoregressive Generators</span></a><a class="lcard written" href="phases/phase-7.html#l107"><span class="lmeta"><span class="d">Day 92</span><span>L107</span><span class="r">60 min</span></span><span class="lt">Diffusion Models I — DDPM</span></a><a class="lcard written" href="phases/phase-7.html#l108"><span class="lmeta"><span class="d">Day 92-b</span><span>L108</span><span class="r">60 min</span></span><span class="lt">Diffusion Models II — Modern Image Generation</span></a><a class="lcard written" href="phases/phase-7.html#l109"><span class="lmeta"><span class="d">Day 93</span><span>L109</span><span class="r">55 min</span></span><span class="lt">Multimodal Models</span></a><a class="lcard written" href="phases/phase-7.html#l110"><span class="lmeta"><span class="d">Day 94</span><span>L110</span><span class="r">50 min</span></span><span class="lt">Speech &amp; Audio Deep Learning</span></a></div></div>
+<div class="phasecard" id="p8"><p class="pmeta">Phase 8 · Days 95–100 · Lessons 111–121 · 9h 45m <span class="badge on">full notes</span></p><h3><a href="phases/phase-8.html" style="color:inherit;text-decoration:none">Advanced Topics, Deployment &amp; Capstone</a></h3><p class="pintro">Graphs, reinforcement learning, compression, security, interpretability — and the unglamorous work of getting a model into production without it quietly rotting.</p><p style="margin:-6px 0 18px"><a class="btn primary" href="phases/phase-8.html">Read Phase 8 →</a> <span class="sidehint" style="margin-left:10px">11 lessons on one page</span></p><div class="lgrid"><a class="lcard written" href="phases/phase-8.html#l111"><span class="lmeta"><span class="d">Day 95</span><span>L111</span><span class="r">50 min</span></span><span class="lt">Graph Neural Networks</span></a><a class="lcard written" href="phases/phase-8.html#l112"><span class="lmeta"><span class="d">Day 95-b</span><span>L112</span><span class="r">55 min</span></span><span class="lt">Deep Reinforcement Learning I</span></a><a class="lcard written" href="phases/phase-8.html#l113"><span class="lmeta"><span class="d">Day 96</span><span>L113</span><span class="r">55 min</span></span><span class="lt">Deep Reinforcement Learning II</span></a><a class="lcard written" href="phases/phase-8.html#l114"><span class="lmeta"><span class="d">Day 96-b</span><span>L114</span><span class="r">45 min</span></span><span class="lt">Recommenders &amp; Deep Learning on Tabular Data</span></a><a class="lcard written" href="phases/phase-8.html#l115"><span class="lmeta"><span class="d">Day 97</span><span>L115</span><span class="r">45 min</span></span><span class="lt">Efficient Deep Learning — Compression &amp; NAS</span></a><a class="lcard written" href="phases/phase-8.html#l116"><span class="lmeta"><span class="d">Day 97-b</span><span>L116</span><span class="r">50 min</span></span><span class="lt">Robustness, Security &amp; Privacy</span></a><a class="lcard written" href="phases/phase-8.html#l117"><span class="lmeta"><span class="d">Day 98</span><span>L117</span><span class="r">55 min</span></span><span class="lt">Interpretability &amp; Mechanistic Interpretability</span></a><a class="lcard written" href="phases/phase-8.html#l118"><span class="lmeta"><span class="d">Day 98-b</span><span>L118</span><span class="r">50 min</span></span><span class="lt">Ethics, Fairness &amp; AI Safety</span></a><a class="lcard written" href="phases/phase-8.html#l119"><span class="lmeta"><span class="d">Day 99</span><span>L119</span><span class="r">60 min</span></span><span class="lt">MLOps &amp; Production Deployment</span></a><a class="lcard written" href="phases/phase-8.html#l120"><span class="lmeta"><span class="d">Day 99-b</span><span>L120</span><span class="r">45 min</span></span><span class="lt">Research Workflow — Reading, Reproducing, Staying Current</span></a><a class="lcard written" href="phases/phase-8.html#l121"><span class="lmeta"><span class="d">Day 100</span><span>L121</span><span class="r">75 min</span></span><span class="lt">Capstone — Build, Train, Ship, Present</span></a></div></div>
+  </section>
+  <footer class="wrap"><div>100 Days of Deep Learning — study notes. Math typeset with MathJax; every demo is vanilla JavaScript running locally in your browser.</div><div style="margin-top:10px">Lessons 1–32 written in full · Lessons 33–121 indexed · <span style="color:var(--signal)">121 lessons · 100 days · 99h 20m</span></div></footer>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"", current:0, phase:null, mode:"index" };</script>
+<script src="assets/site.js"></script>
+<script src="assets/demos.js"></script>
+</body>
+</html>

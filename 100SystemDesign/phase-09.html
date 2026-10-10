@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 09 · Case Studies — System Design Notes</title>
+<meta name="description" content="Days 121–140: Run a full design end to end, under time pressure, out loud.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true,
+       macros:{RR:"{\\mathbb{R}}"}},
+  options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},
+  chtml:{scale:1.0,matchFontHeight:false},
+  startup:{typeset:true}
+};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+<style>:root{
+  --paper:#E7EDF2; --card:#FAFCFD; --card-2:#F1F5F8;
+  --ink:#0B2239; --ink-mid:#42596E; --ink-soft:#6E8299;
+  --grid:#D3DFE9; --rule:#C2D2DF; --rule-soft:#DFE8EF;
+  --signal:#0E6E63; --hot:#B4232C; --amber:#9A6A00; --violet:#54399A;
+  --p0:#23415E; --p1:#0E6E63; --p2:#7A4C1E; --p3:#8A2E68; --p4:#1B6E9B;
+  --p5:#4A3C9E; --p6:#2E6E36; --p7:#9E4A05; --p8:#B4232C; --p9:#5A5270; --p10:#0B2239;
+  --disp:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --sans:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --accent:var(--p0);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:1.5rem}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:16.5px;line-height:1.62;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;background-position:-1px -1px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:286px minmax(0,1fr);gap:0;max-width:1680px;margin:0 auto}
+.rail{position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--rule);
+  background:linear-gradient(180deg,var(--card) 0%,var(--card-2) 100%);padding:22px 18px 60px}
+.rail::-webkit-scrollbar{width:8px}.rail::-webkit-scrollbar-thumb{background:var(--rule);border-radius:8px}
+.main{padding:34px 40px 140px;min-width:0}
+.wrap{max-width:900px;margin:0 auto}
+@media(max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule)}
+  .main{padding:20px 16px 90px}
+}
+
+/* ---------- rail contents ---------- */
+.brandmark{font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px}
+.brandtitle{font-family:var(--disp);font-weight:600;font-size:25px;line-height:1.08;margin:0 0 14px;letter-spacing:-.01em}
+.brandtitle a{color:var(--ink);text-decoration:none}
+.railmeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);line-height:1.7;
+  border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft);padding:9px 0;margin-bottom:16px}
+.railsec{font-family:var(--disp);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-soft);margin:20px 0 8px;font-weight:600}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:0}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:4px 8px;border-radius:4px;text-decoration:none;
+  color:var(--ink-mid);font-family:var(--sans);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
+.toc a:hover{background:#fff;color:var(--ink)}
+.toc a.on{background:#fff;color:var(--ink);border-left-color:var(--accent);font-weight:600}
+.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-soft);flex:0 0 30px;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.phaselinks{list-style:none;margin:0;padding:0;font-family:var(--sans);font-size:12.5px}
+.phaselinks a{display:block;padding:3px 8px;color:var(--ink-mid);text-decoration:none;border-radius:4px}
+.phaselinks a:hover{background:#fff;color:var(--ink)}
+.phaselinks a[aria-current]{font-weight:700;color:var(--ink);background:#fff}
+.phaselinks .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+
+/* ---------- page head ---------- */
+.phasehead{border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:26px 30px;margin-bottom:34px;position:relative;overflow:hidden}
+.phasehead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 6px;font-weight:600}
+h1{font-family:var(--disp);font-size:clamp(30px,4.6vw,46px);line-height:1.03;margin:0 0 10px;
+  font-weight:600;letter-spacing:-.018em}
+.lede{font-size:17px;color:var(--ink-mid);margin:0 0 16px;max-width:62ch}
+.statrow{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule-soft);padding-top:14px}
+.stat{padding-right:26px;margin-right:26px;border-right:1px solid var(--rule-soft)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-family:var(--mono);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+.stat span{font-family:var(--disp);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* ---------- lesson card ---------- */
+.lesson{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  margin:0 0 30px;overflow:hidden;scroll-margin-top:16px}
+.lhead{display:flex;gap:16px;align-items:flex-start;padding:20px 26px 14px;
+  border-bottom:1px solid var(--rule-soft);background:linear-gradient(180deg,#fff,var(--card))}
+.day{flex:0 0 auto;font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.05em;
+  color:#fff;background:var(--accent);padding:6px 9px;border-radius:3px;margin-top:3px}
+.lhead h3{font-family:var(--disp);font-size:26px;font-weight:600;margin:0 0 3px;line-height:1.12;letter-spacing:-.012em}
+.lmeta{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);margin:0;letter-spacing:.02em}
+.lbody{padding:22px 26px 26px}
+@media(max-width:600px){.lhead{padding:16px}.lbody{padding:16px}.lhead h3{font-size:21px}}
+
+/* ---------- signature: chapter ribbon ---------- */
+.ribbon{display:flex;height:22px;width:100%;border-bottom:1px solid var(--rule-soft);
+  font-family:var(--mono);font-size:9px;cursor:default;background:var(--card-2)}
+.ribbon i{display:block;height:100%;position:relative;border-right:1px solid rgba(255,255,255,.75);
+  transition:filter .15s;transform-origin:left}
+.ribbon i:last-child{border-right:0}
+.ribbon i:hover{filter:brightness(1.35)}
+.ribbon i::after{content:attr(data-l);position:absolute;left:50%;bottom:calc(100% + 5px);transform:translateX(-50%);
+  white-space:nowrap;background:var(--ink);color:#fff;padding:3px 7px;border-radius:3px;font-size:10.5px;
+  opacity:0;pointer-events:none;transition:opacity .12s;z-index:20;font-family:var(--sans)}
+.ribbon i:hover::after{opacity:1}
+.ribbonkey{font-family:var(--mono);font-size:10px;color:var(--ink-soft);padding:5px 26px 0;letter-spacing:.04em}
+
+/* ---------- prose ---------- */
+.lbody h4{font-family:var(--disp);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin:26px 0 8px;font-weight:700;display:flex;align-items:center;gap:10px}
+.lbody h4::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+.lbody h5{font-family:var(--sans);font-size:15px;font-weight:600;margin:18px 0 5px;color:var(--ink)}
+.lbody p{margin:0 0 12px}
+.lbody ul,.lbody ol{margin:0 0 13px;padding-left:22px}
+.lbody li{margin-bottom:5px}
+.lbody li::marker{color:var(--ink-soft)}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.86em;background:#E3EAF0;padding:1px 5px;border-radius:3px;color:#12354F}
+a{color:var(--signal)}
+.k{font-family:var(--mono);font-size:.88em;background:var(--ink);color:#EAF2F8;padding:1px 6px;border-radius:3px}
+
+/* callouts */
+.hook{border-left:3px solid var(--hot);background:#FCF1F1;padding:12px 16px;margin:0 0 18px;border-radius:0 3px 3px 0}
+.hook b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--hot);display:block;margin-bottom:3px}
+.war{border-left:3px solid var(--amber);background:#FBF5E7;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.war b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--amber);display:block;margin-bottom:3px}
+.iv{border-left:3px solid var(--violet);background:#F3F0FA;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.iv b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--violet);display:block;margin-bottom:3px}
+.hw{border:1px dashed var(--rule);background:var(--card-2);padding:12px 16px;margin:18px 0 0;border-radius:3px}
+.hw b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--ink-soft);display:block;margin-bottom:3px}
+.note{background:#EDF3F7;border:1px solid var(--rule-soft);padding:10px 14px;border-radius:3px;margin:14px 0;font-size:15.3px}
+.wrong{list-style:none;padding-left:0}
+.wrong li{padding-left:24px;position:relative;margin-bottom:7px}
+.wrong li::before{content:"\2715";position:absolute;left:2px;top:1px;color:var(--hot);font-size:12px;font-weight:700}
+.right li::before{content:"\2713";color:var(--signal)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-family:var(--sans);font-size:14px;background:#fff}
+th{font-family:var(--disp);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;text-align:left;
+  padding:8px 11px;border-bottom:2px solid var(--ink);color:var(--ink);font-weight:700;vertical-align:bottom}
+td{padding:8px 11px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tbody tr:hover{background:var(--card-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tblwrap{overflow-x:auto;margin:14px 0}
+.tblwrap table{margin:0;min-width:520px}
+.yes{color:var(--signal);font-weight:700}.no{color:var(--hot);font-weight:700}.mid{color:var(--amber);font-weight:700}
+
+/* ---------- figures ---------- */
+figure{margin:20px 0;border:1px solid var(--rule);background:#fff;border-radius:3px;overflow:hidden}
+figure .canvas{background-image:linear-gradient(#E8EFF5 1px,transparent 1px),linear-gradient(90deg,#E8EFF5 1px,transparent 1px);
+  background-size:20px 20px;padding:14px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);padding:9px 14px;
+  border-top:1px solid var(--rule-soft);background:var(--card-2)}
+figcaption b{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.06em}
+.svgt{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:12px;fill:#0B2239}
+.svgs{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:10.5px;fill:#5B7189}
+.svgm{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:#0B2239}
+.svgh{font-family:"IBM Plex Sans Condensed",Arial,sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;fill:#5B7189}
+
+/* ---------- math ---------- */
+.math{background:#FCFAF3;border:1px solid #EADFC0;border-left:3px solid var(--amber);
+  padding:12px 16px;border-radius:0 3px 3px 0;margin:16px 0;overflow-x:auto}
+.math .lbl{font-family:var(--disp);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);font-weight:700;margin-bottom:4px}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
+mjx-container[display]{margin:.6em 0!important}
+
+/* ---------- code ---------- */
+pre{background:#0E2033;color:#DDE8F2;padding:14px 16px;border-radius:3px;overflow-x:auto;
+  font-family:var(--mono);font-size:12.6px;line-height:1.6;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+pre .c{color:#7C93A8;font-style:italic}
+pre .kw{color:#F0A868}
+pre .st{color:#8FCFA0}
+pre .fn{color:#77BEE8}
+pre .nm{color:#E0A0C8}
+
+/* ---------- demo widgets ---------- */
+.demo{border:1px solid var(--rule);border-top:3px solid var(--signal);background:#fff;
+  border-radius:3px;padding:16px 18px;margin:20px 0}
+.demo>h6{font-family:var(--disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--signal);margin:0 0 12px;font-weight:700;display:flex;gap:8px;align-items:center}
+.demo>h6::before{content:"\25B8";font-size:11px}
+.ctrl{display:grid;grid-template-columns:auto 1fr auto;gap:9px 12px;align-items:center;margin-bottom:5px}
+.ctrl label{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);white-space:nowrap}
+.ctrl output{font-family:var(--mono);font-size:12.5px;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums;min-width:82px}
+input[type=range]{width:100%;accent-color:var(--signal);height:4px}
+select,input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;padding:5px 8px;
+  border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+button{font-family:var(--disp);font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;
+  padding:7px 13px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:3px;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink)}
+button:hover{filter:brightness(1.18)}
+.readout{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-soft);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:12px}
+.readout div{background:var(--card-2);border-radius:3px;padding:8px 10px}
+.readout .v{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);
+  display:block;font-variant-numeric:tabular-nums;line-height:1.25}
+.readout .l{font-family:var(--disp);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft)}
+.bars{margin-top:12px}
+.bar{display:grid;grid-template-columns:118px 1fr 74px;gap:9px;align-items:center;margin-bottom:5px;
+  font-family:var(--mono);font-size:11.5px}
+.bar .t{background:var(--card-2);height:15px;border-radius:2px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--signal);transition:width .25s}
+.bar .t i.hot{background:var(--hot)}
+.bar .t i.amb{background:var(--amber)}
+.bar .v{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- misc ---------- */
+.pillrow{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pill{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--rule);
+  border-radius:20px;background:#fff;color:var(--ink-mid)}
+.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.foot{border-top:1px solid var(--rule);margin-top:44px;padding-top:18px;font-family:var(--mono);
+  font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot a{color:var(--ink-mid);text-decoration:none;border-bottom:1px solid var(--rule)}
+.nextprev{display:flex;justify-content:space-between;gap:14px;margin-top:30px;flex-wrap:wrap}
+.nextprev a{flex:1 1 220px;border:1px solid var(--rule);background:var(--card);padding:12px 15px;
+  border-radius:3px;text-decoration:none;color:var(--ink)}
+.nextprev a span{display:block;font-family:var(--disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft)}
+.nextprev a b{font-family:var(--disp);font-size:16px;font-weight:600}
+.top{position:fixed;right:18px;bottom:18px;z-index:40;background:var(--ink);color:#fff;border:0;
+  width:40px;height:40px;border-radius:50%;font-size:15px;opacity:.28;padding:0}
+.top:hover{opacity:1}
+:focus-visible{outline:2.5px solid var(--signal);outline-offset:2px}
+
+:root{--accent:var(--p9)}</style>
+</head><body>
+<div class="shell"><nav class="rail">
+<p class="brandmark">100 Days of System Design</p>
+<h2 class="brandtitle"><a href="index.html">Engineering<br>Notebook</a></h2>
+<div class="railmeta">145 lessons · 75h 48m<br>Phase 09 · Days 121–140</div>
+<p class="railsec">On this page</p>
+<ul class="toc"><li><a href="#d121"><span class="n">D121</span><span>Design a URL Shortener</span></a></li><li><a href="#d122"><span class="n">D122</span><span>Design a Distributed Unique ID Generator</span></a></li><li><a href="#d123"><span class="n">D123</span><span>Design a Rate Limiter Service</span></a></li><li><a href="#d124"><span class="n">D124</span><span>Design a Distributed Key-Value Store</span></a></li><li><a href="#d125"><span class="n">D125</span><span>Design an Object Storage Service (S3-like)</span></a></li><li><a href="#d126"><span class="n">D126</span><span>Design a File Sync Service (Dropbox / Google Drive)</span></a></li><li><a href="#d127"><span class="n">D127</span><span>Design a Web Crawler</span></a></li><li><a href="#d128"><span class="n">D128</span><span>Design a Search Engine &amp; Autocomplete</span></a></li><li><a href="#d129"><span class="n">D129</span><span>Design a News Feed / Timeline</span></a></li><li><a href="#d130"><span class="n">D130</span><span>Design a Chat System (WhatsApp / Slack)</span></a></li><li><a href="#d131"><span class="n">D131</span><span>Design a Notification System</span></a></li><li><a href="#d132"><span class="n">D132</span><span>Design a Video Streaming Platform (YouTube / Netflix)</span></a></li><li><a href="#d133"><span class="n">D133</span><span>Design a Photo Sharing App (Instagram)</span></a></li><li><a href="#d134"><span class="n">D134</span><span>Design a Ride-Hailing System (Uber)</span></a></li><li><a href="#d135"><span class="n">D135</span><span>Design a Ticket Booking System (Ticketmaster / BookMyShow)</span></a></li><li><a href="#d136"><span class="n">D136</span><span>Design a Payment System &amp; Ledger</span></a></li><li><a href="#d137"><span class="n">D137</span><span>Design a Distributed Job Scheduler</span></a></li><li><a href="#d138"><span class="n">D138</span><span>Design Real-Time Analytics (Ad Click Aggregation / Metrics)</span></a></li><li><a href="#d139"><span class="n">D139</span><span>Design a Collaborative Editor (Google Docs)</span></a></li><li><a href="#d140"><span class="n">D140</span><span>Design an AI/LLM Serving Platform</span></a></li></ul>
+<p class="railsec">All phases</p>
+<ul class="phaselinks"><li><a href="phase-00.html"><span class="sw" style="background:var(--p0)"></span>00 · Foundations & Mental Models</a></li><li><a href="phase-01.html"><span class="sw" style="background:var(--p1)"></span>01 · Networking & the Web</a></li><li><a href="phase-02.html"><span class="sw" style="background:var(--p2)"></span>02 · Storage & Databases</a></li><li><a href="phase-03.html"><span class="sw" style="background:var(--p3)"></span>03 · Caching</a></li><li><a href="phase-04.html"><span class="sw" style="background:var(--p4)"></span>04 · Load Balancing & Traffic</a></li><li><a href="phase-05.html"><span class="sw" style="background:var(--p5)"></span>05 · Distributed Systems Theory</a></li><li><a href="phase-06.html"><span class="sw" style="background:var(--p6)"></span>06 · Messaging & Streaming</a></li><li><a href="phase-07.html"><span class="sw" style="background:var(--p7)"></span>07 · Microservices & Patterns</a></li><li><a href="phase-08.html"><span class="sw" style="background:var(--p8)"></span>08 · Reliability, Observability, Security, Cost</a></li><li><a href="phase-09.html" aria-current="page"><span class="sw" style="background:var(--p9)"></span>09 · Case Studies</a></li><li><a href="phase-10.html"><span class="sw" style="background:var(--p10)"></span>10 · Interview Mastery & Capstone</a></li></ul>
+</nav><main class="main"><div class="wrap"><div class="phasehead">
+  <p class="eyebrow">Phase 09 · Days 121–140 · 20 lessons · 12h 06m</p>
+  <h1>Case Studies</h1>
+  <p class="lede">Run a full design end to end, under time pressure, out loud.</p>
+  <div class="statrow">
+    <div class="stat"><b>20</b><span>Lessons</span></div>
+    <div class="stat"><b>12h 06m</b><span>Runtime</span></div>
+    <div class="stat"><b>36 min</b><span>Average</span></div>
+    <div class="stat"><b>Wk 24.5–28.5</b><span>At 5 / week</span></div>
+    <div class="stat"><b>All of Phases 0–8</b><span>Prerequisites</span></div>
+  </div>
+</div>
+<div class="hook" style="margin-bottom:22px"><b>Milestone</b>Milestone project after Day 140 — the capstone design.</div>
+
+<div class="note" style="margin-bottom:26px">
+<b>Case studies use a different timeline.</b> Ten chapters instead of nine, weighted toward the data
+model and the two deep dives. Hover any ribbon below to see the chapter breakdown scaled to that
+lesson's runtime. The same shape repeats across all twenty, which is what makes the format learnable:
+by Day 130 you should be able to predict the next section before it starts.</div>
+<article class="lesson" id="d121">
+<div class="lhead"><div class="day">D121</div><div>
+  <h3>Design a URL Shortener</h3>
+  <p class="lmeta">36 min · Phase 09 · Prereq: Day 120</p></div></div>
+<div class="ribbon" data-runtime="36" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Key generation (counter + base62, hashing + collision handling, pre-generated key service, ZooKeeper range allocation)</li><li>Read-heavy architecture with a 100:1 ratio</li><li>Cache sizing and hit ratio</li><li>Custom aliases and collisions</li><li>Expiry and cleanup at scale</li><li>Analytics without slowing redirects</li><li>301 vs 302 and its analytics consequence</li></ul>
+<h4>Interview follow-ups</h4><ul><li>How to prevent abuse/phishing</li><li>How to make links unguessable</li><li>Multi-region writes</li></ul>
+</div></article>
+<article class="lesson" id="d122">
+<div class="lhead"><div class="day">D122</div><div>
+  <h3>Design a Distributed Unique ID Generator</h3>
+  <p class="lmeta">30 min · Phase 09 · Prereq: Day 121</p></div></div>
+<div class="ribbon" data-runtime="30" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Requirements (unique, sortable, high throughput, no coordination)</li><li>UUID v1/v4/v7 tradeoffs and index locality</li><li>Snowflake layout (timestamp, machine ID, sequence) and its clock-skew failure</li><li>Machine ID assignment</li><li>Ticket servers and DB auto-increment at scale</li><li>Flickr&#x27;s ticketing approach</li><li>Monotonicity vs privacy (leaking volume)</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Clock moves backwards — now what</li><li>64-bit vs 128-bit</li><li>Sortable IDs and B-Tree write patterns</li></ul>
+</div></article>
+<article class="lesson" id="d123">
+<div class="lhead"><div class="day">D123</div><div>
+  <h3>Design a Rate Limiter Service</h3>
+  <p class="lmeta">32 min · Phase 09 · Prereq: Day 122</p></div></div>
+<div class="ribbon" data-runtime="32" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Where it lives (client, gateway, sidecar, service)</li><li>Algorithm choice justified</li><li>Distributed counters in Redis with atomic Lua</li><li>Sync vs async counter propagation and approximation error</li><li>Per-user/per-API/per-tenant rules and rule storage</li><li>Hot-key mitigation</li><li>Failing open vs closed when Redis is down</li><li>Response headers and client behavior</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Multi-datacenter rate limiting</li><li>Rate limiting without a central store</li><li>Cost of exactness</li></ul>
+</div></article>
+<article class="lesson" id="d124">
+<div class="lhead"><div class="day">D124</div><div>
+  <h3>Design a Distributed Key-Value Store</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 123</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>The Dynamo paper distilled</li><li>Consistent hashing with vnodes</li><li>Replication and preference lists</li><li>Quorum tuning</li><li>Vector clocks and sibling resolution</li><li>Hinted handoff and read repair</li><li>Merkle-tree anti-entropy</li><li>Gossip membership</li><li>Storage engine choice (LSM)</li><li>Handling a node join/leave live</li><li>API surface and its deliberate limits</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Making it strongly consistent</li><li>Multi-datacenter</li><li>Range queries on a hash-partitioned store</li></ul>
+</div></article>
+<article class="lesson" id="d125">
+<div class="lhead"><div class="day">D125</div><div>
+  <h3>Design an Object Storage Service (S3-like)</h3>
+  <p class="lmeta">36 min · Phase 09 · Prereq: Day 124</p></div></div>
+<div class="ribbon" data-runtime="36" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Buckets, objects, and flat namespace vs directories</li><li>Metadata service vs data plane separation</li><li>Chunking, multipart upload, and resumability</li><li>Replication vs erasure coding (and the storage-cost math)</li><li>Durability math for 11 nines</li><li>Consistency model for overwrites and listings</li><li>Storage tiers and lifecycle transitions</li><li>Presigned URLs</li><li>Garbage collection of orphaned chunks</li><li>Hot-object handling</li></ul>
+<h4>Interview follow-ups</h4><ul><li>How listing a billion-key prefix works</li><li>Versioning</li><li>Cross-region replication</li></ul>
+</div></article>
+<article class="lesson" id="d126">
+<div class="lhead"><div class="day">D126</div><div>
+  <h3>Design a File Sync Service (Dropbox / Google Drive)</h3>
+  <p class="lmeta">36 min · Phase 09 · Prereq: Day 125</p></div></div>
+<div class="ribbon" data-runtime="36" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Chunking and content-addressed storage</li><li>Block-level dedup and delta sync</li><li>The metadata DB vs block store split</li><li>Sync protocol with a client watcher, long polling/notification server, and offline queue</li><li>Conflict detection and resolution (versions, conflicted copies)</li><li>Sharing and permission models</li><li>Bandwidth optimization and compression</li><li>Mobile/battery constraints</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Two devices editing offline</li><li>Sharing a 500K-file folder</li><li>Storage cost with dedup across users</li></ul>
+</div></article>
+<article class="lesson" id="d127">
+<div class="lhead"><div class="day">D127</div><div>
+  <h3>Design a Web Crawler</h3>
+  <p class="lmeta">34 min · Phase 09 · Prereq: Day 126</p></div></div>
+<div class="ribbon" data-runtime="34" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>URL frontier design with politeness and priority queues</li><li>Per-domain rate limiting and robots.txt handling</li><li>Dedup with bloom filters at billions of URLs</li><li>Content dedup by shingling/simhash</li><li>DNS as a bottleneck and caching it</li><li>Distributed crawler coordination and partitioning by domain</li><li>Trap detection (infinite spaces, calendars)</li><li>Freshness scheduling and recrawl policy</li><li>Storage of raw pages</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Crawling 10B pages a month</li><li>JS-rendered pages</li><li>Being a polite citizen at scale</li></ul>
+</div></article>
+<article class="lesson" id="d128">
+<div class="lhead"><div class="day">D128</div><div>
+  <h3>Design a Search Engine &amp; Autocomplete</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 127</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Indexing pipeline (fetch → parse → tokenize → index → merge)</li><li>Index sharding by document vs by term, with query-path implications</li><li>Ranking and relevance</li><li>Query serving fan-out and aggregation</li><li>Autocomplete with tries, weighted tries, and prefix caching</li><li>Top-K per prefix precomputation</li><li>Personalization</li><li>Typo tolerance (edit distance, fuzzy matching)</li><li>Real-time index updates vs batch rebuild</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Trending queries in the last 10 minutes</li><li>Index size vs latency</li><li>Multilingual support</li></ul>
+</div></article>
+<article class="lesson" id="d129">
+<div class="lhead"><div class="day">D129</div><div>
+  <h3>Design a News Feed / Timeline</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 128</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Fan-out on write vs fan-out on read, with the math for each</li><li>The celebrity problem and the hybrid solution</li><li>Feed storage and pagination with stable cursors</li><li>Ranking pipeline (candidate generation → scoring → filtering) and where ML fits</li><li>Cache design for hot feeds</li><li>New-post latency vs cost</li><li>Deleting and editing posts already fanned out</li><li>Unread counts and badges</li></ul>
+<h4>Interview follow-ups</h4><ul><li>A user with 100M followers</li><li>Feed for a brand-new user</li><li>Guaranteeing chronological correctness</li></ul>
+</div></article>
+<article class="lesson" id="d130">
+<div class="lhead"><div class="day">D130</div><div>
+  <h3>Design a Chat System (WhatsApp / Slack)</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 129</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Connection servers holding millions of WebSockets</li><li>Presence at scale and its update storm</li><li>Message ordering per conversation and sequence numbers</li><li>Delivery pipeline with acks (sent/delivered/read)</li><li>Offline message storage and sync-on-reconnect</li><li>Group chat fan-out and large-group limits</li><li>Media handling separate from messages</li><li>Push notification integration</li><li>End-to-end encryption implications for server-side features</li></ul>
+<h4>Interview follow-ups</h4><ul><li>A 100K-member group</li><li>Message search with E2EE</li><li>Multi-device sync</li></ul>
+</div></article>
+<article class="lesson" id="d131">
+<div class="lhead"><div class="day">D131</div><div>
+  <h3>Design a Notification System</h3>
+  <p class="lmeta">32 min · Phase 09 · Prereq: Day 130</p></div></div>
+<div class="ribbon" data-runtime="32" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Multi-channel abstraction (push/APNs+FCM, SMS, email, in-app)</li><li>Template and preference services</li><li>Per-user rate limiting, quiet hours, and digesting</li><li>Priority queues and per-channel workers</li><li>Third-party provider failures, fallbacks, and DLQs</li><li>Delivery tracking and analytics</li><li>Deduplication across channels</li><li>Token lifecycle and invalid-token cleanup</li><li>Fan-out for broadcast notifications to 50M users</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Guaranteeing exactly one notification</li><li>Scheduled/time-zone-aware sends</li><li>Opt-out compliance</li></ul>
+</div></article>
+<article class="lesson" id="d132">
+<div class="lhead"><div class="day">D132</div><div>
+  <h3>Design a Video Streaming Platform (YouTube / Netflix)</h3>
+  <p class="lmeta">40 min · Phase 09 · Prereq: Day 131</p></div></div>
+<div class="ribbon" data-runtime="40" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Upload path — resumable upload, storage, and the transcoding pipeline as a DAG</li><li>Splitting into chunks for parallel transcode</li><li>Codecs, ladders, and adaptive bitrate (HLS/DASH manifests)</li><li>CDN strategy, pre-positioning vs pull, and open-connect-style appliances</li><li>Playback client logic and buffer management</li><li>Metadata and recommendation serving</li><li>Thumbnails and preview generation</li><li>Live streaming differences (low-latency HLS, ingest, transcode fan-out)</li><li>DRM and content protection</li></ul>
+<h4>Interview follow-ups</h4><ul><li>A video going viral in 10 minutes</li><li>Storage cost of 500 hours uploaded per minute</li><li>Global launch day</li></ul>
+</div></article>
+<article class="lesson" id="d133">
+<div class="lhead"><div class="day">D133</div><div>
+  <h3>Design a Photo Sharing App (Instagram)</h3>
+  <p class="lmeta">36 min · Phase 09 · Prereq: Day 132</p></div></div>
+<div class="ribbon" data-runtime="36" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Upload and image-processing pipeline with multiple renditions</li><li>Blob storage plus CDN and cache-key design</li><li>Feed and follow-graph storage</li><li>Stories with TTL and their different access pattern</li><li>Likes/comments counters at scale (sharded counters, write-behind)</li><li>Explore/search surface</li><li>Hot-content handling</li><li>Mobile-first optimizations (progressive images, prefetch)</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Like counts on a post with 50M likes</li><li>Deleting an account&#x27;s content</li><li>Regional media residency</li></ul>
+</div></article>
+<article class="lesson" id="d134">
+<div class="lhead"><div class="day">D134</div><div>
+  <h3>Design a Ride-Hailing System (Uber)</h3>
+  <p class="lmeta">40 min · Phase 09 · Prereq: Day 133</p></div></div>
+<div class="ribbon" data-runtime="40" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Geospatial indexing (geohash, quadtree, S2, H3) compared</li><li>Driver location ingestion at 1M updates/sec and where to store them</li><li>Proximity search and the &quot;nearby drivers&quot; query</li><li>Matching algorithm and dispatch (batching vs greedy)</li><li>Trip state machine and its durability</li><li>ETA and routing service</li><li>Surge pricing computation over geo-cells</li><li>Payments and receipts</li><li>Real-time tracking to the rider</li></ul>
+<h4>Interview follow-ups</h4><ul><li>A stadium emptying at once</li><li>Driver goes offline mid-trip</li><li>Cross-city boundary handling</li></ul>
+</div></article>
+<article class="lesson" id="d135">
+<div class="lhead"><div class="day">D135</div><div>
+  <h3>Design a Ticket Booking System (Ticketmaster / BookMyShow)</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 134</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Inventory modeling and the seat-selection concurrency problem</li><li>Hold/reservation with TTL vs optimistic locking vs pessimistic locking</li><li>Preventing overselling under 100K concurrent buyers for 10K seats</li><li>Virtual waiting rooms and queue-based admission</li><li>Idempotent payment integration and the hold-to-confirm handoff</li><li>Cache invalidation for availability displays</li><li>Bot and scalper defenses</li><li>The flash-sale traffic profile</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Exactly one buyer per seat, proven</li><li>Payment succeeds but booking fails</li><li>Refunds and inventory return</li></ul>
+</div></article>
+<article class="lesson" id="d136">
+<div class="lhead"><div class="day">D136</div><div>
+  <h3>Design a Payment System &amp; Ledger</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 135</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Double-entry ledger design and immutability</li><li>The money-movement state machine (authorize, capture, settle, refund, chargeback)</li><li>Idempotency across the entire chain</li><li>The dual-write problem between ledger and external PSP, solved with outbox plus reconciliation</li><li>Async reconciliation jobs and break resolution</li><li>Currency, rounding, and precision rules (never floats)</li><li>PCI scope and tokenization</li><li>Retries against non-idempotent third parties</li><li>Audit trail and immutability requirements</li></ul>
+<h4>Interview follow-ups</h4><ul><li>PSP times out — did the charge happen</li><li>A $0.01 imbalance across 10M transactions</li><li>Multi-currency wallets</li></ul>
+</div></article>
+<article class="lesson" id="d137">
+<div class="lhead"><div class="day">D137</div><div>
+  <h3>Design a Distributed Job Scheduler</h3>
+  <p class="lmeta">34 min · Phase 09 · Prereq: Day 136</p></div></div>
+<div class="ribbon" data-runtime="34" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Job definition, scheduling, and execution planes</li><li>Leader-based scheduling with failover</li><li>Time-wheel and delayed-queue implementations for hundreds of millions of timers</li><li>Guaranteeing at-least-once with idempotent execution</li><li>Priority, fairness, and per-tenant quotas</li><li>Long-running job heartbeats and orphan detection</li><li>Retry policy and DLQ</li><li>Dependency graphs and DAG execution</li><li>Scheduling accuracy vs cost</li></ul>
+<h4>Interview follow-ups</h4><ul><li>10M jobs due at midnight</li><li>A worker dies mid-job</li><li>Preventing duplicate execution without a global lock</li></ul>
+</div></article>
+<article class="lesson" id="d138">
+<div class="lhead"><div class="day">D138</div><div>
+  <h3>Design Real-Time Analytics (Ad Click Aggregation / Metrics)</h3>
+  <p class="lmeta">36 min · Phase 09 · Prereq: Day 137</p></div></div>
+<div class="ribbon" data-runtime="36" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Ingestion at 1M events/sec and the buffering layer</li><li>The aggregation pipeline — stream processing with windows and watermarks</li><li>Pre-aggregation and rollup tables</li><li>Lambda vs kappa for late data and corrections</li><li>Exactly-once counting and dedup at scale</li><li>Approximate algorithms (HyperLogLog for uniques, count-min sketch for heavy hitters, t-digest for percentiles)</li><li>OLAP store choice and query patterns</li><li>The fraud/invalid-click filter</li><li>Serving dashboards with sub-second latency</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Recomputing yesterday after finding a bug</li><li>A 100× traffic spike</li><li>Exact vs approximate cost difference</li></ul>
+</div></article>
+<article class="lesson" id="d139">
+<div class="lhead"><div class="day">D139</div><div>
+  <h3>Design a Collaborative Editor (Google Docs)</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 138</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>The concurrent-editing problem stated precisely</li><li>Operational transformation — operations, transform functions, and server-authoritative ordering</li><li>CRDTs for text (RGA/Logoot/Yjs) and their tradeoffs vs OT</li><li>Cursor and presence propagation</li><li>Document persistence as snapshots plus operation log</li><li>Offline editing and reconnection merge</li><li>Permissions and sharing</li><li>Scaling one document to 100 concurrent editors</li><li>Comments and suggestions as a separate layer</li></ul>
+<h4>Interview follow-ups</h4><ul><li>Two users typing at the same position</li><li>Version history and restore</li><li>Conflict-free image/table edits</li></ul>
+</div></article>
+<article class="lesson" id="d140">
+<div class="lhead"><div class="day">D140</div><div>
+  <h3>Design an AI/LLM Serving Platform</h3>
+  <p class="lmeta">38 min · Phase 09 · Prereq: Day 139</p></div></div>
+<div class="ribbon" data-runtime="38" data-spec="case"></div>
+<div class="lbody">
+<h4>Deep dives</h4><ul><li>Inference serving architecture — model registry, loaders, GPU pools</li><li>Batching (dynamic/continuous), KV cache, and paged attention</li><li>Queueing and admission control for expensive requests</li><li>Streaming responses (SSE) and cancellation</li><li>Autoscaling GPUs and cold-start cost</li><li>Multi-model routing and fallbacks</li><li>Vector databases and ANN indexes for retrieval</li><li>A RAG pipeline end to end (ingest → chunk → embed → index → retrieve → rerank → generate)</li><li>Caching (semantic and exact)</li><li>Cost and token accounting per tenant</li><li>Guardrails, rate limits, and abuse handling</li></ul>
+<h4>Interview follow-ups</h4><ul><li>P99 latency under mixed prompt lengths</li><li>Keeping an index fresh</li><li>GPU cost per 1,000 requests</li></ul>
+</div></article>
+<div class="nextprev"><a href="phase-08.html"><span>Previous phase</span><b>← 08</b></a><a href="phase-10.html"><span>Next phase</span><b>10 · Interview Mastery &amp; Capstone →</b></a></div>
+<div class="foot"><span>Phase 09 · Days 121–140 · 12h 06m</span><span><a href="index.html">← Back to hub</a></span></div></div></main></div><script>/* ---------- signature element: the chapter ribbon ---------- */
+const SPEC = {
+  std: [
+    ["Hook — watch it break", 5,  "#B4232C"],
+    ["What you'll be able to do", 3, "#C97B2E"],
+    ["Prerequisite recap", 5, "#9A6A00"],
+    ["Core concept — whiteboard", 30, "#0E6E63"],
+    ["Deep dive — internals / math", 30, "#1B6E9B"],
+    ["Tradeoffs table", 10, "#4A3C9E"],
+    ["Real-world war story", 8, "#8A2E68"],
+    ["Interview angle", 6, "#5A5270"],
+    ["Homework + teaser", 3, "#23415E"]
+  ],
+  case: [
+    ["Problem + scoping questions", 6, "#B4232C"],
+    ["Functional + non-functional reqs", 8, "#C97B2E"],
+    ["Back-of-envelope estimation", 8, "#9A6A00"],
+    ["API design", 7, "#2E6E36"],
+    ["Data model + storage choice", 12, "#0E6E63"],
+    ["High-level architecture", 15, "#1B6E9B"],
+    ["Deep dive 1 — the hard part", 15, "#4A3C9E"],
+    ["Deep dive 2", 12, "#8A2E68"],
+    ["Bottlenecks + failure modes", 10, "#5A5270"],
+    ["Interview follow-ups", 7, "#23415E"]
+  ]
+};
+function fmtClock(min){const m=Math.floor(min),s=Math.round((min-m)*60);return m+":"+String(s).padStart(2,"0");}
+function buildRibbons(){
+  document.querySelectorAll(".ribbon").forEach(r=>{
+    const rt=parseFloat(r.dataset.runtime||"30");
+    const spec=SPEC[r.dataset.spec||"std"];
+    let acc=0;
+    r.innerHTML=spec.map(([label,pct,col])=>{
+      const start=acc*rt/100; acc+=pct;
+      return `<i style="width:${pct}%;background:${col}" data-l="${fmtClock(start)} · ${label} · ${Math.round(pct*rt/100*10)/10}m"></i>`;
+    }).join("");
+  });
+}
+
+/* ---------- scroll-spy table of contents ---------- */
+function spy(){
+  const links=[...document.querySelectorAll(".toc a")];
+  if(!links.length) return;
+  const map=new Map();
+  links.forEach(a=>{const el=document.querySelector(a.getAttribute("href"));if(el)map.set(el,a);});
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove("on"));
+        const a=map.get(e.target); if(a){a.classList.add("on");
+          const r=a.closest(".rail");
+          if(r&&window.innerWidth>980){const t=a.offsetTop-r.clientHeight/2;r.scrollTo({top:t,behavior:"smooth"});}}
+      }
+    });
+  },{rootMargin:"-8% 0px -80% 0px",threshold:0});
+  map.forEach((a,el)=>io.observe(el));
+}
+
+/* ---------- helpers used by inline demos ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function num(n,d=0){return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});}
+function bytes(b){
+  const u=["B","KB","MB","GB","TB","PB","EB"];let i=0;
+  while(b>=1024&&i<u.length-1){b/=1024;i++;}
+  return (b<10?b.toFixed(2):b<100?b.toFixed(1):Math.round(b))+" "+u[i];
+}
+function eng(n){
+  if(n>=1e12)return (n/1e12).toFixed(2)+"T";
+  if(n>=1e9) return (n/1e9).toFixed(2)+"B";
+  if(n>=1e6) return (n/1e6).toFixed(2)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(2)+"K";
+  return n.toFixed(n<10?2:0);
+}
+function wire(root,fn){
+  const el=typeof root==="string"?$(root):root; if(!el)return;
+  $$("input,select",el).forEach(i=>i.addEventListener("input",()=>fn(el)));
+  $$("button[data-act]",el).forEach(b=>b.addEventListener("click",()=>fn(el,b.dataset.act)));
+  fn(el);
+}
+function setv(el,sel,val){const t=$(sel,el);if(t)t.textContent=val;}
+function setbar(el,sel,pct,cls){
+  const t=$(sel,el); if(!t)return;
+  t.style.width=Math.max(0,Math.min(100,pct))+"%";
+  t.className=cls||"";
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  buildRibbons(); spy();
+  const b=document.createElement("button");
+  b.className="top"; b.textContent="\u2191"; b.setAttribute("aria-label","Back to top");
+  b.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+  document.body.appendChild(b);
+});
+</script></body></html>

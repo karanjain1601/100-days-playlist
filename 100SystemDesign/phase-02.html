@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 02 · Storage & Databases — System Design Notes</title>
+<meta name="description" content="Days 27–48: Pick a datastore for a workload and defend it with internals, not vibes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true,
+       macros:{RR:"{\\mathbb{R}}"}},
+  options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},
+  chtml:{scale:1.0,matchFontHeight:false},
+  startup:{typeset:true}
+};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+<style>:root{
+  --paper:#E7EDF2; --card:#FAFCFD; --card-2:#F1F5F8;
+  --ink:#0B2239; --ink-mid:#42596E; --ink-soft:#6E8299;
+  --grid:#D3DFE9; --rule:#C2D2DF; --rule-soft:#DFE8EF;
+  --signal:#0E6E63; --hot:#B4232C; --amber:#9A6A00; --violet:#54399A;
+  --p0:#23415E; --p1:#0E6E63; --p2:#7A4C1E; --p3:#8A2E68; --p4:#1B6E9B;
+  --p5:#4A3C9E; --p6:#2E6E36; --p7:#9E4A05; --p8:#B4232C; --p9:#5A5270; --p10:#0B2239;
+  --disp:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --sans:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --accent:var(--p0);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:1.5rem}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:16.5px;line-height:1.62;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;background-position:-1px -1px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:286px minmax(0,1fr);gap:0;max-width:1680px;margin:0 auto}
+.rail{position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--rule);
+  background:linear-gradient(180deg,var(--card) 0%,var(--card-2) 100%);padding:22px 18px 60px}
+.rail::-webkit-scrollbar{width:8px}.rail::-webkit-scrollbar-thumb{background:var(--rule);border-radius:8px}
+.main{padding:34px 40px 140px;min-width:0}
+.wrap{max-width:900px;margin:0 auto}
+@media(max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule)}
+  .main{padding:20px 16px 90px}
+}
+
+/* ---------- rail contents ---------- */
+.brandmark{font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px}
+.brandtitle{font-family:var(--disp);font-weight:600;font-size:25px;line-height:1.08;margin:0 0 14px;letter-spacing:-.01em}
+.brandtitle a{color:var(--ink);text-decoration:none}
+.railmeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);line-height:1.7;
+  border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft);padding:9px 0;margin-bottom:16px}
+.railsec{font-family:var(--disp);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-soft);margin:20px 0 8px;font-weight:600}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:0}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:4px 8px;border-radius:4px;text-decoration:none;
+  color:var(--ink-mid);font-family:var(--sans);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
+.toc a:hover{background:#fff;color:var(--ink)}
+.toc a.on{background:#fff;color:var(--ink);border-left-color:var(--accent);font-weight:600}
+.toc .n{font-family:var(--mono);font-size:11px;color:var(--ink-soft);flex:0 0 30px;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.phaselinks{list-style:none;margin:0;padding:0;font-family:var(--sans);font-size:12.5px}
+.phaselinks a{display:block;padding:3px 8px;color:var(--ink-mid);text-decoration:none;border-radius:4px}
+.phaselinks a:hover{background:#fff;color:var(--ink)}
+.phaselinks a[aria-current]{font-weight:700;color:var(--ink);background:#fff}
+.phaselinks .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+
+/* ---------- page head ---------- */
+.phasehead{border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:26px 30px;margin-bottom:34px;position:relative;overflow:hidden}
+.phasehead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 6px;font-weight:600}
+h1{font-family:var(--disp);font-size:clamp(30px,4.6vw,46px);line-height:1.03;margin:0 0 10px;
+  font-weight:600;letter-spacing:-.018em}
+.lede{font-size:17px;color:var(--ink-mid);margin:0 0 16px;max-width:62ch}
+.statrow{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule-soft);padding-top:14px}
+.stat{padding-right:26px;margin-right:26px;border-right:1px solid var(--rule-soft)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-family:var(--mono);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+.stat span{font-family:var(--disp);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* ---------- lesson card ---------- */
+.lesson{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  margin:0 0 30px;overflow:hidden;scroll-margin-top:16px}
+.lhead{display:flex;gap:16px;align-items:flex-start;padding:20px 26px 14px;
+  border-bottom:1px solid var(--rule-soft);background:linear-gradient(180deg,#fff,var(--card))}
+.day{flex:0 0 auto;font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.05em;
+  color:#fff;background:var(--accent);padding:6px 9px;border-radius:3px;margin-top:3px}
+.lhead h3{font-family:var(--disp);font-size:26px;font-weight:600;margin:0 0 3px;line-height:1.12;letter-spacing:-.012em}
+.lmeta{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);margin:0;letter-spacing:.02em}
+.lbody{padding:22px 26px 26px}
+@media(max-width:600px){.lhead{padding:16px}.lbody{padding:16px}.lhead h3{font-size:21px}}
+
+/* ---------- signature: chapter ribbon ---------- */
+.ribbon{display:flex;height:22px;width:100%;border-bottom:1px solid var(--rule-soft);
+  font-family:var(--mono);font-size:9px;cursor:default;background:var(--card-2)}
+.ribbon i{display:block;height:100%;position:relative;border-right:1px solid rgba(255,255,255,.75);
+  transition:filter .15s;transform-origin:left}
+.ribbon i:last-child{border-right:0}
+.ribbon i:hover{filter:brightness(1.35)}
+.ribbon i::after{content:attr(data-l);position:absolute;left:50%;bottom:calc(100% + 5px);transform:translateX(-50%);
+  white-space:nowrap;background:var(--ink);color:#fff;padding:3px 7px;border-radius:3px;font-size:10.5px;
+  opacity:0;pointer-events:none;transition:opacity .12s;z-index:20;font-family:var(--sans)}
+.ribbon i:hover::after{opacity:1}
+.ribbonkey{font-family:var(--mono);font-size:10px;color:var(--ink-soft);padding:5px 26px 0;letter-spacing:.04em}
+
+/* ---------- prose ---------- */
+.lbody h4{font-family:var(--disp);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin:26px 0 8px;font-weight:700;display:flex;align-items:center;gap:10px}
+.lbody h4::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+.lbody h5{font-family:var(--sans);font-size:15px;font-weight:600;margin:18px 0 5px;color:var(--ink)}
+.lbody p{margin:0 0 12px}
+.lbody ul,.lbody ol{margin:0 0 13px;padding-left:22px}
+.lbody li{margin-bottom:5px}
+.lbody li::marker{color:var(--ink-soft)}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.86em;background:#E3EAF0;padding:1px 5px;border-radius:3px;color:#12354F}
+a{color:var(--signal)}
+.k{font-family:var(--mono);font-size:.88em;background:var(--ink);color:#EAF2F8;padding:1px 6px;border-radius:3px}
+
+/* callouts */
+.hook{border-left:3px solid var(--hot);background:#FCF1F1;padding:12px 16px;margin:0 0 18px;border-radius:0 3px 3px 0}
+.hook b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--hot);display:block;margin-bottom:3px}
+.war{border-left:3px solid var(--amber);background:#FBF5E7;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.war b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--amber);display:block;margin-bottom:3px}
+.iv{border-left:3px solid var(--violet);background:#F3F0FA;padding:12px 16px;margin:16px 0;border-radius:0 3px 3px 0}
+.iv b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--violet);display:block;margin-bottom:3px}
+.hw{border:1px dashed var(--rule);background:var(--card-2);padding:12px 16px;margin:18px 0 0;border-radius:3px}
+.hw b{font-family:var(--disp);text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--ink-soft);display:block;margin-bottom:3px}
+.note{background:#EDF3F7;border:1px solid var(--rule-soft);padding:10px 14px;border-radius:3px;margin:14px 0;font-size:15.3px}
+.wrong{list-style:none;padding-left:0}
+.wrong li{padding-left:24px;position:relative;margin-bottom:7px}
+.wrong li::before{content:"\2715";position:absolute;left:2px;top:1px;color:var(--hot);font-size:12px;font-weight:700}
+.right li::before{content:"\2713";color:var(--signal)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-family:var(--sans);font-size:14px;background:#fff}
+th{font-family:var(--disp);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;text-align:left;
+  padding:8px 11px;border-bottom:2px solid var(--ink);color:var(--ink);font-weight:700;vertical-align:bottom}
+td{padding:8px 11px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tbody tr:hover{background:var(--card-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tblwrap{overflow-x:auto;margin:14px 0}
+.tblwrap table{margin:0;min-width:520px}
+.yes{color:var(--signal);font-weight:700}.no{color:var(--hot);font-weight:700}.mid{color:var(--amber);font-weight:700}
+
+/* ---------- figures ---------- */
+figure{margin:20px 0;border:1px solid var(--rule);background:#fff;border-radius:3px;overflow:hidden}
+figure .canvas{background-image:linear-gradient(#E8EFF5 1px,transparent 1px),linear-gradient(90deg,#E8EFF5 1px,transparent 1px);
+  background-size:20px 20px;padding:14px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);padding:9px 14px;
+  border-top:1px solid var(--rule-soft);background:var(--card-2)}
+figcaption b{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.06em}
+.svgt{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:12px;fill:#0B2239}
+.svgs{font-family:"IBM Plex Sans",Arial,sans-serif;font-size:10.5px;fill:#5B7189}
+.svgm{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:#0B2239}
+.svgh{font-family:"IBM Plex Sans Condensed",Arial,sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;fill:#5B7189}
+
+/* ---------- math ---------- */
+.math{background:#FCFAF3;border:1px solid #EADFC0;border-left:3px solid var(--amber);
+  padding:12px 16px;border-radius:0 3px 3px 0;margin:16px 0;overflow-x:auto}
+.math .lbl{font-family:var(--disp);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);font-weight:700;margin-bottom:4px}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
+mjx-container[display]{margin:.6em 0!important}
+
+/* ---------- code ---------- */
+pre{background:#0E2033;color:#DDE8F2;padding:14px 16px;border-radius:3px;overflow-x:auto;
+  font-family:var(--mono);font-size:12.6px;line-height:1.6;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+pre .c{color:#7C93A8;font-style:italic}
+pre .kw{color:#F0A868}
+pre .st{color:#8FCFA0}
+pre .fn{color:#77BEE8}
+pre .nm{color:#E0A0C8}
+
+/* ---------- demo widgets ---------- */
+.demo{border:1px solid var(--rule);border-top:3px solid var(--signal);background:#fff;
+  border-radius:3px;padding:16px 18px;margin:20px 0}
+.demo>h6{font-family:var(--disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--signal);margin:0 0 12px;font-weight:700;display:flex;gap:8px;align-items:center}
+.demo>h6::before{content:"\25B8";font-size:11px}
+.ctrl{display:grid;grid-template-columns:auto 1fr auto;gap:9px 12px;align-items:center;margin-bottom:5px}
+.ctrl label{font-family:var(--sans);font-size:12.5px;color:var(--ink-mid);white-space:nowrap}
+.ctrl output{font-family:var(--mono);font-size:12.5px;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums;min-width:82px}
+input[type=range]{width:100%;accent-color:var(--signal);height:4px}
+select,input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;padding:5px 8px;
+  border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+button{font-family:var(--disp);font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;
+  padding:7px 13px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:3px;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink)}
+button:hover{filter:brightness(1.18)}
+.readout{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-soft);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:12px}
+.readout div{background:var(--card-2);border-radius:3px;padding:8px 10px}
+.readout .v{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);
+  display:block;font-variant-numeric:tabular-nums;line-height:1.25}
+.readout .l{font-family:var(--disp);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft)}
+.bars{margin-top:12px}
+.bar{display:grid;grid-template-columns:118px 1fr 74px;gap:9px;align-items:center;margin-bottom:5px;
+  font-family:var(--mono);font-size:11.5px}
+.bar .t{background:var(--card-2);height:15px;border-radius:2px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--signal);transition:width .25s}
+.bar .t i.hot{background:var(--hot)}
+.bar .t i.amb{background:var(--amber)}
+.bar .v{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- misc ---------- */
+.pillrow{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pill{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--rule);
+  border-radius:20px;background:#fff;color:var(--ink-mid)}
+.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.foot{border-top:1px solid var(--rule);margin-top:44px;padding-top:18px;font-family:var(--mono);
+  font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot a{color:var(--ink-mid);text-decoration:none;border-bottom:1px solid var(--rule)}
+.nextprev{display:flex;justify-content:space-between;gap:14px;margin-top:30px;flex-wrap:wrap}
+.nextprev a{flex:1 1 220px;border:1px solid var(--rule);background:var(--card);padding:12px 15px;
+  border-radius:3px;text-decoration:none;color:var(--ink)}
+.nextprev a span{display:block;font-family:var(--disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft)}
+.nextprev a b{font-family:var(--disp);font-size:16px;font-weight:600}
+.top{position:fixed;right:18px;bottom:18px;z-index:40;background:var(--ink);color:#fff;border:0;
+  width:40px;height:40px;border-radius:50%;font-size:15px;opacity:.28;padding:0}
+.top:hover{opacity:1}
+:focus-visible{outline:2.5px solid var(--signal);outline-offset:2px}
+
+:root{--accent:var(--p2)}</style>
+</head><body>
+<div class="shell"><nav class="rail">
+<p class="brandmark">100 Days of System Design</p>
+<h2 class="brandtitle"><a href="index.html">Engineering<br>Notebook</a></h2>
+<div class="railmeta">145 lessons · 75h 48m<br>Phase 02 · Days 27–48</div>
+<p class="railsec">On this page</p>
+<ul class="toc"><li><a href="#d027"><span class="n">D027</span><span>Data Modeling Fundamentals</span></a></li><li><a href="#d028"><span class="n">D028</span><span>Relational Internals I: Storage Engine &amp; WAL</span></a></li><li><a href="#d029"><span class="n">D029</span><span>Relational Internals II: Indexes</span></a></li><li><a href="#d030"><span class="n">D030</span><span>Query Execution &amp; Optimization</span></a></li><li><a href="#d031"><span class="n">D031</span><span>Normalization &amp; Denormalization</span></a></li><li><a href="#d032"><span class="n">D032</span><span>Transactions &amp; ACID</span></a></li><li><a href="#d033"><span class="n">D033</span><span>Isolation Levels &amp; Concurrency Anomalies</span></a></li><li><a href="#d034"><span class="n">D034</span><span>Locking, Deadlocks &amp; Concurrency Control</span></a></li><li><a href="#d035"><span class="n">D035</span><span>Connection Pooling, Prepared Statements &amp; ORMs</span></a></li><li><a href="#d036"><span class="n">D036</span><span>The NoSQL Landscape</span></a></li><li><a href="#d037"><span class="n">D037</span><span>LSM Trees, SSTables &amp; Compaction</span></a></li><li><a href="#d038"><span class="n">D038</span><span>Key-Value Stores in Depth</span></a></li><li><a href="#d039"><span class="n">D039</span><span>Document Stores</span></a></li><li><a href="#d040"><span class="n">D040</span><span>Wide-Column Stores</span></a></li><li><a href="#d041"><span class="n">D041</span><span>Graph Databases</span></a></li><li><a href="#d042"><span class="n">D042</span><span>Time-Series &amp; Analytical (OLAP) Stores</span></a></li><li><a href="#d043"><span class="n">D043</span><span>Search Engines &amp; Inverted Indexes</span></a></li><li><a href="#d044"><span class="n">D044</span><span>Replication I: Leader–Follower</span></a></li><li><a href="#d045"><span class="n">D045</span><span>Replication II: Multi-Leader &amp; Leaderless</span></a></li><li><a href="#d046"><span class="n">D046</span><span>Sharding &amp; Partitioning</span></a></li><li><a href="#d047"><span class="n">D047</span><span>Consistent Hashing</span></a></li><li><a href="#d048"><span class="n">D048</span><span>Polyglot Persistence &amp; Zero-Downtime Data Migration</span></a></li></ul>
+<p class="railsec">All phases</p>
+<ul class="phaselinks"><li><a href="phase-00.html"><span class="sw" style="background:var(--p0)"></span>00 · Foundations & Mental Models</a></li><li><a href="phase-01.html"><span class="sw" style="background:var(--p1)"></span>01 · Networking & the Web</a></li><li><a href="phase-02.html" aria-current="page"><span class="sw" style="background:var(--p2)"></span>02 · Storage & Databases</a></li><li><a href="phase-03.html"><span class="sw" style="background:var(--p3)"></span>03 · Caching</a></li><li><a href="phase-04.html"><span class="sw" style="background:var(--p4)"></span>04 · Load Balancing & Traffic</a></li><li><a href="phase-05.html"><span class="sw" style="background:var(--p5)"></span>05 · Distributed Systems Theory</a></li><li><a href="phase-06.html"><span class="sw" style="background:var(--p6)"></span>06 · Messaging & Streaming</a></li><li><a href="phase-07.html"><span class="sw" style="background:var(--p7)"></span>07 · Microservices & Patterns</a></li><li><a href="phase-08.html"><span class="sw" style="background:var(--p8)"></span>08 · Reliability, Observability, Security, Cost</a></li><li><a href="phase-09.html"><span class="sw" style="background:var(--p9)"></span>09 · Case Studies</a></li><li><a href="phase-10.html"><span class="sw" style="background:var(--p10)"></span>10 · Interview Mastery & Capstone</a></li></ul>
+</nav><main class="main"><div class="wrap"><div class="phasehead">
+  <p class="eyebrow">Phase 02 · Days 27–48 · 22 lessons · 11h 24m</p>
+  <h1>Storage &amp; Databases</h1>
+  <p class="lede">Pick a datastore for a workload and defend it with internals, not vibes.</p>
+  <div class="statrow">
+    <div class="stat"><b>22</b><span>Lessons</span></div>
+    <div class="stat"><b>11h 24m</b><span>Runtime</span></div>
+    <div class="stat"><b>31 min</b><span>Average</span></div>
+    <div class="stat"><b>Wk 5.5–10</b><span>At 5 / week</span></div>
+    <div class="stat"><b>D003, D012</b><span>Prerequisites</span></div>
+  </div>
+</div>
+<div class="hook" style="margin-bottom:22px"><b>Milestone</b>Milestone project after Day 48 — build a mini key-value store.</div>
+
+<div class="note" style="margin-bottom:26px">
+<b>Where the long-form notes are.</b> Phases 0 and 1 carry the full written treatment — worked
+arithmetic, diagrams, war stories, interview traps and interactive demos. This phase currently carries
+the complete per-lesson breakdown: everything each lesson covers, the whiteboard sequence, and the
+homework. Use it as the study checklist and the recording script; the expanded notes follow the same
+nine-part structure shown by the ribbon on every card.</div>
+<article class="lesson" id="d027">
+<div class="lhead"><div class="day">D027</div><div>
+  <h3>Data Modeling Fundamentals</h3>
+  <p class="lmeta">26 min · Phase 02 · Prereq: Day 26</p></div></div>
+<div class="ribbon" data-runtime="26"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Entities, attributes, relationships, cardinality</li><li>ER diagrams and crow&#x27;s-foot notation</li><li>Primary/foreign/composite/surrogate/natural keys</li><li>1:1, 1:N, M:N and junction tables</li><li>Modeling hierarchies (adjacency list, nested set, closure table, materialized path)</li><li>Soft deletes, audit columns, temporal data</li><li>Access-pattern-first modeling for NoSQL</li></ul>
+<div class="note"><b>Whiteboard.</b> an e-commerce domain modeled relationally and again for DynamoDB.</div>
+<div class="hw"><b>Homework</b>Model a course-enrollment system both ways.</div>
+</div></article>
+<article class="lesson" id="d028">
+<div class="lhead"><div class="day">D028</div><div>
+  <h3>Relational Internals I: Storage Engine &amp; WAL</h3>
+  <p class="lmeta">32 min · Phase 02 · Prereq: Day 27</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Pages/blocks, tuples, row layout, TOAST/overflow</li><li>Heap files vs clustered/index-organized tables</li><li>The buffer pool, eviction, dirty page flushing</li><li>Write-ahead logging, LSN, checkpoints, crash recovery (ARIES: analysis/redo/undo)</li><li><code>fsync</code> and group commit</li><li>Why <code>SELECT *</code> costs more than you think</li></ul>
+<div class="note"><b>Whiteboard.</b> a row UPDATE traced from SQL to disk, including WAL.</div>
+<div class="hw"><b>Homework</b>Inspect page layout and WAL activity in Postgres.</div>
+</div></article>
+<article class="lesson" id="d029">
+<div class="lhead"><div class="day">D029</div><div>
+  <h3>Relational Internals II: Indexes</h3>
+  <p class="lmeta">34 min · Phase 02 · Prereq: Day 28</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>B-Tree/B+Tree structure, fanout, height math (why 3–4 levels covers billions of rows)</li><li>Clustered vs secondary indexes</li><li>Composite index column order and the leftmost-prefix rule</li><li>Covering indexes and index-only scans</li><li>Hash, GIN/GiST, BRIN, bitmap, partial, expression, and full-text indexes</li><li>Index selectivity and cardinality</li><li>Write amplification and the cost of over-indexing</li><li>When a full scan is the right plan</li></ul>
+<div class="note"><b>Whiteboard.</b> B+Tree traversal for a range query, node by node.</div>
+<div class="hw"><b>Homework</b>Build 3 indexes for one table and measure read/write tradeoffs.</div>
+</div></article>
+<article class="lesson" id="d030">
+<div class="lhead"><div class="day">D030</div><div>
+  <h3>Query Execution &amp; Optimization</h3>
+  <p class="lmeta">32 min · Phase 02 · Prereq: Day 29</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Parse → rewrite → plan → execute</li><li>Cost-based optimization and statistics/histograms</li><li>Join algorithms (nested loop, hash join, sort-merge) and when each wins</li><li>Scan types</li><li>Predicate pushdown</li><li>Reading <code>EXPLAIN ANALYZE</code> line by line</li><li>Common slow-query causes (functions on indexed columns, implicit casts, OR chains, <code>SELECT N+1</code>)</li><li>Query plan cache and parameter sniffing</li></ul>
+<div class="note"><b>Whiteboard.</b> a 5-table join plan, annotated with row estimates vs actuals.</div>
+<div class="hw"><b>Homework</b>Take a 4-second query to under 100 ms and document each step.</div>
+</div></article>
+<article class="lesson" id="d031">
+<div class="lhead"><div class="day">D031</div><div>
+  <h3>Normalization &amp; Denormalization</h3>
+  <p class="lmeta">26 min · Phase 02 · Prereq: Day 30</p></div></div>
+<div class="ribbon" data-runtime="26"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>1NF–3NF, BCNF with worked examples</li><li>Update/insert/delete anomalies</li><li>When denormalization pays (read-heavy, aggregate-heavy, join-expensive)</li><li>Materialized views and refresh strategies</li><li>Summary/rollup tables</li><li>The consistency debt denormalization creates and how to service it (triggers, CDC, batch reconciliation)</li></ul>
+<div class="note"><b>Whiteboard.</b> normalize a messy table to 3NF, then selectively denormalize with justification.</div>
+<div class="hw"><b>Homework</b>Find one denormalization in a real schema and identify who keeps it in sync.</div>
+</div></article>
+<article class="lesson" id="d032">
+<div class="lhead"><div class="day">D032</div><div>
+  <h3>Transactions &amp; ACID</h3>
+  <p class="lmeta">28 min · Phase 02 · Prereq: Day 31</p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Atomicity, consistency, isolation, durability — each with a failure story</li><li>Transaction lifecycle, savepoints, rollback</li><li>Long-running transactions and their damage (lock holding, bloat, replication lag)</li><li>Autocommit surprises</li><li>Transactional boundaries in application code</li><li>BASE as a contrast, not an opposite</li></ul>
+<div class="note"><b>Whiteboard.</b> a money transfer failing at 6 different points, and what each ACID property saves.</div>
+<div class="hw"><b>Homework</b>Reproduce a lost update, then prevent it three different ways.</div>
+</div></article>
+<article class="lesson" id="d033">
+<div class="lhead"><div class="day">D033</div><div>
+  <h3>Isolation Levels &amp; Concurrency Anomalies</h3>
+  <p class="lmeta">34 min · Phase 02 · Prereq: Day 32</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Read uncommitted, read committed, repeatable read, snapshot, serializable</li><li>Dirty read, non-repeatable read, phantom read, lost update, read skew, write skew — each reproduced concretely</li><li>MVCC (Postgres vs MySQL implementations), snapshots, vacuum/purge</li><li>Serializable snapshot isolation</li><li>The default level in each major DB (and why the defaults surprise people)</li></ul>
+<div class="note"><b>Whiteboard.</b> anomaly matrix — which level prevents what.</div>
+<div class="hw"><b>Homework</b>Reproduce write skew at repeatable read, then fix it.</div>
+</div></article>
+<article class="lesson" id="d034">
+<div class="lhead"><div class="day">D034</div><div>
+  <h3>Locking, Deadlocks &amp; Concurrency Control</h3>
+  <p class="lmeta">30 min · Phase 02 · Prereq: Day 33</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Shared/exclusive locks, row vs page vs table locks, intent locks</li><li>Gap and next-key locks</li><li><code>SELECT FOR UPDATE</code> / <code>SKIP LOCKED</code> patterns</li><li>Deadlock detection vs prevention, victim selection, and lock-ordering discipline</li><li>Optimistic concurrency with version columns</li><li>Pessimistic locking&#x27;s cost</li><li>Advisory locks</li><li>Lock contention as a scaling wall</li></ul>
+<div class="note"><b>Whiteboard.</b> two transactions deadlocking, then reordered to be safe.</div>
+<div class="hw"><b>Homework</b>Build a queue on a SQL table using <code>FOR UPDATE SKIP LOCKED</code>.</div>
+</div></article>
+<article class="lesson" id="d035">
+<div class="lhead"><div class="day">D035</div><div>
+  <h3>Connection Pooling, Prepared Statements &amp; ORMs</h3>
+  <p class="lmeta">26 min · Phase 02 · Prereq: Day 34</p></div></div>
+<div class="ribbon" data-runtime="26"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Connection cost and per-connection memory</li><li>Pool sizing formulas and why bigger pools are often slower</li><li>PgBouncer/ProxySQL modes (session/transaction/statement)</li><li>Prepared statements, plan caching, and pooling interactions</li><li>ORM benefits and the classic failures (N+1, lazy-loading in loops, giant eager fetches, unindexed generated queries)</li><li>Raw SQL escape hatches</li></ul>
+<div class="note"><b>Whiteboard.</b> 10,000 app threads → 40 DB connections, drawn.</div>
+<div class="hw"><b>Homework</b>Find and fix an N+1 in any ORM codebase.</div>
+</div></article>
+<article class="lesson" id="d036">
+<div class="lhead"><div class="day">D036</div><div>
+  <h3>The NoSQL Landscape</h3>
+  <p class="lmeta">30 min · Phase 02 · Prereq: Day 35</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Why NoSQL appeared</li><li>The five families (key-value, document, wide-column, graph, time-series) with the workload each targets</li><li>Schema-on-read vs schema-on-write</li><li>Query flexibility vs scalability tradeoff</li><li>Tunable consistency</li><li>A decision tree for picking a family</li><li>The &quot;we chose NoSQL and regretted it&quot; failure pattern</li></ul>
+<div class="note"><b>Whiteboard.</b> workload → datastore decision tree.</div>
+<div class="hw"><b>Homework</b>Map 6 real product features to the right family, with reasons.</div>
+</div></article>
+<article class="lesson" id="d037">
+<div class="lhead"><div class="day">D037</div><div>
+  <h3>LSM Trees, SSTables &amp; Compaction</h3>
+  <p class="lmeta">34 min · Phase 02 · Prereq: Day 36</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Memtable → WAL → SSTable flush</li><li>Leveled vs size-tiered vs universal compaction</li><li>Bloom filters and false-positive math</li><li>Read/write/space amplification triangle</li><li>Tombstones and delete latency</li><li>Block cache</li><li>Why LSM beats B-Tree for write-heavy workloads and loses on reads</li><li>RocksDB tuning knobs that matter</li></ul>
+<div class="note"><b>Whiteboard.</b> a key&#x27;s journey from write to compacted level 4.</div>
+<div class="hw"><b>Homework</b>Run a write-heavy benchmark on an LSM store and watch compaction stalls.</div>
+</div></article>
+<article class="lesson" id="d038">
+<div class="lhead"><div class="day">D038</div><div>
+  <h3>Key-Value Stores in Depth</h3>
+  <p class="lmeta">32 min · Phase 02 · Prereq: Day 37</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>The KV API and why constraints buy scale</li><li>DynamoDB internals — partitions, partition/sort keys, LSI vs GSI, capacity modes, adaptive capacity, hot partitions, single-table design, transactions, streams</li><li>When Redis is a database not a cache</li><li>Consistency options and cost modeling</li></ul>
+<div class="note"><b>Whiteboard.</b> single-table DynamoDB design for a multi-access-pattern app.</div>
+<div class="hw"><b>Homework</b>Design keys for 5 access patterns in one table.</div>
+</div></article>
+<article class="lesson" id="d039">
+<div class="lhead"><div class="day">D039</div><div>
+  <h3>Document Stores</h3>
+  <p class="lmeta">30 min · Phase 02 · Prereq: Day 38</p></div></div>
+<div class="ribbon" data-runtime="30"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>BSON/JSON documents, embedding vs referencing, the 16MB limit and unbounded-array anti-pattern</li><li>Indexes (single, compound, multikey, text, wildcard)</li><li>Aggregation pipeline stages</li><li>Replica sets, elections, read preferences and concerns</li><li>Sharding, chunk splits, balancer, shard key selection (the single most consequential choice)</li><li>Transactions in Mongo and their cost</li></ul>
+<div class="note"><b>Whiteboard.</b> same domain embedded vs referenced, with query cost for each.</div>
+<div class="hw"><b>Homework</b>Pick shard keys for 3 workloads and justify the choice.</div>
+</div></article>
+<article class="lesson" id="d040">
+<div class="lhead"><div class="day">D040</div><div>
+  <h3>Wide-Column Stores</h3>
+  <p class="lmeta">34 min · Phase 02 · Prereq: Day 39</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Cassandra data model — keyspace, table, partition key, clustering columns, static columns</li><li>Query-first modeling and table-per-query</li><li>Ring, token ranges, replication factor, tunable consistency (ONE/QUORUM/ALL) and R+W&gt;N</li><li>Coordinator nodes, hinted handoff, read repair, anti-entropy</li><li>The write path (commitlog → memtable → SSTable)</li><li>Tombstone hell</li><li>HBase/Bigtable contrast (regions, HDFS, strong consistency)</li></ul>
+<div class="note"><b>Whiteboard.</b> modeling a time-series feed for a specific query pattern.</div>
+<div class="hw"><b>Homework</b>Design 3 Cassandra tables for 3 queries over the same data.</div>
+</div></article>
+<article class="lesson" id="d041">
+<div class="lhead"><div class="day">D041</div><div>
+  <h3>Graph Databases</h3>
+  <p class="lmeta">28 min · Phase 02 · Prereq: Day 40</p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Property graph vs RDF</li><li>Nodes/edges/properties</li><li>Index-free adjacency and why joins get cheap</li><li>Cypher/Gremlin traversal basics</li><li>Algorithms (shortest path, PageRank, community detection)</li><li>Modeling social graphs, fraud rings, recommendations, permissions</li><li>Scaling limits and sharding difficulty</li><li>When a graph in Postgres is fine</li></ul>
+<div class="note"><b>Whiteboard.</b> friends-of-friends in SQL vs Cypher, with cost comparison.</div>
+<div class="hw"><b>Homework</b>Model and query a 3-hop recommendation.</div>
+</div></article>
+<article class="lesson" id="d042">
+<div class="lhead"><div class="day">D042</div><div>
+  <h3>Time-Series &amp; Analytical (OLAP) Stores</h3>
+  <p class="lmeta">32 min · Phase 02 · Prereq: Day 41</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>OLTP vs OLAP workloads</li><li>Row vs columnar storage and why columnar compresses 10×</li><li>Vectorized execution</li><li>Time-series specifics (append-only, downsampling, retention policies, out-of-order writes)</li><li>Prometheus TSDB internals, InfluxDB, TimescaleDB hypertables</li><li>ClickHouse/Druid/Pinot for real-time analytics</li><li>Star vs snowflake schemas</li><li>Pre-aggregation and cubes</li></ul>
+<div class="note"><b>Whiteboard.</b> the same query on a row store vs a column store, bytes read compared.</div>
+<div class="hw"><b>Homework</b>Load 10M rows into a columnar store and compare a scan against Postgres.</div>
+</div></article>
+<article class="lesson" id="d043">
+<div class="lhead"><div class="day">D043</div><div>
+  <h3>Search Engines &amp; Inverted Indexes</h3>
+  <p class="lmeta">34 min · Phase 02 · Prereq: Day 42</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Inverted index construction</li><li>Analyzers — tokenization, lowercasing, stemming, stop words, n-grams, synonyms</li><li>Postings lists, skip lists, positional indexes for phrase queries</li><li>TF-IDF and BM25 ranking math</li><li>Elasticsearch/OpenSearch architecture — index, shard, replica, segment, refresh vs flush, merge</li><li>Near-real-time semantics</li><li>Relevance tuning, boosting, faceting, highlighting</li><li>Vector/hybrid search and ANN indexes (HNSW, IVF)</li></ul>
+<div class="note"><b>Whiteboard.</b> build an inverted index for 5 documents by hand, then rank a query with BM25.</div>
+<div class="hw"><b>Homework</b>Index a dataset and tune analyzers to fix 3 bad search results.</div>
+</div></article>
+<article class="lesson" id="d044">
+<div class="lhead"><div class="day">D044</div><div>
+  <h3>Replication I: Leader–Follower</h3>
+  <p class="lmeta">32 min · Phase 02 · Prereq: Day 43</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Why replicate (HA, read scaling, geo-locality, backups)</li><li>Statement vs row-based vs WAL/logical replication</li><li>Synchronous, asynchronous, and semi-synchronous tradeoffs</li><li>Replication lag causes and measurement</li><li>Read-after-write, monotonic reads, consistent prefix — and the fixes (read from leader, sticky routing, LSN tokens)</li><li>Failover, promotion, and data loss windows</li><li>Chained replication and cascading replicas</li></ul>
+<div class="note"><b>Whiteboard.</b> user posts a comment and doesn&#x27;t see it — the replication-lag bug, and 3 fixes.</div>
+<div class="hw"><b>Homework</b>Set up a replica, induce lag, and observe stale reads.</div>
+</div></article>
+<article class="lesson" id="d045">
+<div class="lhead"><div class="day">D045</div><div>
+  <h3>Replication II: Multi-Leader &amp; Leaderless</h3>
+  <p class="lmeta">36 min · Phase 02 · Prereq: Day 44</p></div></div>
+<div class="ribbon" data-runtime="36"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Multi-leader topologies (circular, star, all-to-all), use cases (multi-DC, offline clients, collaborative editing) and write conflicts</li><li>Conflict resolution — LWW and its data loss, version vectors, application-level merge, CRDTs</li><li>Dynamo-style leaderless quorums, R + W &gt; N math, sloppy quorums and hinted handoff</li><li>Read repair vs anti-entropy</li><li>When quorums still return stale data</li></ul>
+<div class="note"><b>Whiteboard.</b> a concurrent write conflict resolved 4 different ways, with outcomes compared.</div>
+<div class="hw"><b>Homework</b>Simulate a conflict and implement version-vector resolution.</div>
+</div></article>
+<article class="lesson" id="d046">
+<div class="lhead"><div class="day">D046</div><div>
+  <h3>Sharding &amp; Partitioning</h3>
+  <p class="lmeta">34 min · Phase 02 · Prereq: Day 45</p></div></div>
+<div class="ribbon" data-runtime="34"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Vertical vs horizontal partitioning</li><li>Range, hash, list, composite, directory-based, and geo sharding</li><li>Shard key selection and hot/celebrity-key problems</li><li>Skew detection</li><li>Cross-shard queries, joins, and distributed aggregations</li><li>Global secondary indexes across shards</li><li>Resharding and live migration (double-write, backfill, verify, cutover)</li><li>Vitess/Citus approaches</li><li>When <em>not</em> to shard</li></ul>
+<div class="note"><b>Whiteboard.</b> choosing a shard key for a multi-tenant SaaS — 3 candidates evaluated.</div>
+<div class="hw"><b>Homework</b>Shard a table by 2 different keys and compare query fan-out.</div>
+</div></article>
+<article class="lesson" id="d047">
+<div class="lhead"><div class="day">D047</div><div>
+  <h3>Consistent Hashing</h3>
+  <p class="lmeta">28 min · Phase 02 · Prereq: Day 46</p></div></div>
+<div class="ribbon" data-runtime="28"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>The modulo-hashing rehash catastrophe</li><li>The hash ring, clockwise assignment, and the 1/N movement guarantee</li><li>Virtual nodes for balance and heterogeneous capacity</li><li>Replication along the ring</li><li>Rendezvous hashing and jump consistent hash as alternatives</li><li>Consistent hashing with bounded loads</li><li>Where it&#x27;s actually used (Cassandra, Dynamo, Memcached clients, CDNs, LBs)</li></ul>
+<div class="note"><b>Whiteboard.</b> add and remove a node from a ring; count key movements both ways.</div>
+<div class="hw"><b>Homework</b>Implement consistent hashing with vnodes and measure distribution variance.</div>
+</div></article>
+<article class="lesson" id="d048">
+<div class="lhead"><div class="day">D048</div><div>
+  <h3>Polyglot Persistence &amp; Zero-Downtime Data Migration</h3>
+  <p class="lmeta">32 min · Phase 02 · Prereq: Day 47</p></div></div>
+<div class="ribbon" data-runtime="32"></div>
+<div class="lbody">
+<h4>What the lesson covers</h4><ul><li>Choosing multiple stores deliberately and the operational tax</li><li>Expand–contract schema changes</li><li>Adding columns/indexes on huge tables without locking (<code>CONCURRENTLY</code>, online DDL, gh-ost/pt-osc)</li><li>Dual writes and their consistency traps</li><li>Backfill strategies with throttling</li><li>Shadow reads and comparison</li><li>Feature-flagged cutover and rollback plan</li><li>Data validation and reconciliation jobs</li></ul>
+<div class="note"><b>Whiteboard.</b> a 7-step live migration from Postgres to a sharded store, with rollback at each step.</div>
+<div class="hw"><b>Homework</b>Write the runbook for renaming a column used by 3 services, zero downtime.</div>
+</div></article>
+<div class="nextprev"><a href="phase-01.html"><span>Previous phase</span><b>← 01</b></a><a href="phase-03.html"><span>Next phase</span><b>03 · Caching →</b></a></div>
+<div class="foot"><span>Phase 02 · Days 27–48 · 11h 24m</span><span><a href="index.html">← Back to hub</a></span></div></div></main></div><script>/* ---------- signature element: the chapter ribbon ---------- */
+const SPEC = {
+  std: [
+    ["Hook — watch it break", 5,  "#B4232C"],
+    ["What you'll be able to do", 3, "#C97B2E"],
+    ["Prerequisite recap", 5, "#9A6A00"],
+    ["Core concept — whiteboard", 30, "#0E6E63"],
+    ["Deep dive — internals / math", 30, "#1B6E9B"],
+    ["Tradeoffs table", 10, "#4A3C9E"],
+    ["Real-world war story", 8, "#8A2E68"],
+    ["Interview angle", 6, "#5A5270"],
+    ["Homework + teaser", 3, "#23415E"]
+  ],
+  case: [
+    ["Problem + scoping questions", 6, "#B4232C"],
+    ["Functional + non-functional reqs", 8, "#C97B2E"],
+    ["Back-of-envelope estimation", 8, "#9A6A00"],
+    ["API design", 7, "#2E6E36"],
+    ["Data model + storage choice", 12, "#0E6E63"],
+    ["High-level architecture", 15, "#1B6E9B"],
+    ["Deep dive 1 — the hard part", 15, "#4A3C9E"],
+    ["Deep dive 2", 12, "#8A2E68"],
+    ["Bottlenecks + failure modes", 10, "#5A5270"],
+    ["Interview follow-ups", 7, "#23415E"]
+  ]
+};
+function fmtClock(min){const m=Math.floor(min),s=Math.round((min-m)*60);return m+":"+String(s).padStart(2,"0");}
+function buildRibbons(){
+  document.querySelectorAll(".ribbon").forEach(r=>{
+    const rt=parseFloat(r.dataset.runtime||"30");
+    const spec=SPEC[r.dataset.spec||"std"];
+    let acc=0;
+    r.innerHTML=spec.map(([label,pct,col])=>{
+      const start=acc*rt/100; acc+=pct;
+      return `<i style="width:${pct}%;background:${col}" data-l="${fmtClock(start)} · ${label} · ${Math.round(pct*rt/100*10)/10}m"></i>`;
+    }).join("");
+  });
+}
+
+/* ---------- scroll-spy table of contents ---------- */
+function spy(){
+  const links=[...document.querySelectorAll(".toc a")];
+  if(!links.length) return;
+  const map=new Map();
+  links.forEach(a=>{const el=document.querySelector(a.getAttribute("href"));if(el)map.set(el,a);});
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove("on"));
+        const a=map.get(e.target); if(a){a.classList.add("on");
+          const r=a.closest(".rail");
+          if(r&&window.innerWidth>980){const t=a.offsetTop-r.clientHeight/2;r.scrollTo({top:t,behavior:"smooth"});}}
+      }
+    });
+  },{rootMargin:"-8% 0px -80% 0px",threshold:0});
+  map.forEach((a,el)=>io.observe(el));
+}
+
+/* ---------- helpers used by inline demos ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+function num(n,d=0){return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});}
+function bytes(b){
+  const u=["B","KB","MB","GB","TB","PB","EB"];let i=0;
+  while(b>=1024&&i<u.length-1){b/=1024;i++;}
+  return (b<10?b.toFixed(2):b<100?b.toFixed(1):Math.round(b))+" "+u[i];
+}
+function eng(n){
+  if(n>=1e12)return (n/1e12).toFixed(2)+"T";
+  if(n>=1e9) return (n/1e9).toFixed(2)+"B";
+  if(n>=1e6) return (n/1e6).toFixed(2)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(2)+"K";
+  return n.toFixed(n<10?2:0);
+}
+function wire(root,fn){
+  const el=typeof root==="string"?$(root):root; if(!el)return;
+  $$("input,select",el).forEach(i=>i.addEventListener("input",()=>fn(el)));
+  $$("button[data-act]",el).forEach(b=>b.addEventListener("click",()=>fn(el,b.dataset.act)));
+  fn(el);
+}
+function setv(el,sel,val){const t=$(sel,el);if(t)t.textContent=val;}
+function setbar(el,sel,pct,cls){
+  const t=$(sel,el); if(!t)return;
+  t.style.width=Math.max(0,Math.min(100,pct))+"%";
+  t.className=cls||"";
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  buildRibbons(); spy();
+  const b=document.createElement("button");
+  b.className="top"; b.textContent="\u2191"; b.setAttribute("aria-label","Back to top");
+  b.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+  document.body.appendChild(b);
+});
+</script></body></html>

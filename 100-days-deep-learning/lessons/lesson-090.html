@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day 79 · Lesson 90 — Efficient Attention & Long Context | 100 Days of Deep Learning</title>
+<meta name="description" content="Lesson 90 of 100 Days of Deep Learning: Efficient Attention & Long Context. 55 minutes.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="../index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><a href="../phases/phase-6.html">Phase 6</a> · Day 79 · <b>Lesson 90</b></span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  <span class="pagernav"><a class="iconbtn" href="lesson-089.html" title="Previous lesson" aria-label="Previous lesson">←</a><a class="iconbtn" href="lesson-091.html" title="Next lesson" aria-label="Next lesson">→</a></span>
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+  <section class="wrap" style="padding-top:26px;padding-bottom:0">
+    <a class="backlink" href="../phases/phase-6.html">← Phase 6 · Transformers & Large Language Models · Days 69–86</a>
+  </section>
+<article class="wrap lesson" id="l90">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 79</span><span>Lesson 90</span><span class="rt">55 min</span></div>
+      <h3 class="lesson-title">Efficient Attention &amp; Long Context</h3>
+      <span class="lesson-no">90</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The quadratic wall</li><li>Sparse and local attention</li>
+        <li>Longformer, BigBird</li><li>Reformer, Linformer, Performer</li>
+        <li>FlashAttention 1/2/3</li><li>The KV cache, explained and sized</li>
+        <li>Multi-Query and Grouped-Query Attention</li><li>PagedAttention</li>
+        <li>Sliding-window inference</li><li>Context extension</li>
+      </ol>
+    </div>
+
+    <h4>The KV cache — the most important optimisation in inference</h4>
+    <p>Generating token \(t\) recomputes attention over all previous tokens. But the keys and values of tokens \(1..t-1\) do not change — only the new query does. Cache them and each new token costs \(O(n)\) instead of \(O(n^2)\), turning generation from quadratic to linear.</p>
+    <p>The cost is memory, and it is substantial:</p>
+    \[ \text{KV bytes}=2\cdot B\cdot n\cdot L\cdot h_{kv}\cdot d_{\text{head}}\cdot\text{sizeof(dtype)} \]
+    <p>For Llama-2-70B (\(L=80\), \(h=64\), \(d_{\text{head}}=128\)) at 4096 tokens with batch 1 in fp16, full multi-head attention would need <b>10.7 GB of cache for a single sequence</b> — more than the weights of a 7B model, for one user. Serve 32 concurrent users and the cache dwarfs everything else. That number is why the next idea exists.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 220" role="img" aria-label="Multi-head, grouped-query and multi-query attention compared by how many key-value heads they keep">
+        <text class="svg-ttl" x="20" y="22">HOW MANY KEY/VALUE HEADS? — the KV cache divides by exactly this</text>
+        <g transform="translate(40,46)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#5BC8E6">MHA · 8 Q, 8 KV</text>
+          <g fill="#0F1822" stroke="#5BC8E6">
+            <rect x="0" y="14" width="18" height="26"/><rect x="22" y="14" width="18" height="26"/>
+            <rect x="44" y="14" width="18" height="26"/><rect x="66" y="14" width="18" height="26"/>
+            <rect x="88" y="14" width="18" height="26"/><rect x="110" y="14" width="18" height="26"/>
+            <rect x="132" y="14" width="18" height="26"/><rect x="154" y="14" width="18" height="26"/>
+          </g>
+          <text class="svg-lbl" x="0" y="58">queries</text>
+          <g fill="#0F1822" stroke="#FFB454">
+            <rect x="0" y="70" width="18" height="26"/><rect x="22" y="70" width="18" height="26"/>
+            <rect x="44" y="70" width="18" height="26"/><rect x="66" y="70" width="18" height="26"/>
+            <rect x="88" y="70" width="18" height="26"/><rect x="110" y="70" width="18" height="26"/>
+            <rect x="132" y="70" width="18" height="26"/><rect x="154" y="70" width="18" height="26"/>
+          </g>
+          <text class="svg-lbl" x="0" y="114" fill="#FFB454">8 KV heads cached</text>
+          <text class="svg-lbl" x="0" y="140">baseline quality</text>
+          <text class="svg-lbl" x="0" y="156" fill="#FF7B87">10.7 GB @ 4k, 70B</text>
+        </g>
+        <g transform="translate(300,46)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#93D97B">GQA · 8 Q, 2 KV</text>
+          <g fill="#0F1822" stroke="#5BC8E6">
+            <rect x="0" y="14" width="18" height="26"/><rect x="22" y="14" width="18" height="26"/>
+            <rect x="44" y="14" width="18" height="26"/><rect x="66" y="14" width="18" height="26"/>
+            <rect x="88" y="14" width="18" height="26"/><rect x="110" y="14" width="18" height="26"/>
+            <rect x="132" y="14" width="18" height="26"/><rect x="154" y="14" width="18" height="26"/>
+          </g>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M9 40 L42 70"/><path d="M31 40 L42 70"/><path d="M53 40 L42 70"/><path d="M75 40 L42 70"/>
+            <path d="M97 40 L130 70"/><path d="M119 40 L130 70"/><path d="M141 40 L130 70"/><path d="M163 40 L130 70"/>
+          </g>
+          <g fill="#0F1822" stroke="#FFB454">
+            <rect x="33" y="70" width="18" height="26"/><rect x="121" y="70" width="18" height="26"/>
+          </g>
+          <text class="svg-lbl" x="0" y="114" fill="#FFB454">2 KV heads cached</text>
+          <text class="svg-lbl" x="0" y="140" fill="#93D97B">quality ≈ MHA</text>
+          <text class="svg-lbl" x="0" y="156" fill="#93D97B">2.7 GB — 4× less</text>
+        </g>
+        <g transform="translate(560,46)">
+          <text class="svg-lbl-b" x="0" y="0" fill="#B79CFF">MQA · 8 Q, 1 KV</text>
+          <g fill="#0F1822" stroke="#5BC8E6">
+            <rect x="0" y="14" width="18" height="26"/><rect x="22" y="14" width="18" height="26"/>
+            <rect x="44" y="14" width="18" height="26"/><rect x="66" y="14" width="18" height="26"/>
+            <rect x="88" y="14" width="18" height="26"/><rect x="110" y="14" width="18" height="26"/>
+            <rect x="132" y="14" width="18" height="26"/><rect x="154" y="14" width="18" height="26"/>
+          </g>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M9 40 L86 70"/><path d="M31 40 L86 70"/><path d="M53 40 L86 70"/><path d="M75 40 L86 70"/>
+            <path d="M97 40 L86 70"/><path d="M119 40 L86 70"/><path d="M141 40 L86 70"/><path d="M163 40 L86 70"/>
+          </g>
+          <rect x="77" y="70" width="18" height="26" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl" x="0" y="114" fill="#FFB454">1 KV head cached</text>
+          <text class="svg-lbl" x="0" y="140" style="fill:#FF7B87">small quality loss</text>
+          <text class="svg-lbl" x="0" y="156">1.3 GB — 8× less</text>
+        </g>
+      </svg>
+      <figcaption>Queries stay at full count; only the keys and values are shared. GQA sits at the useful point on the curve, which is why Llama-2-70B, Mistral, and most current models use it.</figcaption>
+    </figure>
+
+    <div class="demo" id="d-kv">
+      <div class="demo-head"><span class="dot"></span><b>KV cache calculator</b> · why long context is a memory problem, not a compute problem</div>
+      <div class="demo-body">
+        <canvas id="kvCv" width="760" height="250" aria-label="KV cache size against context length for different attention variants"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Model</span>
+            <select id="kvM">
+              <option value="7">7B (32L, 32h, d=128)</option>
+              <option value="13">13B (40L, 40h)</option>
+              <option value="70" selected>70B (80L, 64h)</option>
+              <option value="405">405B (126L, 128h)</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Attention</span>
+            <select id="kvA">
+              <option value="1">MHA — all heads</option>
+              <option value="8" selected>GQA — 8 groups</option>
+              <option value="0">MQA — 1 KV head</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Context <b id="kvNv">4096</b></span><input type="range" id="kvN" min="1024" max="131072" step="1024" value="4096"></label>
+          <label class="ctrl"><span>Concurrent users <b id="kvBv">1</b></span><input type="range" id="kvB" min="1" max="64" step="1" value="1"></label>
+          <label class="ctrl"><span><input type="checkbox" id="kvQ"> 8-bit KV cache</span></label>
+        </div>
+        <div class="readout" id="kvOut"></div>
+      </div>
+    </div>
+
+    <div class="box derive"><span class="lbl">FlashAttention — the same maths, a different memory schedule</span>
+      <p>FlashAttention computes <b>exactly</b> standard attention. It is not an approximation. The insight is that GPUs are bottlenecked by memory bandwidth, not arithmetic: a naive implementation writes the \(n\times n\) score matrix to high-bandwidth memory, reads it back for the softmax, writes it again, and reads it for the value multiply. That traffic dominates the runtime.</p>
+      <p style="margin-bottom:0">Instead, tile the computation and keep each tile in on-chip SRAM, using the <b>online softmax</b> trick — a running maximum and running normaliser (Lesson 10's log-sum-exp, made incremental) that lets you finish a tile before seeing the rest of the row. The \(n\times n\) matrix is never materialised. Memory drops from \(O(n^2)\) to \(O(n)\) and wall-clock improves 2–4×, with bit-identical outputs. FlashAttention-2 improved the work partitioning; FlashAttention-3 exploits Hopper's asynchrony and FP8.</p>
+    </div>
+
+    <h4>The approximate methods, and why most of them faded</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>Idea</th><th>Complexity</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><b>Longformer</b></td><td>Sliding window + a few global tokens</td><td>\(O(n)\)</td><td>Still used for long-document encoding</td></tr>
+        <tr><td><b>BigBird</b></td><td>Window + global + random</td><td>\(O(n)\)</td><td>Proved Turing-completeness; little practical uptake</td></tr>
+        <tr><td>Reformer</td><td>Locality-sensitive hashing groups similar queries</td><td>\(O(n\log n)\)</td><td>Largely abandoned — complex, and the constants were bad</td></tr>
+        <tr><td>Linformer</td><td>Project keys/values to a fixed low rank \(k\)</td><td>\(O(n)\)</td><td>Cannot handle variable length or causal masking cleanly</td></tr>
+        <tr><td>Performer</td><td>Random-feature approximation of the softmax kernel</td><td>\(O(n)\)</td><td>Quality gap at scale</td></tr>
+        <tr><td><b>Sliding window</b></td><td>Attend to the last \(w\) tokens; information propagates across layers</td><td>\(O(nw)\)</td><td class="tick">Mistral. Simple and it works.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box intuition"><span class="lbl">Why exact beat approximate</span>
+      <p style="margin-bottom:0">Between 2020 and 2022 there were dozens of sub-quadratic attention papers, and almost none are in production. FlashAttention is the reason: by removing the memory bottleneck from <em>exact</em> attention, it moved the practical crossover point so far out that the approximations no longer paid for their quality loss and implementation complexity. The lesson generalises — <b>a constant-factor improvement to the exact method can defeat an asymptotic improvement to an approximate one</b>, for any problem size people actually run.</p>
+    </div>
+
+    <p><b>PagedAttention</b> (vLLM) applies operating-system virtual memory to the KV cache. Naive serving pre-allocates a contiguous block per request sized to the maximum possible length, wasting 60–80% of it. PagedAttention stores the cache in fixed-size blocks with a page table, allowing non-contiguous allocation, near-zero waste, and copy-on-write sharing of a common prompt prefix across requests. It raised serving throughput by 2–4× with no model change at all.</p>
+  </article>
+  <section class="wrap"><div class="pager">
+<a id="prevLink" href="lesson-089.html" rel="prev"><span class="dir">← Previous · Day 78</span><span class="ttl">Encoder-Decoder Models — T5 &amp; BART</span></a>
+<a id="nextLink" class="nx" href="lesson-091.html" rel="next"><span class="dir">Next · Day 80 →</span><span class="ttl">Mixture of Experts</span></a>
+</div></section>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"../", current:90, phase:"p6", mode:"lesson" };</script>
+<script src="../assets/site.js"></script>
+<script src="../assets/demos.js"></script>
+</body>
+</html>

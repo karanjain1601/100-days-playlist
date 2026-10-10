@@ -1,0 +1,1767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 1 — Math, Python & Tooling Foundations | 100 Days of Deep Learning</title>
+<meta name="description" content="Phase 1 of 100 Days of Deep Learning: Math, Python & Tooling Foundations. 15 lessons, days 1–14, 10h 30m of video.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="../index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><b>Phase 1</b> · Math, Python & Tooling Foundations</span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  <span class="pagernav"><a class="iconbtn" aria-disabled="true">←</a><a class="iconbtn" href="phase-2.html" title="Next phase">→</a></span>
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+  <section class="wrap phasehero">
+    <p class="pnum">Phase 1 of 8 · Days 1–14 · Lessons 1–15</p>
+    <h1>Math, Python &amp; Tooling Foundations</h1>
+    <p class="plede">Nothing here is deep learning yet. All of it is load-bearing. The most common reason people stall around Day 40 is that they skipped the chain rule and the shape rules, so every debugging session becomes guesswork.</p>
+    <ul class="statrow"><li><b>15</b> lessons</li><li><b>10h 30m</b> of video</li><li><b>111</b> chapters</li><li>Notes: <b>all 15</b></li></ul>
+    <div class="toc"><span class="tlbl">Everything on this page</span>
+      <ol><li><a class="" href="#l1"><span class="tn">D1</span><span class="tt">Course Intro &amp; The 100-Day Roadmap</span></a></li><li><a class="" href="#l2"><span class="tn">D2</span><span class="tt">Python for Deep Learning (NumPy-first)</span></a></li><li><a class="" href="#l3"><span class="tn">D3</span><span class="tt">Linear Algebra I — Vectors &amp; Matrices</span></a></li><li><a class="" href="#l4"><span class="tn">D4</span><span class="tt">Linear Algebra II — Decompositions</span></a></li><li><a class="" href="#l5"><span class="tn">D5</span><span class="tt">Calculus for DL I — Derivatives &amp; Gradients</span></a></li><li><a class="" href="#l6"><span class="tn">D6</span><span class="tt">Calculus for DL II — Jacobians &amp; Chain Rule</span></a></li><li><a class="" href="#l7"><span class="tn">D7</span><span class="tt">Probability I — The Language of Uncertainty</span></a></li><li><a class="" href="#l8"><span class="tn">D8</span><span class="tt">Probability II — Information Theory &amp; Estimation</span></a></li><li><a class="" href="#l9"><span class="tn">D9</span><span class="tt">Optimization Fundamentals</span></a></li><li><a class="" href="#l10"><span class="tn">D10</span><span class="tt">Numerical Stability &amp; Floating Point</span></a></li><li><a class="" href="#l11"><span class="tn">D11</span><span class="tt">Environment Setup — CPU, GPU &amp; Cloud</span></a></li><li><a class="" href="#l12"><span class="tn">D12</span><span class="tt">PyTorch Tensor Crash Course</span></a></li><li><a class="" href="#l13"><span class="tn">D12-b</span><span class="tt">Framework Landscape — PyTorch vs TF vs JAX</span></a></li><li><a class="" href="#l14"><span class="tn">D13</span><span class="tt">Data Pipelines — Loading, Batching &amp; Splitting</span></a></li><li><a class="" href="#l15"><span class="tn">D14</span><span class="tt">Machine Learning Refresher</span></a></li></ol>
+    </div>
+  </section>
+<article class="wrap lesson" id="l1">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 1</span><span>Lesson 1</span><span class="rt">20 min</span><a class="permalink" href="../lessons/lesson-001.html">single page ↗</a></div>
+      <h3 class="lesson-title">Course Intro &amp; The 100-Day Roadmap</h3>
+      <span class="lesson-no">01</span>
+    </div>
+
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>What deep learning actually is</li>
+        <li>AI vs ML vs DL</li>
+        <li>History tour: 1958 → 2012 → 2017 → today</li>
+        <li>What you can build by Day 100</li>
+        <li>How to use this playlist</li>
+        <li>Hardware &amp; budget options</li>
+      </ol>
+    </div>
+
+    <h4>What deep learning actually is</h4>
+    <p>A deep learning model is a function \(f_\theta:\R^{n}\to\R^{m}\) built by composing many simple differentiable pieces, whose parameters \(\theta\) are chosen by minimising a loss with gradient descent. That is the whole idea. Three claims are packed into it:</p>
+    <ul>
+      <li><b>Composition beats hand-design.</b> Stack enough simple transforms and the intermediate representations become useful features you never had to specify.</li>
+      <li><b>Differentiability is the price of admission.</b> Every piece must have a derivative, because that is how credit gets assigned backwards through the stack.</li>
+      <li><b>Data replaces rules.</b> You supply examples and an objective, not an algorithm.</li>
+    </ul>
+
+    <figure>
+      <svg viewBox="0 0 900 190" role="img" aria-label="Classical programming versus machine learning versus deep learning">
+        <text class="svg-ttl" x="20" y="22">THREE WAYS TO GET A FUNCTION</text>
+        <g>
+          <rect x="20" y="42" width="270" height="118" fill="#0F1822" stroke="#1C2836"/>
+          <text class="svg-lbl-b" x="34" y="64">Classical programming</text>
+          <text class="svg-lbl" x="34" y="90">data + rules  →  answers</text>
+          <text class="svg-lbl" x="34" y="112">a human writes the rules</text>
+          <text class="svg-lbl" x="34" y="134">breaks on: &quot;is this a cat?&quot;</text>
+        </g>
+        <g>
+          <rect x="315" y="42" width="270" height="118" fill="#0F1822" stroke="#1C2836"/>
+          <text class="svg-lbl-b" x="329" y="64">Classical machine learning</text>
+          <text class="svg-cy" x="329" y="90">data + answers  →  rules</text>
+          <text class="svg-lbl" x="329" y="112">a human writes the features</text>
+          <text class="svg-lbl" x="329" y="134">SIFT, TF-IDF, MFCC, ratios…</text>
+        </g>
+        <g>
+          <rect x="610" y="42" width="270" height="118" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl-b" x="624" y="64">Deep learning</text>
+          <text class="svg-acc" x="624" y="90">data + answers  →  features + rules</text>
+          <text class="svg-lbl" x="624" y="112">the features are learned too</text>
+          <text class="svg-lbl" x="624" y="134">you supply architecture + loss</text>
+        </g>
+      </svg>
+      <figcaption><b>The actual dividing line.</b> Classical ML still needs a human to decide what to measure. Deep learning pushes that decision into the parameters — which is why it needs so much more data and compute.</figcaption>
+    </figure>
+
+    <h4>AI vs ML vs DL, without the hand-waving</h4>
+    <p><b>AI</b> is the goal (systems that do things which look intelligent) and includes search, planning and hand-written expert systems. <b>ML</b> is the subset that learns from data. <b>DL</b> is the subset of ML using deep composed differentiable models trained end to end. <b>Generative AI</b> and <b>foundation models</b> are not a fourth ring — they are large DL models trained self-supervised on broad data and then adapted.</p>
+
+    <h4>The history you should be able to tell in 90 seconds</h4>
+    <figure>
+      <svg viewBox="0 0 920 240" role="img" aria-label="Timeline of deep learning milestones">
+        <line x1="40" y1="120" x2="890" y2="120" stroke="#2A3B4E" stroke-width="1.5"/>
+        <g stroke="#2A3B4E">
+          <line x1="60"  y1="112" x2="60"  y2="128"/><line x1="118" y1="112" x2="118" y2="128"/>
+          <line x1="176" y1="112" x2="176" y2="128"/><line x1="234" y1="112" x2="234" y2="128"/>
+          <line x1="292" y1="112" x2="292" y2="128"/><line x1="350" y1="112" x2="350" y2="128"/>
+          <line x1="408" y1="112" x2="408" y2="128"/><line x1="466" y1="112" x2="466" y2="128"/>
+          <line x1="524" y1="112" x2="524" y2="128"/><line x1="582" y1="112" x2="582" y2="128"/>
+          <line x1="640" y1="112" x2="640" y2="128"/><line x1="698" y1="112" x2="698" y2="128"/>
+          <line x1="756" y1="112" x2="756" y2="128"/><line x1="814" y1="112" x2="814" y2="128"/>
+          <line x1="872" y1="112" x2="872" y2="128"/>
+        </g>
+        <g class="svg-lbl" text-anchor="middle" fill="#5A6B7D">
+          <text x="60" y="144">1943</text><text x="118" y="144">1958</text><text x="176" y="144">1969</text>
+          <text x="234" y="144">1986</text><text x="292" y="144">1989</text><text x="350" y="144">1997</text>
+          <text x="408" y="144">2006</text><text x="466" y="144">2012</text><text x="524" y="144">2014</text>
+          <text x="582" y="144">2015</text><text x="640" y="144">2017</text><text x="698" y="144">2018</text>
+          <text x="756" y="144">2020</text><text x="814" y="144">2022</text><text x="872" y="144">2024</text>
+        </g>
+        <g text-anchor="middle">
+          <text class="svg-lbl" x="60"  y="96">M&#8209;P neuron</text>
+          <text class="svg-lbl" x="176" y="96">XOR critique</text>
+          <text class="svg-lbl" x="292" y="96">LeNet</text>
+          <text class="svg-lbl" x="408" y="96">deep belief</text>
+          <text class="svg-acc" x="524" y="96">GAN · Adam</text>
+          <text class="svg-acc" x="640" y="96">Transformer</text>
+          <text class="svg-acc" x="756" y="96">GPT-3 · scaling</text>
+          <text class="svg-lbl" x="872" y="96">reasoning · MoE</text>
+        </g>
+        <g text-anchor="middle">
+          <text class="svg-cy"  x="118" y="176">Perceptron</text>
+          <text class="svg-lbl" x="234" y="176">backprop</text>
+          <text class="svg-lbl" x="350" y="176">LSTM</text>
+          <text class="svg-acc" x="466" y="176">AlexNet</text>
+          <text class="svg-lbl" x="582" y="176">ResNet · BN</text>
+          <text class="svg-lbl" x="698" y="176">BERT · GPT</text>
+          <text class="svg-lbl" x="814" y="176">ChatGPT · SD</text>
+        </g>
+        <rect x="150" y="196" width="120" height="16" fill="#1C2836"/><text class="svg-lbl" x="156" y="208">AI winter</text>
+        <rect x="360" y="196" width="60" height="16" fill="#1C2836"/><text class="svg-lbl" x="366" y="208">winter II</text>
+        <rect x="450" y="196" width="440" height="16" fill="#2A1F0E"/><text class="svg-acc" x="458" y="208">GPU + data + scale era</text>
+      </svg>
+      <figcaption><b>Two winters, then one unbroken run.</b> Nothing about the maths changed in 2012 — backprop was 26 years old. What changed was GPUs, ImageNet-scale labelled data, and ReLU + dropout making deep nets trainable.</figcaption>
+    </figure>
+
+    <div class="box intuition"><span class="lbl">The three-ingredient story</span>
+      <p>Every breakthrough on that line is one of: <b>a better inductive bias</b> (conv for images, attention for sequences), <b>a trainability fix</b> (ReLU, BatchNorm, residuals, Adam), or <b>more scale</b> (data, params, compute). When you meet a new architecture, ask which of the three it is. Most are one of them wearing a new name.</p>
+    </div>
+
+    <h4>What you will be able to build by Day 100</h4>
+    <ul>
+      <li>An autodiff engine and an MLP that hits ~98% on MNIST, written from scratch in NumPy (Day 24).</li>
+      <li>A CNN above 94% on CIFAR-10 with a full modern training recipe, plus a fine-tuned detector or segmenter on your own data (Days 48–56).</li>
+      <li>A GPT trained from scratch — tokenizer, attention, training loop, sampling (Days 74–75) — then fine-tuned with QLoRA and aligned with DPO (Days 84–85).</li>
+      <li>A diffusion model, a VAE, a GAN, and a RAG pipeline with tool use (Days 89–94, 86-b).</li>
+      <li>A model that is actually served behind an API with monitoring (Day 99).</li>
+    </ul>
+
+    <h4>Hardware and budget</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Tier</th><th>What it is</th><th>Gets you through</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td>Free</td><td>Colab / Kaggle T4 or P100, 12–16&nbsp;GB</td><td>Phases 1–5 comfortably; Phase 6 with QLoRA on ≤7B</td><td>$0, session limits</td></tr>
+        <tr><td>Own GPU</td><td>Used RTX 3090 / 4090, 24&nbsp;GB</td><td>Everything except full pretraining. 24&nbsp;GB is the number that matters, not the model name</td><td>$600–1600 once</td></tr>
+        <tr><td>Rented</td><td>A100 40/80&nbsp;GB or H100 hourly</td><td>Bigger fine-tunes, multi-GPU practice for Day 94</td><td>~$0.5–3/hr</td></tr>
+        <tr><td>CPU only</td><td>Any laptop</td><td>All of Phases 1–2 and most of 3. Genuinely fine to start</td><td>$0</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box pitfall"><span class="lbl">Pitfall</span><p>Do not buy a GPU on Day 1. You will not need more than Colab until roughly Day 48, and by then you will know whether your interest is vision, LLMs, or infrastructure — which changes what you should buy.</p></div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Write down, in one sentence each, three problems you personally want to solve. Keep the note. On Day 100 you pick one as the capstone, and the specificity of today's version is what makes that project good.</p></div>
+  </article>
+<article class="wrap lesson" id="l2">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 2</span><span>Lesson 2</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-002.html">single page ↗</a></div>
+      <h3 class="lesson-title">Python for Deep Learning (NumPy-first)</h3>
+      <span class="lesson-no">02</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Ndarrays vs lists</li><li>dtypes &amp; memory layout</li>
+        <li>Indexing, slicing, fancy indexing, boolean masks</li><li>Broadcasting rules step by step</li>
+        <li>Vectorization vs loops (with timings)</li><li>reshape / transpose / stack / concat</li>
+        <li>Axis semantics</li>
+      </ol>
+    </div>
+
+    <h4>An ndarray is a pointer plus a shape plus strides</h4>
+    <p>A Python list is an array of pointers to boxed objects scattered across the heap. A NumPy array is <em>one</em> contiguous block of raw numbers, plus metadata: <code>shape</code>, <code>dtype</code>, and <code>strides</code> (how many bytes to step to move one element along each axis). This is why NumPy is 50–200× faster, and it explains almost every surprising behaviour you will meet.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Memory layout of a NumPy array with strides">
+        <text class="svg-ttl" x="20" y="22">ONE BUFFER, TWO VIEWS</text>
+        <text class="svg-lbl-b" x="20" y="48">buffer (row-major / C order), float32 = 4 bytes each</text>
+        <g>
+          <rect x="20" y="58" width="70" height="30" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="46" y="78">1</text>
+          <rect x="90" y="58" width="70" height="30" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="116" y="78">2</text>
+          <rect x="160" y="58" width="70" height="30" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="186" y="78">3</text>
+          <rect x="230" y="58" width="70" height="30" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="256" y="78">4</text>
+          <rect x="300" y="58" width="70" height="30" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="326" y="78">5</text>
+          <rect x="370" y="58" width="70" height="30" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="396" y="78">6</text>
+          <text class="svg-lbl" x="20" y="106">byte 0        4        8       12       16       20</text>
+        </g>
+        <g>
+          <rect x="20" y="130" width="180" height="100" fill="#0F1822" stroke="#5BC8E6"/>
+          <text class="svg-cy" x="32" y="152">a.reshape(2,3)</text>
+          <text class="svg-lbl-b" x="32" y="176">[[1 2 3]</text><text class="svg-lbl-b" x="32" y="196"> [4 5 6]]</text>
+          <text class="svg-lbl" x="32" y="218">strides = (12, 4)</text>
+        </g>
+        <g>
+          <rect x="230" y="130" width="180" height="100" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-acc" x="242" y="152">a.reshape(2,3).T</text>
+          <text class="svg-lbl-b" x="242" y="176">[[1 4] [2 5] [3 6]]</text>
+          <text class="svg-lbl" x="242" y="198">strides = (4, 12)</text>
+          <text class="svg-lbl" x="242" y="218">no data copied</text>
+        </g>
+        <path d="M200 180 L228 180" stroke="#2A3B4E" marker-end="url(#ar1)"/>
+        <defs><marker id="ar1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#2A3B4E"/></marker></defs>
+        <g>
+          <rect x="450" y="130" width="430" height="100" fill="#0F1822" stroke="#1C2836"/>
+          <text class="svg-lbl-b" x="464" y="152">Consequences you will actually hit</text>
+          <text class="svg-lbl" x="464" y="174">· transpose is free; a copy only happens on demand</text>
+          <text class="svg-lbl" x="464" y="192">· a slice is a VIEW — writing to it writes to the original</text>
+          <text class="svg-lbl" x="464" y="210">· reshape can fail on a non-contiguous array → .copy()</text>
+        </g>
+      </svg>
+      <figcaption><b>Transpose changes strides, not memory.</b> Understanding this one picture removes most confusion about views, copies, and why <code>.reshape</code> occasionally refuses.</figcaption>
+    </figure>
+
+    <h4>Broadcasting, as an algorithm</h4>
+    <p>Broadcasting lets arrays of different shapes combine without explicit tiling. The rule is mechanical — run it right-to-left:</p>
+    <ol>
+      <li>Right-align the two shapes.</li>
+      <li>Pad the shorter one on the <em>left</em> with 1s.</li>
+      <li>For each axis: dimensions are compatible if they are equal, or one of them is 1.</li>
+      <li>The output takes the max of the two along each axis. A 1 is "stretched" for free — no memory is allocated.</li>
+    </ol>
+
+    <div class="shapes">
+      <span class="dim">(3, 1, 5)</span><span class="op">+</span><span class="dim">(4, 5)</span><span class="op">→ pad →</span>
+      <span class="dim">(3, 1, 5)</span><span class="op">+</span><span class="dim">(1, 4, 5)</span><span class="op">=</span><span class="dim out">(3, 4, 5)</span>
+    </div>
+
+    <div class="demo" id="d-bcast">
+      <div class="demo-head"><span class="dot"></span><b>Try it</b> · broadcasting resolver</div>
+      <div class="demo-body">
+        <div class="ctrls">
+          <label class="ctrl"><span>Shape A</span><input type="text" id="bcA" value="32,1,128" style="font-family:var(--mono);font-size:.78rem;background:var(--ink-2);color:var(--chalk);border:1px solid var(--rule-2);border-radius:3px;padding:5px 7px;width:150px"></label>
+          <label class="ctrl"><span>Shape B</span><input type="text" id="bcB" value="10,128" style="font-family:var(--mono);font-size:.78rem;background:var(--ink-2);color:var(--chalk);border:1px solid var(--rule-2);border-radius:3px;padding:5px 7px;width:150px"></label>
+          <button class="btn" id="bcRun">Resolve</button>
+        </div>
+        <div class="readout" id="bcOut"></div>
+      </div>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the silent broadcast</span>
+      <p>Subtracting predictions of shape <code>(N, 1)</code> from targets of shape <code>(N,)</code> gives you an <code>(N, N)</code> matrix, not an <code>(N,)</code> error vector. No exception is raised. Your loss becomes the mean of \(N^2\) numbers, it trains, it just never works. This bug is so common it gets its own line in the Day 36 checklist. Defend with <code>assert pred.shape == target.shape</code> before every loss.</p>
+    </div>
+
+    <h4>Axis semantics — the thing to internalise</h4>
+    <p><code>axis=k</code> means "the axis that disappears" for reductions, and "the axis you move along" for everything else. For a batch of images <code>(N, C, H, W)</code>: <code>x.mean(axis=(2,3))</code> collapses height and width and leaves <code>(N, C)</code> — that is global average pooling, which you will meet again on Day 43.</p>
+
+    <pre><code>import numpy as np
+
+x = np.random.randn(8, 3, 32, 32).astype(np.float32)   # N, C, H, W
+
+x.mean(axis=(2, 3)).shape        # (8, 3)   global average pool
+x.mean(axis=(0, 2, 3)).shape     # (3,)     per-channel dataset mean
+x.mean(axis=(0,2,3), keepdims=True).shape   # (1,3,1,1) -> broadcasts back
+
+# keepdims is what makes normalisation a one-liner
+mu  = x.mean(axis=(0,2,3), keepdims=True)
+std = x.std(axis=(0,2,3), keepdims=True)
+xn  = (x - mu) / (std + 1e-5)    # this is exactly BatchNorm's statistic (Day 32)</code></pre>
+
+    <h4>Vectorisation, measured</h4>
+    <pre><code>import numpy as np, time
+A = np.random.randn(512, 512).astype(np.float32)
+B = np.random.randn(512, 512).astype(np.float32)
+
+t = time.perf_counter()
+C = np.zeros((512, 512), dtype=np.float32)
+for i in range(512):
+    for j in range(512):
+        C[i, j] = A[i] @ B[:, j]        # ~2.5 s
+print("loops   ", time.perf_counter() - t)
+
+t = time.perf_counter()
+C2 = A @ B                              # ~5 ms  -> ~500x
+print("vectored", time.perf_counter() - t)
+print(np.allclose(C, C2, atol=1e-3))</code></pre>
+    <p>The gap is BLAS: a tuned, cache-blocked, SIMD matmul running on all cores. Your job for the rest of the course is to phrase computations so BLAS (or CUDA) does the work. Whenever you find yourself writing a Python loop over a batch, stop and ask what array operation expresses it.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement one-hot encoding in a single line with fancy indexing (<code>np.eye(K)[labels]</code>), then again with <code>np.zeros</code> + advanced assignment. Time both at \(N=10^6\). Then implement pairwise squared distances between two sets of vectors using only broadcasting, and verify against <code>scipy.spatial.distance.cdist</code>.</p></div>
+  </article>
+<article class="wrap lesson" id="l3">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 3</span><span>Lesson 3</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-003.html">single page ↗</a></div>
+      <h3 class="lesson-title">Linear Algebra I — Vectors &amp; Matrices</h3>
+      <span class="lesson-no">03</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Scalars, vectors, matrices, tensors</li><li>Dot product, geometrically and algebraically</li>
+        <li>Matrix-vector product as a linear transform</li><li>Matrix multiplication and shape bookkeeping</li>
+        <li>Identity, inverse, transpose</li><li>Norms: L1, L2, L∞, Frobenius</li>
+        <li>Cosine similarity</li>
+      </ol>
+    </div>
+
+    <h4>The dot product is the whole course in miniature</h4>
+    <p>Algebraically \(\mathbf{a}\cdot\mathbf{b}=\sum_i a_i b_i\). Geometrically \(\mathbf{a}\cdot\mathbf{b}=\lVert\mathbf a\rVert\,\lVert\mathbf b\rVert\cos\theta\). Read the second form as: <em>how much of \(\mathbf a\) points along \(\mathbf b\), scaled by both lengths</em>. Every neuron computes a dot product between its weight vector and its input, so a neuron is literally a template matcher — it fires most when the input points the same way as its weights.</p>
+
+    <div class="box derive"><span class="lbl">Where you will meet this again</span>
+      <ul style="margin-bottom:0">
+        <li><b>Day 15</b> — a neuron is \(\sigma(\mathbf w\cdot\mathbf x+b)\).</li>
+        <li><b>Day 42</b> — a convolution is a dot product slid across an image.</li>
+        <li><b>Day 60</b> — word similarity is a cosine between embeddings.</li>
+        <li><b>Day 70</b> — attention scores are \(\mathbf q\cdot\mathbf k/\sqrt{d_k}\).</li>
+      </ul>
+    </div>
+
+    <div class="demo" id="d-dot">
+      <div class="demo-head"><span class="dot"></span><b>Drag the vectors</b> · dot product, angle, projection</div>
+      <div class="demo-body">
+        <canvas id="dotCv" width="640" height="420" aria-label="Interactive dot product canvas"></canvas>
+        <div class="readout" id="dotOut"></div>
+      </div>
+    </div>
+
+    <h4>A matrix is a function, not a table</h4>
+    <p>\(\mathbf y = W\mathbf x\) with \(W\in\R^{m\times n}\) sends \(\R^n\to\R^m\). Two equally valid readings, and you need both:</p>
+    <ul>
+      <li><b>Row view:</b> \(y_i=\mathbf w_{i,:}\cdot\mathbf x\). Output \(i\) is one dot product — one neuron, one template.</li>
+      <li><b>Column view:</b> \(\mathbf y=\sum_j x_j\,\mathbf w_{:,j}\). The output is a weighted sum of \(W\)'s columns. The columns are where the input can reach; their span is the image of the transform.</li>
+    </ul>
+    <p>The column view is the one that explains rank, bottlenecks and embeddings; the row view is the one that explains neurons. When you get confused about a layer, switch views.</p>
+
+    <h4>Shape bookkeeping, once and for all</h4>
+    <figure>
+      <svg viewBox="0 0 900 200" role="img" aria-label="Matrix multiplication shape rule">
+        <text class="svg-ttl" x="20" y="24">INNER DIMENSIONS MUST MATCH; THEY VANISH</text>
+        <rect x="40" y="50" width="150" height="90" fill="#0F1822" stroke="#5BC8E6"/>
+        <text class="svg-cy" x="80" y="100">A (m × k)</text>
+        <text class="svg-lbl" x="40" y="164">rows = outputs</text>
+        <text class="svg-lbl-b" x="212" y="100">@</text>
+        <rect x="245" y="50" width="150" height="90" fill="#0F1822" stroke="#5BC8E6"/>
+        <text class="svg-cy" x="288" y="100">B (k × n)</text>
+        <text class="svg-lbl-b" x="418" y="100">=</text>
+        <rect x="450" y="50" width="150" height="90" fill="#0F1822" stroke="#FFB454"/>
+        <text class="svg-acc" x="492" y="100">C (m × n)</text>
+        <path d="M175 44 C 200 20, 250 20, 270 44" stroke="#FF7B87" fill="none" marker-end="url(#ar2)"/>
+        <text x="196" y="18" class="svg-lbl" fill="#FF7B87">k = k</text>
+        <defs><marker id="ar2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#FF7B87"/></marker></defs>
+        <g>
+          <text class="svg-lbl-b" x="640" y="66">Cost</text>
+          <text class="svg-lbl" x="640" y="86">m·n·k multiply-adds  →  2mnk FLOPs</text>
+          <text class="svg-lbl-b" x="640" y="112">In a linear layer</text>
+          <text class="svg-lbl" x="640" y="132">X (B × d_in) @ W (d_in × d_out)</text>
+          <text class="svg-lbl" x="640" y="150">batch dim rides along untouched</text>
+        </g>
+      </svg>
+      <figcaption><b>The only rule.</b> Every shape error you will ever hit is this rule being violated somewhere — usually because a batch dimension got squeezed, or a transpose was forgotten.</figcaption>
+    </figure>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · PyTorch stores weights transposed</span>
+      <p><code>nn.Linear(d_in, d_out)</code> holds <code>weight</code> with shape <code>(d_out, d_in)</code> and computes <code>x @ W.T + b</code>. Everyone trips on this the first time they hand-initialise a weight or read one out. Print <code>layer.weight.shape</code> before you assume.</p>
+    </div>
+
+    <h4>Norms, and which one to reach for</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Norm</th><th>Definition</th><th>Where it shows up</th></tr></thead>
+      <tbody>
+        <tr><td>\(L_1\)</td><td>\(\sum_i \lvert x_i\rvert\)</td><td>Sparsity-inducing penalty; MAE loss; pruning criteria</td></tr>
+        <tr><td>\(L_2\)</td><td>\(\sqrt{\sum_i x_i^2}\)</td><td>Weight decay; gradient clipping by norm; distances</td></tr>
+        <tr><td>\(L_\infty\)</td><td>\(\max_i \lvert x_i\rvert\)</td><td>Adversarial perturbation budgets (Day 56); max-norm constraints</td></tr>
+        <tr><td>Frobenius</td><td>\(\sqrt{\sum_{ij} W_{ij}^2}\)</td><td>\(L_2\) for matrices; measuring how far a fine-tune moved the weights</td></tr>
+      </tbody>
+    </table></div>
+    <p>\(L_1\) has a constant-magnitude gradient \(\operatorname{sign}(x)\) that does not vanish near zero, which is exactly why it drives coordinates <em>to</em> zero. \(L_2\)'s gradient \(2x\) shrinks as \(x\) shrinks, so it squashes everything but zeroes nothing. That single difference is the whole L1-vs-L2 sparsity story (Day 30).</p>
+
+    <h4>Cosine similarity</h4>
+    <p>\(\cos(\mathbf a,\mathbf b)=\dfrac{\mathbf a\cdot\mathbf b}{\lVert\mathbf a\rVert\lVert\mathbf b\rVert}\in[-1,1]\). It throws away magnitude and keeps direction. Use it when vector length encodes something you do not care about — document length in TF-IDF, word frequency in embeddings, confidence in a retrieval index. Note that for unit vectors, \(\lVert\mathbf a-\mathbf b\rVert^2 = 2-2\cos(\mathbf a,\mathbf b)\), so ranking by cosine and ranking by Euclidean distance are identical once you normalise. That identity is why vector databases normalise on insert.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement cosine similarity for a matrix of \(N\) vectors against a query, without loops, and return the top-5. Then break it deliberately: feed in a zero vector and watch the NaN appear. Fix it with an \(\varepsilon\) in the denominator. You have just written the core of a retrieval system.</p></div>
+  </article>
+<article class="wrap lesson" id="l4">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 4</span><span>Lesson 4</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-004.html">single page ↗</a></div>
+      <h3 class="lesson-title">Linear Algebra II — Decompositions</h3>
+      <span class="lesson-no">04</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Linear independence, span, basis, rank</li><li>Determinant intuition</li>
+        <li>Eigenvalues &amp; eigenvectors</li><li>Diagonalization</li>
+        <li>SVD explained visually</li><li>PCA derived from SVD</li>
+        <li>Low-rank approximation — the thing LoRA uses</li>
+      </ol>
+    </div>
+
+    <h4>Rank is the number of independent directions that survive</h4>
+    <p>\(\operatorname{rank}(W)\) is the dimension of the span of \(W\)'s columns — the dimension of the output space the layer can actually reach. A \(1000\times1000\) matrix of rank 5 has a million numbers but only carries five directions' worth of information. This is not a curiosity: measured weight-update matrices in fine-tuning turn out to be close to low rank, which is the entire premise of LoRA (Day 84-b).</p>
+
+    <h4>Eigenvectors: the directions a matrix does not rotate</h4>
+    <p>\(A\mathbf v=\lambda\mathbf v\). Applying \(A\) to \(\mathbf v\) only stretches it. Applying \(A\) repeatedly, \(A^k\mathbf v=\lambda^k\mathbf v\), so the largest \(\lvert\lambda\rvert\) dominates. That is exactly the mechanism behind exploding and vanishing gradients through a deep stack (Day 26): repeated multiplication by a Jacobian whose spectral radius is \(>1\) or \(\lt 1\).</p>
+    <p>If \(A\) has \(n\) independent eigenvectors, \(A=Q\Lambda Q^{-1}\), and \(A^k=Q\Lambda^k Q^{-1}\) — powers become trivial. For symmetric \(A\), \(Q\) is orthogonal and \(A=Q\Lambda Q\T\), the spectral theorem.</p>
+
+    <h4>SVD: every matrix, no conditions attached</h4>
+    <p>Eigendecomposition needs a square, diagonalisable matrix. SVD needs nothing:</p>
+    \[ A = U\Sigma V\T,\qquad A\in\R^{m\times n},\; U\in\R^{m\times m},\;\Sigma\in\R^{m\times n},\;V\in\R^{n\times n} \]
+    <p>with \(U,V\) orthogonal and \(\Sigma\) diagonal with \(\sigma_1\ge\sigma_2\ge\dots\ge0\). The geometric reading: <b>every linear map is a rotation, then an axis-aligned scaling, then another rotation.</b> That is all a matrix can ever do.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 220" role="img" aria-label="SVD as rotate, scale, rotate">
+        <text class="svg-ttl" x="20" y="22">A = U Σ Vᵀ  ·  ROTATE → SCALE → ROTATE</text>
+        <g transform="translate(60,60)">
+          <circle cx="55" cy="55" r="45" fill="none" stroke="#5BC8E6" stroke-width="1.5"/>
+          <line x1="55" y1="55" x2="100" y2="55" stroke="#FFB454"/><line x1="55" y1="55" x2="55" y2="10" stroke="#93D97B"/>
+          <text class="svg-lbl" x="24" y="130">unit circle</text>
+        </g>
+        <text class="svg-lbl-b" x="180" y="118">Vᵀ</text>
+        <g transform="translate(230,60)">
+          <circle cx="55" cy="55" r="45" fill="none" stroke="#5BC8E6" stroke-width="1.5"/>
+          <line x1="55" y1="55" x2="87" y2="23" stroke="#FFB454"/><line x1="55" y1="55" x2="23" y2="23" stroke="#93D97B"/>
+          <text class="svg-lbl" x="26" y="130">rotated</text>
+        </g>
+        <text class="svg-lbl-b" x="350" y="118">Σ</text>
+        <g transform="translate(400,60)">
+          <ellipse cx="55" cy="55" rx="70" ry="26" fill="none" stroke="#5BC8E6" stroke-width="1.5"/>
+          <line x1="55" y1="55" x2="125" y2="55" stroke="#FFB454"/><line x1="55" y1="55" x2="55" y2="29" stroke="#93D97B"/>
+          <text class="svg-lbl" x="14" y="130">σ₁ = 70,  σ₂ = 26</text>
+        </g>
+        <text class="svg-lbl-b" x="550" y="118">U</text>
+        <g transform="translate(600,60)">
+          <ellipse cx="80" cy="55" rx="70" ry="26" fill="none" stroke="#FFB454" stroke-width="1.5" transform="rotate(-28 80 55)"/>
+          <text class="svg-lbl" x="30" y="130">final image of the map</text>
+        </g>
+      </svg>
+      <figcaption><b>Singular values are the semi-axes of the resulting ellipse.</b> \(\sigma_1\) is the largest stretch the matrix can apply to any unit vector — that is the spectral norm, and the quantity spectral normalisation controls in GANs (Day 90-b).</figcaption>
+    </figure>
+
+    <h4>Low-rank approximation, and why it matters more than it looks</h4>
+    <p>Truncate to the top \(k\) singular values: \(A_k=\sum_{i=1}^{k}\sigma_i\mathbf u_i\mathbf v_i\T\). The Eckart–Young theorem says this is the <em>best possible</em> rank-\(k\) approximation in both Frobenius and spectral norm. You store \(k(m+n+1)\) numbers instead of \(mn\).</p>
+    <div class="shapes">
+      <span class="dim">A <small>(4096×4096)</small></span><span class="op">≈</span>
+      <span class="dim">U<sub>k</sub> <small>(4096×8)</small></span><span class="op">·</span><span class="dim">V<sub>k</sub><sup>T</sup> <small>(8×4096)</small></span>
+      <span class="op">→</span><span class="dim out">16.7M → 65K params (0.4%)</span>
+    </div>
+
+    <div class="demo" id="d-svd">
+      <div class="demo-head"><span class="dot"></span><b>Rank slider</b> · low-rank reconstruction of an image</div>
+      <div class="demo-body">
+        <canvas id="svdCv" width="700" height="240" aria-label="Original versus rank-k reconstruction"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Rank k = <b id="svdKv">6</b></span><input type="range" id="svdK" min="1" max="48" step="1" value="6"></label>
+        </div>
+        <div class="readout" id="svdOut"></div>
+      </div>
+    </div>
+
+    <h4>PCA falls out of SVD</h4>
+    <p>Centre your data matrix \(X\in\R^{N\times d}\) so each column has mean zero. The covariance is \(C=\frac{1}{N-1}X\T X\). Take the SVD \(X=U\Sigma V\T\); then</p>
+    \[ X\T X = V\Sigma\T U\T U\Sigma V\T = V\Sigma^2 V\T \]
+    <p>so the columns of \(V\) are the eigenvectors of the covariance (the principal directions) and the eigenvalues are \(\sigma_i^2/(N-1)\) (the variance along each). Projecting is \(Z=XV_k\). You never need to form \(C\) — doing SVD directly on \(X\) is both faster and numerically better, because squaring the data squares the condition number.</p>
+
+    <div class="box check"><span class="lbl">Sanity check</span><p>Run PCA on MNIST. About 150 of the 784 components hold ~95% of the variance, and the top components look like blurry stroke templates. Keep this number in mind: real data lives on a much lower-dimensional manifold than its ambient dimension, which is <em>why</em> learning is possible at all.</p></div>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement rank-\(k\) image compression with <code>np.linalg.svd</code>. Plot reconstruction error and storage cost against \(k\) on the same axes and find the knee. Then plot the singular value spectrum on a log scale — the shape of that curve is the same diagnostic you will use to choose a LoRA rank on Day 84-b.</p></div>
+  </article>
+<article class="wrap lesson" id="l5">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 5</span><span>Lesson 5</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-005.html">single page ↗</a></div>
+      <h3 class="lesson-title">Calculus for DL I — Derivatives &amp; Gradients</h3>
+      <span class="lesson-no">05</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Derivative as slope and rate of change</li><li>Rules: power, product, quotient, chain</li>
+        <li>Partial derivatives</li><li>The gradient vector and why it points uphill</li>
+        <li>Directional derivatives</li><li>Worked examples: sigmoid, ReLU, MSE</li>
+      </ol>
+    </div>
+
+    <h4>One rule matters more than the rest</h4>
+    <p>The chain rule. \((f\circ g)'(x)=f'(g(x))\,g'(x)\). Backpropagation is the chain rule applied to a graph, evaluated in a specific order, with intermediate results cached. If you are fluent in the chain rule, Day 21 is easy. If you are not, Day 21 is impossible. Practise until it is automatic.</p>
+
+    <h4>The gradient</h4>
+    <p>For \(f:\R^n\to\R\), \(\nabla f=\left[\frac{\partial f}{\partial x_1},\dots,\frac{\partial f}{\partial x_n}\right]\T\). The directional derivative along a unit vector \(\mathbf u\) is \(D_{\mathbf u}f=\nabla f\cdot\mathbf u=\lVert\nabla f\rVert\cos\theta\), which is maximised at \(\theta=0\). <b>So the gradient points in the direction of steepest ascent, and its length is that steepest slope.</b> Gradient descent steps along \(-\nabla f\) for exactly this reason — it is a one-line consequence of the dot-product formula from Lesson 3.</p>
+
+    <div class="box derive"><span class="lbl">Derive it yourself — sigmoid</span>
+      <p>\(\sigma(x)=\dfrac{1}{1+e^{-x}}\). Write it as \((1+e^{-x})^{-1}\) and apply power + chain:</p>
+      \[ \sigma'(x) = -(1+e^{-x})^{-2}\cdot(-e^{-x}) = \frac{e^{-x}}{(1+e^{-x})^2} \]
+      <p>Now the trick that makes it cheap. Note \(\frac{e^{-x}}{1+e^{-x}} = 1-\sigma(x)\), so</p>
+      \[ \boxed{\;\sigma'(x)=\sigma(x)\bigl(1-\sigma(x)\bigr)\;} \]
+      <p style="margin-bottom:0">The derivative is expressible in the <em>output</em>. Every framework exploits this: the backward pass reuses the cached forward activation instead of recomputing exponentials. Same trick for tanh: \(\tanh'(x)=1-\tanh^2(x)\).</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the number 0.25</span>
+      <p>\(\sigma'\) peaks at \(x=0\) with value \(0.25\), and decays towards 0 in both tails. Chain 10 sigmoid layers and the best case gradient factor is \(0.25^{10}\approx 10^{-6}\). This single number is why deep sigmoid networks were untrainable for two decades. It is the whole content of Day 26.</p>
+    </div>
+
+    <h4>ReLU and the derivative that does not exist</h4>
+    <p>\(\relu(x)=\max(0,x)\), so \(\relu'(x)=1\) for \(x\gt0\), \(0\) for \(x\lt0\), and undefined at exactly \(x=0\). Frameworks pick a subgradient — PyTorch returns 0 — and it does not matter, because hitting exactly 0.0 in float arithmetic has measure zero. The important property is that the gradient is <em>1</em>, not 0.25: it neither shrinks nor grows the signal as it passes backwards. That is why ReLU unlocked depth.</p>
+
+    <div class="box derive"><span class="lbl">Derive it yourself — MSE for one linear neuron</span>
+      <p>\(L=\frac{1}{2}(y-\hat y)^2\) with \(\hat y=\mathbf w\cdot\mathbf x+b\). Chain rule:</p>
+      \[ \frac{\partial L}{\partial \hat y}=(\hat y-y),\qquad \frac{\partial \hat y}{\partial w_j}=x_j \;\Rightarrow\; \frac{\partial L}{\partial w_j}=(\hat y - y)\,x_j \]
+      <p style="margin-bottom:0">In vector form \(\nabla_{\mathbf w}L=(\hat y-y)\mathbf x\) and \(\partial L/\partial b=(\hat y-y)\). Read it as: <b>error × input</b>. Large input features get large updates; that is why feature scaling matters so much.</p>
+    </div>
+
+    <div class="demo" id="d-gd">
+      <div class="demo-head"><span class="dot"></span><b>Gradient descent</b> · watch the learning rate decide everything</div>
+      <div class="demo-body">
+        <canvas id="gdCv" width="700" height="330" aria-label="Gradient descent on a 1D loss curve"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Learning rate <b id="gdLrv">0.10</b></span><input type="range" id="gdLr" min="0.005" max="1.05" step="0.005" value="0.10"></label>
+          <label class="ctrl"><span>Start x₀ <b id="gdX0v">-2.60</b></span><input type="range" id="gdX0" min="-3" max="3" step="0.05" value="-2.6"></label>
+          <label class="ctrl"><span>Surface</span>
+            <select id="gdFn"><option value="quad">smooth bowl</option><option value="bumpy" selected>bumpy (local minima)</option><option value="ravine">steep ravine</option></select>
+          </label>
+          <button class="btn primary" id="gdRun">Run 60 steps</button>
+        </div>
+        <div class="readout" id="gdOut"></div>
+      </div>
+    </div>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Derive \(\frac{\partial}{\partial x}\log\sigma(x)\) by hand. You should get \(1-\sigma(x)=\sigma(-x)\). This is the gradient of the binary cross-entropy of a positive example, and it is why the logit form of BCE is numerically well-behaved (Day 10).</p></div>
+  </article>
+<article class="wrap lesson" id="l6">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 6</span><span>Lesson 6</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-006.html">single page ↗</a></div>
+      <h3 class="lesson-title">Calculus for DL II — Jacobians &amp; the Multivariate Chain Rule</h3>
+      <span class="lesson-no">06</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Jacobian matrices</li><li>Hessians and curvature</li>
+        <li>The multivariate chain rule as backprop uses it</li><li>Vector-Jacobian products</li>
+        <li>Second-order intuition</li><li>Worked ∂loss/∂weight for a 2-layer net</li>
+      </ol>
+    </div>
+
+    <h4>The Jacobian</h4>
+    <p>For \(\mathbf f:\R^n\to\R^m\), the Jacobian \(J\in\R^{m\times n}\) has \(J_{ij}=\partial f_i/\partial x_j\). Row \(i\) is the gradient of output \(i\). It is the best linear approximation of \(\mathbf f\) near a point: \(\mathbf f(\mathbf x+\boldsymbol\delta)\approx \mathbf f(\mathbf x)+J\boldsymbol\delta\).</p>
+    <p>Composition is matrix multiplication: for \(\mathbf z=\mathbf g(\mathbf y)\), \(\mathbf y=\mathbf f(\mathbf x)\),</p>
+    \[ J_{\mathbf z\mathbf x}=J_{\mathbf z\mathbf y}\,J_{\mathbf y\mathbf x} \]
+    <p>An \(L\)-layer network is therefore a product of \(L\) Jacobians. Whether that product explodes or vanishes depends on the singular values of each factor — Lesson 4 meets Lesson 6, and together they explain Day 26.</p>
+
+    <h4>The vector-Jacobian product is why autodiff is cheap</h4>
+    <p>Nobody ever materialises a Jacobian in deep learning. For a network with \(P=10^9\) parameters and a scalar loss, the Jacobian of the loss w.r.t. an intermediate activation of size \(n\) is \(1\times n\) — a row vector. Backprop propagates such row vectors:</p>
+    \[ \underbrace{\bar{\mathbf x}\T}_{1\times n} = \underbrace{\bar{\mathbf y}\T}_{1\times m}\underbrace{J_{\mathbf y \mathbf x}}_{m\times n} \]
+    <p>where \(\bar{\mathbf v}\) denotes \(\partial L/\partial \mathbf v\). Each layer only needs a rule for "given the gradient flowing in, produce the gradient flowing out" — it never builds \(J\). For most layers that rule is a cheap closed form:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Forward</th><th>Jacobian (conceptually)</th><th>VJP actually computed</th></tr></thead>
+      <tbody>
+        <tr><td>\(\mathbf y=W\mathbf x\)</td><td>\(W\)</td><td><code>gx = gy @ W</code> and <code>gW = gy.T @ x</code></td></tr>
+        <tr><td>\(\mathbf y=\mathbf a\odot\mathbf x\)</td><td>\(\diag(\mathbf a)\)</td><td><code>gx = gy * a</code></td></tr>
+        <tr><td>\(\mathbf y=\relu(\mathbf x)\)</td><td>\(\diag(\mathbb 1[x\gt0])\)</td><td><code>gx = gy * (x &gt; 0)</code></td></tr>
+        <tr><td>\(\mathbf y=\softmax(\mathbf x)\)</td><td>\(\diag(\mathbf y)-\mathbf y\mathbf y\T\) (dense!)</td><td><code>gx = y * (gy - (gy*y).sum())</code></td></tr>
+      </tbody>
+    </table></div>
+    <p>Note the softmax row. Its Jacobian is a full \(K\times K\) matrix, but the VJP is a two-line elementwise computation. That gap — dense Jacobian, cheap VJP — is the entire performance argument for reverse-mode autodiff.</p>
+
+    <h4>Worked: ∂loss/∂W for a 2-layer network</h4>
+    <p>Forward, for a single example, with \(\mathbf x\in\R^{d}\):</p>
+    \[ \mathbf z^{(1)} = W^{(1)}\mathbf x + \mathbf b^{(1)},\quad \mathbf a = \relu(\mathbf z^{(1)}),\quad \mathbf z^{(2)} = W^{(2)}\mathbf a + \mathbf b^{(2)},\quad L=\tfrac12\lVert \mathbf z^{(2)}-\mathbf y\rVert^2 \]
+    <p>Backward, right to left, naming each intermediate gradient:</p>
+    \[
+    \begin{aligned}
+    \bar{\mathbf z}^{(2)} &= \mathbf z^{(2)} - \mathbf y \\[2pt]
+    \bar W^{(2)} &= \bar{\mathbf z}^{(2)}\,\mathbf a\T &&\text{outer product: } (m\times1)(1\times h)=m\times h\;\checkmark\\[2pt]
+    \bar{\mathbf b}^{(2)} &= \bar{\mathbf z}^{(2)} \\[2pt]
+    \bar{\mathbf a} &= {W^{(2)}}\T\,\bar{\mathbf z}^{(2)} &&\text{transpose sends the signal back}\\[2pt]
+    \bar{\mathbf z}^{(1)} &= \bar{\mathbf a}\odot\mathbb 1[\mathbf z^{(1)}\gt 0] &&\text{gate through the ReLU mask}\\[2pt]
+    \bar W^{(1)} &= \bar{\mathbf z}^{(1)}\,\mathbf x\T,\qquad \bar{\mathbf b}^{(1)} = \bar{\mathbf z}^{(1)}
+    \end{aligned}
+    \]
+    <div class="box intuition"><span class="lbl">The pattern to memorise</span>
+      <p style="margin-bottom:0">Three motifs repeat for every linear layer in every architecture you will ever write: <b>weight gradient = outer product of (gradient out, input in)</b>; <b>input gradient = \(W\T\) times gradient out</b>; <b>elementwise nonlinearity = multiply by its local derivative</b>. Learn these three and you can hand-derive backprop for anything.</p>
+    </div>
+
+    <h4>Hessians and curvature — what you need, no more</h4>
+    <p>\(H_{ij}=\partial^2 f/\partial x_i\partial x_j\). Its eigenvalues describe curvature: all positive is a local minimum, all negative a maximum, mixed signs a saddle. Two facts carry over into everything that follows:</p>
+    <ul>
+      <li><b>The condition number \(\kappa=\lambda_{\max}/\lambda_{\min}\) controls how badly gradient descent zig-zags.</b> A long thin valley has huge \(\kappa\), and plain SGD bounces across it instead of running down it. That is what momentum fixes (Day 28).</li>
+      <li><b>In high dimensions, saddles vastly outnumber local minima.</b> For a random critical point, needing all \(P\) eigenvalues to share a sign is exponentially unlikely. So the classical fear of "getting stuck in a local minimum" is mostly misplaced; plateaus around saddles are the real problem.</li>
+    </ul>
+    <p>Full Newton steps need \(H^{-1}\), which is \(O(P^3)\) — impossible at \(P=10^9\). Adam's per-parameter scaling is a cheap diagonal caricature of this idea, and that is as close to second order as mainstream deep learning gets.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement the 2-layer backward pass above in NumPy for a <em>batch</em>. The only change is that outer products become <code>gz.T @ a</code> over the batch axis and bias gradients become <code>gz.sum(axis=0)</code>. Verify every gradient against finite differences: \(\frac{f(\theta+\varepsilon)-f(\theta-\varepsilon)}{2\varepsilon}\) with \(\varepsilon=10^{-5}\) in float64. Relative error should be below \(10^{-7}\).</p></div>
+  </article>
+<article class="wrap lesson" id="l7">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 7</span><span>Lesson 7</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-007.html">single page ↗</a></div>
+      <h3 class="lesson-title">Probability I — The Language of Uncertainty</h3>
+      <span class="lesson-no">07</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Sample spaces, random variables, PMF vs PDF</li><li>Expectation, variance, covariance</li>
+        <li>Bernoulli, categorical, Gaussian, uniform</li><li>Joint, marginal, conditional</li>
+        <li>Bayes' rule</li><li>Independence</li><li>Law of large numbers</li>
+      </ol>
+    </div>
+
+    <h4>Why a probabilist's vocabulary</h4>
+    <p>Every classifier you build outputs a distribution, not a label. Every loss you use is a negative log-likelihood in disguise. Every regulariser is a prior. Getting comfortable here makes the rest of the course feel like one idea instead of fifty.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Distribution</th><th>Parameters</th><th>Where it appears in DL</th></tr></thead>
+      <tbody>
+        <tr><td>Bernoulli</td><td>\(p\)</td><td>Binary classification output; dropout masks; MNIST-style binarised pixels</td></tr>
+        <tr><td>Categorical</td><td>\(\mathbf p\), \(\sum p_k=1\)</td><td>Softmax output; next-token distribution in every LLM</td></tr>
+        <tr><td>Gaussian</td><td>\(\mu,\sigma^2\)</td><td>Weight init; VAE latents; diffusion noise; the reason MSE is a likelihood</td></tr>
+        <tr><td>Uniform</td><td>\(a,b\)</td><td>Random augmentation params; some inits; sampling without a preference</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Expectation and variance, and their two useful identities</h4>
+    <p>\(\E[X]=\sum_x x\,p(x)\) or \(\int x\,p(x)\,\d x\). Linearity holds unconditionally: \(\E[aX+bY]=a\E[X]+b\E[Y]\), even for dependent variables. Variance is \(\operatorname{Var}(X)=\E[X^2]-\E[X]^2\), and it does <em>not</em> add unless the variables are uncorrelated:</p>
+    \[ \operatorname{Var}(aX)=a^2\operatorname{Var}(X),\qquad \operatorname{Var}\!\Big(\sum_i X_i\Big)=\sum_i\operatorname{Var}(X_i)\ \ \text{if independent} \]
+    <div class="box intuition"><span class="lbl">Why these two lines matter on Day 25-b</span>
+      <p style="margin-bottom:0">A neuron computes \(z=\sum_{j=1}^{n} w_j x_j\). If the \(w_j\) are independent with variance \(\operatorname{Var}(w)\) and the \(x_j\) are independent with variance \(\operatorname{Var}(x)\), then \(\operatorname{Var}(z)=n\operatorname{Var}(w)\operatorname{Var}(x)\). To keep activation variance constant through depth you need \(\operatorname{Var}(w)=1/n\). That is Xavier initialisation, derived from these two identities and nothing else.</p>
+    </div>
+
+    <h4>Joint, marginal, conditional, Bayes</h4>
+    \[ p(x,y)=p(x\mid y)\,p(y),\qquad p(x)=\sum_y p(x,y),\qquad p(y\mid x)=\frac{p(x\mid y)\,p(y)}{p(x)} \]
+    <p>Read Bayes' rule as an update: the <b>posterior</b> \(p(y\mid x)\) is the <b>prior</b> \(p(y)\) reweighted by how well each hypothesis explains the evidence, the <b>likelihood</b> \(p(x\mid y)\). The denominator is only a normaliser.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 210" role="img" aria-label="Bayes rule illustrated as reweighting a prior">
+        <text class="svg-ttl" x="20" y="22">POSTERIOR ∝ LIKELIHOOD × PRIOR</text>
+        <g>
+          <text class="svg-lbl-b" x="20" y="50">prior p(y)</text>
+          <rect x="20" y="60" width="60" height="70" fill="#2A3B4E"/><rect x="86" y="60" width="60" height="70" fill="#2A3B4E"/><rect x="152" y="60" width="60" height="70" fill="#2A3B4E"/>
+          <text class="svg-lbl" x="36" y="150">A .33</text><text class="svg-lbl" x="102" y="150">B .33</text><text class="svg-lbl" x="168" y="150">C .33</text>
+        </g>
+        <text class="svg-lbl-b" x="238" y="100">×</text>
+        <g>
+          <text class="svg-cy" x="278" y="50">likelihood p(x|y)</text>
+          <rect x="278" y="112" width="60" height="18" fill="#2E8AA6"/><rect x="344" y="60" width="60" height="70" fill="#5BC8E6"/><rect x="410" y="96" width="60" height="34" fill="#2E8AA6"/>
+          <text class="svg-lbl" x="294" y="150">.10</text><text class="svg-lbl" x="360" y="150">.70</text><text class="svg-lbl" x="426" y="150">.35</text>
+        </g>
+        <text class="svg-lbl-b" x="496" y="100">=</text>
+        <g>
+          <text class="svg-acc" x="536" y="50">posterior p(y|x)</text>
+          <rect x="536" y="122" width="60" height="8" fill="#C97F1E"/><rect x="602" y="60" width="60" height="70" fill="#FFB454"/><rect x="668" y="99" width="60" height="31" fill="#C97F1E"/>
+          <text class="svg-lbl" x="552" y="150">.09</text><text class="svg-lbl" x="618" y="150">.61</text><text class="svg-lbl" x="684" y="150">.30</text>
+        </g>
+        <text class="svg-lbl" x="20" y="188">A flat prior means the posterior is just the normalised likelihood — which is exactly maximum likelihood estimation (Lesson 8).</text>
+      </svg>
+      <figcaption><b>Bayes as reweighting.</b> Hold on to this picture: on Day 30 you will see that L2 weight decay is the same operation with a Gaussian prior over weights.</figcaption>
+    </figure>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · base rates</span>
+      <p>A test with 99% sensitivity and 99% specificity for a disease with prevalence 0.1% gives a positive predictive value of about <b>9%</b>. \(p(\text{sick}\mid+)=\frac{0.99\times0.001}{0.99\times0.001+0.01\times0.999}\approx0.09\). Every time you evaluate a model on a rare class, this arithmetic is what is really going on. It is the reason accuracy is a useless metric on imbalanced data (Day 39).</p>
+    </div>
+
+    <h4>The law of large numbers is the reason mini-batching works</h4>
+    <p>The sample mean of i.i.d. draws converges to the true mean, with standard error \(\sigma/\sqrt{B}\). A mini-batch gradient is an unbiased estimate of the full-dataset gradient, and its noise shrinks only as \(1/\sqrt{B}\). Doubling batch size costs 2× compute and buys \(\sqrt2\) less noise — that diminishing return is precisely why gigantic batches stop helping (Day 27).</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Simulate it. Draw \(B\) samples from a distribution with known mean, compute the sample mean, repeat 1000 times, and plot the standard deviation of those means against \(B\) on log-log axes. You should get a straight line with slope \(-1/2\).</p></div>
+  </article>
+<article class="wrap lesson" id="l8">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 8</span><span>Lesson 8</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-008.html">single page ↗</a></div>
+      <h3 class="lesson-title">Probability II — Information Theory &amp; Estimation</h3>
+      <span class="lesson-no">08</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Likelihood</li><li>Maximum likelihood estimation</li><li>MAP vs MLE</li>
+        <li>Entropy</li><li>Cross-entropy</li><li>KL divergence, forward vs reverse</li>
+        <li>Jensen–Shannon</li><li>Why cross-entropy <em>is</em> the classification loss</li>
+      </ol>
+    </div>
+
+    <h4>Maximum likelihood, and where every loss comes from</h4>
+    <p>Given data \(\mathcal D=\{(\mathbf x_i,y_i)\}\) and a model \(p_\theta(y\mid\mathbf x)\), the likelihood is \(\prod_i p_\theta(y_i\mid \mathbf x_i)\). Products underflow, so we maximise the log, and by convention minimise its negative:</p>
+    \[ \theta^\star=\argmin_\theta\; -\sum_{i=1}^{N}\log p_\theta(y_i\mid\mathbf x_i) \]
+    <p>Now instantiate the model and watch familiar losses appear:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Assumed output distribution</th><th>\(-\log p_\theta(y\mid x)\) becomes</th><th>Everyone calls it</th></tr></thead>
+      <tbody>
+        <tr><td>Gaussian, fixed \(\sigma\)</td><td>\(\frac{1}{2\sigma^2}(y-\hat y)^2 + \text{const}\)</td><td>MSE</td></tr>
+        <tr><td>Laplace</td><td>\(\frac{1}{b}\lvert y-\hat y\rvert + \text{const}\)</td><td>MAE / L1</td></tr>
+        <tr><td>Bernoulli</td><td>\(-[y\log\hat p+(1-y)\log(1-\hat p)]\)</td><td>Binary cross-entropy</td></tr>
+        <tr><td>Categorical</td><td>\(-\log \hat p_{y}\)</td><td>Cross-entropy / NLL</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box intuition"><span class="lbl">The unlock</span><p style="margin-bottom:0">Losses are not arbitrary design choices you memorise. <b>Choosing a loss is choosing a noise model.</b> MSE assumes Gaussian errors, which is why it is so sensitive to outliers — a Gaussian assigns them near-zero probability, so they dominate the log-likelihood. Switching to MAE is switching to a heavier-tailed Laplace assumption. That is the real content of Day 20.</p></div>
+
+    <h4>MAP adds a prior — and that prior is your regulariser</h4>
+    \[ \theta_{\text{MAP}}=\argmax_\theta\; p(\mathcal D\mid\theta)\,p(\theta) = \argmin_\theta\Big[-\log p(\mathcal D\mid\theta)-\log p(\theta)\Big] \]
+    <p>Put a zero-mean Gaussian prior \(p(\theta)=\mathcal N(0,\tau^2 I)\) on the weights. Then \(-\log p(\theta)=\frac{1}{2\tau^2}\lVert\theta\rVert_2^2+\text{const}\), and you have just derived L2 regularisation with \(\lambda=1/(2\tau^2)\). A Laplace prior gives L1. Weight decay is not a hack; it is a prior.</p>
+
+    <h4>Entropy, cross-entropy, KL — three related quantities</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Quantity</th><th>Formula</th><th>In one sentence</th></tr></thead>
+      <tbody>
+        <tr><td>Entropy \(H(p)\)</td><td>\(-\sum_x p(x)\log p(x)\)</td><td>The average bits needed to encode samples from \(p\), using the best code for \(p\).</td></tr>
+        <tr><td>Cross-entropy \(H(p,q)\)</td><td>\(-\sum_x p(x)\log q(x)\)</td><td>The average bits when you encode samples from \(p\) using a code built for \(q\).</td></tr>
+        <tr><td>KL \(D_{\mathrm{KL}}(p\Vert q)\)</td><td>\(\sum_x p(x)\log\frac{p(x)}{q(x)}\)</td><td>The excess bits you waste for being wrong. \(=H(p,q)-H(p)\ge0\).</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box derive"><span class="lbl">Why we minimise cross-entropy and not KL</span>
+      <p>Training minimises \(D_{\mathrm{KL}}(p_{\text{data}}\Vert p_\theta) = H(p_{\text{data}},p_\theta) - H(p_{\text{data}})\). The second term does not depend on \(\theta\) — it is a property of the dataset. So minimising KL and minimising cross-entropy give identical gradients. We use cross-entropy because it is one term shorter.</p>
+      <p style="margin-bottom:0">For one-hot labels, \(p_{\text{data}}\) puts all mass on the true class \(c\), so \(H(p,q)=-\log q_c\). <b>Cross-entropy loss for a single example is just the negative log of the probability you assigned to the correct answer.</b> Assign 0.9 → loss 0.105. Assign 0.1 → loss 2.303. Assign 0.001 → loss 6.9. It punishes confident mistakes brutally, which is exactly what you want.</p>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 900 260" role="img" aria-label="Cross-entropy loss curve versus predicted probability">
+        <text class="svg-ttl" x="20" y="22">LOSS = −log(p assigned to the true class)</text>
+        <line x1="70" y1="220" x2="860" y2="220" stroke="#2A3B4E"/>
+        <line x1="70" y1="40" x2="70" y2="220" stroke="#2A3B4E"/>
+        <path d="M78 44 C 120 120, 180 170, 300 194 S 600 214, 855 219" fill="none" stroke="#FFB454" stroke-width="2"/>
+        <g class="svg-lbl" fill="#5A6B7D">
+          <text x="66" y="238">0.0</text><text x="222" y="238">0.2</text><text x="380" y="238">0.4</text>
+          <text x="538" y="238">0.6</text><text x="696" y="238">0.8</text><text x="846" y="238">1.0</text>
+          <text x="34" y="46">7</text><text x="34" y="134">3</text><text x="34" y="224">0</text>
+        </g>
+        <text class="svg-lbl" x="400" y="256">predicted probability of the correct class</text>
+        <g stroke="#2A3B4E" stroke-dasharray="3 4">
+          <line x1="228" y1="220" x2="228" y2="150"/><line x1="70" y1="150" x2="228" y2="150"/>
+          <line x1="700" y1="220" x2="700" y2="211"/><line x1="70" y1="211" x2="700" y2="211"/>
+        </g>
+        <text class="svg-cy" x="234" y="146">p=0.2 → loss 1.61</text>
+        <text class="svg-cy" x="706" y="206">p=0.8 → 0.22</text>
+        <text class="svg-lbl" x="86" y="62" fill="#FF7B87">confident and wrong → enormous gradient</text>
+      </svg>
+      <figcaption><b>The asymmetry is the point.</b> Being 20% confident in the truth costs 7× more than being 80% confident. A model that is confidently wrong gets an enormous push. This is also why label noise hurts cross-entropy so much, and why label smoothing (Day 31) helps.</figcaption>
+    </figure>
+
+    <h4>Forward vs reverse KL — mode covering vs mode seeking</h4>
+    <p>KL is not symmetric, and the asymmetry has real consequences:</p>
+    <ul>
+      <li><b>Forward, \(D_{\mathrm{KL}}(p\Vert q)\)</b> — the expectation is over \(p\). Wherever \(p\) has mass and \(q\) does not, the term blows up. So \(q\) is forced to cover every mode of \(p\), smearing over the gaps. <b>Mode-covering.</b> This is what maximum likelihood does, and why an under-trained generative model produces blurry averages.</li>
+      <li><b>Reverse, \(D_{\mathrm{KL}}(q\Vert p)\)</b> — the expectation is over \(q\). \(q\) is only penalised where it puts mass, so it can safely ignore modes and pile onto one. <b>Mode-seeking.</b> This is what variational inference optimises, and it is the KL penalty in RLHF (Day 85) keeping the policy from wandering off the reference model.</li>
+    </ul>
+    <p>Jensen–Shannon symmetrises: \(\mathrm{JS}(p\Vert q)=\frac12 D_{\mathrm{KL}}(p\Vert m)+\frac12 D_{\mathrm{KL}}(q\Vert m)\) with \(m=\frac12(p+q)\). It is bounded and always finite, which is why the original GAN objective lands on it (Day 90) — and why its flat gradients when \(p\) and \(q\) do not overlap motivated Wasserstein GANs.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Take a bimodal target \(p\) (a mixture of two well-separated Gaussians) and fit a single Gaussian \(q\) by minimising forward KL, then reverse KL, numerically. Plot both fits over \(p\). One will straddle the gap; one will sit on a single bump. You will not forget the difference afterwards.</p></div>
+  </article>
+<article class="wrap lesson" id="l9">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 9</span><span>Lesson 9</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-009.html">single page ↗</a></div>
+      <h3 class="lesson-title">Optimization Fundamentals</h3>
+      <span class="lesson-no">09</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Objective functions</li><li>Convex vs non-convex</li><li>Local vs global minima</li>
+        <li>Saddle points</li><li>Gradient descent derived</li><li>Learning rate effects</li>
+        <li>Convergence intuition</li><li>The loss landscape picture</li>
+      </ol>
+    </div>
+
+    <h4>Deriving gradient descent in two lines</h4>
+    <p>First-order Taylor expansion around \(\theta\): \(L(\theta+\boldsymbol\delta)\approx L(\theta)+\nabla L(\theta)\T\boldsymbol\delta\). To make this as small as possible with a step of fixed length \(\eta\), choose \(\boldsymbol\delta\) anti-parallel to the gradient, because the dot product is minimised at \(\cos\theta=-1\):</p>
+    \[ \boldsymbol\delta = -\eta\,\frac{\nabla L}{\lVert\nabla L\rVert} \;\longrightarrow\; \text{in practice }\; \theta_{t+1}=\theta_t-\eta\,\nabla L(\theta_t) \]
+    <p>Two things are worth noticing. The approximation is only valid <em>locally</em>, so \(\eta\) must be small enough that you have not left the region where the linear model holds — that is the entire reason a learning rate exists. And we drop the normalisation, which means step size is proportional to gradient magnitude: steep regions take big steps, flat regions take tiny ones.</p>
+
+    <h4>The largest stable learning rate has a formula</h4>
+    <p>For a quadratic \(L(\theta)=\frac12\theta\T H\theta\), gradient descent gives \(\theta_{t+1}=(I-\eta H)\theta_t\). Along the eigenvector with eigenvalue \(\lambda\), the error is multiplied by \((1-\eta\lambda)\) every step. Convergence needs \(\lvert1-\eta\lambda\rvert\lt1\) for every eigenvalue, i.e.</p>
+    \[ 0 \lt \eta \lt \frac{2}{\lambda_{\max}} \]
+    <p>and the slowest direction converges at rate \(1-\eta\lambda_{\min}\). Optimal \(\eta\) makes these balance, giving a convergence rate governed by the condition number \(\kappa=\lambda_{\max}/\lambda_{\min}\). <b>Ill-conditioned problems are slow no matter what learning rate you pick</b> — which is why normalisation (Days 32–33) and adaptive methods (Day 28) are not luxuries.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 300" role="img" aria-label="Three learning rate regimes on a loss curve">
+        <text class="svg-ttl" x="20" y="22">THREE REGIMES</text>
+        <g transform="translate(10,36)">
+          <path d="M30 200 C 100 200, 110 40, 160 40 S 220 200, 290 200" fill="none" stroke="#2A3B4E" stroke-width="1.5" transform="scale(1,-1) translate(0,-240)"/>
+          <text class="svg-lbl" x="40" y="252">too small · crawls</text>
+          <g fill="#5BC8E6"><circle cx="52" cy="86" r="4"/><circle cx="66" cy="112" r="4"/><circle cx="78" cy="132" r="4"/><circle cx="88" cy="146" r="4"/><circle cx="96" cy="156" r="4"/><circle cx="102" cy="163" r="4"/></g>
+          <path d="M52 86 L102 163" stroke="#5BC8E6" stroke-dasharray="2 3" fill="none"/>
+        </g>
+        <g transform="translate(310,36)">
+          <path d="M30 200 C 100 200, 110 40, 160 40 S 220 200, 290 200" fill="none" stroke="#2A3B4E" stroke-width="1.5" transform="scale(1,-1) translate(0,-240)"/>
+          <text class="svg-acc" x="40" y="252">just right · converges</text>
+          <g fill="#FFB454"><circle cx="52" cy="86" r="4"/><circle cx="104" cy="168" r="4"/><circle cx="140" cy="196" r="4"/><circle cx="158" cy="200" r="4"/></g>
+          <path d="M52 86 L104 168 L140 196 L158 200" stroke="#FFB454" stroke-dasharray="2 3" fill="none"/>
+        </g>
+        <g transform="translate(600,36)">
+          <path d="M30 200 C 100 200, 110 40, 160 40 S 220 200, 290 200" fill="none" stroke="#2A3B4E" stroke-width="1.5" transform="scale(1,-1) translate(0,-240)"/>
+          <text class="svg-lbl" x="40" y="252" fill="#FF7B87">too large · diverges</text>
+          <g fill="#FF7B87"><circle cx="80" cy="140" r="4"/><circle cx="232" cy="150" r="4"/><circle cx="46" cy="74" r="4"/><circle cx="272" cy="60" r="4"/></g>
+          <path d="M80 140 L232 150 L46 74 L272 60" stroke="#FF7B87" stroke-dasharray="2 3" fill="none"/>
+        </g>
+      </svg>
+      <figcaption><b>Divergence is not gradual.</b> Cross the \(2/\lambda_{\max}\) threshold and the loss goes to NaN within a handful of steps, usually via <code>inf</code> in the forward pass first. If your loss becomes NaN in the first 50 steps, lower the learning rate before you look anywhere else.</figcaption>
+    </figure>
+
+    <h4>Convex vs non-convex, and why nobody panics</h4>
+    <p>A function is convex if the line between any two points on the graph lies above it. Convex problems have a single global minimum and are solvable. Neural network losses are wildly non-convex: permuting hidden units gives you an exponential number of equivalent minima before you even start.</p>
+    <p>Empirically this matters much less than theory feared. In high dimensions, most critical points are saddles rather than poor local minima, and the many minima that do exist tend to have similar loss values. Mini-batch gradient noise also acts as a natural escape mechanism from shallow traps. The practical enemies are <b>plateaus</b>, <b>ravines</b>, and <b>bad initialisation</b>, not local minima.</p>
+
+    <div class="box intuition"><span class="lbl">Reading the loss-landscape pictures</span>
+      <p style="margin-bottom:0">Those beautiful 3D loss surface visualisations are 2D slices through a space with millions of dimensions, chosen along two random or specially-selected directions. They are useful intuition pumps and terrible evidence. When someone shows you a "flat minimum generalises better" plot, remember it is a projection.</p>
+    </div>
+
+    <h4>The full picture of one training step</h4>
+    <figure>
+      <svg viewBox="0 0 900 200" role="img" aria-label="The training loop as a cycle">
+        <g>
+          <rect x="20" y="60" width="140" height="60" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="46" y="95">1 · forward</text>
+          <rect x="200" y="60" width="140" height="60" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="238" y="95">2 · loss</text>
+          <rect x="380" y="60" width="140" height="60" fill="#0F1822" stroke="#FFB454"/><text class="svg-acc" x="404" y="95">3 · backward</text>
+          <rect x="560" y="60" width="140" height="60" fill="#0F1822" stroke="#FFB454"/><text class="svg-acc" x="590" y="95">4 · step</text>
+          <rect x="740" y="60" width="140" height="60" fill="#0F1822" stroke="#FF7B87"/><text class="svg-lbl-b" x="756" y="95" fill="#FF7B87">5 · zero_grad</text>
+        </g>
+        <g stroke="#2A3B4E" fill="none" marker-end="url(#ar3)">
+          <path d="M160 90 L198 90"/><path d="M340 90 L378 90"/><path d="M520 90 L558 90"/><path d="M700 90 L738 90"/>
+          <path d="M810 122 C 810 170, 90 170, 90 124"/>
+        </g>
+        <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#2A3B4E"/></marker></defs>
+        <text class="svg-lbl" x="20" y="146">predictions</text><text class="svg-lbl" x="200" y="146">one scalar</text>
+        <text class="svg-lbl" x="380" y="146">∂L/∂θ for every θ</text><text class="svg-lbl" x="560" y="146">θ ← θ − η∇L</text>
+        <text class="svg-lbl" x="740" y="146">gradients ACCUMULATE</text>
+      </svg>
+      <figcaption><b>Step 5 is not optional.</b> PyTorch accumulates gradients by design (it is what makes gradient accumulation and multi-loss training possible). Forget <code>zero_grad()</code> and every step uses the sum of all gradients so far — the model appears to train, badly, forever.</figcaption>
+    </figure>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Take \(L(x,y)=x^2+10y^2\) — condition number 10. Run gradient descent from \((-9,1)\) and plot the path over contours for \(\eta=0.01,0.05,0.09,0.11\). Then repeat with \(L=x^2+100y^2\). Measure how many steps each needs to reach \(L\lt10^{-4}\), and confirm the count scales with \(\kappa\).</p></div>
+  </article>
+<article class="wrap lesson" id="l10">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 10</span><span>Lesson 10</span><span class="rt">35 min</span><a class="permalink" href="../lessons/lesson-010.html">single page ↗</a></div>
+      <h3 class="lesson-title">Numerical Stability &amp; Floating Point</h3>
+      <span class="lesson-no">10</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>float64 / 32 / 16 / bfloat16</li><li>Machine epsilon</li><li>Overflow &amp; underflow</li>
+        <li>The log-sum-exp trick</li><li>Stable softmax</li><li>Stable cross-entropy</li>
+        <li>Catastrophic cancellation</li><li>Why log(sigmoid(x)) is dangerous</li>
+      </ol>
+    </div>
+
+    <h4>The four formats, and the one number that matters for each</h4>
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Bit layouts of float32, float16 and bfloat16">
+        <text class="svg-ttl" x="20" y="22">SIGN · EXPONENT (range) · MANTISSA (precision)</text>
+        <g transform="translate(20,44)">
+          <text class="svg-lbl-b" x="0" y="14">float32</text>
+          <rect x="90" y="0" width="18" height="20" fill="#FF7B87"/>
+          <rect x="108" y="0" width="144" height="20" fill="#5BC8E6"/>
+          <rect x="252" y="0" width="414" height="20" fill="#FFB454"/>
+          <text class="svg-lbl" x="676" y="15">1 · 8 · 23   ~7 digits, max 3.4e38</text>
+        </g>
+        <g transform="translate(20,84)">
+          <text class="svg-lbl-b" x="0" y="14">float16</text>
+          <rect x="90" y="0" width="18" height="20" fill="#FF7B87"/>
+          <rect x="108" y="0" width="90" height="20" fill="#5BC8E6"/>
+          <rect x="198" y="0" width="180" height="20" fill="#FFB454"/>
+          <text class="svg-lbl" x="388" y="15">1 · 5 · 10   ~3 digits, max 65504  ← overflows easily</text>
+        </g>
+        <g transform="translate(20,124)">
+          <text class="svg-lbl-b" x="0" y="14">bfloat16</text>
+          <rect x="90" y="0" width="18" height="20" fill="#FF7B87"/>
+          <rect x="108" y="0" width="144" height="20" fill="#5BC8E6"/>
+          <rect x="252" y="0" width="126" height="20" fill="#FFB454"/>
+          <text class="svg-lbl" x="388" y="15">1 · 8 · 7    ~2 digits, SAME RANGE as fp32  ← no loss scaling needed</text>
+        </g>
+        <g transform="translate(20,168)">
+          <rect x="0" y="0" width="860" height="60" fill="#0F1822" stroke="#1C2836"/>
+          <text class="svg-lbl-b" x="14" y="22">The trade in one line</text>
+          <text class="svg-lbl" x="14" y="42">fp16 keeps precision and loses range → needs loss scaling. bf16 keeps range and loses precision → just works.</text>
+        </g>
+      </svg>
+      <figcaption><b>This picture is the whole of mixed precision training (Day 39-b).</b> On any GPU from Ampere onwards, prefer bf16 and skip the loss-scaling machinery entirely.</figcaption>
+    </figure>
+    <p>Machine epsilon for float32 is \(\approx1.19\times10^{-7}\): the smallest \(\varepsilon\) with \(1+\varepsilon\neq1\). Consequently <code>np.float32(1.0) + np.float32(1e-8) == 1.0</code>. In float16, \(\varepsilon\approx10^{-3}\), so adding a learning-rate-sized update to a weight can be a complete no-op — which is why optimizer states and master weights are kept in fp32 even when the forward pass is half precision.</p>
+
+    <h4>The log-sum-exp trick</h4>
+    <p>Softmax needs \(e^{z_k}\). With \(z=1000\), \(e^{1000}=\infty\) in float32 and you get NaN. Exploit the shift invariance of softmax — subtracting a constant from all logits leaves the result unchanged:</p>
+    \[ \softmax(\mathbf z)_k=\frac{e^{z_k}}{\sum_j e^{z_j}} = \frac{e^{z_k-c}}{\sum_j e^{z_j-c}},\qquad \text{choose } c=\max_j z_j \]
+    <p>Now the largest exponent is \(e^0=1\) — no overflow ever. The underflowing terms become \(e^{\text{large negative}}\to0\), which is harmless. Similarly:</p>
+    \[ \log\sum_j e^{z_j} = c + \log\sum_j e^{z_j-c} \]
+
+    <pre><code>import numpy as np
+
+def softmax_naive(z):
+    e = np.exp(z)
+    return e / e.sum()
+
+def softmax_stable(z):
+    z = z - z.max()               # the entire fix
+    e = np.exp(z)
+    return e / e.sum()
+
+z = np.array([1000., 1001., 1002.], dtype=np.float32)
+softmax_naive(z)     # array([nan, nan, nan])
+softmax_stable(z)    # array([0.09003057, 0.24472848, 0.66524094])</code></pre>
+
+    <div class="demo" id="d-num">
+      <div class="demo-head"><span class="dot"></span><b>Break it yourself</b> · naive vs stable softmax</div>
+      <div class="demo-body">
+        <div class="ctrls">
+          <label class="ctrl"><span>Largest logit <b id="numMv">90</b></span><input type="range" id="numM" min="-120" max="200" step="1" value="90"></label>
+        </div>
+        <div class="readout" id="numOut"></div>
+      </div>
+    </div>
+
+    <h4>Never compute log(softmax(x)) as two steps</h4>
+    <p>If softmax returns exactly 0.0 for some class (perfectly possible after underflow) then \(\log 0=-\infty\) and the loss is <code>inf</code>, then NaN after multiplication by a zero label. Fuse the operations instead:</p>
+    \[ \log\softmax(\mathbf z)_k = z_k - c - \log\sum_j e^{z_j-c} \]
+    <p>No division, no log of a possibly-zero number. This is why every framework ships a fused version and why the API surface looks the way it does:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Use this</th><th>Feed it</th><th>Not this</th></tr></thead>
+      <tbody>
+        <tr><td><code>nn.CrossEntropyLoss()</code></td><td>raw logits + integer class indices</td><td><code>softmax</code> then <code>NLLLoss</code> then <code>log</code></td></tr>
+        <tr><td><code>nn.BCEWithLogitsLoss()</code></td><td>raw logits + 0/1 targets</td><td><code>sigmoid</code> then <code>BCELoss</code></td></tr>
+        <tr><td><code>F.log_softmax(z, dim=-1)</code></td><td>raw logits</td><td><code>torch.log(F.softmax(z))</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="box pitfall"><span class="lbl">Pitfall · the double softmax</span>
+      <p>Applying <code>softmax</code> in your model's <code>forward</code> <em>and</em> using <code>CrossEntropyLoss</code> is the most common bug of Phase 2. It does not crash. It squashes the effective logits into \([0,1]\), flattens the gradients, and your model trains to about 60% on MNIST and stops. If accuracy plateaus embarrassingly low, check this first.</p>
+    </div>
+
+    <h4>The BCE-with-logits stabilisation</h4>
+    <p>\(-\log\sigma(x) = \log(1+e^{-x})\), which overflows for very negative \(x\). The stable form used inside every framework is</p>
+    \[ \operatorname{BCE}(x,y)=\max(x,0)-x\,y+\log\!\left(1+e^{-\lvert x\rvert}\right) \]
+    <p>Verify it by hand for \(x\gg0\) and \(x\ll0\): in both cases the exponential argument is negative, so it can never overflow. Small, elegant, and it is doing work for you on every binary classification you will ever run.</p>
+
+    <h4>Catastrophic cancellation</h4>
+    <p>Subtracting two nearly-equal floats destroys significant digits. The classic example is variance: \(\E[X^2]-\E[X]^2\) is algebraically correct and numerically terrible when the mean is large relative to the spread. Use a two-pass or Welford algorithm instead. The same issue is why \(\varepsilon\) inside a normalisation layer goes <em>inside</em> the square root, \(\frac{x-\mu}{\sqrt{\sigma^2+\varepsilon}}\), not outside.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Write both softmax versions, feed them logits scaled by \(10^{k}\) for \(k=0..4\) in float32, and record where the naive one dies. Then implement log-sum-exp and confirm your fused log-softmax matches <code>torch.log_softmax</code> to within \(10^{-6}\).</p></div>
+  </article>
+<article class="wrap lesson" id="l11">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 11</span><span>Lesson 11</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-011.html">single page ↗</a></div>
+      <h3 class="lesson-title">Environment Setup — CPU, GPU &amp; Cloud</h3>
+      <span class="lesson-no">11</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Python envs: venv / conda / uv</li><li>Installing PyTorch with the right CUDA build</li>
+        <li>Verifying GPU access</li><li>Colab &amp; Kaggle free tiers</li>
+        <li>Renting GPUs</li><li>VS Code + Jupyter workflow</li><li>git &amp; GitHub for ML projects</li>
+      </ol>
+    </div>
+
+    <h4>One environment per project, always</h4>
+    <pre><code># uv is the fastest option in 2025+; venv works everywhere
+uv venv .venv --python 3.11
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# Pick the index URL that matches your driver, from pytorch.org.
+# The cu### suffix is the CUDA runtime PyTorch ships, NOT your driver version.
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+uv pip install numpy matplotlib jupyterlab tqdm scikit-learn pandas</code></pre>
+
+    <div class="box check"><span class="lbl">Verify before you trust it</span>
+      <pre style="margin:8px 0 0"><code>import torch
+print(torch.__version__)              # 2.x
+print(torch.cuda.is_available())      # must be True
+print(torch.cuda.get_device_name(0))
+print(torch.cuda.get_device_properties(0).total_memory / 1e9, "GB")
+
+x = torch.randn(4096, 4096, device="cuda")
+torch.cuda.synchronize()
+# if this runs without error, your stack is correct
+print((x @ x).sum().item())</code></pre>
+    </div>
+    <p>If <code>is_available()</code> is False, the cause is almost always one of three things: you installed the CPU-only wheel, your NVIDIA driver is older than the CUDA runtime requires, or you are in the wrong environment. Check <code>nvidia-smi</code> first — it reports the maximum CUDA version your driver supports in the top-right corner.</p>
+
+    <h4>The free tiers, honestly</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Platform</th><th>GPU</th><th>Session</th><th>Watch out for</th></tr></thead>
+      <tbody>
+        <tr><td>Google Colab</td><td>T4 (16&nbsp;GB) typical</td><td>Idles out; disconnects</td><td>Filesystem is wiped. Mount Drive or push checkpoints every epoch.</td></tr>
+        <tr><td>Kaggle</td><td>T4 ×2 or P100</td><td>~30 GPU-hours/week</td><td>Excellent for Phase 4 — two T4s let you practise DDP for free.</td></tr>
+        <tr><td>Rented (RunPod, Lambda, Vast)</td><td>A100 / H100 / 4090</td><td>You pay per hour</td><td>Storage bills while stopped. Terminate, do not just stop.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Repo layout that will not embarrass you later</h4>
+    <pre><code>project/
+├── data/            # gitignored. raw/ interim/ processed/
+├── notebooks/       # exploration only, numbered: 01-eda.ipynb
+├── src/
+│   ├── data.py      # Dataset + transforms
+│   ├── model.py     # nn.Module definitions only
+│   ├── train.py     # the loop; takes a config
+│   └── evaluate.py
+├── configs/         # yaml, one per experiment
+├── checkpoints/     # gitignored
+├── requirements.txt # or pyproject.toml
+└── README.md        # how to reproduce, in 5 lines</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · notebooks in git</span>
+      <p>Committing <code>.ipynb</code> files with outputs produces unreadable diffs and can leak data. Add <code>nbstripout</code> as a pre-commit hook on day one. And never commit <code>data/</code> — a <code>.gitignore</code> that starts with <code>data/</code>, <code>*.pt</code>, <code>*.ckpt</code>, <code>wandb/</code>, <code>.venv/</code> will save you.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Create the repo above, push it, and add a Colab badge to the README that opens <code>notebooks/01-eda.ipynb</code>. This repo is where all 100 days of code goes — one folder per day. It will be the most valuable thing you own at the end of this course.</p></div>
+  </article>
+<article class="wrap lesson" id="l12">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 12</span><span>Lesson 12</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-012.html">single page ↗</a></div>
+      <h3 class="lesson-title">PyTorch Tensor Crash Course</h3>
+      <span class="lesson-no">12</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Creating tensors</li><li>dtypes &amp; devices</li><li><code>.to()</code>, <code>.cuda()</code>, pinned memory</li>
+        <li>Elementwise, reductions, matmul, einsum</li><li>Broadcasting in torch</li>
+        <li>In-place ops and when they bite</li><li><code>requires_grad</code>, <code>.backward()</code>, <code>.grad</code></li>
+        <li><code>torch.no_grad()</code></li><li>First look at autograd graphs</li>
+      </ol>
+    </div>
+
+    <h4>A tensor is a NumPy array with three extra fields</h4>
+    <p><code>device</code> (where the memory lives), <code>requires_grad</code> (whether to record operations), and <code>grad_fn</code> (which operation produced it). Everything else you already know from Lesson 2.</p>
+
+    <pre><code>import torch
+
+x = torch.randn(3, 4)                       # cpu, float32, no grad
+w = torch.randn(4, 2, requires_grad=True)   # a leaf with grad tracking
+
+y = x @ w                # y.grad_fn = &lt;MmBackward0&gt;
+loss = y.pow(2).mean()   # loss.grad_fn = &lt;MeanBackward0&gt;
+loss.backward()          # walks the graph backwards
+
+print(w.grad.shape)      # torch.Size([4, 2])  -- same shape as w, always
+print(x.grad)            # None -- x is not a leaf requiring grad</code></pre>
+
+    <h4>The autograd graph, drawn</h4>
+    <figure>
+      <svg viewBox="0 0 900 260" role="img" aria-label="Autograd computational graph with forward and backward passes">
+        <text class="svg-ttl" x="20" y="22">FORWARD BUILDS THE GRAPH · BACKWARD WALKS IT</text>
+        <g>
+          <circle cx="70" cy="80" r="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="63" y="85">x</text>
+          <circle cx="70" cy="170" r="26" fill="#0F1822" stroke="#FFB454"/><text class="svg-acc" x="64" y="175">W</text>
+          <rect x="170" y="100" width="86" height="46" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="196" y="128">matmul</text>
+          <rect x="320" y="100" width="86" height="46" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="352" y="128">ReLU</text>
+          <rect x="470" y="100" width="86" height="46" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="500" y="128">MSE</text>
+          <circle cx="640" cy="123" r="26" fill="#0F1822" stroke="#93D97B"/><text class="svg-lbl-b" x="632" y="128" fill="#93D97B">L</text>
+        </g>
+        <g stroke="#2A3B4E" fill="none" marker-end="url(#ar4)">
+          <path d="M96 88 L168 112"/><path d="M96 162 L168 136"/><path d="M256 123 L318 123"/><path d="M406 123 L468 123"/><path d="M556 123 L612 123"/>
+        </g>
+        <defs>
+          <marker id="ar4" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#2A3B4E"/></marker>
+          <marker id="ar5" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#FFB454"/></marker>
+        </defs>
+        <g stroke="#FFB454" fill="none" stroke-dasharray="4 4" marker-end="url(#ar5)">
+          <path d="M612 148 L558 168"/><path d="M468 178 L410 178"/><path d="M318 178 L262 178"/><path d="M170 190 L100 190"/>
+        </g>
+        <text class="svg-acc" x="300" y="212">grad flows right → left; each node applies its VJP (Lesson 6)</text>
+        <text class="svg-lbl" x="20" y="238">Stored for backward: the inputs each op needs. This is the activation memory that dominates your GPU budget (Day 39-b).</text>
+      </svg>
+      <figcaption><b>The graph is rebuilt every forward pass</b> — that is what "define-by-run" means, and why you can use <code>if</code> and <code>for</code> freely inside <code>forward()</code>. It is also why the graph is freed after <code>.backward()</code> unless you pass <code>retain_graph=True</code>.</figcaption>
+    </figure>
+
+    <h4>einsum: the one API worth memorising</h4>
+    <p>Index notation, executed. Repeated indices are summed; indices absent from the output are summed away.</p>
+    <pre><code>torch.einsum('ij,jk->ik', A, B)          # matmul
+torch.einsum('bij,bjk->bik', A, B)       # batched matmul
+torch.einsum('bi,bi->b', a, b)           # per-row dot product
+torch.einsum('bi,bj->bij', a, b)         # batched outer product
+torch.einsum('bhqd,bhkd->bhqk', q, k)    # ATTENTION SCORES (Day 70)
+torch.einsum('bhqk,bhkd->bhqd', attn, v) # attention output</code></pre>
+    <p>Those last two lines are the core of every transformer you will build. Writing them in einsum rather than a stack of <code>transpose</code>/<code>reshape</code> calls makes the shapes self-documenting, which matters enormously once you have four dimensions in play.</p>
+
+    <div class="shapes">
+      <span class="dim">q <small>(B, H, Q, D)</small></span><span class="op">×</span><span class="dim">k <small>(B, H, K, D)</small></span>
+      <span class="op">→ sum over D →</span><span class="dim out">scores <small>(B, H, Q, K)</small></span>
+    </div>
+
+    <h4>In-place ops and the two ways they bite</h4>
+    <p>Methods ending in an underscore (<code>add_</code>, <code>relu_</code>, <code>clamp_</code>) modify memory directly and save allocation. They are safe when the overwritten value is not needed by the backward pass — <code>relu_</code> is fine because ReLU's derivative depends on the sign of its <em>output</em> too. They are unsafe otherwise, and PyTorch will tell you loudly:</p>
+    <pre><code>RuntimeError: one of the variables needed for gradient computation
+has been modified by an inplace operation</code></pre>
+    <p>The second bite is silent aliasing: <code>b = a[0]</code> is a view, so <code>b += 1</code> changes <code>a</code>. If you meant a copy, say <code>a[0].clone()</code>.</p>
+
+    <h4>no_grad, inference_mode, and detach</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Tool</th><th>What it does</th><th>Use for</th></tr></thead>
+      <tbody>
+        <tr><td><code>torch.no_grad()</code></td><td>Stops recording; big memory saving</td><td>Validation loops, manual optimizer updates</td></tr>
+        <tr><td><code>torch.inference_mode()</code></td><td>Stricter and faster than no_grad</td><td>Pure inference / serving</td></tr>
+        <tr><td><code>.detach()</code></td><td>Cuts one tensor out of the graph</td><td>Logging <code>loss.detach().item()</code>; stop-gradient in BYOL, GANs, target networks</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box pitfall"><span class="lbl">Pitfall · the leaking loss list</span>
+      <p>Writing <code>losses.append(loss)</code> keeps the entire computational graph alive for every step of training. Memory grows until OOM around epoch 3. Write <code>losses.append(loss.item())</code>. Same story for any metric you accumulate.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Build a 2-layer net using only raw tensors and manual updates inside <code>torch.no_grad()</code> — no <code>nn.Module</code>, no optimizer. Then rewrite the attention score computation three ways: nested loops, reshape+bmm, and einsum. Time all three and confirm they agree with <code>torch.allclose</code>.</p></div>
+  </article>
+<article class="wrap lesson" id="l13">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 12-b</span><span>Lesson 13</span><span class="rt">25 min</span><a class="permalink" href="../lessons/lesson-013.html">single page ↗</a></div>
+      <h3 class="lesson-title">Framework Landscape — PyTorch vs TensorFlow vs JAX</h3>
+      <span class="lesson-no">13</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Eager vs graph execution</li><li>PyTorch dominance in research</li>
+        <li>TF/Keras in production</li><li>JAX functional style: jit, vmap, grad</li>
+        <li>Keras 3 multi-backend</li><li>What to learn, in what order</li>
+        <li>Reading code written in each</li>
+      </ol>
+    </div>
+
+    <h4>The one axis that explains the differences</h4>
+    <p><b>Eager</b> execution runs operations immediately, so you can print tensors and use a debugger. <b>Graph</b> execution builds a symbolic graph first, then compiles and optimises it — faster, but harder to inspect. PyTorch is eager with optional compilation (<code>torch.compile</code>). JAX is trace-then-compile (<code>jit</code>). TensorFlow 2 is eager by default with <code>@tf.function</code> for graphs. Everyone has converged on the same answer: write eagerly, compile the hot path.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th>PyTorch</th><th>JAX</th><th>TensorFlow / Keras 3</th></tr></thead>
+      <tbody>
+        <tr><td>Style</td><td>Object-oriented, stateful modules</td><td>Functional, explicit state, pure functions</td><td>Layers API, high-level <code>fit()</code></td></tr>
+        <tr><td>Gradients</td><td><code>loss.backward()</code> mutates <code>.grad</code></td><td><code>grad(f)(params)</code> returns a new pytree</td><td><code>GradientTape</code></td></tr>
+        <tr><td>Batching</td><td>You write the batch dim yourself</td><td><code>vmap</code> adds it automatically</td><td>You write it</td></tr>
+        <tr><td>Strongest at</td><td>Research, ecosystem, LLM tooling</td><td>TPUs, scale, scientific computing</td><td>Mobile/edge deploy, established pipelines</td></tr>
+      </tbody>
+    </table></div>
+
+    <pre><code># The same gradient step in three dialects
+
+# PyTorch — state lives in the module, .grad is mutated
+loss = criterion(model(x), y)
+opt.zero_grad(); loss.backward(); opt.step()
+
+# JAX — pure function in, new params out
+grads = jax.grad(loss_fn)(params, x, y)
+params = jax.tree.map(lambda p, g: p - lr * g, params, grads)
+
+# TensorFlow — explicit tape
+with tf.GradientTape() as tape:
+    loss = loss_fn(model(x), y)
+opt.apply_gradients(zip(tape.gradient(loss, model.trainable_variables),
+                        model.trainable_variables))</code></pre>
+
+    <div class="box intuition"><span class="lbl">What to actually do</span>
+      <p style="margin-bottom:0">Learn PyTorch properly — it is what this course uses and what almost every paper releases code in. Learn to <em>read</em> the other two, because you will hit a repo in each. Learn JAX for real only if you end up doing large-scale training on TPUs or research that needs <code>vmap</code>. Do not learn all three at once; the concepts transfer, the APIs do not, and mixing them early is how people end up fluent in none.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l14">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 13</span><span>Lesson 14</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-014.html">single page ↗</a></div>
+      <h3 class="lesson-title">Data Pipelines — Loading, Batching &amp; Splitting</h3>
+      <span class="lesson-no">14</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>pandas essentials for ML</li><li><code>Dataset</code> and <code>DataLoader</code> from scratch</li>
+        <li><code>collate_fn</code></li><li><code>num_workers</code> &amp; prefetching</li>
+        <li>Transforms &amp; composition</li><li>Train/val/test splits done correctly</li>
+        <li>Stratification</li><li>Leakage traps</li><li>Data too big for RAM</li>
+      </ol>
+    </div>
+
+    <h4>The Dataset / DataLoader contract</h4>
+    <p>A <code>Dataset</code> answers two questions: how many items are there (<code>__len__</code>), and give me item \(i\) (<code>__getitem__</code>). A <code>DataLoader</code> handles everything else: shuffling, batching, parallel workers, and pinned memory. Keep the split of responsibility clean and the rest is easy.</p>
+
+    <pre><code>from torch.utils.data import Dataset, DataLoader
+
+class ImageCSV(Dataset):
+    def __init__(self, df, root, transform=None):
+        self.df, self.root, self.transform = df.reset_index(drop=True), root, transform
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, i):
+        row = self.df.iloc[i]
+        img = Image.open(f"{self.root}/{row.filename}").convert("RGB")
+        if self.transform:
+            img = self.transform(img)          # augmentation happens HERE, per worker
+        return img, int(row.label)
+
+loader = DataLoader(
+    ds, batch_size=64, shuffle=True,
+    num_workers=8,          # CPU processes decoding + augmenting in parallel
+    pin_memory=True,        # page-locked staging buffer -> faster host->GPU copy
+    persistent_workers=True,# don't respawn every epoch
+    prefetch_factor=4,      # batches queued per worker
+    drop_last=True,         # keeps BatchNorm happy; avoids a size-1 final batch
+)</code></pre>
+
+    <figure>
+      <svg viewBox="0 0 900 220" role="img" aria-label="Data pipeline from disk to GPU">
+        <text class="svg-ttl" x="20" y="22">KEEP THE GPU FED</text>
+        <g>
+          <rect x="20" y="46" width="120" height="56" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="56" y="79">disk</text>
+          <rect x="180" y="30" width="150" height="40" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="204" y="55">worker 1 · decode</text>
+          <rect x="180" y="78" width="150" height="40" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="204" y="103">worker 2 · augment</text>
+          <rect x="180" y="126" width="150" height="40" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-cy" x="204" y="151">worker N · collate</text>
+          <rect x="380" y="66" width="130" height="60" fill="#0F1822" stroke="#B79CFF"/><text class="svg-lbl-b" x="398" y="92" fill="#B79CFF">pinned</text><text class="svg-lbl" x="398" y="112">queue</text>
+          <rect x="560" y="46" width="140" height="100" fill="#0F1822" stroke="#FFB454"/><text class="svg-acc" x="602" y="100">GPU</text>
+        </g>
+        <g stroke="#2A3B4E" fill="none" marker-end="url(#ar6)">
+          <path d="M140 62 L176 50"/><path d="M140 78 L176 98"/><path d="M140 92 L176 142"/>
+          <path d="M330 50 L376 82"/><path d="M330 98 L376 96"/><path d="M330 146 L376 112"/><path d="M510 96 L556 96"/>
+        </g>
+        <defs><marker id="ar6" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#2A3B4E"/></marker></defs>
+        <text class="svg-lbl" x="20" y="190">If GPU utilisation sits below ~90%, you are input-bound. Raise num_workers, cache decoded arrays, or move augmentation onto the GPU.</text>
+      </svg>
+      <figcaption><b>The most common performance bug in deep learning is not a slow model.</b> It is eight CPU cores JPEG-decoding while a $10,000 GPU waits. Check <code>nvidia-smi dmon</code> before you optimise anything else.</figcaption>
+    </figure>
+
+    <h4>collate_fn: for when items are not the same size</h4>
+    <p>The default collate stacks samples, which requires identical shapes. Variable-length text or audio needs padding, and padding needs a mask so the model can ignore it:</p>
+    <pre><code>def pad_collate(batch):
+    seqs, labels = zip(*batch)
+    lens = torch.tensor([len(s) for s in seqs])
+    padded = nn.utils.rnn.pad_sequence(seqs, batch_first=True, padding_value=0)
+    mask = torch.arange(padded.size(1))[None, :] &lt; lens[:, None]   # True = real token
+    return padded, mask, torch.tensor(labels)</code></pre>
+    <p>Carry that mask everywhere. Forgetting it in an attention layer means the model attends to padding, which is a bug that shows up as mysteriously worse validation loss with longer sequences.</p>
+
+    <h4>Splitting, and the four ways to leak</h4>
+    <div class="box pitfall"><span class="lbl">Pitfall · leakage, in order of how often it happens</span>
+      <ol style="margin-bottom:0">
+        <li><b>Normalising before splitting.</b> Computing mean/std on the full dataset lets test statistics into training. Fit scalers on train only, then apply to val and test.</li>
+        <li><b>Group leakage.</b> Multiple photos of the same patient, product or person split across train and test. Your model memorises the entity, not the task. Use <code>GroupKFold</code>.</li>
+        <li><b>Temporal leakage.</b> Random splits on time series let the model see the future. Always split by time, and never shuffle before a time-based split (Day 67-b).</li>
+        <li><b>Test-set tuning.</b> Choosing hyperparameters on the test set. That is now a validation set and your reported number is optimistic. Three splits exist for a reason.</li>
+      </ol>
+    </div>
+    <p>Use stratification for classification so class proportions are preserved in each split — critical when a class has 30 examples and a random split could give the val set two of them.</p>
+
+    <h4>When the data does not fit in RAM</h4>
+    <ul>
+      <li><b>Memory-map it.</b> <code>np.memmap</code> or <code>np.load(..., mmap_mode='r')</code> reads pages on demand.</li>
+      <li><b>Shard it.</b> Pack into chunked formats — WebDataset tar shards, Parquet, HDF5, or LMDB. Sequential reads beat millions of small file opens by an order of magnitude.</li>
+      <li><b>Stream it.</b> Use an <code>IterableDataset</code> with a shuffle buffer (the same trick TFRecord/WebDataset use) when the dataset genuinely never lands on local disk.</li>
+    </ul>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Write a <code>Dataset</code> for a folder of images with a CSV of labels, add a <code>pad_collate</code> for a variable-length text version, and benchmark epoch time at <code>num_workers</code> = 0, 2, 4, 8. Plot the curve. It will flatten and then get worse — find your machine's sweet spot and remember it.</p></div>
+  </article>
+<article class="wrap lesson" id="l15">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 14</span><span>Lesson 15</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-015.html">single page ↗</a></div>
+      <h3 class="lesson-title">Machine Learning Refresher (the part DL assumes)</h3>
+      <span class="lesson-no">15</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Supervised / unsupervised / self-supervised / RL</li><li>Features &amp; labels</li>
+        <li>Linear &amp; logistic regression</li><li>k-NN, trees, random forests, gradient boosting</li>
+        <li>Bias-variance tradeoff</li><li>Over/underfitting</li><li>Cross-validation</li>
+        <li>Classification &amp; regression metrics</li><li>When <em>not</em> to use deep learning</li>
+      </ol>
+    </div>
+
+    <h4>The four learning settings</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Setting</th><th>Signal</th><th>Example in this course</th></tr></thead>
+      <tbody>
+        <tr><td>Supervised</td><td>Human labels</td><td>MNIST (Day 24), CIFAR (Day 48), detection (Day 52)</td></tr>
+        <tr><td>Unsupervised</td><td>Structure only</td><td>PCA (Day 4), autoencoders (Day 88), clustering</td></tr>
+        <tr><td>Self-supervised</td><td>Labels invented from the data itself</td><td>Next-token prediction, SimCLR, MAE, BERT masking</td></tr>
+        <tr><td>Reinforcement</td><td>Scalar reward from an environment</td><td>DQN &amp; PPO (Days 95-b–96), RLHF (Day 85)</td></tr>
+      </tbody>
+    </table></div>
+    <p>Self-supervision is the one that changed everything. It converts an unlabelled corpus into a supervised problem for free, which is why foundation models exist at all.</p>
+
+    <h4>Bias and variance, decomposed</h4>
+    <p>For squared loss, expected test error at a point decomposes exactly:</p>
+    \[ \E\big[(y-\hat f(x))^2\big] = \underbrace{\big(\E[\hat f(x)]-f(x)\big)^2}_{\text{bias}^2} + \underbrace{\operatorname{Var}\!\big(\hat f(x)\big)}_{\text{variance}} + \underbrace{\sigma^2}_{\text{irreducible}} \]
+    <p><b>Bias</b> is systematic error from a model too simple to represent the truth (underfitting). <b>Variance</b> is sensitivity to which training set you happened to draw (overfitting). The third term is noise in the labels themselves, and no model can beat it — which is why knowing your task's human error rate matters before you chase another 1%.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 280" role="img" aria-label="Classical bias-variance curve and modern double descent">
+        <text class="svg-ttl" x="20" y="22">CLASSICAL U-CURVE · AND WHAT DEEP NETS ACTUALLY DO</text>
+        <g transform="translate(30,40)">
+          <line x1="40" y1="200" x2="360" y2="200" stroke="#2A3B4E"/><line x1="40" y1="20" x2="40" y2="200" stroke="#2A3B4E"/>
+          <path d="M55 40 C 110 150, 140 175, 180 178 S 300 120, 350 40" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <path d="M55 190 C 130 165, 240 90, 350 30" fill="none" stroke="#FF7B87" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <path d="M55 40 C 120 140, 220 186, 350 196" fill="none" stroke="#5BC8E6" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text class="svg-acc" x="200" y="216">test error</text>
+          <text class="svg-lbl" x="270" y="60" fill="#FF7B87">variance</text>
+          <text class="svg-cy" x="70" y="80">bias²</text>
+          <text class="svg-lbl" x="120" y="236">model capacity →</text>
+          <circle cx="180" cy="178" r="4" fill="#fff"/><text class="svg-lbl-b" x="150" y="166">sweet spot</text>
+        </g>
+        <g transform="translate(480,40)">
+          <line x1="40" y1="200" x2="380" y2="200" stroke="#2A3B4E"/><line x1="40" y1="20" x2="40" y2="200" stroke="#2A3B4E"/>
+          <path d="M55 60 C 100 150, 130 170, 160 172 C 190 174, 200 40, 215 40 C 240 40, 270 120, 320 150 S 370 172, 375 175" fill="none" stroke="#93D97B" stroke-width="2"/>
+          <line x1="215" y1="20" x2="215" y2="200" stroke="#2A3B4E" stroke-dasharray="3 4"/>
+          <text class="svg-lbl" x="176" y="16">interpolation</text>
+          <text class="svg-lbl" x="60" y="236">params →</text>
+          <text class="svg-lbl-b" x="250" y="236" fill="#93D97B">double descent</text>
+        </g>
+      </svg>
+      <figcaption><b>The right-hand curve is why deep learning looked impossible in 1995.</b> Past the point where a model can fit the training set exactly, test error <em>falls again</em>. You will meet this properly on Day 38; for now, note that "more parameters must overfit" is not a law.</figcaption>
+    </figure>
+
+    <h4>The baselines you must beat</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Model</th><th>Good at</th><th>Keep it as a baseline because</th></tr></thead>
+      <tbody>
+        <tr><td>Logistic / linear regression</td><td>Linearly separable, interpretable problems</td><td>Trains in seconds and sets the floor</td></tr>
+        <tr><td>k-NN</td><td>Low dimensions, small data</td><td>Zero training; exposes whether your features are any good</td></tr>
+        <tr><td>Random forest</td><td>Mixed-type tabular data</td><td>Almost no tuning, strong out of the box</td></tr>
+        <tr><td>Gradient boosting (XGBoost / LightGBM)</td><td>Tabular data, full stop</td><td>Still beats deep nets on most tables — see Day 96-b</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box intuition"><span class="lbl">When NOT to use deep learning</span>
+      <ul style="margin-bottom:0">
+        <li><b>Tabular data with fewer than ~50k rows.</b> Gradient boosting will win, train in 30 seconds, and be easier to explain.</li>
+        <li><b>You have &lt;1000 labelled examples and no pretrained model.</b> Either find a pretrained backbone or use classical ML.</li>
+        <li><b>Hard interpretability requirements.</b> Credit, medical triage, anything with a regulator. A 5-node decision tree you can defend beats a black box you cannot.</li>
+        <li><b>The relationship is genuinely linear.</b> Do not bring a transformer to a regression fight.</li>
+        <li><b>Latency budget in the low milliseconds on CPU.</b> Possible with deep nets, but check whether you need one at all.</li>
+      </ul>
+    </div>
+
+    <h4>Cross-validation and how to report honestly</h4>
+    <p>k-fold splits the data into \(k\) parts, trains \(k\) times, and averages. Use it when data is scarce and training is cheap — which describes classical ML, not deep learning, where a single fixed split plus multiple seeds is the norm. Whatever you do, report <em>variance</em>: a single number with no error bar is not a result. Three seeds and a standard deviation is the minimum bar for a claim.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise · the Phase 1 capstone</span>
+      <p style="margin-bottom:0">Take a tabular dataset. Fit logistic regression, random forest, and gradient boosting with proper cross-validation and a stratified split. Record accuracy, F1 and ROC-AUC with error bars across 5 seeds. Save that table. On Day 96-b you will build a deep model for the same data and compare — and there is a real chance the boosting model still wins. Knowing that from experience is worth more than being told.</p>
+    </div>
+  </article>
+  <section class="wrap"><div class="pager"><span class="off"><span class="dir">Start of course</span><span class="ttl">Phase 1 is the beginning</span></span><a id="nextLink" class="nx" href="phase-2.html" rel="next"><span class="dir">Next phase →</span><span class="ttl">Neural Networks From Scratch</span></a></div></section>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"../", current:0, phase:"p1", mode:"phase" };</script>
+<script src="../assets/site.js"></script>
+<script src="../assets/demos.js"></script>
+</body>
+</html>

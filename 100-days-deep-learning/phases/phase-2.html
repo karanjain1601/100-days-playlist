@@ -1,0 +1,2067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 2 — Neural Networks From Scratch | 100 Days of Deep Learning</title>
+<meta name="description" content="Phase 2 of 100 Days of Deep Learning: Neural Networks From Scratch. 17 lessons, days 15–28, 13h 25m of video.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="../index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><b>Phase 2</b> · Neural Networks From Scratch</span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  <span class="pagernav"><a class="iconbtn" href="phase-1.html" title="Previous phase">←</a><a class="iconbtn" href="phase-3.html" title="Next phase">→</a></span>
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+  <section class="wrap phasehero">
+    <p class="pnum">Phase 2 of 8 · Days 15–28 · Lessons 16–32</p>
+    <h1>Neural Networks From Scratch</h1>
+    <p class="plede">A perceptron, then an autodiff engine, then MNIST at 98% with no framework at all — and only then the same model in PyTorch, so you know exactly what the framework is doing for you.</p>
+    <ul class="statrow"><li><b>17</b> lessons</li><li><b>13h 25m</b> of video</li><li><b>124</b> chapters</li><li>Notes: <b>all 17</b></li></ul>
+    <div class="toc"><span class="tlbl">Everything on this page</span>
+      <ol><li><a class="" href="#l16"><span class="tn">D15</span><span class="tt">The Perceptron</span></a></li><li><a class="" href="#l17"><span class="tn">D16</span><span class="tt">Logistic Regression as a One-Layer Net</span></a></li><li><a class="" href="#l18"><span class="tn">D17</span><span class="tt">A Single Neuron in Pure NumPy</span></a></li><li><a class="" href="#l19"><span class="tn">D18</span><span class="tt">Multi-Layer Perceptrons</span></a></li><li><a class="" href="#l20"><span class="tn">D19</span><span class="tt">Activation Functions — Deep Dive</span></a></li><li><a class="" href="#l21"><span class="tn">D20</span><span class="tt">Loss Functions — Deep Dive</span></a></li><li><a class="" href="#l22"><span class="tn">D21</span><span class="tt">Backpropagation From First Principles</span></a></li><li><a class="" href="#l23"><span class="tn">D22</span><span class="tt">Backprop By Hand — Numeric Walkthrough</span></a></li><li><a class="" href="#l24"><span class="tn">D23</span><span class="tt">Build Your Own Autodiff Engine</span></a></li><li><a class="" href="#l25"><span class="tn">D24</span><span class="tt">Train an MLP on MNIST — Pure NumPy</span></a></li><li><a class="" href="#l26"><span class="tn">D25</span><span class="tt">The Same Model in PyTorch</span></a></li><li><a class="" href="#l27"><span class="tn">D25-b</span><span class="tt">Weight Initialization</span></a></li><li><a class="" href="#l28"><span class="tn">D26</span><span class="tt">Vanishing &amp; Exploding Gradients</span></a></li><li><a class="" href="#l29"><span class="tn">D27</span><span class="tt">Batch, Mini-Batch &amp; Stochastic GD</span></a></li><li><a class="" href="#l30"><span class="tn">D27-b</span><span class="tt">The Learning Rate</span></a></li><li><a class="" href="#l31"><span class="tn">D28</span><span class="tt">Optimizers I — Momentum &amp; Adaptive Methods</span></a></li><li><a class="" href="#l32"><span class="tn">D28-b</span><span class="tt">Optimizers II — Adam and Modern Successors</span></a></li></ol>
+    </div>
+  </section>
+<article class="wrap lesson" id="l16">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 15</span><span>Lesson 16</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-016.html">single page ↗</a></div>
+      <h3 class="lesson-title">The Perceptron</h3>
+      <span class="lesson-no">16</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Biological neuron → mathematical neuron</li><li>Weights, bias, step activation</li>
+        <li>The perceptron learning rule, worked</li><li>Linear separability</li>
+        <li>Solving AND / OR</li><li>The XOR problem and the 1969 critique</li>
+        <li>Why we need hidden layers</li>
+      </ol>
+    </div>
+
+    <h4>From biology to arithmetic</h4>
+    <p>A biological neuron sums inputs from its dendrites and fires when the total crosses a threshold. The mathematical caricature keeps exactly that:</p>
+    \[ z=\sum_{j=1}^{n} w_j x_j + b = \mathbf w\cdot\mathbf x + b,\qquad \hat y = \begin{cases}1 & z\ge0\\ 0 & z\lt 0\end{cases} \]
+    <p>The bias \(b\) is the negative threshold. Absorb it as a weight on a constant input of 1 and everything becomes one dot product — a trick worth doing on paper once, then never again in code (it hurts weight decay and initialisation).</p>
+
+    <figure>
+      <svg viewBox="0 0 900 230" role="img" aria-label="Diagram of a single perceptron unit">
+        <text class="svg-ttl" x="20" y="22">ONE UNIT</text>
+        <g>
+          <circle cx="70" cy="60" r="20" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="63" y="65">x₁</text>
+          <circle cx="70" cy="120" r="20" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="63" y="125">x₂</text>
+          <circle cx="70" cy="180" r="20" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl-b" x="65" y="185">1</text>
+        </g>
+        <g stroke="#FFB454" fill="none" marker-end="url(#ar7)">
+          <path d="M90 62 L292 112"/><path d="M90 120 L292 120"/><path d="M90 178 L292 130"/>
+        </g>
+        <defs><marker id="ar7" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#FFB454"/></marker></defs>
+        <text class="svg-acc" x="170" y="76">w₁</text><text class="svg-acc" x="180" y="112">w₂</text><text class="svg-acc" x="176" y="168">b</text>
+        <circle cx="330" cy="120" r="36" fill="#0F1822" stroke="#5BC8E6" stroke-width="1.5"/>
+        <text class="svg-cy" x="312" y="118">Σ w·x</text><text class="svg-cy" x="320" y="134">+ b</text>
+        <path d="M366 120 L430 120" stroke="#2A3B4E" marker-end="url(#ar3b)"/>
+        <defs><marker id="ar3b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#2A3B4E"/></marker></defs>
+        <rect x="435" y="86" width="110" height="68" fill="#0F1822" stroke="#93D97B"/>
+        <path d="M448 140 L490 140 L490 100 L532 100" stroke="#93D97B" fill="none" stroke-width="1.6"/>
+        <text class="svg-lbl" x="452" y="170">step</text>
+        <path d="M545 120 L610 120" stroke="#2A3B4E" marker-end="url(#ar3b)"/>
+        <circle cx="640" cy="120" r="22" fill="#0F1822" stroke="#FFB454"/><text class="svg-acc" x="632" y="125">ŷ</text>
+        <text class="svg-lbl" x="700" y="106">w·x + b = 0</text>
+        <text class="svg-lbl" x="700" y="126">is a hyperplane.</text>
+        <text class="svg-lbl" x="700" y="146">w is its normal;</text>
+        <text class="svg-lbl" x="700" y="166">b shifts it off the origin.</text>
+      </svg>
+      <figcaption><b>The decision boundary is \(\mathbf w\cdot\mathbf x+b=0\)</b> — a line in 2D, a plane in 3D, a hyperplane in general. \(\mathbf w\) is perpendicular to it, and \(\lVert\mathbf w\rVert\) controls how sharply the output flips as you cross.</figcaption>
+    </figure>
+
+    <h4>The perceptron learning rule</h4>
+    <p>For each misclassified example, nudge the weights towards getting it right:</p>
+    \[ \mathbf w \leftarrow \mathbf w + \eta\,(y-\hat y)\,\mathbf x, \qquad b \leftarrow b + \eta\,(y-\hat y) \]
+    <p>Correct prediction \(\Rightarrow y-\hat y=0 \Rightarrow\) no update. False negative (\(y=1,\hat y=0\)) adds \(\eta\mathbf x\), pushing \(\mathbf w\) towards \(\mathbf x\) so the dot product grows. False positive subtracts. It is the simplest possible credit assignment and it works.</p>
+
+    <div class="box derive"><span class="lbl">Worked example — learning OR from scratch</span>
+      <p>Start with \(\mathbf w=[0,0]\), \(b=0\), \(\eta=1\). Data: (0,0)→0, (0,1)→1, (1,0)→1, (1,1)→1.</p>
+      <div class="tablewrap" style="margin:10px 0"><table>
+        <thead><tr><th>Step</th><th>x</th><th>z</th><th>ŷ</th><th>y</th><th>Update</th><th>New w, b</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>(0,0)</td><td>0</td><td>1</td><td>0</td><td>w += −1·(0,0), b −= 1</td><td>[0,0], −1</td></tr>
+          <tr><td>2</td><td>(0,1)</td><td>−1</td><td>0</td><td>1</td><td>w += (0,1), b += 1</td><td>[0,1], 0</td></tr>
+          <tr><td>3</td><td>(1,0)</td><td>0</td><td>1</td><td>1</td><td>none</td><td>[0,1], 0</td></tr>
+          <tr><td>4</td><td>(1,1)</td><td>1</td><td>1</td><td>1</td><td>none</td><td>[0,1], 0</td></tr>
+          <tr><td>5</td><td>(0,0)</td><td>0</td><td>1</td><td>0</td><td>b −= 1</td><td>[0,1], −1</td></tr>
+        </tbody>
+      </table></div>
+      <p style="margin-bottom:0">Continue and it converges to something like \(\mathbf w=[1,1], b=-1\): fires unless both inputs are 0. <b>The perceptron convergence theorem</b> guarantees this terminates in finite steps whenever the data is linearly separable — and says nothing at all when it is not.</p>
+    </div>
+
+    <h4>XOR, and the 1969 winter</h4>
+    <p>AND and OR are linearly separable. XOR is not: the two positive points sit on one diagonal, the two negatives on the other, and no straight line separates them. Minsky and Papert's <em>Perceptrons</em> proved this in 1969 and the field's funding collapsed.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="AND, OR and XOR truth tables plotted in the plane">
+        <g transform="translate(40,40)">
+          <text class="svg-lbl-b" x="50" y="-6">AND</text>
+          <line x1="20" y1="150" x2="170" y2="150" stroke="#2A3B4E"/><line x1="20" y1="10" x2="20" y2="150" stroke="#2A3B4E"/>
+          <circle cx="40" cy="130" r="7" fill="#0F1822" stroke="#8095AA" stroke-width="1.5"/>
+          <circle cx="140" cy="130" r="7" fill="#0F1822" stroke="#8095AA" stroke-width="1.5"/>
+          <circle cx="40" cy="35" r="7" fill="#0F1822" stroke="#8095AA" stroke-width="1.5"/>
+          <circle cx="140" cy="35" r="7" fill="#FFB454"/>
+          <line x1="60" y1="10" x2="170" y2="120" stroke="#93D97B" stroke-width="1.6"/>
+        </g>
+        <g transform="translate(300,40)">
+          <text class="svg-lbl-b" x="60" y="-6">OR</text>
+          <line x1="20" y1="150" x2="170" y2="150" stroke="#2A3B4E"/><line x1="20" y1="10" x2="20" y2="150" stroke="#2A3B4E"/>
+          <circle cx="40" cy="130" r="7" fill="#0F1822" stroke="#8095AA" stroke-width="1.5"/>
+          <circle cx="140" cy="130" r="7" fill="#FFB454"/>
+          <circle cx="40" cy="35" r="7" fill="#FFB454"/>
+          <circle cx="140" cy="35" r="7" fill="#FFB454"/>
+          <line x1="20" y1="70" x2="110" y2="160" stroke="#93D97B" stroke-width="1.6"/>
+        </g>
+        <g transform="translate(560,40)">
+          <text class="svg-lbl-b" x="55" y="-6" fill="#FF7B87">XOR</text>
+          <line x1="20" y1="150" x2="170" y2="150" stroke="#2A3B4E"/><line x1="20" y1="10" x2="20" y2="150" stroke="#2A3B4E"/>
+          <circle cx="40" cy="130" r="7" fill="#0F1822" stroke="#8095AA" stroke-width="1.5"/>
+          <circle cx="140" cy="130" r="7" fill="#FFB454"/>
+          <circle cx="40" cy="35" r="7" fill="#FFB454"/>
+          <circle cx="140" cy="35" r="7" fill="#0F1822" stroke="#8095AA" stroke-width="1.5"/>
+          <text class="svg-lbl" x="30" y="182" fill="#FF7B87">no single line works</text>
+        </g>
+        <text class="svg-lbl" x="40" y="232">Filled = output 1. Two of these three problems are solvable by one neuron. The third needs a hidden layer — and that is the entire reason deep learning exists.</text>
+      </svg>
+      <figcaption><b>XOR is the smallest problem that requires depth.</b> It is also the fastest test of any network you write: if your MLP cannot learn XOR in a few hundred steps, something is wrong with your backprop, not your hyperparameters.</figcaption>
+    </figure>
+
+    <div class="box intuition"><span class="lbl">How a hidden layer fixes it</span>
+      <p style="margin-bottom:0">XOR = OR AND (NOT AND). Two hidden units can compute \(h_1=\mathrm{OR}(x)\) and \(h_2=\mathrm{AND}(x)\); the output unit then computes \(h_1 - h_2\). The hidden layer <b>re-represents</b> the input in coordinates where the problem <em>is</em> linearly separable. That sentence is the definition of representation learning, and everything in Phases 4–7 is a more elaborate version of it.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement the perceptron rule in 15 lines. Verify it converges on AND and OR. Then run it on XOR and watch the weights oscillate forever — let it run 10,000 epochs so the failure is visceral. Print the weights every 100 steps and see the cycle.</p></div>
+  </article>
+<article class="wrap lesson" id="l17">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 16</span><span>Lesson 17</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-017.html">single page ↗</a></div>
+      <h3 class="lesson-title">Logistic Regression as a One-Layer Net</h3>
+      <span class="lesson-no">17</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Sigmoid and its properties</li><li>Odds and logits</li>
+        <li>Binary cross-entropy loss</li><li>Full gradient derivation by hand</li>
+        <li>Decision boundaries</li><li>Multiclass via softmax</li>
+        <li>End-to-end in NumPy</li>
+      </ol>
+    </div>
+
+    <h4>Replace the step with a sigmoid, and everything becomes differentiable</h4>
+    <p>The step function has zero gradient everywhere it is defined, so it cannot be trained by gradient descent. The sigmoid is its smooth cousin:</p>
+    \[ \hat p=\sigma(z)=\frac{1}{1+e^{-z}},\qquad z=\mathbf w\cdot\mathbf x+b \]
+    <p>Now the output is a probability, and \(z\) has a name: the <b>logit</b>, the log-odds.</p>
+    \[ z=\log\frac{\hat p}{1-\hat p} \]
+    <p>This is worth pausing on. A linear model in log-odds space becomes an S-curve in probability space. \(z=0\) means 50/50; \(z=2\) means about 88%; \(z=-4\) means about 2%. When you read raw logits out of any classifier for the rest of your life, that mapping is what you are reading.</p>
+
+    <h4>The gradient, derived in full</h4>
+    <div class="box derive"><span class="lbl">Derivation — the cancellation that makes this beautiful</span>
+      <p>Loss for one example: \(L=-\big[y\log\hat p+(1-y)\log(1-\hat p)\big]\).</p>
+      <p><b>Step 1 — \(\partial L/\partial \hat p\):</b></p>
+      \[ \frac{\partial L}{\partial\hat p}=-\frac{y}{\hat p}+\frac{1-y}{1-\hat p}=\frac{\hat p-y}{\hat p(1-\hat p)} \]
+      <p><b>Step 2 — \(\partial\hat p/\partial z=\hat p(1-\hat p)\)</b> from Lesson 5.</p>
+      <p><b>Step 3 — chain them, and watch the denominator vanish:</b></p>
+      \[ \frac{\partial L}{\partial z}=\frac{\hat p-y}{\cancel{\hat p(1-\hat p)}}\cdot\cancel{\hat p(1-\hat p)}=\boxed{\hat p-y} \]
+      <p style="margin-bottom:0"><b>Step 4 — to the parameters:</b> \(\dfrac{\partial L}{\partial w_j}=(\hat p-y)x_j\), \(\dfrac{\partial L}{\partial b}=\hat p-y\).</p>
+    </div>
+
+    <p>Two things follow from that cancellation, and both matter for the rest of the course.</p>
+    <ul>
+      <li><b>The gradient is just the error.</b> Exactly the same form as linear regression with MSE. The pairing of sigmoid with BCE is not a coincidence — it is designed so the saturating factor cancels.</li>
+      <li><b>Pair them wrongly and you break training.</b> Use MSE with a sigmoid output and the gradient becomes \((\hat p-y)\hat p(1-\hat p)\). When the model is confidently wrong (\(\hat p\approx1\), \(y=0\)) that extra factor is \(\approx0\), so the gradient vanishes precisely when you most need it to be large. This is the single best argument for cross-entropy, and it is why "wrong loss/activation pairing" is on the Day 36 debugging checklist.</li>
+    </ul>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Gradient magnitude with cross-entropy versus MSE on a sigmoid output">
+        <text class="svg-ttl" x="20" y="22">GRADIENT w.r.t. LOGIT WHEN THE TRUE LABEL IS 0</text>
+        <line x1="70" y1="200" x2="850" y2="200" stroke="#2A3B4E"/><line x1="70" y1="30" x2="70" y2="200" stroke="#2A3B4E"/>
+        <path d="M70 199 C 260 196, 380 150, 460 115 C 540 80, 660 38, 850 32" fill="none" stroke="#FFB454" stroke-width="2"/>
+        <path d="M70 199 C 220 198, 330 150, 460 148 C 590 146, 700 196, 850 199" fill="none" stroke="#FF7B87" stroke-width="2" stroke-dasharray="5 4"/>
+        <text class="svg-acc" x="700" y="26">cross-entropy: grows without bound</text>
+        <text class="svg-lbl" x="600" y="186" fill="#FF7B87">MSE + sigmoid: vanishes when most wrong</text>
+        <g class="svg-lbl" fill="#5A6B7D"><text x="62" y="220">0.0</text><text x="450" y="220">0.5</text><text x="836" y="220">1.0</text><text x="300" y="240">predicted probability p̂ (truth is 0, so right is left)</text></g>
+      </svg>
+      <figcaption><b>The dashed curve is the bug.</b> A model that is 99% confident and completely wrong receives almost no gradient under MSE+sigmoid. It cannot learn its way out. Always pair sigmoid with BCE, softmax with CE.</figcaption>
+    </figure>
+
+    <h4>Multiclass: softmax</h4>
+    \[ \softmax(\mathbf z)_k=\frac{e^{z_k}}{\sum_{j=1}^{K} e^{z_j}} \]
+    <p>And the same miracle happens. With one-hot target \(\mathbf y\), \(L=-\log \hat p_{c}\), and the gradient with respect to the logits is</p>
+    \[ \frac{\partial L}{\partial \mathbf z}=\hat{\mathbf p}-\mathbf y \]
+    <p>A vector of "how much too much probability did I put on each class". Softmax generalises sigmoid: for \(K=2\), softmax over \([z_1,z_2]\) equals sigmoid of \((z_1-z_2)\). Only differences of logits matter, which is exactly why subtracting the max in Lesson 10 is safe.</p>
+
+    <pre><code>import numpy as np
+
+def train_logreg(X, y, epochs=200, lr=0.1):
+    n, d = X.shape
+    w, b = np.zeros(d), 0.0
+    for _ in range(epochs):
+        z = X @ w + b
+        p = 1 / (1 + np.exp(-z))
+        dz = (p - y) / n              # THE gradient -- everything else is bookkeeping
+        w -= lr * (X.T @ dz)
+        b -= lr * dz.sum()
+    return w, b</code></pre>
+    <p>Six lines. Note there is no explicit derivative of the sigmoid anywhere — the cancellation already did that work.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Train the code above on two Gaussian blobs and plot the decision boundary. Then train with MSE instead of BCE, initialising \(\mathbf w\) large enough to start confidently wrong, and plot both loss curves. The MSE one will crawl for hundreds of epochs. That plot is the lesson.</p></div>
+  </article>
+<article class="wrap lesson" id="l18">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 17</span><span>Lesson 18</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-018.html">single page ↗</a></div>
+      <h3 class="lesson-title">A Single Neuron in Pure NumPy</h3>
+      <span class="lesson-no">18</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Forward pass, line by line</li><li>Shape conventions: row-major batches</li>
+        <li>Batching the forward pass</li><li>Computing the loss manually</li>
+        <li>Sanity checks</li><li>Visualising what the neuron learned</li>
+      </ol>
+    </div>
+
+    <h4>Pick a shape convention and never deviate</h4>
+    <p>This course uses <b>row-major batches</b>: <code>X</code> has shape <code>(N, d_in)</code>, one example per row. Weights are <code>(d_in, d_out)</code>, so <code>X @ W</code> gives <code>(N, d_out)</code>. Biases are <code>(d_out,)</code> and broadcast across the batch. Half of all deep learning bugs are a convention change you did not notice.</p>
+
+    <div class="shapes">
+      <span class="dim">X <small>(N, d_in)</small></span><span class="op">@</span><span class="dim">W <small>(d_in, d_out)</small></span>
+      <span class="op">+</span><span class="dim">b <small>(d_out,)</small></span><span class="op">=</span><span class="dim out">Z <small>(N, d_out)</small></span>
+    </div>
+    <div class="box pitfall"><span class="lbl">Pitfall</span><p>Textbooks and many papers use the column convention \(\mathbf z=W\mathbf x\) with \(W\) of shape <code>(d_out, d_in)</code>. PyTorch stores weights that way too, then transposes internally. When porting a formula from a paper, check which convention it is in before you write a single line.</p></div>
+
+    <h4>Sanity checks that catch real bugs</h4>
+    <div class="box check"><span class="lbl">Run these before you trust any forward pass</span>
+      <ol style="margin-bottom:0">
+        <li><b>Shapes.</b> Assert the output shape is exactly what you expect. Not "broadcastable to" — exactly.</li>
+        <li><b>Initial loss.</b> For \(K\)-class classification with random init, loss should start at \(\log K\). MNIST: \(\log 10\approx2.303\). CIFAR-10: same. If you start at 6.5, your logits are not centred and something is wrong.</li>
+        <li><b>Zero input.</b> Feed <code>X = 0</code>. Output must equal the bias exactly.</li>
+        <li><b>Single-example vs batch.</b> Run one example alone and inside a batch of 32. Results must match to floating-point tolerance. If they do not, you have a reduction over the wrong axis.</li>
+        <li><b>Gradient check.</b> Finite differences in float64, relative error \(\lt10^{-7}\). Non-negotiable before you scale up.</li>
+      </ol>
+    </div>
+
+    <pre><code>import numpy as np
+
+class Neuron:
+    def __init__(self, d_in, seed=0):
+        rng = np.random.default_rng(seed)
+        self.W = rng.normal(0, np.sqrt(1.0 / d_in), size=(d_in, 1))  # Xavier-ish
+        self.b = np.zeros((1,))
+
+    def forward(self, X):                 # X: (N, d_in)
+        self.X = X                        # cached for backward
+        self.z = X @ self.W + self.b      # (N, 1)
+        self.p = 1 / (1 + np.exp(-self.z))
+        return self.p
+
+    def loss(self, y):                    # y: (N, 1) of 0/1
+        eps = 1e-12
+        return float(-(y * np.log(self.p + eps)
+                       + (1 - y) * np.log(1 - self.p + eps)).mean())
+
+    def backward(self, y):
+        N = self.X.shape[0]
+        dz = (self.p - y) / N             # (N, 1)  <- Lesson 17's cancellation
+        self.dW = self.X.T @ dz           # (d_in, 1)
+        self.db = dz.sum(axis=0)          # (1,)
+        return dz @ self.W.T              # (N, d_in) grad w.r.t. input
+
+# check 2 above:
+n = Neuron(20)
+X = np.random.randn(64, 20); y = (np.random.rand(64, 1) &gt; 0.5).astype(float)
+print(n.forward(X).mean(), n.loss(y))   # ~0.5 and ~0.693 = log 2</code></pre>
+
+    <h4>Visualising what it learned</h4>
+    <p>For image input, \(\mathbf w\) has one weight per pixel — reshape it to the image size and display it. Positive weights are evidence for the class, negative against. On MNIST binary "is it a 3?", you will see a faint 3-shaped positive region and negative weights where an 8 would close its loops. <b>The weight vector is a template.</b> Keep this picture; on Day 41 it becomes the argument for convolution.</p>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Train one neuron to separate MNIST 0s from 1s. Plot <code>W.reshape(28,28)</code> with a diverging colormap. Then train 3 vs 5 and look again — the template is much less clean, and the accuracy drops. Explaining why is the motivation for the next lesson.</p></div>
+  </article>
+<article class="wrap lesson" id="l19">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 18</span><span>Lesson 19</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-019.html">single page ↗</a></div>
+      <h3 class="lesson-title">Multi-Layer Perceptrons</h3>
+      <span class="lesson-no">19</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Stacking layers</li><li>Hidden units as learned features</li><li>Depth vs width</li>
+        <li>The Universal Approximation Theorem</li><li>Counting parameters</li>
+        <li>Forward pass of a 3-layer net</li><li>Representational power demos</li>
+      </ol>
+    </div>
+
+    <h4>The architecture</h4>
+    <figure>
+      <svg viewBox="0 0 900 300" role="img" aria-label="Three layer MLP architecture diagram">
+        <text class="svg-ttl" x="20" y="20">MLP · 784 → 128 → 64 → 10</text>
+        <g stroke="#1C2836" stroke-width=".6" opacity=".85">
+          <path d="M100 70 L250 60 M100 70 L250 110 M100 70 L250 160 M100 70 L250 210 M100 130 L250 60 M100 130 L250 110 M100 130 L250 160 M100 130 L250 210 M100 190 L250 60 M100 190 L250 110 M100 190 L250 160 M100 190 L250 210 M100 250 L250 60 M100 250 L250 110 M100 250 L250 160 M100 250 L250 210"/>
+          <path d="M250 60 L420 90 M250 60 L420 140 M250 60 L420 190 M250 110 L420 90 M250 110 L420 140 M250 110 L420 190 M250 160 L420 90 M250 160 L420 140 M250 160 L420 190 M250 210 L420 90 M250 210 L420 140 M250 210 L420 190"/>
+          <path d="M420 90 L580 110 M420 90 L580 160 M420 140 L580 110 M420 140 L580 160 M420 190 L580 110 M420 190 L580 160"/>
+        </g>
+        <g fill="#0F1822">
+          <circle cx="100" cy="70" r="13" stroke="#2A3B4E"/><circle cx="100" cy="130" r="13" stroke="#2A3B4E"/><circle cx="100" cy="190" r="13" stroke="#2A3B4E"/><circle cx="100" cy="250" r="13" stroke="#2A3B4E"/>
+          <circle cx="250" cy="60" r="13" stroke="#5BC8E6"/><circle cx="250" cy="110" r="13" stroke="#5BC8E6"/><circle cx="250" cy="160" r="13" stroke="#5BC8E6"/><circle cx="250" cy="210" r="13" stroke="#5BC8E6"/>
+          <circle cx="420" cy="90" r="13" stroke="#5BC8E6"/><circle cx="420" cy="140" r="13" stroke="#5BC8E6"/><circle cx="420" cy="190" r="13" stroke="#5BC8E6"/>
+          <circle cx="580" cy="110" r="13" stroke="#FFB454"/><circle cx="580" cy="160" r="13" stroke="#FFB454"/>
+        </g>
+        <text class="svg-lbl" x="66" y="284">input 784</text>
+        <text class="svg-cy" x="216" y="284">hidden 128</text>
+        <text class="svg-cy" x="392" y="284">hidden 64</text>
+        <text class="svg-acc" x="548" y="284">output 10</text>
+        <g>
+          <text class="svg-lbl-b" x="660" y="70">Parameters</text>
+          <text class="svg-lbl" x="660" y="92">784·128 + 128 = 100,480</text>
+          <text class="svg-lbl" x="660" y="112">128·64  +  64 =   8,256</text>
+          <text class="svg-lbl" x="660" y="132">64·10   +  10 =     650</text>
+          <line x1="660" y1="142" x2="860" y2="142" stroke="#2A3B4E"/>
+          <text class="svg-acc" x="660" y="162">total       109,386</text>
+          <text class="svg-lbl" x="660" y="196">92% of them are in</text>
+          <text class="svg-lbl" x="660" y="214">the first layer.</text>
+        </g>
+      </svg>
+      <figcaption><b>Count parameters as \(d_{\text{in}}\times d_{\text{out}} + d_{\text{out}}\) per layer.</b> Do this by hand for every architecture in this course — it tells you memory, it tells you where capacity actually lives, and it catches shape mistakes before you run anything.</figcaption>
+    </figure>
+
+    <p>Forward pass, written out:</p>
+    \[
+    \mathbf h^{(1)}=\phi\!\left(W^{(1)}\mathbf x+\mathbf b^{(1)}\right),\quad
+    \mathbf h^{(2)}=\phi\!\left(W^{(2)}\mathbf h^{(1)}+\mathbf b^{(2)}\right),\quad
+    \mathbf z=W^{(3)}\mathbf h^{(2)}+\mathbf b^{(3)}
+    \]
+    <p>Note the last layer has no activation — logits go straight into the loss (Lesson 10).</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · why \(\phi\) cannot be the identity</span>
+      <p>Without a nonlinearity, \(W^{(3)}W^{(2)}W^{(1)}\mathbf x = W_{\text{eff}}\mathbf x\). A hundred stacked linear layers collapse into one. Depth buys you exactly nothing. The nonlinearity is not a detail — it is the only thing that makes depth mean anything.</p>
+    </div>
+
+    <h4>Universal approximation: what it does and does not say</h4>
+    <p><b>Says:</b> a network with one hidden layer and a non-polynomial activation can approximate any continuous function on a compact set to arbitrary accuracy, given enough hidden units.</p>
+    <p><b>Does not say:</b> how many units (possibly exponentially many), that gradient descent will find them, that the result will generalise, or that one hidden layer is a good idea. It is an existence proof about representation, not a statement about learning.</p>
+
+    <h4>Depth vs width, in practice</h4>
+    <p>Depth is exponentially more parameter-efficient for compositional functions. A function built from \(L\) composed pieces may need \(O(L)\) layers or \(O(2^L)\) hidden units in a shallow net. Real data is compositional — edges compose into textures compose into parts compose into objects — which is why depth wins for images, language and audio.</p>
+    <p>Practical rules for MLPs: 2–4 hidden layers covers most tabular and small-image work; widths as powers of two (128, 256, 512) for kernel efficiency; constant or gently tapering width beats an aggressive funnel. Past 4 layers a plain MLP starts to need the machinery of Phase 3 (normalisation, residuals, careful init) to train at all — which is exactly what Days 26 and 32 are about.</p>
+
+    <div class="box intuition"><span class="lbl">Hidden units as learned features</span>
+      <p style="margin-bottom:0">Each hidden unit is a neuron from Lesson 18, so each row of \(W^{(1)}\) is a template over the input. Layer 2's templates are over layer 1's <em>outputs</em> — templates of templates. Visualise \(W^{(1)}\) on MNIST after training and you will see stroke and blob detectors nobody designed. That emergence is the entire promise of the field, and you can see it on Day 24.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Return to the hero demo at the top of this page. Fix the parameter count at roughly 400 and try (a) one hidden layer of 100 units and (b) four hidden layers of 12 units. Compare how many steps each needs to separate the spirals. Then set depth to 1 and confirm it never can.</p></div>
+  </article>
+<article class="wrap lesson" id="l20">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 19</span><span>Lesson 20</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-020.html">single page ↗</a></div>
+      <h3 class="lesson-title">Activation Functions — Deep Dive</h3>
+      <span class="lesson-no">20</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why non-linearity is mandatory</li><li>Sigmoid &amp; tanh: saturation, zero-centring</li>
+        <li>ReLU: sparsity, dead neurons</li><li>LeakyReLU, PReLU, ELU, SELU</li>
+        <li>GELU, SiLU/Swish, Mish</li><li>Softmax &amp; log-softmax</li>
+        <li>GLU / SwiGLU preview</li><li>Derivative plots</li><li>A decision guide</li>
+      </ol>
+    </div>
+
+    <div class="demo" id="d-act">
+      <div class="demo-head"><span class="dot"></span><b>Plot them</b> · function and derivative, side by side</div>
+      <div class="demo-body">
+        <canvas id="actCv" width="720" height="340" aria-label="Activation function and its derivative"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Activation</span>
+            <select id="actSel">
+              <option value="sigmoid">sigmoid</option><option value="tanh">tanh</option>
+              <option value="relu" selected>ReLU</option><option value="lrelu">LeakyReLU (0.01)</option>
+              <option value="elu">ELU</option><option value="gelu">GELU</option>
+              <option value="silu">SiLU / Swish</option><option value="mish">Mish</option>
+              <option value="softplus">Softplus</option>
+            </select>
+          </label>
+          <label class="ctrl"><span><input type="checkbox" id="actCmp"> overlay ReLU</span></label>
+        </div>
+        <div class="readout" id="actOut"></div>
+      </div>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Function</th><th>Definition</th><th>Derivative</th><th>Range</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>Sigmoid</td><td>\(\frac{1}{1+e^{-x}}\)</td><td>\(\sigma(1-\sigma)\), max 0.25</td><td>(0,1)</td><td>Output layer for binary only. Never hidden.</td></tr>
+        <tr><td>Tanh</td><td>\(\frac{e^{x}-e^{-x}}{e^{x}+e^{-x}}\)</td><td>\(1-\tanh^2\), max 1</td><td>(−1,1)</td><td>Zero-centred, still saturates. Lives on in gated RNNs.</td></tr>
+        <tr><td>ReLU</td><td>\(\max(0,x)\)</td><td>\(\mathbb 1[x\gt0]\)</td><td>[0,∞)</td><td>The default for CNNs. Fast, no saturation for \(x\gt0\).</td></tr>
+        <tr><td>LeakyReLU</td><td>\(\max(\alpha x,x)\)</td><td>\(\alpha\) or 1</td><td>(−∞,∞)</td><td>Insurance against dead units. \(\alpha=0.01\).</td></tr>
+        <tr><td>ELU</td><td>\(x\) or \(\alpha(e^{x}-1)\)</td><td>1 or \(\alpha e^{x}\)</td><td>(−α,∞)</td><td>Smooth, pushes mean towards 0. Costs an exp.</td></tr>
+        <tr><td>GELU</td><td>\(x\,\Phi(x)\)</td><td>\(\Phi(x)+x\phi(x)\)</td><td>(−0.17,∞)</td><td><b>Transformer default.</b> Smooth, slightly non-monotonic.</td></tr>
+        <tr><td>SiLU / Swish</td><td>\(x\,\sigma(x)\)</td><td>\(\sigma(x)(1+x(1-\sigma(x)))\)</td><td>(−0.28,∞)</td><td>Nearly GELU, cheaper. Used in EfficientNet, YOLO.</td></tr>
+        <tr><td>Softmax</td><td>\(e^{z_k}/\sum_j e^{z_j}\)</td><td>\(\diag(\mathbf p)-\mathbf p\mathbf p\T\)</td><td>simplex</td><td>Output layer only, and fused into the loss.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Dead ReLUs — the one real failure mode</h4>
+    <p>If a unit's pre-activation is negative for every example in the dataset, its gradient is zero for every example, so its weights never change, so it stays negative forever. It is dead. This usually happens after one oversized update drives the bias strongly negative — a symptom of too high a learning rate, not of ReLU itself.</p>
+    <div class="box check"><span class="lbl">Diagnose it</span>
+      <p style="margin-bottom:0">Log the fraction of zero activations per layer. Healthy is roughly 40–70% zeros — that sparsity is a feature. Above ~90% and climbing means units are dying. Fix by lowering the LR, switching to LeakyReLU or GELU, and initialising biases to a small positive value like 0.01.</p>
+    </div>
+
+    <h4>Why transformers use GELU and then SwiGLU</h4>
+    <p>GELU multiplies the input by the probability that a standard normal is below it: \(\text{GELU}(x)=x\,\Phi(x)\). It is a smooth, stochastic-feeling gate rather than a hard switch, and empirically trains transformers slightly better than ReLU. Modern LLMs go further with a <b>gated</b> variant:</p>
+    \[ \text{SwiGLU}(\mathbf x)=\big(\text{SiLU}(\mathbf xW_1)\big)\odot(\mathbf xW_2) \]
+    <p>One branch produces values, the other produces a multiplicative gate. It uses three weight matrices instead of two, so implementations shrink the hidden dimension to \(\tfrac{2}{3}\) of the usual \(4d\) to keep the parameter count matched. Llama, PaLM and Mistral all use this. You will build it on Day 73.</p>
+
+    <div class="box intuition"><span class="lbl">Decision guide</span>
+      <ul style="margin-bottom:0">
+        <li><b>CNN hidden layers</b> → ReLU. Still the right default in 2025.</li>
+        <li><b>Transformer feedforward</b> → GELU, or SwiGLU if you are matching a modern LLM.</li>
+        <li><b>Very deep nets without normalisation</b> → LeakyReLU or ELU.</li>
+        <li><b>RNN gates</b> → sigmoid for gates, tanh for candidates. These are not choices; the architecture requires those ranges.</li>
+        <li><b>Output layer</b> → nothing for regression, nothing for classification (the loss applies sigmoid/softmax internally), sigmoid if you genuinely need a bounded output.</li>
+        <li><b>Anything else</b> → ReLU, and spend your tuning budget on the learning rate instead. Activation choice is worth a fraction of a percent; learning rate is worth tens of percent.</li>
+      </ul>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement all nine activations and their derivatives in NumPy. Verify each derivative against finite differences. Then train the same 4-layer MLP on the same data with each one and plot the loss curves together. Sigmoid will be visibly, embarrassingly slower — that plot is your Day 26 preview.</p></div>
+  </article>
+<article class="wrap lesson" id="l21">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 20</span><span>Lesson 21</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-021.html">single page ↗</a></div>
+      <h3 class="lesson-title">Loss Functions — Deep Dive</h3>
+      <span class="lesson-no">21</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>MSE, MAE, Huber and their gradients</li><li>BCE, CE, NLL, the logits trap</li>
+        <li>Focal loss for imbalance</li><li>Hinge loss</li><li>KL loss</li>
+        <li>Contrastive &amp; triplet preview</li><li>Custom losses in PyTorch</li><li>Matching loss to task</li>
+      </ol>
+    </div>
+
+    <h4>Regression losses and what their gradients do</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Loss</th><th>Formula</th><th>Gradient w.r.t. \(\hat y\)</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>MSE</td><td>\((y-\hat y)^2\)</td><td>\(2(\hat y-y)\)</td><td>Grows with error → outliers dominate. Predicts the <b>mean</b>.</td></tr>
+        <tr><td>MAE</td><td>\(\lvert y-\hat y\rvert\)</td><td>\(\operatorname{sign}(\hat y-y)\)</td><td>Constant magnitude → robust, but never anneals. Predicts the <b>median</b>.</td></tr>
+        <tr><td>Huber</td><td>quadratic inside \(\delta\), linear outside</td><td>clipped at \(\delta\)</td><td>Both behaviours. The sensible default for noisy regression.</td></tr>
+      </tbody>
+    </table></div>
+    <p>"Predicts the mean vs the median" is not trivia — it is a modelling decision. If your targets have a heavy tail (house prices, waiting times), MSE will chase the tail and MAE will not.</p>
+    \[ L_\delta(y,\hat y)=\begin{cases}\tfrac12(y-\hat y)^2 & \lvert y-\hat y\rvert\le\delta\\ \delta\left(\lvert y-\hat y\rvert-\tfrac12\delta\right)&\text{otherwise}\end{cases} \]
+
+    <h4>Focal loss — for when 99% of your examples are background</h4>
+    <p>In object detection, most anchor boxes are negatives. Even with individually tiny losses, they swamp the gradient by sheer count. Focal loss down-weights easy examples by a factor that shrinks as confidence grows:</p>
+    \[ \mathrm{FL}(p_t)=-\alpha_t\,(1-p_t)^{\gamma}\log(p_t) \]
+    <p>With \(\gamma=2\), an example predicted at \(p_t=0.9\) has its loss scaled by \((0.1)^2=0.01\) — a hundredfold reduction — while a hard example at \(p_t=0.1\) is scaled by \(0.81\), essentially untouched. Setting \(\gamma=0\) recovers plain weighted cross-entropy. This is the loss that made one-stage detectors competitive (Day 52).</p>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Focal loss curves for different gamma">
+        <text class="svg-ttl" x="20" y="22">FOCAL LOSS · γ SUPPRESSES THE EASY MAJORITY</text>
+        <line x1="70" y1="200" x2="850" y2="200" stroke="#2A3B4E"/><line x1="70" y1="30" x2="70" y2="200" stroke="#2A3B4E"/>
+        <path d="M78 36 C 160 120, 300 172, 460 190 S 700 200, 848 200" fill="none" stroke="#FF7B87" stroke-width="2"/>
+        <path d="M78 40 C 150 150, 260 192, 420 199 S 700 200, 848 200" fill="none" stroke="#FFB454" stroke-width="2"/>
+        <path d="M78 48 C 140 176, 230 198, 380 200 S 700 200, 848 200" fill="none" stroke="#5BC8E6" stroke-width="2"/>
+        <text class="svg-lbl" x="500" y="60" fill="#FF7B87">γ = 0  (plain CE)</text>
+        <text class="svg-acc" x="500" y="80">γ = 2  (RetinaNet default)</text>
+        <text class="svg-cy" x="500" y="100">γ = 5</text>
+        <g class="svg-lbl" fill="#5A6B7D"><text x="62" y="220">0</text><text x="836" y="220">1</text><text x="380" y="240">p for the true class</text></g>
+      </svg>
+      <figcaption><b>All three curves agree that being wrong is bad.</b> They disagree about how much a nearly-correct prediction should still contribute — and when you have a million nearly-correct background boxes, that disagreement decides whether training works at all.</figcaption>
+    </figure>
+
+    <h4>The logits-vs-probabilities trap, stated once more</h4>
+    <div class="box pitfall"><span class="lbl">Pitfall</span>
+      <p style="margin-bottom:0">In PyTorch, <code>CrossEntropyLoss</code> and <code>BCEWithLogitsLoss</code> take <b>logits</b>. <code>NLLLoss</code> takes <b>log-probabilities</b>. <code>BCELoss</code> takes <b>probabilities</b>. Mixing these up is silent: the model still trains, just badly. Write the expected input as a comment above every loss you construct.</p>
+    </div>
+
+    <h4>Other losses you will meet, and where</h4>
+    <ul>
+      <li><b>Hinge</b> \(\max(0,1-y\hat y)\) — SVMs. Zero loss once the margin is satisfied. Rare in DL but the margin idea returns in ArcFace (Day 54-b).</li>
+      <li><b>KL divergence</b> — matching one distribution to another: knowledge distillation (Day 97), VAEs (Day 89), the RLHF policy penalty (Day 85).</li>
+      <li><b>Contrastive / triplet / InfoNCE</b> — learning an embedding space where similar things are close. Day 54-b, and the foundation of CLIP and SimCLR.</li>
+      <li><b>Dice / IoU / Tversky</b> — segmentation, where the foreground is a few percent of the pixels and pixel-wise CE is misleading (Day 53).</li>
+      <li><b>CTC</b> — sequence prediction without alignment: speech and OCR (Days 60, 94).</li>
+    </ul>
+
+    <h4>Label smoothing, since it belongs here</h4>
+    <p>Replace the one-hot target with \(y_k^{\text{LS}}=(1-\varepsilon)y_k+\varepsilon/K\). The model is now asked to be confident but not certain, which stops logits growing without bound, improves calibration, and usually adds a fraction of a percent on ImageNet-scale problems. \(\varepsilon=0.1\) is standard. Full treatment on Day 31.</p>
+
+    <pre><code>import torch, torch.nn as nn, torch.nn.functional as F
+
+class FocalLoss(nn.Module):
+    """Binary focal loss. Input = raw logits."""
+    def __init__(self, alpha=0.25, gamma=2.0):
+        super().__init__()
+        self.alpha, self.gamma = alpha, gamma
+
+    def forward(self, logits, targets):
+        # never call sigmoid then log -- use the fused, stable version
+        bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+        p   = torch.sigmoid(logits)
+        p_t = p * targets + (1 - p) * (1 - targets)
+        a_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        return (a_t * (1 - p_t) ** self.gamma * bce).mean()</code></pre>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Plot MSE, MAE and Huber (\(\delta=1\)) and their gradients on the same axes over \([-5,5]\). Then build a regression dataset, inject 5% outliers at 10× scale, and fit with each. Compare the learned slopes. MSE will be visibly dragged; that is the entire argument for robust losses in one plot.</p></div>
+  </article>
+<article class="wrap lesson" id="l22">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 21</span><span>Lesson 22</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-022.html">single page ↗</a></div>
+      <h3 class="lesson-title">Backpropagation From First Principles</h3>
+      <span class="lesson-no">22</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Computational graphs</li><li>Forward mode vs reverse mode autodiff</li>
+        <li>Why reverse mode wins for scalar losses</li><li>Local gradients and the chain rule at each node</li>
+        <li>Backward for add / mul / matmul / ReLU / sigmoid / softmax-CE</li>
+        <li>Memory cost of storing activations</li>
+      </ol>
+    </div>
+
+    <h4>The one idea</h4>
+    <p>Every node in the graph needs to know only two things: how to compute its output from its inputs (forward), and how to convert a gradient on its output into gradients on its inputs (backward). Chain these local rules together in reverse topological order and you have every gradient in the network. No global reasoning is required — that locality is why autodiff can be written in 150 lines.</p>
+
+    <h4>Forward mode vs reverse mode</h4>
+    <p>For \(f:\R^n\to\R^m\), the Jacobian is \(m\times n\).</p>
+    <ul>
+      <li><b>Forward mode</b> propagates derivatives left to right and computes one <em>column</em> of \(J\) per pass — the sensitivity of all outputs to one input. Cost: \(n\) passes.</li>
+      <li><b>Reverse mode</b> propagates right to left and computes one <em>row</em> per pass — the sensitivity of one output to all inputs. Cost: \(m\) passes.</li>
+    </ul>
+    <p>Deep learning has \(n\approx10^9\) parameters and \(m=1\) (a scalar loss). Reverse mode gets every gradient in <b>one</b> pass; forward mode would need a billion. That asymmetry is the whole reason backpropagation is the algorithm.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 260" role="img" aria-label="Forward mode versus reverse mode autodiff cost">
+        <text class="svg-ttl" x="20" y="22">n INPUTS → 1 OUTPUT</text>
+        <g transform="translate(0,10)">
+          <text class="svg-lbl-b" x="20" y="52">forward mode</text>
+          <g stroke="#5BC8E6" fill="none" marker-end="url(#ar8)">
+            <path d="M150 44 L280 68"/><path d="M150 68 L280 68"/><path d="M150 92 L280 68"/>
+          </g>
+          <text class="svg-cy" x="300" y="72">one pass per input · n passes total</text>
+          <text class="svg-lbl" x="300" y="92">good when few inputs, many outputs</text>
+        </g>
+        <g transform="translate(0,130)">
+          <text class="svg-lbl-b" x="20" y="52">reverse mode</text>
+          <g stroke="#FFB454" fill="none" marker-end="url(#ar9)">
+            <path d="M280 68 L150 44"/><path d="M280 68 L150 68"/><path d="M280 68 L150 92"/>
+          </g>
+          <text class="svg-acc" x="300" y="72">ONE pass gets every input's gradient</text>
+          <text class="svg-lbl" x="300" y="92">good when many inputs, one output ← neural networks</text>
+          <text class="svg-lbl" x="300" y="112">price: you must store the forward activations</text>
+        </g>
+        <defs>
+          <marker id="ar8" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#5BC8E6"/></marker>
+          <marker id="ar9" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#FFB454"/></marker>
+        </defs>
+      </svg>
+      <figcaption><b>Reverse mode trades memory for time.</b> That trade is why activation memory dominates your GPU budget, and why gradient checkpointing (Day 39-b) exists to trade it back.</figcaption>
+    </figure>
+
+    <h4>The local backward rules — the table to memorise</h4>
+    <p>Write \(\bar v\equiv\partial L/\partial v\). Every node receives \(\bar{\text{out}}\) and must produce \(\bar{\text{in}}\).</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Node</th><th>Forward</th><th>Backward</th><th>Mnemonic</th></tr></thead>
+      <tbody>
+        <tr><td>add</td><td>\(c=a+b\)</td><td>\(\bar a=\bar c,\;\bar b=\bar c\)</td><td>a gradient <b>distributor</b></td></tr>
+        <tr><td>multiply</td><td>\(c=ab\)</td><td>\(\bar a=\bar c\,b,\;\bar b=\bar c\,a\)</td><td>a gradient <b>swapper</b></td></tr>
+        <tr><td>copy / fan-out</td><td>\(b=a,\,c=a\)</td><td>\(\bar a=\bar b+\bar c\)</td><td>a gradient <b>adder</b> — this is why residuals work</td></tr>
+        <tr><td>max</td><td>\(c=\max(a,b)\)</td><td>all to the winner, 0 to the loser</td><td>a gradient <b>router</b></td></tr>
+        <tr><td>matmul</td><td>\(Y=XW\)</td><td>\(\bar X=\bar Y W\T,\;\bar W=X\T\bar Y\)</td><td>transpose the other operand</td></tr>
+        <tr><td>ReLU</td><td>\(y=\max(0,x)\)</td><td>\(\bar x=\bar y\odot\mathbb 1[x\gt0]\)</td><td>mask</td></tr>
+        <tr><td>sigmoid</td><td>\(y=\sigma(x)\)</td><td>\(\bar x=\bar y\,y(1-y)\)</td><td>reuse the output</td></tr>
+        <tr><td>softmax + CE</td><td>\(L=-\log p_c\)</td><td>\(\bar{\mathbf z}=\mathbf p-\mathbf y\)</td><td>the whole reason they are fused</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box intuition"><span class="lbl">Fan-out is the most under-appreciated row</span>
+      <p style="margin-bottom:0">When a value is used in two places, its gradient is the <em>sum</em> of the gradients from both paths. A residual connection \(y=x+F(x)\) uses \(x\) twice, so \(\bar x=\bar y+\bar y\cdot F'(x)\). That leading \(\bar y\) is an unimpeded gradient highway straight back to \(x\), untouched by \(F\)'s Jacobian. <b>That one line is why ResNets trained at 152 layers when nothing else could</b> (Day 46).</p>
+    </div>
+
+    <h4>Memory cost, quantified</h4>
+    <p>The backward pass needs the cached inputs of every op. For a batch \(B\), \(L\) layers, hidden width \(d\), in fp32:</p>
+    \[ \text{activation memory}\;\approx\; B\cdot L\cdot d\cdot 4\ \text{bytes}\times(\text{ops per layer}) \]
+    <p>For a transformer this is dominated by the attention matrix, \(B\cdot H\cdot n^2\) per layer — quadratic in sequence length. At \(B=8\), \(H=12\), \(n=2048\), one layer's attention scores alone are about 1.6&nbsp;GB in fp32. That number is why FlashAttention exists (Day 79).</p>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Draw the computational graph for \(f(x,y,z)=(x+y)\cdot\max(z,0)\) on paper. Pick \(x=2,y=-3,z=4\). Compute the forward values, then set \(\bar f=1\) and propagate backwards to get \(\bar x,\bar y,\bar z\). Check against finite differences. Do this until it is boring.</p></div>
+  </article>
+<article class="wrap lesson" id="l23">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 22</span><span>Lesson 23</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-023.html">single page ↗</a></div>
+      <h3 class="lesson-title">Backprop By Hand — Full Numeric Walkthrough</h3>
+      <span class="lesson-no">23</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>A 2-2-1 network with real numbers</li><li>Forward pass, cell by cell</li>
+        <li>Backward pass, cell by cell</li><li>The weight update</li>
+        <li>Second iteration: the loss drops</li><li>Gradient checking with finite differences</li>
+      </ol>
+    </div>
+
+    <p>No abstractions in this lesson. Two inputs, two hidden units with sigmoid, one output with sigmoid, binary cross-entropy. Every number written out.</p>
+
+    <h5>Setup</h5>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Quantity</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Input \(\mathbf x\)</td><td>\([0.05,\;0.10]\)</td></tr>
+        <tr><td>Target \(y\)</td><td>\(1\)</td></tr>
+        <tr><td>\(W^{(1)}\)</td><td>\(\begin{bmatrix}0.15 & 0.20\\ 0.25 & 0.30\end{bmatrix}\), \(\mathbf b^{(1)}=[0.35,\,0.35]\)</td></tr>
+        <tr><td>\(W^{(2)}\)</td><td>\([0.40,\;0.45]\), \(b^{(2)}=0.60\)</td></tr>
+        <tr><td>Learning rate</td><td>\(\eta=0.5\)</td></tr>
+      </tbody>
+    </table></div>
+
+    <h5>Forward</h5>
+    \[
+    \begin{aligned}
+    z^{(1)}_1 &= 0.15(0.05)+0.20(0.10)+0.35 = 0.3775 &&\Rightarrow\; h_1=\sigma(0.3775)=0.593270 \\
+    z^{(1)}_2 &= 0.25(0.05)+0.30(0.10)+0.35 = 0.3925 &&\Rightarrow\; h_2=\sigma(0.3925)=0.596884 \\
+    z^{(2)}  &= 0.40(0.593270)+0.45(0.596884)+0.60 = 1.105906 &&\Rightarrow\; \hat p=\sigma(1.105906)=0.751365
+    \end{aligned}
+    \]
+    \[ L=-\log(0.751365)=0.285759 \]
+
+    <h5>Backward</h5>
+    <p>Start at the loss and walk left, using the table from Lesson 22.</p>
+    \[
+    \begin{aligned}
+    \bar z^{(2)} &= \hat p - y = 0.751365 - 1 = -0.248635 &&\text{(the cancellation from L17)}\\[3pt]
+    \bar W^{(2)}_1 &= \bar z^{(2)}\,h_1 = -0.248635\times0.593270 = -0.147505\\
+    \bar W^{(2)}_2 &= \bar z^{(2)}\,h_2 = -0.248635\times0.596884 = -0.148404\\
+    \bar b^{(2)}  &= -0.248635\\[3pt]
+    \bar h_1 &= \bar z^{(2)}\,W^{(2)}_1 = -0.248635\times0.40 = -0.099454\\
+    \bar h_2 &= \bar z^{(2)}\,W^{(2)}_2 = -0.248635\times0.45 = -0.111886\\[3pt]
+    \bar z^{(1)}_1 &= \bar h_1\,h_1(1-h_1) = -0.099454\times0.593270\times0.406730 = -0.023999\\
+    \bar z^{(1)}_2 &= \bar h_2\,h_2(1-h_2) = -0.111886\times0.596884\times0.403116 = -0.026922
+    \end{aligned}
+    \]
+    \[
+    \begin{aligned}
+    \bar W^{(1)}_{11} &= \bar z^{(1)}_1 x_1 = -0.023999\times0.05 = -0.00119995 \qquad
+    \bar W^{(1)}_{12} = \bar z^{(1)}_1 x_2 = -0.00239990\\
+    \bar W^{(1)}_{21} &= \bar z^{(1)}_2 x_1 = -0.00134610 \qquad\qquad\;\;\;\;
+    \bar W^{(1)}_{22} = \bar z^{(1)}_2 x_2 = -0.00269220
+    \end{aligned}
+    \]
+
+    <div class="box intuition"><span class="lbl">Look at the magnitudes</span>
+      <p style="margin-bottom:0">The output-layer gradients are around \(1.5\times10^{-1}\). The first-layer gradients are around \(1.2\times10^{-3}\) — <b>a hundredfold smaller after only one hidden layer.</b> Two causes: the sigmoid derivative (\(\approx0.24\)) and the tiny inputs (0.05, 0.10). Extend this to ten layers and the first layer gets nothing. You have just watched the vanishing gradient problem happen in arithmetic you did by hand.</p>
+    </div>
+
+    <h5>Update and re-run</h5>
+    \[ W^{(2)}_1 \leftarrow 0.40 - 0.5(-0.147505) = 0.473753,\qquad W^{(2)}_2 \leftarrow 0.45+0.074202=0.524202,\qquad b^{(2)}\leftarrow 0.724318 \]
+    <p>Recompute the forward pass with the updated parameters: \(\hat p\) rises to about \(0.7867\) and \(L\) falls from \(0.285759\) to about \(0.239866\). It worked. Every model in this course is that step, repeated.</p>
+
+    <div class="demo" id="d-bp">
+      <div class="demo-head"><span class="dot"></span><b>Step through it</b> · the same 2-2-1 network, live</div>
+      <div class="demo-body">
+        <canvas id="bpCv" width="720" height="300" aria-label="2-2-1 network with live forward and backward values"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Learning rate <b id="bpLrv">0.50</b></span><input type="range" id="bpLr" min="0.05" max="4" step="0.05" value="0.5"></label>
+          <button class="btn primary" id="bpStep">One step</button>
+          <button class="btn" id="bpTen">Ten steps</button>
+          <button class="btn" id="bpReset">Reset</button>
+        </div>
+        <div class="readout" id="bpOut"></div>
+      </div>
+    </div>
+
+    <h4>Gradient checking — the test that ends all arguments</h4>
+    <p>Use the two-sided difference, which has \(O(\varepsilon^2)\) error instead of \(O(\varepsilon)\):</p>
+    \[ \frac{\partial L}{\partial\theta_i}\approx\frac{L(\theta+\varepsilon e_i)-L(\theta-\varepsilon e_i)}{2\varepsilon},\qquad \text{relative error}=\frac{\lvert g_{\text{analytic}}-g_{\text{numeric}}\rvert}{\max(\lvert g_a\rvert,\lvert g_n\rvert,10^{-8})} \]
+    <div class="box check"><span class="lbl">Rules for gradient checking</span>
+      <ul style="margin-bottom:0">
+        <li>Use <b>float64</b>. In float32 the numeric gradient is noise.</li>
+        <li>\(\varepsilon=10^{-5}\). Smaller and rounding dominates; larger and truncation does.</li>
+        <li>Turn <b>off</b> dropout and any other randomness, or the two evaluations are of different functions.</li>
+        <li>Below \(10^{-7}\): correct. Around \(10^{-5}\): suspicious, check the ReLU kinks. Above \(10^{-3}\): you have a bug.</li>
+        <li>Check a random sample of parameters, not all of them — it is \(O(P)\) forward passes.</li>
+      </ul>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Reproduce every number in this lesson in a spreadsheet — genuinely, a spreadsheet, one cell per quantity. It forces you to be explicit about what depends on what. Then deliberately break one backward formula (drop the \(h(1-h)\) factor) and watch the gradient check catch it.</p></div>
+  </article>
+<article class="wrap lesson" id="l24">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 23</span><span>Lesson 24</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-024.html">single page ↗</a></div>
+      <h3 class="lesson-title">Build Your Own Autodiff Engine</h3>
+      <span class="lesson-no">24</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>A <code>Value</code> class with data and grad</li><li>Operator overloading</li>
+        <li>Building the graph on the fly</li><li>Topological sort</li>
+        <li><code>backward()</code></li><li>Adding tanh / exp / pow</li>
+        <li>A tiny MLP on top</li><li>Comparing gradients against PyTorch</li>
+      </ol>
+    </div>
+
+    <p>This is the lesson where deep learning stops being magic. In about 100 lines you will build the thing PyTorch does, understand it completely, and never be intimidated by autograd again.</p>
+
+    <h4>The design in three sentences</h4>
+    <p>Each <code>Value</code> holds a number, a gradient slot, a reference to the values that produced it, and a closure that knows how to push gradient to those parents. Operators are overloaded so writing <code>a * b + c</code> builds the graph as a side effect. <code>backward()</code> topologically sorts the graph and calls each closure once, in reverse.</p>
+
+    <pre><code>class Value:
+    def __init__(self, data, _children=(), _op=""):
+        self.data = data
+        self.grad = 0.0
+        self._backward = lambda: None      # default: a leaf does nothing
+        self._prev = set(_children)
+        self._op = _op
+
+    def __add__(self, other):
+        other = other if isinstance(other, Value) else Value(other)
+        out = Value(self.data + other.data, (self, other), "+")
+        def _backward():
+            self.grad  += out.grad          # += is ESSENTIAL: fan-out (Lesson 22)
+            other.grad += out.grad
+        out._backward = _backward
+        return out
+
+    def __mul__(self, other):
+        other = other if isinstance(other, Value) else Value(other)
+        out = Value(self.data * other.data, (self, other), "*")
+        def _backward():
+            self.grad  += other.data * out.grad
+            other.grad += self.data  * out.grad
+        out._backward = _backward
+        return out
+
+    def __pow__(self, k):                   # k must be a plain number
+        out = Value(self.data ** k, (self,), f"**{k}")
+        def _backward():
+            self.grad += k * (self.data ** (k - 1)) * out.grad
+        out._backward = _backward
+        return out
+
+    def tanh(self):
+        t = math.tanh(self.data)
+        out = Value(t, (self,), "tanh")
+        def _backward():
+            self.grad += (1 - t * t) * out.grad     # reuse the output
+        out._backward = _backward
+        return out
+
+    def exp(self):
+        e = math.exp(self.data)
+        out = Value(e, (self,), "exp")
+        def _backward():
+            self.grad += e * out.grad
+        out._backward = _backward
+        return out
+
+    def relu(self):
+        out = Value(max(0.0, self.data), (self,), "relu")
+        def _backward():
+            self.grad += (out.data &gt; 0) * out.grad
+        out._backward = _backward
+        return out
+
+    def backward(self):
+        topo, visited = [], set()
+        def build(v):
+            if v not in visited:
+                visited.add(v)
+                for child in v._prev:
+                    build(child)
+                topo.append(v)              # children appended before parents
+        build(self)
+        self.grad = 1.0                     # dL/dL
+        for v in reversed(topo):            # parents before children
+            v._backward()
+
+    # conveniences so ordinary arithmetic works
+    def __neg__(self):        return self * -1
+    def __radd__(self, o):    return self + o
+    def __sub__(self, o):     return self + (-o)
+    def __rsub__(self, o):    return (-self) + o
+    def __rmul__(self, o):    return self * o
+    def __truediv__(self, o): return self * o ** -1
+    def __repr__(self):       return f"Value({self.data:.4f}, grad={self.grad:.4f})"</code></pre>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the two bugs everyone writes</span>
+      <ol style="margin-bottom:0">
+        <li><b><code>=</code> instead of <code>+=</code> in <code>_backward</code>.</b> Then <code>b = a * a</code> gives \(\bar a=a\) instead of \(2a\), because the second contribution overwrites the first. Gradient checking catches it instantly.</li>
+        <li><b>Forgetting to zero gradients between iterations.</b> The <code>+=</code> that makes fan-out correct also makes gradients accumulate across steps. Write a <code>zero_grad()</code> that walks the graph and clears every <code>.grad</code>. This is the same design decision PyTorch made, and the same footgun.</li>
+      </ol>
+    </div>
+
+    <h4>A tiny MLP on top</h4>
+    <pre><code>import random
+
+class Neuron:
+    def __init__(self, nin, nonlin=True):
+        self.w = [Value(random.uniform(-1, 1) * nin ** -0.5) for _ in range(nin)]
+        self.b = Value(0.0)
+        self.nonlin = nonlin
+    def __call__(self, x):
+        act = sum((wi * xi for wi, xi in zip(self.w, x)), self.b)
+        return act.relu() if self.nonlin else act
+    def parameters(self): return self.w + [self.b]
+
+class Layer:
+    def __init__(self, nin, nout, **kw):
+        self.neurons = [Neuron(nin, **kw) for _ in range(nout)]
+    def __call__(self, x):
+        out = [n(x) for n in self.neurons]
+        return out[0] if len(out) == 1 else out
+    def parameters(self): return [p for n in self.neurons for p in n.parameters()]
+
+class MLP:
+    def __init__(self, nin, nouts):
+        sz = [nin] + nouts
+        self.layers = [Layer(sz[i], sz[i+1], nonlin=(i != len(nouts) - 1))
+                       for i in range(len(nouts))]     # last layer is linear
+    def __call__(self, x):
+        for layer in self.layers: x = layer(x)
+        return x
+    def parameters(self): return [p for l in self.layers for p in l.parameters()]
+
+# train it on XOR -- the problem from Lesson 16
+model = MLP(2, [8, 8, 1])
+X = [[0,0],[0,1],[1,0],[1,1]]
+Y = [-1.0, 1.0, 1.0, -1.0]          # +/-1 targets, squared loss
+
+for step in range(200):
+    preds = [model(x) for x in X]
+    loss  = sum((p - y) ** 2 for p, y in zip(preds, Y))
+    for p in model.parameters(): p.grad = 0.0     # zero_grad
+    loss.backward()
+    lr = 0.05
+    for p in model.parameters(): p.data -= lr * p.grad
+    if step % 40 == 0: print(step, loss.data)</code></pre>
+    <p>Roughly 800 <code>Value</code> objects, one Python closure per operation, and it solves the problem that stalled the field for seventeen years.</p>
+
+    <div class="box check"><span class="lbl">Verify against PyTorch</span>
+      <pre style="margin:8px 0 0"><code>import torch
+# same numbers, both engines
+a = Value(-4.0); b = Value(2.0)
+c = a + b; d = a * b + b ** 3
+c = c + c + 1; d = d + d.relu()
+e = c - d; f = e ** 2; g = f / 2.0
+g.backward()
+amine, bmine = a.grad, b.grad
+
+at = torch.tensor([-4.0], requires_grad=True)
+bt = torch.tensor([ 2.0], requires_grad=True)
+ct = at + bt; dt = at * bt + bt ** 3
+ct = ct + ct + 1; dt = dt + dt.relu()
+gt = ((ct - dt) ** 2) / 2.0
+gt.backward()
+
+assert abs(amine - at.grad.item()) &lt; 1e-6
+assert abs(bmine - bt.grad.item()) &lt; 1e-6
+print("engine verified")</code></pre>
+    </div>
+
+    <h4>What real frameworks add</h4>
+    <ul>
+      <li><b>Tensors instead of scalars.</b> One node per array rather than per number — the same graph, vastly fewer objects and BLAS-backed kernels.</li>
+      <li><b>C++ dispatch and kernel fusion</b>, so the graph walk is not in Python.</li>
+      <li><b>Device management</b>, streams, memory pooling.</li>
+      <li><b>Optional graph capture</b> (<code>torch.compile</code>) to fuse ops and remove overhead.</li>
+    </ul>
+    <p>None of these change the algorithm you just wrote. That is the point of the lesson.</p>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Add <code>log</code>, <code>sigmoid</code> and a numerically-stable <code>softmax_crossentropy</code> to the engine. Then implement <code>zero_grad()</code> and an SGD-with-momentum step. Finally, write a <code>draw_graph()</code> that emits Graphviz DOT from <code>_prev</code> and <code>_op</code>, and look at the graph for a 3-layer forward pass. Seeing it drawn is worth an hour of reading.</p></div>
+  </article>
+<article class="wrap lesson" id="l25">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 24</span><span>Lesson 25</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-025.html">single page ↗</a></div>
+      <h3 class="lesson-title">Train an MLP on MNIST — Pure NumPy, No Frameworks</h3>
+      <span class="lesson-no">25</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Loading and normalizing MNIST</li><li>One-hot encoding</li><li>He initialization</li>
+        <li>Forward pass</li><li>Softmax + CE</li><li>Full manual backprop</li>
+        <li>The mini-batch loop</li><li>Tracking train/val accuracy</li>
+        <li>Hitting ~97–98%</li><li>Visualising weights and misclassifications</li>
+      </ol>
+    </div>
+
+    <p>Everything from Lessons 16–24, assembled. Under 90 lines, no framework, ~98% test accuracy in about 30 seconds on a laptop CPU.</p>
+
+    <div class="shapes">
+      <span class="dim">X <small>(N, 784)</small></span><span class="op">→</span><span class="dim">h₁ <small>(N, 256)</small></span>
+      <span class="op">→</span><span class="dim">h₂ <small>(N, 128)</small></span><span class="op">→</span><span class="dim out">logits <small>(N, 10)</small></span>
+    </div>
+
+    <pre><code>import numpy as np
+
+# ---------- data ----------
+# X_train (60000, 784) float32 in [0,1]; y_train (60000,) int
+X_train = X_train.reshape(-1, 784).astype(np.float32) / 255.0
+X_test  = X_test.reshape(-1, 784).astype(np.float32) / 255.0
+
+mu, sd = X_train.mean(), X_train.std()        # fit on TRAIN ONLY (Lesson 14)
+X_train = (X_train - mu) / sd
+X_test  = (X_test  - mu) / sd
+
+def one_hot(y, K=10):
+    return np.eye(K, dtype=np.float32)[y]
+
+# ---------- init: He, because we use ReLU (Lesson 27) ----------
+rng = np.random.default_rng(0)
+sizes = [784, 256, 128, 10]
+W = [rng.normal(0, np.sqrt(2.0 / sizes[i]), (sizes[i], sizes[i+1])).astype(np.float32)
+     for i in range(3)]
+b = [np.zeros(sizes[i+1], dtype=np.float32) for i in range(3)]
+
+def forward(X):
+    z1 = X  @ W[0] + b[0];  h1 = np.maximum(0, z1)
+    z2 = h1 @ W[1] + b[1];  h2 = np.maximum(0, z2)
+    z3 = h2 @ W[2] + b[2]                        # logits, no activation
+    return z1, h1, z2, h2, z3
+
+def softmax_ce(logits, Y):
+    """Stable (Lesson 10). Returns loss and dL/dlogits."""
+    z = logits - logits.max(axis=1, keepdims=True)
+    e = np.exp(z)
+    p = e / e.sum(axis=1, keepdims=True)
+    N = logits.shape[0]
+    loss = -np.log(p[np.arange(N), Y.argmax(1)] + 1e-12).mean()
+    return loss, (p - Y) / N                     # the cancellation, batched
+
+def backward(X, Y, cache):
+    z1, h1, z2, h2, z3 = cache
+    loss, dz3 = softmax_ce(z3, Y)
+
+    dW2 = h2.T @ dz3;            db2 = dz3.sum(0)      # outer product / sum
+    dh2 = dz3 @ W[2].T
+    dz2 = dh2 * (z2 &gt; 0)                               # ReLU mask
+
+    dW1 = h1.T @ dz2;            db1 = dz2.sum(0)
+    dh1 = dz2 @ W[1].T
+    dz1 = dh1 * (z1 &gt; 0)
+
+    dW0 = X.T  @ dz1;            db0 = dz1.sum(0)
+    return loss, [dW0, dW1, dW2], [db0, db1, db2]
+
+# ---------- train ----------
+lr, bs, epochs = 0.1, 128, 20
+n = len(X_train)
+Y_train = one_hot(y_train)
+
+for ep in range(epochs):
+    perm = rng.permutation(n)                    # shuffle EVERY epoch (Lesson 29)
+    for i in range(0, n - bs + 1, bs):
+        idx = perm[i:i+bs]
+        xb, yb = X_train[idx], Y_train[idx]
+        cache = forward(xb)
+        loss, dW, db = backward(xb, yb, cache)
+        for j in range(3):
+            W[j] -= lr * dW[j]
+            b[j] -= lr * db[j]
+
+    acc = (forward(X_test)[-1].argmax(1) == y_test).mean()
+    print(f"epoch {ep:2d}  loss {loss:.4f}  test acc {acc:.4f}")</code></pre>
+
+    <div class="box check"><span class="lbl">What healthy output looks like</span>
+      <div class="tablewrap" style="margin:8px 0 0"><table>
+        <thead><tr><th>Epoch</th><th>Loss</th><th>Test acc</th><th>Reading</th></tr></thead>
+        <tbody>
+          <tr><td>0 (before any step)</td><td>≈2.303</td><td>≈0.10</td><td>\(\log 10\) and chance. If not, init or shapes are wrong.</td></tr>
+          <tr><td>0</td><td>≈0.21</td><td>≈0.951</td><td>Most of the learning happens immediately.</td></tr>
+          <tr><td>5</td><td>≈0.06</td><td>≈0.974</td><td>Steady gains.</td></tr>
+          <tr><td>19</td><td>≈0.01</td><td>≈0.980</td><td>Train loss near zero, test flat — mild overfitting, expected.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <h4>The bugs you will actually hit here, in order</h4>
+    <div class="box pitfall"><span class="lbl">Pitfall checklist for this exact script</span>
+      <ol style="margin-bottom:0">
+        <li><b>Loss starts at 6+, not 2.303.</b> Initialisation scale too large, or you forgot to divide pixels by 255.</li>
+        <li><b>Loss is exactly 2.303 and never moves.</b> Gradients not reaching the weights — check you are updating <code>W[j]</code> in place and not rebinding a copy.</li>
+        <li><b>Accuracy stuck near 0.10.</b> Labels misaligned with inputs after shuffling. Shuffle an index array, never the two arrays separately.</li>
+        <li><b>NaN after a few hundred steps.</b> LR too high, or a naive softmax. Both were covered on Day 10.</li>
+        <li><b>~88% and stops.</b> You applied softmax inside <code>forward</code> and again inside the loss.</li>
+        <li><b>Works with batch 128, breaks with batch 1.</b> A reduction over the wrong axis, or <code>dz.sum(0)</code> collapsing a dimension you needed.</li>
+      </ol>
+    </div>
+
+    <h4>Look at what it learned</h4>
+    <p>Reshape the columns of <code>W[0]</code> to 28×28 and plot 64 of them with a diverging colormap. You will see localised stroke detectors, edges at various orientations, and blob detectors — none of which you specified. Also plot the 20 most confidently wrong test images. They are mostly genuinely ambiguous digits, which tells you that you are close to the label-noise floor of the dataset.</p>
+
+    <div class="box intuition"><span class="lbl">Why this matters more than the accuracy number</span>
+      <p style="margin-bottom:0">Every framework you use for the next 76 days is doing exactly this, faster. When a PyTorch model misbehaves later, your mental model will be this script — and that is what lets you debug instead of guess.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Add L2 regularisation (add \(\lambda W\) to each <code>dW</code>) and momentum (keep a velocity buffer per parameter). Then swap ReLU for sigmoid, keep everything else fixed, and watch accuracy collapse. Explain the collapse using the numbers from Lesson 23.</p></div>
+  </article>
+<article class="wrap lesson" id="l26">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 25</span><span>Lesson 26</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-026.html">single page ↗</a></div>
+      <h3 class="lesson-title">The Same Model in PyTorch</h3>
+      <span class="lesson-no">26</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li><code>nn.Module</code> anatomy</li><li><code>__init__</code> vs <code>forward</code></li><li><code>nn.Sequential</code></li>
+        <li><code>nn.Linear</code> internals</li><li>Optimizers, zero_grad / backward / step</li>
+        <li>The canonical training loop</li><li>Eval mode</li><li>Saving and loading checkpoints</li>
+        <li>Line-by-line map from the NumPy version</li>
+      </ol>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>NumPy (Lesson 25)</th><th>PyTorch</th></tr></thead>
+      <tbody>
+        <tr><td><code>W = rng.normal(...)</code></td><td><code>nn.Linear(in, out)</code> — init included</td></tr>
+        <tr><td><code>forward()</code> function</td><td><code>forward()</code> method on <code>nn.Module</code></td></tr>
+        <tr><td><code>softmax_ce()</code></td><td><code>nn.CrossEntropyLoss()</code></td></tr>
+        <tr><td>60 lines of <code>backward()</code></td><td><code>loss.backward()</code></td></tr>
+        <tr><td><code>W -= lr * dW</code> loop</td><td><code>opt.step()</code></td></tr>
+        <tr><td>(nothing — you rebuilt grads each time)</td><td><code>opt.zero_grad()</code> — now mandatory</td></tr>
+      </tbody>
+    </table></div>
+
+    <pre><code>import torch, torch.nn as nn
+
+class MLP(nn.Module):
+    def __init__(self, d_in=784, hidden=(256, 128), n_classes=10, p_drop=0.0):
+        super().__init__()                    # forget this and nothing registers
+        layers, prev = [], d_in
+        for h in hidden:
+            layers += [nn.Linear(prev, h), nn.ReLU()]
+            if p_drop: layers += [nn.Dropout(p_drop)]
+            prev = h
+        layers += [nn.Linear(prev, n_classes)]   # logits, no softmax
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x.flatten(1))            # (N,1,28,28) -> (N,784)
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = MLP().to(device)
+crit  = nn.CrossEntropyLoss()                    # expects LOGITS + int labels
+opt   = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+
+def run_epoch(loader, train=True):
+    model.train(train)                           # toggles dropout + BN behaviour
+    total_loss = correct = seen = 0
+    with torch.set_grad_enabled(train):
+        for x, y in loader:
+            x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+            logits = model(x)
+            loss = crit(logits, y)
+            if train:
+                opt.zero_grad(set_to_none=True)  # set_to_none is faster
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
+            total_loss += loss.item() * y.size(0)
+            correct    += (logits.argmax(1) == y).sum().item()
+            seen       += y.size(0)
+    return total_loss / seen, correct / seen
+
+best = 0.0
+for ep in range(20):
+    tr_loss, tr_acc = run_epoch(train_loader, True)
+    va_loss, va_acc = run_epoch(val_loader,  False)
+    print(f"ep {ep:2d} | train {tr_loss:.4f}/{tr_acc:.4f} | val {va_loss:.4f}/{va_acc:.4f}")
+    if va_acc &gt; best:
+        best = va_acc
+        torch.save({"model": model.state_dict(),
+                    "opt": opt.state_dict(),
+                    "epoch": ep, "val_acc": va_acc}, "best.pt")</code></pre>
+
+    <h4>Five details in that loop that are load-bearing</h4>
+    <ul>
+      <li><b><code>super().__init__()</code></b> — without it, <code>nn.Module</code>'s registration machinery never runs, <code>model.parameters()</code> returns nothing, and the optimizer silently updates zero parameters.</li>
+      <li><b><code>model.train()</code> / <code>model.eval()</code></b> — dropout must be off and BatchNorm must use running statistics at eval. Forgetting <code>eval()</code> makes validation numbers noisy and pessimistic; forgetting <code>train()</code> afterwards silently disables regularisation for the rest of training.</li>
+      <li><b><code>zero_grad(set_to_none=True)</code></b> — frees the gradient tensors rather than filling them with zeros. Slightly faster, less memory.</li>
+      <li><b><code>torch.set_grad_enabled(train)</code></b> — one switch instead of duplicating the loop. Roughly halves memory during validation.</li>
+      <li><b>Saving a dict, not the model.</b> <code>torch.save(model)</code> pickles the class definition and breaks when you refactor. Save <code>state_dict()</code>s, plus the optimizer state if you want to resume properly.</li>
+    </ul>
+
+    <h4>What <code>nn.Linear</code> is doing</h4>
+    <pre><code>lin = nn.Linear(784, 256)
+lin.weight.shape   # torch.Size([256, 784])  -- (out, in), transposed!
+lin.bias.shape     # torch.Size([256])
+# forward is:  x @ weight.T + bias
+# default init: Kaiming-uniform on weight, uniform(-1/sqrt(fan_in), ...) on bias</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · the default init is not always the right one</span>
+      <p>PyTorch's <code>nn.Linear</code> default is Kaiming-uniform with <code>a=sqrt(5)</code>, which works out to a gain suited to LeakyReLU with a fairly large slope — not to plain ReLU. It is fine for shallow nets and clearly suboptimal for deep ones. Every serious architecture overrides it in an <code>_init_weights</code> method. You will do exactly that on Day 74.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Port your NumPy MNIST model to this template and confirm you match its accuracy within 0.3%. Then load the weights <em>from</em> your NumPy model into the PyTorch one (remember the transpose) and check the forward passes agree to \(10^{-5}\). If they do, you have proved to yourself that you understood the framework.</p></div>
+  </article>
+<article class="wrap lesson" id="l27">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 25-b</span><span>Lesson 27</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-027.html">single page ↗</a></div>
+      <h3 class="lesson-title">Weight Initialization</h3>
+      <span class="lesson-no">27</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why zeros break symmetry</li><li>Why naive random fails at depth</li>
+        <li>Variance propagation analysis</li><li>Xavier/Glorot: derivation and when</li>
+        <li>He/Kaiming for ReLU</li><li>LeCun init</li><li>Orthogonal init</li>
+        <li>Initialising biases</li><li>PyTorch defaults and overriding them</li>
+      </ol>
+    </div>
+
+    <h4>Why not zeros</h4>
+    <p>If every weight in a layer is identical, every unit in that layer computes the same thing, receives the same gradient, and updates identically. They stay identical forever. A 512-unit layer has the capacity of one unit. Random initialisation exists to <b>break symmetry</b> — that is its first job.</p>
+
+    <h4>Why not any random scale</h4>
+    <p>Its second job is to keep the signal at a workable magnitude through depth. From Lesson 7, for \(z=\sum_{j=1}^{n_{\text{in}}} w_jx_j\) with independent zero-mean terms:</p>
+    \[ \operatorname{Var}(z)=n_{\text{in}}\operatorname{Var}(w)\operatorname{Var}(x) \]
+    <p>Through \(L\) layers the variance is multiplied by \(\big(n_{\text{in}}\operatorname{Var}(w)\big)^L\). Anything but 1 is exponential in depth:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>\(n_{\text{in}}\operatorname{Var}(w)\)</th><th>After 50 layers</th><th>Symptom</th></tr></thead>
+      <tbody>
+        <tr><td>0.8</td><td>\(\times 1.4\times10^{-5}\)</td><td>Activations collapse to zero; no gradient; loss frozen</td></tr>
+        <tr><td>1.0</td><td>\(\times 1\)</td><td>Healthy</td></tr>
+        <tr><td>1.2</td><td>\(\times 9100\)</td><td>Activations explode; NaN within a few steps</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box derive"><span class="lbl">Deriving Xavier and He</span>
+      <p><b>Xavier / Glorot</b> — want \(\operatorname{Var}(z)=\operatorname{Var}(x)\) on the forward pass, so \(\operatorname{Var}(w)=1/n_{\text{in}}\). The backward pass symmetrically wants \(\operatorname{Var}(w)=1/n_{\text{out}}\). You cannot have both unless the layer is square, so take the harmonic compromise:</p>
+      \[ \operatorname{Var}(w)=\frac{2}{n_{\text{in}}+n_{\text{out}}} \]
+      <p>This assumes the activation is roughly linear near zero and symmetric — true for tanh, false for ReLU.</p>
+      <p><b>He / Kaiming</b> — ReLU zeroes half its inputs, halving the variance of what passes through. Compensate with a factor of 2:</p>
+      \[ \operatorname{Var}(w)=\frac{2}{n_{\text{in}}} \]
+      <p style="margin-bottom:0">That factor of 2 is the whole difference, and it is the difference between a 30-layer ReLU net training and not training.</p>
+    </div>
+
+    <div class="demo" id="d-init">
+      <div class="demo-head"><span class="dot"></span><b>Activation histograms</b> · watch the signal live or die through 8 layers</div>
+      <div class="demo-body">
+        <canvas id="initCv" width="760" height="270" aria-label="Per-layer activation distributions under different initializations"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Init scheme</span>
+            <select id="initSel">
+              <option value="small">naive N(0, 0.01²)</option>
+              <option value="big">naive N(0, 1)</option>
+              <option value="xavier">Xavier / Glorot</option>
+              <option value="he" selected>He / Kaiming</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Activation</span>
+            <select id="initAct"><option value="relu" selected>ReLU</option><option value="tanh">tanh</option></select>
+          </label>
+          <label class="ctrl"><span>Width <b id="initWv">256</b></span><input type="range" id="initW" min="32" max="512" step="32" value="256"></label>
+        </div>
+        <div class="readout" id="initOut"></div>
+      </div>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Scheme</th><th>Variance</th><th>Use with</th><th>PyTorch</th></tr></thead>
+      <tbody>
+        <tr><td>LeCun</td><td>\(1/n_{\text{in}}\)</td><td>SELU, linear</td><td><code>kaiming_normal_(m, nonlinearity='linear')</code></td></tr>
+        <tr><td>Xavier / Glorot</td><td>\(2/(n_{\text{in}}+n_{\text{out}})\)</td><td>tanh, sigmoid</td><td><code>nn.init.xavier_normal_</code></td></tr>
+        <tr><td>He / Kaiming</td><td>\(2/n_{\text{in}}\)</td><td>ReLU, LeakyReLU</td><td><code>nn.init.kaiming_normal_(w, mode='fan_in', nonlinearity='relu')</code></td></tr>
+        <tr><td>Orthogonal</td><td>\(Q\) from a QR decomposition</td><td>RNNs, very deep nets</td><td><code>nn.init.orthogonal_</code></td></tr>
+        <tr><td>Transformer-style</td><td>\(N(0,0.02^2)\), residual projections scaled by \(1/\sqrt{2L}\)</td><td>GPT-class models</td><td>manual — see Day 74</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Biases, and the special cases</h4>
+    <p>Zero is right for biases almost always — there is no symmetry to break once weights are random. Three exceptions worth knowing:</p>
+    <ul>
+      <li><b>ReLU nets prone to dying units:</b> a small positive bias (0.01) keeps units alive early.</li>
+      <li><b>LSTM forget gate:</b> initialise to 1.0 so the cell remembers by default at step zero. Worth about a point of perplexity for free (Day 62).</li>
+      <li><b>Heavily imbalanced classification:</b> set the final bias to \(\log\frac{\pi}{1-\pi}\) for base rate \(\pi\). The model starts predicting the prior instead of spending its first thousand steps discovering it. RetinaNet's paper attributes real training stability to this (Day 52).</li>
+    </ul>
+
+    <pre><code>def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.kaiming_normal_(m.weight, mode="fan_in", nonlinearity="relu")
+        if m.bias is not None:
+            nn.init.zeros_(m.bias)
+    elif isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+    elif isinstance(m, (nn.BatchNorm2d, nn.LayerNorm)):
+        nn.init.ones_(m.weight); nn.init.zeros_(m.bias)
+
+model.apply(init_weights)</code></pre>
+    <div class="box intuition"><span class="lbl">The modern caveat</span>
+      <p style="margin-bottom:0">Normalisation layers and residual connections have made initialisation far less critical than it was in 2015 — a BatchNorm immediately after a layer rescales whatever you gave it. But init still decides the first few hundred steps, which is exactly where large-model training runs diverge. On Day 74 you will use a specific, deliberate scheme for precisely that reason.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Build a 20-layer MLP with no normalisation. For each of the four schemes in the demo, plot mean activation magnitude and mean gradient magnitude per layer on a log axis. Four plots, one page. Pin it above your desk.</p></div>
+  </article>
+<article class="wrap lesson" id="l28">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 26</span><span>Lesson 28</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-028.html">single page ↗</a></div>
+      <h3 class="lesson-title">Vanishing &amp; Exploding Gradients</h3>
+      <span class="lesson-no">28</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The math of repeated multiplication through depth</li><li>Saturation in sigmoid and tanh</li>
+        <li>How to <em>diagnose</em> it</li><li>Gradient clipping, by value and by norm</li>
+        <li>Skip connections and normalization as previews of the fix</li>
+      </ol>
+    </div>
+
+    <h4>The mechanism, in one equation</h4>
+    <p>From Lesson 6, the gradient at layer \(\ell\) is a product of Jacobians:</p>
+    \[ \frac{\partial L}{\partial \mathbf h^{(\ell)}} = \frac{\partial L}{\partial \mathbf h^{(L)}}\prod_{k=\ell+1}^{L} \underbrace{\diag\!\left(\phi'(\mathbf z^{(k)})\right)W^{(k)}}_{J_k} \]
+    <p>Take norms: \(\left\lVert\partial L/\partial\mathbf h^{(\ell)}\right\rVert\lesssim \prod_k \lVert J_k\rVert\). If each factor is typically \(\gamma\), the gradient scales as \(\gamma^{L-\ell}\).</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Typical \(\gamma\)</th><th>30 layers</th><th>Outcome</th></tr></thead>
+      <tbody>
+        <tr><td>0.25 (sigmoid, best case)</td><td>\(10^{-18}\)</td><td>Early layers receive literally nothing. They stay at their init.</td></tr>
+        <tr><td>0.9</td><td>0.04</td><td>Early layers learn 25× slower than late ones.</td></tr>
+        <tr><td>1.0</td><td>1</td><td>Healthy.</td></tr>
+        <tr><td>1.5</td><td>\(1.9\times10^{5}\)</td><td>Exploding. Loss spikes, then NaN.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Diagnose before you fix</h4>
+    <div class="box check"><span class="lbl">Instrument your model</span>
+      <pre style="margin:8px 0 0"><code>def grad_report(model):
+    rows = []
+    for name, p in model.named_parameters():
+        if p.grad is not None:
+            rows.append((name, p.grad.norm().item(), p.norm().item()))
+    for name, gn, wn in rows:
+        # update-to-weight ratio: the single most useful training diagnostic
+        print(f"{name:35s} |g|={gn:.3e}  |w|={wn:.3e}  ratio={gn/(wn+1e-12):.3e}")
+
+total = torch.norm(torch.stack([p.grad.norm() for p in model.parameters()
+                                if p.grad is not None]))
+print("global grad norm:", total.item())</code></pre>
+      <p style="margin-bottom:0">Healthy signs: the ratio \(\eta\lVert g\rVert/\lVert w\rVert\) sits around \(10^{-3}\) for most layers, and gradient norms across layers stay within one or two orders of magnitude of each other. If layer 1's norm is \(10^{-9}\) and layer 30's is \(10^{-2}\), you have your answer.</p>
+    </div>
+    <p>Also plot gradient <em>histograms</em> per layer in TensorBoard or W&amp;B (Day 37). A histogram that is a spike at zero is a dead layer; one with heavy tails is about to explode.</p>
+
+    <h4>Gradient clipping — the exploding half is easy</h4>
+    <p><b>By norm</b> (do this): compute the global norm over all parameters and rescale if it exceeds a threshold. Direction is preserved.</p>
+    \[ \mathbf g \leftarrow \mathbf g\cdot\min\!\left(1,\;\frac{c}{\lVert\mathbf g\rVert_2}\right) \]
+    <pre><code>loss.backward()
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+opt.step()</code></pre>
+    <p><b>By value</b> (rarely): clamp each element independently. This distorts the direction and is generally worse. Use norm clipping with \(c=1.0\) as a default; it is standard in every RNN and LLM training script and costs nothing when gradients are already small.</p>
+
+    <h4>The five real fixes for vanishing</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Fix</th><th>Mechanism</th><th>Lesson</th></tr></thead>
+      <tbody>
+        <tr><td>ReLU-family activations</td><td>Local derivative is 1, not 0.25</td><td>Day 19</td></tr>
+        <tr><td>He initialisation</td><td>Sets \(\gamma\approx1\) at step zero</td><td>Day 25-b</td></tr>
+        <tr><td><b>Residual connections</b></td><td>\(\bar x=\bar y(I+J_F)\) — the identity path carries gradient untouched</td><td>Day 46</td></tr>
+        <tr><td>Normalisation layers</td><td>Rescale activations every layer, so \(\gamma\) cannot drift</td><td>Days 32–33</td></tr>
+        <tr><td>Gating (LSTM/GRU)</td><td>An additive cell state instead of repeated multiplication</td><td>Day 62</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <svg viewBox="0 0 900 240" role="img" aria-label="Plain stacked layers versus a residual block">
+        <text class="svg-ttl" x="20" y="22">WHY THE SKIP CONNECTION CHANGES EVERYTHING</text>
+        <g transform="translate(20,44)">
+          <text class="svg-lbl-b" x="0" y="0">plain</text>
+          <rect x="0" y="16" width="70" height="34" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="24" y="38">layer</text>
+          <rect x="100" y="16" width="70" height="34" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="124" y="38">layer</text>
+          <rect x="200" y="16" width="70" height="34" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="224" y="38">layer</text>
+          <g stroke="#FF7B87" fill="none" marker-end="url(#arr)"><path d="M198 66 L172 66"/><path d="M98 66 L72 66"/><path d="M270 66 L272 66"/></g>
+          <text class="svg-lbl" x="0" y="92" fill="#FF7B87">grad × J₃ × J₂ × J₁ → a product that dies or explodes</text>
+        </g>
+        <g transform="translate(20,150)">
+          <text class="svg-lbl-b" x="0" y="0">residual</text>
+          <rect x="0" y="16" width="70" height="34" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="24" y="38">layer</text>
+          <rect x="100" y="16" width="70" height="34" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="124" y="38">layer</text>
+          <rect x="200" y="16" width="70" height="34" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="224" y="38">layer</text>
+          <path d="M-14 8 C 140 -18, 200 -18, 292 8" stroke="#93D97B" fill="none" stroke-width="2"/>
+          <text class="svg-lbl" x="110" y="-8" fill="#93D97B">identity</text>
+          <text class="svg-lbl" x="0" y="80" fill="#93D97B">grad × (I + J₃)(I + J₂)(I + J₁) → the I terms give a clean path</text>
+        </g>
+        <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#FF7B87"/></marker></defs>
+        <g transform="translate(560,44)">
+          <rect x="0" y="0" width="310" height="150" fill="#0F1822" stroke="#1C2836"/>
+          <text class="svg-lbl-b" x="14" y="24">y = x + F(x)</text>
+          <text class="svg-lbl" x="14" y="48">∂y/∂x = I + ∂F/∂x</text>
+          <text class="svg-lbl" x="14" y="76">Even if ∂F/∂x ≈ 0, the gradient</text>
+          <text class="svg-lbl" x="14" y="94">still passes through as identity.</text>
+          <text class="svg-acc" x="14" y="124">This single line is why 152-layer</text>
+          <text class="svg-acc" x="14" y="142">nets train at all.</text>
+        </g>
+      </svg>
+      <figcaption><b>The fan-out rule from Lesson 22, cashed in.</b> Using \(x\) twice means its gradient is the sum of both paths, and one of those paths is the identity.</figcaption>
+    </figure>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Build a 30-layer MLP with sigmoid and He init. Log per-layer gradient norms after one backward pass and plot on a log axis — you should see a clean exponential decay. Then swap in ReLU, then add residual connections every two layers. Three curves, one plot. This figure explains four separate lessons at once.</p></div>
+  </article>
+<article class="wrap lesson" id="l29">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 27</span><span>Lesson 29</span><span class="rt">35 min</span><a class="permalink" href="../lessons/lesson-029.html">single page ↗</a></div>
+      <h3 class="lesson-title">Batch, Mini-Batch &amp; Stochastic Gradient Descent</h3>
+      <span class="lesson-no">29</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Full-batch vs SGD vs mini-batch</li><li>Gradient noise as implicit regularization</li>
+        <li>Epochs vs steps vs iterations</li><li>Batch size and generalization</li>
+        <li>The linear scaling rule</li><li>Shuffling, and why it matters</li>
+      </ol>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Variant</th><th>Batch</th><th>Per-step cost</th><th>Gradient quality</th><th>Reality</th></tr></thead>
+      <tbody>
+        <tr><td>Full batch</td><td>\(N\)</td><td>Enormous</td><td>Exact</td><td>Impossible past toy scale; also gets stuck in sharp minima</td></tr>
+        <tr><td>Stochastic (SGD)</td><td>1</td><td>Tiny</td><td>Very noisy</td><td>No hardware parallelism. Wastes a GPU entirely</td></tr>
+        <tr><td><b>Mini-batch</b></td><td>32–1024</td><td>One kernel launch</td><td>Noisy but unbiased</td><td>What everyone does. Noise is a feature</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Vocabulary, precisely</h4>
+    <p>One <b>step</b> (= iteration) processes one batch and applies one update. One <b>epoch</b> is a full pass over the data, so \(\lceil N/B\rceil\) steps. Doubling the batch halves the steps per epoch — which is why "train for 50 epochs" is a meaningless instruction without the batch size, and why loss curves should be plotted against steps or tokens, not epochs, when you are comparing runs.</p>
+
+    <h4>Gradient noise is a regulariser, not a defect</h4>
+    <p>The mini-batch gradient is unbiased with covariance roughly \(\Sigma/B\). That noise does three useful things: it lets you escape shallow minima and saddle plateaus, it biases the optimizer towards <em>flat</em> minima (noise makes it hard to sit in a narrow crevice), and flat minima empirically generalise better. Reduce the noise too far — with very large batches — and you lose this for free, which is the standard explanation for the large-batch generalisation gap.</p>
+
+    <h4>The linear scaling rule</h4>
+    <div class="box derive"><span class="lbl">Why LR should scale with batch size</span>
+      <p>Take \(k\) SGD steps with batch \(B\) and rate \(\eta\), versus one step with batch \(kB\) and rate \(\eta'\). If weights barely move over those \(k\) steps, the small-batch path accumulates roughly \(\eta\sum_{j=1}^{k}\nabla L_{B_j}\), while the large-batch step is \(\eta'\cdot\frac{1}{k}\sum_j \nabla L_{B_j}\). They match when</p>
+      \[ \eta' = k\,\eta \]
+      <p style="margin-bottom:0">Hence: <b>multiply the batch size by \(k\), multiply the learning rate by \(k\)</b>. It holds well up to about batch 8k on ImageNet, and it needs a warmup period (Day 29), because the "weights barely move" assumption is badly false in the first few hundred steps. For Adam, \(\sqrt{k}\) is often the better scaling.</p>
+    </div>
+
+    <h4>Batch size, practically</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Consideration</th><th>Guidance</th></tr></thead>
+      <tbody>
+        <tr><td>Throughput</td><td>Powers of two. Bigger is faster per example until the GPU saturates, then flat.</td></tr>
+        <tr><td>Memory</td><td>Activation memory is linear in \(B\). This is usually your ceiling.</td></tr>
+        <tr><td>BatchNorm</td><td>Below ~16 per device, batch statistics get noisy and BN degrades. Use GroupNorm instead (Day 33).</td></tr>
+        <tr><td>Cannot fit the batch you want</td><td>Gradient accumulation — same maths, more steps (Day 39-b).</td></tr>
+        <tr><td>Sensible defaults</td><td>Vision: 128–512. LLM fine-tuning: whatever fits, then accumulate to an effective 0.5–2M tokens.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · not shuffling</span>
+      <p>If your data is sorted by class, unshuffled batches contain one class each. The model swings towards whichever class it just saw, and the loss curve develops a characteristic sawtooth. Set <code>shuffle=True</code>, and reshuffle <em>every</em> epoch — a fixed permutation reused across epochs creates a subtle correlation between batch composition and step count.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Train MNIST at batch sizes 8, 32, 128, 512, 2048 with a fixed LR, then again with the LR scaled linearly. Plot final test accuracy against batch size for both. Then plot wall-clock time to reach 97%. The two curves peak in different places, and that gap is the real batch-size decision.</p></div>
+  </article>
+<article class="wrap lesson" id="l30">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 27-b</span><span>Lesson 30</span><span class="rt">35 min</span><a class="permalink" href="../lessons/lesson-030.html">single page ↗</a></div>
+      <h3 class="lesson-title">The Learning Rate</h3>
+      <span class="lesson-no">30</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Why it is the single most important hyperparameter</li><li>Divergence, oscillation, crawling</li>
+        <li>The LR range test</li><li>Picking LR from the loss-vs-LR curve</li>
+        <li>Per-layer learning rates</li><li>Interaction with batch size and weight decay</li>
+      </ol>
+    </div>
+
+    <p>If you can tune exactly one hyperparameter, tune this one. It routinely swings final accuracy by tens of percent, while architecture choices swing it by ones. Everything else is a rounding error by comparison.</p>
+
+    <h4>The LR range test</h4>
+    <p>Train for a few hundred steps while increasing the LR exponentially from \(10^{-8}\) to \(10\), recording loss at each. Plot loss against LR on a log x-axis. You get a characteristic shape: flat, then descending, then a minimum, then a sharp climb to divergence.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 270" role="img" aria-label="Learning rate range test curve with regions marked">
+        <text class="svg-ttl" x="20" y="22">LR RANGE TEST · READ IT LIKE THIS</text>
+        <line x1="70" y1="210" x2="850" y2="210" stroke="#2A3B4E"/><line x1="70" y1="34" x2="70" y2="210" stroke="#2A3B4E"/>
+        <path d="M78 66 L240 62 C 340 60, 400 100, 470 150 C 520 184, 560 194, 600 196 C 640 198, 665 172, 690 120 L 740 40" fill="none" stroke="#FFB454" stroke-width="2.2"/>
+        <g stroke="#2A3B4E" stroke-dasharray="3 4">
+          <line x1="240" y1="34" x2="240" y2="210"/><line x1="600" y1="34" x2="600" y2="210"/><line x1="660" y1="34" x2="660" y2="210"/>
+        </g>
+        <rect x="470" y="34" width="130" height="176" fill="#FFB454" opacity=".07"/>
+        <g class="svg-lbl">
+          <text x="106" y="230">too small</text><text x="330" y="230">descending</text>
+          <text x="486" y="230" fill="#FFB454">PICK HERE</text><text x="612" y="230" fill="#FF7B87">minimum</text><text x="700" y="230" fill="#FF7B87">diverging</text>
+        </g>
+        <text class="svg-lbl" x="380" y="256">learning rate (log scale) →</text>
+        <text class="svg-lbl" x="20" y="46">loss</text>
+        <circle cx="530" cy="172" r="5" fill="#fff"/>
+        <text class="svg-lbl-b" x="440" y="160">steepest descent, ~10× below the minimum</text>
+      </svg>
+      <figcaption><b>Do not pick the minimum.</b> At the minimum you are already on the edge of instability. Pick roughly an order of magnitude below it, where the curve is descending fastest — that is the largest rate that is still reliably stable.</figcaption>
+    </figure>
+
+    <pre><code>def lr_range_test(model, loader, opt, lo=1e-8, hi=10, steps=300):
+    mult = (hi / lo) ** (1 / steps)
+    lr, losses, lrs, best = lo, [], [], float("inf")
+    for i, (x, y) in enumerate(loader):
+        if i &gt;= steps: break
+        for g in opt.param_groups: g["lr"] = lr
+        opt.zero_grad(); loss = crit(model(x), y); loss.backward(); opt.step()
+        smooth = loss.item() if not losses else 0.95 * losses[-1] + 0.05 * loss.item()
+        losses.append(smooth); lrs.append(lr)
+        if smooth &lt; best: best = smooth
+        if smooth &gt; 4 * best: break        # diverged; stop early
+        lr *= mult
+    return lrs, losses</code></pre>
+
+    <h4>Starting points that are almost always sane</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Setting</th><th>Learning rate</th></tr></thead>
+      <tbody>
+        <tr><td>Adam / AdamW, training from scratch</td><td>\(3\times10^{-4}\)</td></tr>
+        <tr><td>SGD + momentum, CNN from scratch</td><td>0.1 with batch 256, scaled linearly</td></tr>
+        <tr><td>Fine-tuning a pretrained vision backbone</td><td>\(10^{-4}\) to \(10^{-5}\)</td></tr>
+        <tr><td>Full fine-tuning an LLM</td><td>\(10^{-5}\) to \(2\times10^{-5}\)</td></tr>
+        <tr><td>LoRA / QLoRA</td><td>\(1\times10^{-4}\) to \(3\times10^{-4}\) — much higher, because only adapters move</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Reading the symptoms</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>What you see</th><th>What it means</th><th>Do</th></tr></thead>
+      <tbody>
+        <tr><td>NaN within ~50 steps</td><td>Far too high</td><td>Divide by 10, add warmup, clip gradients</td></tr>
+        <tr><td>Loss bounces, no downward trend</td><td>Too high</td><td>Halve it</td></tr>
+        <tr><td>Loss falls fast, then plateaus high</td><td>Was right, now too high for this stage</td><td>Add a decay schedule (Day 29)</td></tr>
+        <tr><td>Loss falls smoothly but painfully slowly</td><td>Too low</td><td>Multiply by 3</td></tr>
+        <tr><td>Fine for 1000 steps, then a spike</td><td>Hit a sharp region</td><td>Clip gradients; consider a lower peak LR</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Per-layer rates</h4>
+    <p>When fine-tuning, early layers hold general features you want to preserve and late layers hold task-specific ones you want to change. Give them different rates:</p>
+    <pre><code>opt = torch.optim.AdamW([
+    {"params": model.backbone.parameters(), "lr": 1e-5},
+    {"params": model.head.parameters(),     "lr": 1e-3},
+], weight_decay=1e-2)</code></pre>
+    <p>Discriminative fine-tuning generalises this to a geometric decay across depth, typically a factor of 2.6 per layer group. Full treatment on Day 40.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · LR and weight decay are coupled</span>
+      <p>In plain SGD, L2 regularisation enters the update as \(\eta\lambda w\) — so changing the learning rate changes the effective regularisation strength. Tune them together, or use AdamW, whose decoupled decay makes them independent (Day 28-b).</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Run the range test on your MNIST model. Pick the LR it suggests, and also pick 10× and 0.1×. Train all three for 10 epochs and plot the curves together. Then repeat with Adam instead of SGD and notice how much flatter Adam's usable range is — that flatness is exactly why Adam is the default for people who do not want to tune.</p></div>
+  </article>
+<article class="wrap lesson" id="l31">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 28</span><span>Lesson 31</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-031.html">single page ↗</a></div>
+      <h3 class="lesson-title">Optimizers I — Momentum &amp; Adaptive Methods</h3>
+      <span class="lesson-no">31</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Plain SGD's limits: ravines, plateaus</li><li>Classical momentum, the ball-rolling picture</li>
+        <li>Nesterov accelerated gradient</li><li>AdaGrad and its accumulating denominator</li>
+        <li>RMSProp</li><li>AdaDelta</li><li>Per-parameter learning rates</li>
+        <li>Side-by-side convergence</li>
+      </ol>
+    </div>
+
+    <div class="demo" id="d-opt">
+      <div class="demo-head"><span class="dot"></span><b>Optimizer race</b> · same start, same surface, five algorithms</div>
+      <div class="demo-body">
+        <canvas id="optCv" width="760" height="420" aria-label="Optimizer trajectories on a loss surface"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Surface</span>
+            <select id="optFn">
+              <option value="ravine" selected>ill-conditioned ravine</option>
+              <option value="beale">Beale (hard)</option>
+              <option value="saddle">saddle point</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Base LR <b id="optLrv">0.020</b></span><input type="range" id="optLr" min="-3.2" max="-0.4" step="0.05" value="-1.7"></label>
+          <button class="btn primary" id="optRun">Race</button>
+          <button class="btn" id="optClr">Clear</button>
+        </div>
+        <div class="readout" id="optOut"></div>
+      </div>
+    </div>
+
+    <h4>Momentum</h4>
+    <p>Plain SGD in an ill-conditioned valley oscillates across the steep walls while inching along the shallow floor. Momentum accumulates a velocity, so the oscillating components cancel and the consistent component accumulates:</p>
+    \[ \mathbf v_{t}=\beta\mathbf v_{t-1}+\nabla L(\theta_t),\qquad \theta_{t+1}=\theta_t-\eta\,\mathbf v_t \]
+    <p>With \(\beta=0.9\), the effective step for a constant gradient is \(\eta/(1-\beta)=10\eta\) — <b>a tenfold speedup along consistent directions, at no extra cost.</b> The physical picture is a heavy ball rolling downhill: it does not turn on a dime, which is exactly the property that damps the oscillation.</p>
+
+    <h4>Nesterov</h4>
+    <p>Evaluate the gradient at the point momentum is about to take you, rather than where you are:</p>
+    \[ \mathbf v_t=\beta\mathbf v_{t-1}+\nabla L(\theta_t-\eta\beta\mathbf v_{t-1}),\qquad \theta_{t+1}=\theta_t-\eta\mathbf v_t \]
+    <p>A look-ahead correction. If the gradient is about to reverse, Nesterov sees it one step early and brakes. Modest but consistent gains; free in PyTorch via <code>nesterov=True</code>.</p>
+
+    <h4>The adaptive family</h4>
+    <p>The idea: some parameters see large, frequent gradients and some see small, rare ones (think embeddings of common versus rare words). One global rate cannot suit both. Give each parameter its own effective rate, scaled by its gradient history.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Method</th><th>Accumulator</th><th>Update</th><th>Problem it has</th></tr></thead>
+      <tbody>
+        <tr><td>AdaGrad</td><td>\(G_t=G_{t-1}+g_t^2\) (sum, forever)</td><td>\(\theta \mathrel{-}= \frac{\eta}{\sqrt{G_t}+\varepsilon}g_t\)</td><td>\(G\) only grows → LR decays to zero → training stops early</td></tr>
+        <tr><td>RMSProp</td><td>\(E_t=\rho E_{t-1}+(1-\rho)g_t^2\) (EMA)</td><td>\(\theta \mathrel{-}= \frac{\eta}{\sqrt{E_t}+\varepsilon}g_t\)</td><td>Fixes AdaGrad. No bias correction early on</td></tr>
+        <tr><td>AdaDelta</td><td>EMA of \(g^2\) <em>and</em> of \(\Delta\theta^2\)</td><td>units cancel; no \(\eta\) needed</td><td>Elegant, rarely used in practice</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box intuition"><span class="lbl">One change, one fix</span>
+      <p style="margin-bottom:0">AdaGrad → RMSProp is a single edit: replace a running <em>sum</em> with an exponential moving <em>average</em>. That one change turns "learning rate inevitably decays to zero" into "learning rate adapts to the recent past". Almost every optimizer improvement in this course is a similarly small structural edit — which is why reading the update rules is more useful than reading the papers' abstracts.</p>
+    </div>
+
+    <pre><code># momentum, by hand -- so you know what opt.step() is doing
+v = [torch.zeros_like(p) for p in params]
+for t in range(steps):
+    grads = compute_grads()
+    for i, (p, g) in enumerate(zip(params, grads)):
+        v[i] = beta * v[i] + g
+        p.data -= lr * v[i]
+
+# RMSProp, by hand
+sq = [torch.zeros_like(p) for p in params]
+for t in range(steps):
+    grads = compute_grads()
+    for i, (p, g) in enumerate(zip(params, grads)):
+        sq[i] = rho * sq[i] + (1 - rho) * g * g
+        p.data -= lr * g / (sq[i].sqrt() + 1e-8)</code></pre>
+
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement SGD, momentum, Nesterov, AdaGrad and RMSProp from scratch and race them on \(f(x,y)=x^2+50y^2\) from \((-8,3)\). Plot the trajectories over contours and the loss-vs-step curves. Then race them on the Rosenbrock function and watch the ordering change — no optimizer wins everywhere.</p></div>
+  </article>
+<article class="wrap lesson" id="l32">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 28-b</span><span>Lesson 32</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-032.html">single page ↗</a></div>
+      <h3 class="lesson-title">Optimizers II — Adam and Modern Successors</h3>
+      <span class="lesson-no">32</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Adam's first and second moments</li><li>Bias correction, derived</li>
+        <li>β₁, β₂, ε</li><li>The Adam-vs-SGD generalization debate</li>
+        <li>AdamW and decoupled weight decay</li><li>RAdam, LAMB, Adafactor, Lion, Sophia, Muon, Shampoo</li>
+        <li>Memory cost of optimizer states</li>
+      </ol>
+    </div>
+
+    <h4>Adam = momentum + RMSProp + a correction</h4>
+    \[
+    \begin{aligned}
+    \mathbf m_t &= \beta_1\mathbf m_{t-1}+(1-\beta_1)\mathbf g_t && \text{first moment (momentum)}\\
+    \mathbf v_t &= \beta_2\mathbf v_{t-1}+(1-\beta_2)\mathbf g_t^2 && \text{second moment (RMSProp)}\\
+    \hat{\mathbf m}_t &= \frac{\mathbf m_t}{1-\beta_1^{t}},\qquad \hat{\mathbf v}_t = \frac{\mathbf v_t}{1-\beta_2^{t}} && \text{bias correction}\\
+    \theta_{t+1} &= \theta_t-\eta\,\frac{\hat{\mathbf m}_t}{\sqrt{\hat{\mathbf v}_t}+\varepsilon}
+    \end{aligned}
+    \]
+
+    <div class="box derive"><span class="lbl">Why bias correction is needed</span>
+      <p>\(\mathbf m_0=\mathbf 0\). Unrolling the EMA with a constant gradient \(g\):</p>
+      \[ m_t=(1-\beta_1)\sum_{i=1}^{t}\beta_1^{t-i}g = g\left(1-\beta_1^{t}\right) \]
+      <p>At \(t=1\) with \(\beta_1=0.9\), \(m_1=0.1g\) — a tenfold underestimate. Worse for \(v\): with \(\beta_2=0.999\), \(v_1=0.001g^2\), so \(\sqrt{v_1}\approx0.032\lvert g\rvert\) and the raw step would be roughly \(31\eta\). Dividing by \((1-\beta^t)\) removes the bias exactly, and the factor decays to 1 as \(t\) grows. <b>Without it, Adam's first few hundred steps are wildly oversized</b> — which is also why warmup helps even when bias correction is present.</p>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Hyper</th><th>Default</th><th>What it controls</th><th>When to change</th></tr></thead>
+      <tbody>
+        <tr><td>\(\beta_1\)</td><td>0.9</td><td>Momentum horizon (~10 steps)</td><td>0.95 for very large batches</td></tr>
+        <tr><td>\(\beta_2\)</td><td>0.999</td><td>Variance horizon (~1000 steps)</td><td>0.95 for LLM training — reacts faster to loss spikes</td></tr>
+        <tr><td>\(\varepsilon\)</td><td>\(10^{-8}\)</td><td>Denominator floor</td><td>\(10^{-6}\) or \(10^{-4}\) in fp16/bf16, where \(10^{-8}\) underflows</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>AdamW — the fix everyone needs</h4>
+    <div class="box derive"><span class="lbl">Why weight_decay in Adam is wrong</span>
+      <p>L2 regularisation adds \(\lambda\theta\) to the gradient. In Adam that term then passes through the adaptive denominator:</p>
+      \[ \theta \mathrel{-}= \eta\frac{\hat m_t(\mathbf g+\lambda\theta)}{\sqrt{\hat v_t}+\varepsilon} \]
+      <p>So parameters with large historical gradients get a <em>small</em> denominator-scaled decay, and rarely-updated parameters get a large one. The regularisation strength becomes an accident of gradient history — the opposite of what you want. AdamW decouples it:</p>
+      \[ \theta_{t+1}=\theta_t-\eta\left(\frac{\hat{\mathbf m}_t}{\sqrt{\hat{\mathbf v}_t}+\varepsilon}+\lambda\theta_t\right) \]
+      <p style="margin-bottom:0"><b>Use AdamW. Always.</b> It is the default for every transformer trained since 2018. And exclude biases and normalisation parameters from decay — shrinking a LayerNorm gain towards zero is actively harmful.</p>
+    </div>
+
+    <pre><code>decay, no_decay = [], []
+for name, p in model.named_parameters():
+    if not p.requires_grad: continue
+    if p.ndim &lt; 2 or "bias" in name or "norm" in name.lower():
+        no_decay.append(p)          # biases, LayerNorm/BatchNorm gains, embeddings-ish
+    else:
+        decay.append(p)             # weight matrices only
+
+opt = torch.optim.AdamW([
+    {"params": decay,    "weight_decay": 0.1},
+    {"params": no_decay, "weight_decay": 0.0},
+], lr=3e-4, betas=(0.9, 0.95), eps=1e-8)</code></pre>
+
+    <h4>The Adam-vs-SGD debate, settled as far as it can be</h4>
+    <p>Well-tuned SGD with momentum still edges out Adam on ImageNet-style CNN classification, by a few tenths of a percent. Adam wins essentially everywhere else — transformers, GANs, RL, anything with sparse gradients or wildly different parameter scales — and it wins enormously on <em>tuning effort</em>, because its usable LR range is much wider. Practically: <b>AdamW by default; SGD+momentum if you are chasing a CNN leaderboard number and have budget to tune.</b></p>
+
+    <h4>Memory cost — the number that decides what you can train</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Optimizer</th><th>State per parameter</th><th>Bytes/param (fp32)</th><th>For a 7B model</th></tr></thead>
+      <tbody>
+        <tr><td>SGD</td><td>none</td><td>4 (weights only)</td><td>28 GB</td></tr>
+        <tr><td>SGD + momentum</td><td>\(v\)</td><td>8</td><td>56 GB</td></tr>
+        <tr><td><b>Adam / AdamW</b></td><td>\(m\), \(v\)</td><td>12</td><td><b>84 GB</b> — before gradients or activations</td></tr>
+        <tr><td>Adafactor</td><td>factored second moment</td><td>~4.1</td><td>~29 GB</td></tr>
+        <tr><td>8-bit Adam</td><td>quantised \(m\), \(v\)</td><td>6</td><td>42 GB</td></tr>
+      </tbody>
+    </table></div>
+    <p>Adam triples your memory footprint. This single table explains ZeRO/FSDP optimizer sharding (Day 94), Adafactor's existence, 8-bit optimizers, and much of why LoRA (Day 84-b) is such a large win — with only adapters trainable, the optimizer state shrinks by a factor of a hundred or more.</p>
+
+    <h4>The modern zoo, in one line each</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Optimizer</th><th>Idea</th><th>Use it when</th></tr></thead>
+      <tbody>
+        <tr><td>RAdam</td><td>Rectifies the early-variance problem; acts like built-in warmup</td><td>You cannot be bothered to tune warmup</td></tr>
+        <tr><td>LAMB</td><td>Layer-wise trust-ratio scaling on top of Adam</td><td>Very large batch training (BERT in 76 minutes)</td></tr>
+        <tr><td>Adafactor</td><td>Factorises the second moment into row and column stats</td><td>Memory-bound training; T5 used it</td></tr>
+        <tr><td>Lion</td><td>Sign of a momentum-interpolated gradient; one state tensor</td><td>Memory savings; needs ~10× smaller LR and higher decay</td></tr>
+        <tr><td>Sophia</td><td>Cheap diagonal Hessian estimate as a preconditioner</td><td>LLM pretraining; roughly 2× step efficiency claimed</td></tr>
+        <tr><td>Shampoo / Muon</td><td>Full or approximate matrix preconditioning per layer</td><td>Frontier-scale training where the extra compute pays for itself</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box intuition"><span class="lbl">What to actually do</span>
+      <p style="margin-bottom:0">Use AdamW with \(\eta=3\times10^{-4}\), \(\beta=(0.9,0.95)\), decay 0.1 on weight matrices only, plus warmup and cosine decay (Day 29). That configuration trains essentially everything in Phases 4–7. Change it only when you have a measured reason.</p>
+    </div>
+    <div class="box exercise"><span class="lbl">Exercise</span><p>Implement Adam from scratch in ~15 lines and verify it matches <code>torch.optim.Adam</code> step for step on a small problem (same seed, same data, compare parameters after 100 steps to \(10^{-6}\)). Then delete the bias correction and plot the first 50 steps of both — the difference will be dramatic and will make the derivation above permanent.</p></div>
+  </article>
+  <section class="wrap"><div class="pager"><a id="prevLink" href="phase-1.html" rel="prev"><span class="dir">← Previous phase</span><span class="ttl">Math, Python &amp; Tooling Foundations</span></a><a id="nextLink" class="nx" href="phase-3.html" rel="next"><span class="dir">Next phase →</span><span class="ttl">Training Deep Networks Well</span></a></div></section>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"../", current:0, phase:"p2", mode:"phase" };</script>
+<script src="../assets/site.js"></script>
+<script src="../assets/demos.js"></script>
+</body>
+</html>

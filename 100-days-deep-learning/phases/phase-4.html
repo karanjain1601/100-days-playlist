@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 4 — CNNs & Computer Vision | 100 Days of Deep Learning</title>
+<meta name="description" content="Phase 4 of 100 Days of Deep Learning: CNNs & Computer Vision. 19 lessons, days 41–56, 16h 10m of video.">
+<script>window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true,
+    tags: 'none',
+    macros: {
+      R: '\\mathbb{R}',
+      E: '\\mathbb{E}',
+      T: '^{\\mathsf{T}}',
+      d: '\\mathrm{d}',
+      softmax: '\\operatorname{softmax}',
+      relu: '\\operatorname{ReLU}',
+      diag: '\\operatorname{diag}',
+      argmin: '\\operatorname*{arg\\,min}',
+      argmax: '\\operatorname*{arg\\,max}'
+    }
+  },
+  options: {
+    skipHtmlTags: ['script','noscript','style','textarea','pre','code'],
+    ignoreHtmlClass: 'no-mathjax'
+  },
+  svg: { fontCache: 'global', scale: 1.0 },
+  startup: {
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        document.documentElement.classList.add('math-ready');
+      });
+    }
+  }
+};</script>
+<script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+
+/* ============================================================
+   100 DAYS OF DEEP LEARNING — "lab notebook on blueprint stock"
+   Palette: deep plot-background blue-black, amber = the learning
+   signal (loss, gradients, things that move), cyan = structure
+   (shapes, tensors, dimensions), green = verified, coral = pitfall.
+   ============================================================ */
+:root{
+  --ink:      #070C12;
+  --ink-2:    #0A1119;
+  --slate:    #0F1822;
+  --slate-2:  #14202C;
+  --rule:     #1C2836;
+  --rule-2:   #2A3B4E;
+  --chalk:    #DCE6F0;
+  --chalk-dim:#B9C7D6;
+  --mute:     #8095AA;
+  --signal:   #FFB454;
+  --signal-d: #C97F1E;
+  --tensor:   #5BC8E6;
+  --tensor-d: #2E8AA6;
+  --verify:   #93D97B;
+  --warn:     #FF7B87;
+  --violet:   #B79CFF;
+  --grid:     rgba(91,200,230,0.045);
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sidebar-w: 310px;
+  --measure: 74ch;
+  --r: 3px;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; scroll-padding-top:84px; -webkit-text-size-adjust:100%; }
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
+  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
+body{
+  margin:0;
+  background-color:var(--ink);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:34px 34px;
+  background-attachment:fixed;
+  color:var(--chalk);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.72;
+  overflow-wrap:break-word;
+}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px;
+  background:rgba(7,12,18,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.brand{
+  font-family:var(--mono); font-size:.74rem; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--signal); white-space:nowrap;
+}
+.brand b{ color:var(--chalk); font-weight:600; }
+.topbar .spacer{ flex:1; }
+.progress-strip{
+  flex:1; height:5px; max-width:420px;
+  background:var(--slate); border:1px solid var(--rule); border-radius:99px; overflow:hidden;
+  display:none;
+}
+@media (min-width:1100px){ .progress-strip{ display:block; } }
+.progress-strip i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--tensor),var(--signal)); transition:width .18s linear; }
+.iconbtn{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--slate); color:var(--chalk-dim); border:1px solid var(--rule-2);
+  padding:7px 11px; border-radius:var(--r); cursor:pointer;
+}
+.iconbtn:hover{ border-color:var(--signal); color:var(--signal); }
+#navToggle{ display:inline-block; }
+@media (min-width:1000px){ #navToggle{ display:none; } }
+
+/* ---------- layout ---------- */
+.shell{ display:block; }
+@media (min-width:1000px){
+  .shell{ display:grid; grid-template-columns:var(--sidebar-w) minmax(0,1fr); align-items:start; }
+}
+
+/* ---------- sidebar ---------- */
+.sidebar{
+  position:fixed; inset:0 auto 0 0; z-index:70;
+  width:min(88vw,340px);
+  background:var(--ink-2); border-right:1px solid var(--rule);
+  transform:translateX(-102%); transition:transform .22s ease;
+  display:flex; flex-direction:column;
+}
+.sidebar.open{ transform:none; }
+@media (min-width:1000px){
+  .sidebar{ position:sticky; top:47px; height:calc(100vh - 47px); width:auto; transform:none; background:transparent; }
+}
+.sidebar-head{ padding:16px 16px 10px; border-bottom:1px solid var(--rule); }
+.searchbox{
+  width:100%; font-family:var(--mono); font-size:.82rem;
+  background:var(--slate); border:1px solid var(--rule-2); color:var(--chalk);
+  padding:9px 11px; border-radius:var(--r);
+}
+.searchbox::placeholder{ color:var(--mute); }
+.searchbox:focus{ outline:2px solid var(--tensor-d); outline-offset:1px; border-color:var(--tensor); }
+.sidehint{ font-family:var(--mono); font-size:.66rem; letter-spacing:.09em; color:var(--mute); text-transform:uppercase; margin-top:9px; display:block; }
+.navscroll{ overflow-y:auto; padding:10px 8px 60px; flex:1; scrollbar-width:thin; }
+.navphase{ margin:14px 0 4px; }
+.navphase > .ph{
+  display:flex; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mute); padding:6px 10px; border-top:1px solid var(--rule);
+}
+.navphase > .ph .n{ color:var(--tensor); }
+.navphase > .ph .done{ margin-left:auto; color:var(--signal-d); letter-spacing:.05em; }
+a.navlink{
+  display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:baseline;
+  padding:5px 10px; border-radius:var(--r);
+  color:var(--chalk-dim); text-decoration:none; font-family:var(--sans); font-size:.83rem; line-height:1.35;
+}
+a.navlink .day{ font-family:var(--mono); font-size:.68rem; color:var(--mute); letter-spacing:.02em; }
+a.navlink:hover{ background:var(--slate); color:var(--chalk); }
+a.navlink:hover .day{ color:var(--signal); }
+a.navlink.active{ background:var(--slate-2); color:var(--signal); box-shadow:inset 2px 0 0 var(--signal); }
+a.navlink.stub{ opacity:.55; }
+a.navlink.stub .day::after{ content:" ·"; color:var(--rule-2); }
+.navempty{ font-family:var(--mono); font-size:.75rem; color:var(--mute); padding:14px 12px; }
+.scrim{ position:fixed; inset:0; background:rgba(3,6,10,.65); z-index:65; display:none; }
+.scrim.on{ display:block; }
+@media (min-width:1000px){ .scrim{ display:none !important; } }
+
+/* ---------- main column ---------- */
+main{ padding:0 clamp(16px,4vw,54px) 140px; min-width:0; }
+.wrap{ max-width:var(--measure); margin:0 auto; }
+.wide{ max-width:1040px; margin:0 auto; }
+
+/* ---------- hero ---------- */
+.hero{ padding:54px 0 26px; }
+.eyebrow{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--tensor); margin:0 0 14px;
+}
+h1{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.035em; line-height:1.02;
+  font-size:clamp(2.2rem,6.2vw,4rem); margin:0 0 18px; color:#fff;
+}
+h1 em{ font-style:normal; color:var(--signal); }
+.lede{ font-size:1.12rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 26px; }
+.statrow{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 30px; padding:0; list-style:none; }
+.statrow li{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--rule-2); background:var(--slate); color:var(--mute);
+  padding:6px 11px; border-radius:var(--r);
+}
+.statrow li b{ color:var(--signal); font-weight:600; }
+
+/* ---------- headings ---------- */
+h2.phase{
+  font-family:var(--sans); font-weight:800; letter-spacing:-.025em;
+  font-size:clamp(1.6rem,3.6vw,2.4rem); color:#fff; margin:0 0 6px;
+}
+.phase-head{ padding:64px 0 10px; border-top:1px solid var(--rule); margin-top:60px; }
+.phase-head .meta{ font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.phase-head p{ color:var(--chalk-dim); max-width:64ch; }
+
+.lesson{ padding-top:46px; }
+.lesson-head{
+  position:relative; border-top:1px solid var(--rule-2);
+  padding:16px 0 10px; margin-bottom:6px;
+}
+.lesson-head .tags{
+  display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline;
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.lesson-head .tags .day{ color:var(--signal); }
+.lesson-head .tags .rt{ color:var(--tensor); }
+h3.lesson-title{
+  font-family:var(--sans); font-weight:700; letter-spacing:-.02em; line-height:1.14;
+  font-size:clamp(1.35rem,3vw,1.95rem); color:#fff; margin:8px 0 0;
+}
+.lesson-no{
+  position:absolute; right:0; top:6px;
+  font-family:var(--mono); font-size:2.4rem; font-weight:700; color:var(--rule-2);
+  letter-spacing:-.04em; user-select:none; pointer-events:none;
+}
+h4{ font-family:var(--sans); font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:var(--tensor); margin:30px 0 8px; }
+h5{ font-family:var(--mono); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin:22px 0 6px; }
+p{ margin:0 0 14px; }
+main a{ color:var(--tensor); text-decoration-color:var(--tensor-d); text-underline-offset:2px; }
+
+/* ---------- chapter list (= youtube timestamps) ---------- */
+.chapters{ margin:14px 0 22px; padding:14px 16px; background:var(--slate); border:1px solid var(--rule); border-left:2px solid var(--signal-d); border-radius:var(--r); }
+.chapters > span{ font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; color:var(--mute); }
+.chapters ol{ margin:8px 0 0; padding:0; list-style:none; counter-reset:ch; column-gap:26px; }
+@media (min-width:760px){ .chapters ol.two{ columns:2; } }
+.chapters li{
+  counter-increment:ch; font-family:var(--sans); font-size:.86rem; line-height:1.5;
+  color:var(--chalk-dim); padding-left:30px; position:relative; margin-bottom:4px;
+  break-inside:avoid;
+}
+.chapters li::before{
+  content:counter(ch,decimal-leading-zero); position:absolute; left:0; top:0;
+  font-family:var(--mono); font-size:.7rem; color:var(--signal-d);
+}
+
+/* ---------- callouts ---------- */
+.box{ border:1px solid var(--rule-2); border-left-width:2px; background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:18px 0; }
+.box > .lbl{ display:block; font-family:var(--mono); font-size:.66rem; letter-spacing:.15em; text-transform:uppercase; margin-bottom:7px; }
+.box p:last-child, .box ul:last-child, .box ol:last-child{ margin-bottom:0; }
+.box.pitfall{ border-left-color:var(--warn); } .box.pitfall > .lbl{ color:var(--warn); }
+.box.derive{ border-left-color:var(--tensor); } .box.derive > .lbl{ color:var(--tensor); }
+.box.intuition{ border-left-color:var(--violet); } .box.intuition > .lbl{ color:var(--violet); }
+.box.exercise{ border-left-color:var(--signal); } .box.exercise > .lbl{ color:var(--signal); }
+.box.check{ border-left-color:var(--verify); } .box.check > .lbl{ color:var(--verify); }
+
+/* ---------- shape strip: the recurring visual vocabulary ---------- */
+.shapes{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-family:var(--mono); font-size:.75rem; }
+.shapes .dim{
+  background:var(--slate-2); border:1px solid var(--tensor-d); color:var(--tensor);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.shapes .dim small{ color:var(--mute); font-size:.85em; }
+.shapes .op{ color:var(--mute); padding:0 2px; }
+.shapes .out{ border-color:var(--signal-d); color:var(--signal); }
+
+/* ---------- tables ---------- */
+.tablewrap{ overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:var(--r); }
+table{ border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.86rem; background:var(--slate); }
+th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); background:var(--ink-2); white-space:nowrap; }
+tbody tr:last-child td{ border-bottom:0; }
+td code{ white-space:nowrap; }
+
+/* ---------- code ---------- */
+pre{
+  background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r);
+  padding:14px 16px; overflow-x:auto; margin:16px 0;
+  font-family:var(--mono); font-size:.8rem; line-height:1.62; color:var(--chalk-dim);
+  tab-size:4;
+}
+pre::-webkit-scrollbar{ height:9px; }
+pre::-webkit-scrollbar-thumb{ background:var(--rule-2); border-radius:99px; }
+code{ font-family:var(--mono); font-size:.86em; }
+p code, li code, td code{ background:var(--slate-2); border:1px solid var(--rule); padding:.5px 5px; border-radius:var(--r); color:var(--tensor); }
+.tok-kw{ color:var(--signal); } .tok-str{ color:var(--verify); } .tok-com{ color:#5A6B7D; font-style:italic; }
+.tok-num{ color:var(--violet); } .tok-fn{ color:var(--tensor); } .tok-dec{ color:var(--warn); }
+
+/* ---------- figures / svg diagrams ---------- */
+figure{ margin:24px 0; }
+figure svg{ display:block; width:100%; height:auto; background:var(--ink-2); border:1px solid var(--rule); border-radius:var(--r); }
+figcaption{ font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; color:var(--mute); margin-top:8px; line-height:1.55; }
+figcaption b{ color:var(--chalk-dim); font-weight:600; }
+.svg-lbl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#8095AA; }
+.svg-lbl-b{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#DCE6F0; }
+.svg-acc{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#FFB454; }
+.svg-cy{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; fill:#5BC8E6; }
+.svg-ttl{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; letter-spacing:.12em; fill:#8095AA; }
+
+/* ---------- demos ---------- */
+.demo{ margin:26px 0; border:1px solid var(--rule-2); border-radius:var(--r); background:var(--slate); overflow:hidden; }
+.demo-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--ink-2); border-bottom:1px solid var(--rule);
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--mute);
+}
+.demo-head .dot{ width:7px; height:7px; border-radius:99px; background:var(--signal); box-shadow:0 0 8px var(--signal); }
+.demo-head b{ color:var(--chalk); font-weight:600; letter-spacing:.1em; }
+.demo-body{ padding:14px; }
+.demo canvas{ display:block; width:100%; height:auto; background:var(--ink); border:1px solid var(--rule); border-radius:var(--r); touch-action:none; }
+.ctrls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:12px; }
+.ctrl{ display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+.ctrl > span b{ color:var(--signal); font-weight:600; }
+.ctrl input[type=range]{ width:150px; accent-color:var(--signal); }
+.ctrl select, .ctrl input[type=number]{
+  font-family:var(--mono); font-size:.76rem; background:var(--ink-2); color:var(--chalk);
+  border:1px solid var(--rule-2); border-radius:var(--r); padding:5px 7px; text-transform:none; letter-spacing:0;
+}
+.btn{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+  background:var(--slate-2); color:var(--chalk); border:1px solid var(--rule-2);
+  padding:8px 13px; border-radius:var(--r); cursor:pointer;
+}
+.btn:hover{ border-color:var(--signal); color:var(--signal); }
+.btn.primary{ border-color:var(--signal-d); color:var(--signal); }
+.readout{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-dim); margin-top:10px; line-height:1.7; }
+.readout b{ color:var(--signal); }
+.readout .k{ color:var(--mute); }
+.grid2{ display:grid; gap:14px; grid-template-columns:1fr; }
+@media (min-width:780px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+/* ---------- roadmap cards (phases with syllabus only) ---------- */
+.rm{ border:1px solid var(--rule); border-left:2px solid var(--tensor-d); background:var(--slate); border-radius:var(--r); padding:14px 16px; margin:14px 0; }
+.rm .rmhead{ display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rm .rmhead .day{ color:var(--signal); }
+.rm .rmhead .rt{ color:var(--tensor); margin-left:auto; }
+.rm h4{ margin:6px 0 8px; color:#fff; font-size:1rem; }
+.rm ul{ margin:0; padding-left:18px; font-family:var(--sans); font-size:.84rem; color:var(--chalk-dim); line-height:1.55; }
+.rm ul li{ margin-bottom:3px; }
+
+/* ---------- misc ---------- */
+ul,ol{ margin:0 0 14px; padding-left:22px; }
+li{ margin-bottom:6px; }
+hr.soft{ border:0; border-top:1px solid var(--rule); margin:34px 0; }
+.kbd{ font-family:var(--mono); font-size:.72rem; border:1px solid var(--rule-2); border-bottom-width:2px; background:var(--slate-2); padding:1px 6px; border-radius:var(--r); color:var(--chalk-dim); }
+footer{ border-top:1px solid var(--rule); margin-top:70px; padding:28px 0; font-family:var(--mono); font-size:.72rem; color:var(--mute); line-height:1.8; }
+:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:2px; }
+.skip{ position:absolute; left:-9999px; }
+.skip:focus{ left:12px; top:12px; z-index:200; background:var(--signal); color:#000; padding:8px 12px; font-family:var(--mono); font-size:.75rem; }
+mjx-container[jax="SVG"]{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
+mjx-container[jax="SVG"][display="true"]{ margin:16px 0 !important; padding:2px 0; }
+.tick{ display:inline-block; width:1.4em; color:var(--verify); }
+.cross{ display:inline-block; width:1.4em; color:var(--warn); }
+
+/* ============ multi-page chrome ============ */
+.crumb{ font-family:var(--mono); font-size:.68rem; letter-spacing:.05em; color:var(--mute);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.crumb b{ color:var(--signal); font-weight:600; }
+.crumb a{ color:var(--mute); text-decoration:none; }
+.crumb a:hover{ color:var(--chalk); }
+.topbar .brand{ text-decoration:none; }
+.pagernav{ display:flex; gap:6px; }
+.pagernav a{ text-decoration:none; }
+.pagernav a[aria-disabled="true"]{ opacity:.28; pointer-events:none; }
+
+.pager{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:52px 0 8px; }
+.pager a, .pager span{ display:block; padding:16px 18px; border:1px solid var(--rule);
+        background:var(--slate); text-decoration:none; transition:border-color .15s, background .15s; }
+.pager a:hover{ border-color:var(--signal-d); background:var(--slate-2); }
+.pager .dir{ display:block; font-family:var(--mono); font-size:.63rem; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--mute); margin-bottom:7px; }
+.pager .ttl{ display:block; font-family:var(--sans); font-weight:600; color:var(--chalk);
+        font-size:.95rem; line-height:1.35; letter-spacing:-.01em; }
+.pager .nx{ text-align:right; }
+.pager .off{ border-style:dashed; opacity:.3; }
+@media (max-width:640px){ .pager{ grid-template-columns:1fr; } .pager .nx{ text-align:left; } }
+
+.phasecard{ margin:0 0 46px; }
+.phasecard .pmeta{ font-family:var(--mono); font-size:.68rem; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--signal); margin:0 0 6px; }
+.phasecard h3{ font-family:var(--sans); font-size:1.45rem; font-weight:800; letter-spacing:-.028em;
+        color:var(--chalk); margin:0 0 8px; }
+.phasecard .pintro{ color:var(--chalk-dim); max-width:64ch; margin:0 0 18px; }
+.lgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(292px,1fr)); gap:9px; }
+.lcard{ display:block; text-decoration:none; border:1px solid var(--rule); background:var(--slate);
+        padding:13px 15px; transition:border-color .14s, background .14s, transform .14s; }
+.lcard:hover{ border-color:var(--signal-d); background:var(--slate-2); transform:translateY(-1px); }
+.lcard .lmeta{ display:flex; gap:9px; align-items:center; font-family:var(--mono); font-size:.63rem;
+        letter-spacing:.1em; color:var(--mute); margin-bottom:6px; }
+.lcard .lmeta .d{ color:var(--tensor); }
+.lcard .lmeta .r{ margin-left:auto; }
+.lcard .lt{ font-family:var(--sans); font-size:.92rem; font-weight:600; color:var(--chalk);
+        line-height:1.35; letter-spacing:-.012em; }
+.lcard.written .lmeta .d{ color:var(--signal); }
+.lcard.todo{ opacity:.72; }
+.lcard.todo .lt{ color:var(--chalk-dim); font-weight:500; }
+.badge{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--mute); padding:1px 6px; }
+.badge.on{ border-color:var(--signal-d); color:var(--signal); }
+.stubnote{ border:1px dashed var(--rule-2); background:var(--slate); padding:22px 24px; margin:26px 0; }
+.stubnote p{ margin:0; color:var(--chalk-dim); }
+a.navlink.active{ background:var(--slate-2); border-left-color:var(--signal); color:var(--chalk); }
+.navphase.here .ph{ color:var(--signal); }
+
+/* ---- phase pages ---- */
+.phasehero{ border-bottom:1px solid var(--rule); padding-bottom:30px; margin-bottom:8px; }
+.phasehero .pnum{ font-family:var(--mono); font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+        color:var(--signal); margin:0 0 10px; }
+.phasehero h1{ font-family:var(--sans); font-size:clamp(1.9rem,4.4vw,3rem); font-weight:800;
+        letter-spacing:-.035em; line-height:1.05; color:var(--chalk); margin:0 0 14px; }
+.phasehero .plede{ font-size:1.06rem; color:var(--chalk-dim); max-width:62ch; margin:0 0 20px; }
+.phasehero .statrow{ margin:0; }
+.toc{ border:1px solid var(--rule); background:var(--slate); padding:20px 22px; margin:26px 0 10px; }
+.toc .tlbl{ font-family:var(--mono); font-size:.63rem; letter-spacing:.18em; text-transform:uppercase;
+        color:var(--mute); display:block; margin-bottom:12px; }
+.toc ol{ list-style:none; margin:0; padding:0; columns:2; column-gap:26px; }
+@media (max-width:760px){ .toc ol{ columns:1; } }
+.toc li{ break-inside:avoid; margin:0 0 3px; }
+.toc a{ display:flex; gap:10px; align-items:baseline; text-decoration:none; padding:5px 7px;
+        border-left:2px solid transparent; transition:background .13s, border-color .13s; }
+.toc a:hover{ background:var(--slate-2); border-left-color:var(--signal); }
+.toc .tn{ font-family:var(--mono); font-size:.66rem; color:var(--tensor); min-width:3.4em; }
+.toc .tt{ font-family:var(--sans); font-size:.88rem; color:var(--chalk-dim); line-height:1.35; }
+.toc a:hover .tt{ color:var(--chalk); }
+.toc .todo .tn{ color:var(--rule-2); }
+.permalink{ font-family:var(--mono); font-size:.62rem !important; letter-spacing:.08em;
+        color:var(--mute) !important; text-decoration:none; border:1px solid var(--rule-2) !important;
+        background:none !important; padding:2px 7px !important; margin-left:auto; }
+.permalink:hover{ color:var(--signal) !important; border-color:var(--signal-d) !important; }
+.lesson-head .tags{ align-items:center; }
+.backlink{ display:inline-block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+        color:var(--mute); text-decoration:none; margin-bottom:4px; }
+.backlink:hover{ color:var(--signal); }
+
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to notes</a>
+
+<div class="topbar">
+  <button class="iconbtn" id="navToggle" aria-label="Open lesson index">Index</button>
+  <a class="brand" href="../index.html"><b>100 Days</b> / Deep Learning</a>
+  <span class="crumb"><b>Phase 4</b> · CNNs & Computer Vision</span>
+  <span class="spacer"></span>
+  <div class="progress-strip" title="Scroll position"><i id="readbar"></i></div>
+  <span class="pagernav"><a class="iconbtn" href="phase-3.html" title="Previous phase">←</a><a class="iconbtn" href="phase-5.html" title="Next phase">→</a></span>
+  <button class="iconbtn" id="topBtn" title="Back to top">Top</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Lesson index">
+    <div class="sidebar-head">
+      <input class="searchbox" id="search" type="search" placeholder="Filter 121 lessons…" autocomplete="off" spellcheck="false">
+      <span class="sidehint">Type a topic: adam · resnet · rope · dice loss</span>
+    </div>
+    <nav class="navscroll" id="navscroll"></nav>
+  </aside>
+
+  <main id="main">
+  <section class="wrap phasehero">
+    <p class="pnum">Phase 4 of 8 · Days 41–56 · Lessons 47–65</p>
+    <h1>CNNs &amp; Computer Vision</h1>
+    <p class="plede">Convolution from the arithmetic up, then the architecture lineage from LeNet to ConvNeXt, then the four task families: classification, detection, segmentation, retrieval.</p>
+    <ul class="statrow"><li><b>19</b> lessons</li><li><b>16h 10m</b> of video</li><li><b>148</b> chapters</li><li>Notes: <b>all 19</b></li></ul>
+    <div class="toc"><span class="tlbl">Everything on this page</span>
+      <ol><li><a class="todo" href="#l47"><span class="tn">D41</span><span class="tt">Why MLPs Fail on Images</span></a></li><li><a class="todo" href="#l48"><span class="tn">D42</span><span class="tt">The Convolution Operation</span></a></li><li><a class="todo" href="#l49"><span class="tn">D43</span><span class="tt">CNN Building Blocks</span></a></li><li><a class="todo" href="#l50"><span class="tn">D44</span><span class="tt">Build a CNN From Scratch</span></a></li><li><a class="todo" href="#l51"><span class="tn">D45</span><span class="tt">Classic Architectures I — LeNet to VGG</span></a></li><li><a class="todo" href="#l52"><span class="tn">D46</span><span class="tt">Classic Architectures II — Inception &amp; ResNet</span></a></li><li><a class="todo" href="#l53"><span class="tn">D47</span><span class="tt">Modern CNN Architectures</span></a></li><li><a class="todo" href="#l54"><span class="tn">D48</span><span class="tt">Training a CNN on CIFAR-10 — The Full Recipe</span></a></li><li><a class="todo" href="#l55"><span class="tn">D49</span><span class="tt">Transfer Learning in Vision, Hands-On</span></a></li><li><a class="todo" href="#l56"><span class="tn">D50</span><span class="tt">Object Detection I — Foundations</span></a></li><li><a class="todo" href="#l57"><span class="tn">D51</span><span class="tt">Object Detection II — Two-Stage Detectors</span></a></li><li><a class="todo" href="#l58"><span class="tn">D52</span><span class="tt">Object Detection III — One-Stage &amp; DETR</span></a></li><li><a class="todo" href="#l59"><span class="tn">D53</span><span class="tt">Segmentation</span></a></li><li><a class="todo" href="#l60"><span class="tn">D54</span><span class="tt">Other Vision Tasks</span></a></li><li><a class="todo" href="#l61"><span class="tn">D54-b</span><span class="tt">Metric Learning &amp; Embeddings</span></a></li><li><a class="todo" href="#l62"><span class="tn">D55</span><span class="tt">Vision Transformers</span></a></li><li><a class="todo" href="#l63"><span class="tn">D55-b</span><span class="tt">Self-Supervised Learning for Vision</span></a></li><li><a class="todo" href="#l64"><span class="tn">D56</span><span class="tt">Interpretability &amp; Adversarial Robustness in Vision</span></a></li><li><a class="todo" href="#l65"><span class="tn">D56-b</span><span class="tt">Project Checkpoint 2 — Custom Vision System</span></a></li></ol>
+    </div>
+  </section>
+<article class="wrap lesson" id="l47">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 41</span><span>Lesson 47</span><span class="rt">30 min</span><a class="permalink" href="../lessons/lesson-047.html">single page ↗</a></div>
+      <h3 class="lesson-title">Why MLPs Fail on Images</h3>
+      <span class="lesson-no">47</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Parameter explosion</li><li>Loss of spatial structure when flattening</li>
+        <li>No translation invariance</li><li>Local connectivity and weight sharing</li>
+        <li>MLP vs CNN on the same task, live</li>
+      </ol>
+    </div>
+
+    <h4>Three separate failures, not one</h4>
+    <p>Take a modest 224×224 RGB image and feed it to a fully connected layer with 1000 hidden units. Flattening gives \(224\times224\times3=150{,}528\) inputs, so that <em>single layer</em> holds \(150{,}528\times1000\approx1.5\times10^8\) weights — more parameters than all of ResNet-50, for one layer that has learned nothing yet. That is the failure everyone quotes, and it is the least interesting of the three.</p>
+    <p>The second failure is that <b>flattening destroys the information you needed</b>. In the flattened vector, pixel \((i,j)\) and pixel \((i+1,j)\) — vertical neighbours, almost certainly part of the same object — end up 224 positions apart, exactly as far as two random pixels. The MLP has to <em>rediscover</em> that images are 2D from data alone. It can, given enough examples, but you have thrown away a fact you already knew for free.</p>
+    <p>The third is the deepest: an MLP has <b>no translation invariance</b>. Train it on cats in the top-left and it learns weights for cats-in-the-top-left. Move the cat 40 pixels right and every one of those weights is now looking at the wrong place; the network must independently learn a second set of cat detectors for the new location, and a third, and so on. Nothing shares.</p>
+
+    <div class="box intuition"><span class="lbl">Convolution is two constraints, and both are priors</span>
+      <p><b>Local connectivity</b> — a unit sees only a small neighbourhood, because pixels far apart are rarely directly related. <b>Weight sharing</b> — the same small filter is applied at every position, because an edge is an edge wherever it appears.</p>
+      <p style="margin-bottom:0">Both are restrictions. A CNN is strictly <em>less</em> expressive than an MLP of the same size — it cannot represent every function the MLP can. That restriction is the entire point: it encodes true facts about images, so the network spends its capacity on things it does not already know. This is the clearest example in the course of an <b>inductive bias</b>, and it is exactly the trade Vision Transformers reopen in Lesson 62.</p>
+    </div>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>224×224×3 input, first layer</th><th>Parameters</th><th>Translation invariant?</th><th>Sees 2D structure?</th></tr></thead>
+      <tbody>
+        <tr><td>Dense, 1000 units</td><td>150,529,000</td><td style="color:var(--warn)">No</td><td style="color:var(--warn)">No</td></tr>
+        <tr><td>Conv 3×3, 64 filters</td><td><b>1,792</b></td><td class="tick">Yes</td><td class="tick">Yes</td></tr>
+      </tbody>
+    </table></div>
+    <p>Four orders of magnitude fewer parameters, and the smaller one generalises better. That is not a trade-off — it is a free win, paid for by knowing something about your data.</p>
+
+    <div class="box exercise"><span class="lbl">Exercise</span>
+      <p style="margin-bottom:0">Train an MLP and a small CNN with roughly equal parameter counts on MNIST. Then evaluate both on a test set where every image has been shifted 4 pixels in a random direction. The MLP will collapse; the CNN will barely notice. That gap is weight sharing, measured.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l48">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 42</span><span>Lesson 48</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-048.html">single page ↗</a></div>
+      <h3 class="lesson-title">The Convolution Operation</h3>
+      <span class="lesson-no">48</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Kernels as feature detectors</li><li>Cross-correlation vs true convolution</li>
+        <li>Stride, padding, dilation</li><li>The output-size formula, derived</li>
+        <li>Multi-channel convolution</li><li>Receptive field computation</li>
+        <li>Edge, blur and sharpen kernels shown</li><li>Parameter counting</li>
+      </ol>
+    </div>
+
+    <h4>The operation</h4>
+    <p>Slide a small weight matrix over the input and take a dot product at every position:</p>
+    \[ y[i,j]=\sum_{u=0}^{k-1}\sum_{v=0}^{k-1} w[u,v]\;x[i+u,\;j+v] \;+\; b \]
+    <div class="box derive"><span class="lbl">It is not actually convolution</span>
+      <p style="margin-bottom:0">True mathematical convolution flips the kernel: \(\sum w[u,v]\,x[i-u,j-v]\). What every deep learning framework calls <code>Conv2d</code> is <b>cross-correlation</b> — no flip. It does not matter, because the kernel is learned: if the flipped version were better, gradient descent would simply learn the flipped weights. It matters only when you port hand-designed kernels from a signal-processing textbook, or read a paper that is careful about the distinction. Do not let it confuse you; it confuses everyone once.</p>
+    </div>
+
+    <h4>Output size, derived</h4>
+    <p>Start with a 1D input of length \(n\), kernel \(k\), padding \(p\) on each side, stride \(s\), dilation \(d\). Dilation inflates the kernel's footprint: a \(k\)-tap kernel with dilation \(d\) spans \(k_{\text{eff}}=d(k-1)+1\) positions. The first window starts at 0 and the last must fit, so the number of valid start positions is:</p>
+    \[ n_{\text{out}}=\left\lfloor\frac{n+2p-\big(d(k-1)+1\big)}{s}\right\rfloor+1 \]
+    <p>Every shape bug in a CNN is this formula, applied wrong. The two special cases worth memorising:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Setting</th><th>Result</th><th>Name</th></tr></thead>
+      <tbody>
+        <tr><td>\(k=3,\ p=1,\ s=1,\ d=1\)</td><td>\(n_{\text{out}}=n\)</td><td><b>"same"</b> — the workhorse. Size preserved.</td></tr>
+        <tr><td>\(k=3,\ p=1,\ s=2\)</td><td>\(n_{\text{out}}=\lceil n/2\rceil\)</td><td>Downsample by 2 without pooling</td></tr>
+        <tr><td>\(k=1,\ p=0,\ s=1\)</td><td>\(n_{\text{out}}=n\)</td><td>1×1 conv — mixes channels only</td></tr>
+        <tr><td>\(p=0\)</td><td>\(n_{\text{out}}=n-k+1\)</td><td><b>"valid"</b> — shrinks every layer</td></tr>
+      </tbody>
+    </table></div>
+    <p>In general, \(p=\lfloor k/2\rfloor\) with odd \(k\) preserves size. Odd kernels are near-universal precisely because they have a well-defined centre and an integer "same" padding.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="How stride, padding and dilation change a convolution's footprint and output size">
+        <text class="svg-ttl" x="20" y="22">THE SAME 3×3 KERNEL, FOUR CONFIGURATIONS — input 7×7</text>
+        <g transform="translate(24,44)">
+          <text class="svg-lbl-b" x="0" y="0">s=1, p=0 · "valid"</text>
+          <g>
+            <rect x="0" y="12" width="126" height="126" fill="#0F1822" stroke="#2A3B4E"/>
+            <g stroke="#1C2836">
+              <line x1="18" y1="12" x2="18" y2="138"/><line x1="36" y1="12" x2="36" y2="138"/><line x1="54" y1="12" x2="54" y2="138"/>
+              <line x1="72" y1="12" x2="72" y2="138"/><line x1="90" y1="12" x2="90" y2="138"/><line x1="108" y1="12" x2="108" y2="138"/>
+              <line x1="0" y1="30" x2="126" y2="30"/><line x1="0" y1="48" x2="126" y2="48"/><line x1="0" y1="66" x2="126" y2="66"/>
+              <line x1="0" y1="84" x2="126" y2="84"/><line x1="0" y1="102" x2="126" y2="102"/><line x1="0" y1="120" x2="126" y2="120"/>
+            </g>
+            <rect x="0" y="12" width="54" height="54" fill="#FFB454" opacity="0.30"/>
+            <rect x="0" y="12" width="54" height="54" fill="none" stroke="#FFB454" stroke-width="1.6"/>
+          </g>
+          <text class="svg-lbl" x="0" y="158">out = 7−3+1 = <tspan fill="#FFB454">5</tspan></text>
+        </g>
+        <g transform="translate(196,44)">
+          <text class="svg-lbl-b" x="0" y="0">s=1, p=1 · "same"</text>
+          <rect x="-18" y="-6" width="162" height="162" fill="none" stroke="#2A3B4E" stroke-dasharray="3 3"/>
+          <rect x="0" y="12" width="126" height="126" fill="#0F1822" stroke="#2A3B4E"/>
+          <rect x="-18" y="-6" width="54" height="54" fill="#5BC8E6" opacity="0.30"/>
+          <rect x="-18" y="-6" width="54" height="54" fill="none" stroke="#5BC8E6" stroke-width="1.6"/>
+          <text class="svg-lbl" x="-18" y="176">out = <tspan fill="#5BC8E6">7</tspan> · padding ring dashed</text>
+        </g>
+        <g transform="translate(390,44)">
+          <text class="svg-lbl-b" x="0" y="0">s=2, p=1</text>
+          <rect x="0" y="12" width="126" height="126" fill="#0F1822" stroke="#2A3B4E"/>
+          <g fill="#93D97B" opacity="0.34">
+            <rect x="0" y="12" width="36" height="36"/><rect x="45" y="12" width="36" height="36"/><rect x="90" y="12" width="36" height="36"/>
+            <rect x="0" y="57" width="36" height="36"/><rect x="45" y="57" width="36" height="36"/><rect x="90" y="57" width="36" height="36"/>
+            <rect x="0" y="102" width="36" height="36"/><rect x="45" y="102" width="36" height="36"/><rect x="90" y="102" width="36" height="36"/>
+          </g>
+          <text class="svg-lbl" x="0" y="158">out = ⌊(7+2−3)/2⌋+1 = <tspan fill="#93D97B">4</tspan></text>
+          <text class="svg-lbl" x="0" y="176">windows skip a position</text>
+        </g>
+        <g transform="translate(566,44)">
+          <text class="svg-lbl-b" x="0" y="0">s=1, p=0, d=2 · dilated</text>
+          <rect x="0" y="12" width="126" height="126" fill="#0F1822" stroke="#2A3B4E"/>
+          <g fill="#B79CFF" opacity="0.55">
+            <rect x="0" y="12" width="18" height="18"/><rect x="36" y="12" width="18" height="18"/><rect x="72" y="12" width="18" height="18"/>
+            <rect x="0" y="48" width="18" height="18"/><rect x="36" y="48" width="18" height="18"/><rect x="72" y="48" width="18" height="18"/>
+            <rect x="0" y="84" width="18" height="18"/><rect x="36" y="84" width="18" height="18"/><rect x="72" y="84" width="18" height="18"/>
+          </g>
+          <rect x="0" y="12" width="90" height="90" fill="none" stroke="#B79CFF" stroke-dasharray="3 3"/>
+          <text class="svg-lbl" x="0" y="158">9 weights spanning <tspan fill="#B79CFF">5×5</tspan></text>
+          <text class="svg-lbl" x="0" y="176">out = 7−5+1 = 3</text>
+        </g>
+        <g transform="translate(742,60)">
+          <text class="svg-lbl-b" x="0" y="0">why dilation exists</text>
+          <text class="svg-lbl" x="0" y="24">Receptive field grows</text>
+          <text class="svg-lbl" x="0" y="42">exponentially with depth,</text>
+          <text class="svg-lbl" x="0" y="60">at no cost in parameters</text>
+          <text class="svg-lbl" x="0" y="78">and no loss of resolution.</text>
+          <text class="svg-lbl" x="0" y="104" fill="#B79CFF">Used by DeepLab (L59)</text>
+          <text class="svg-lbl" x="0" y="122" fill="#B79CFF">and WaveNet (L77).</text>
+        </g>
+      </svg>
+      <figcaption>Stride subsamples the output positions. Padding preserves size at the border. Dilation spreads the same weights over a wider footprint — more context, identical parameter count.</figcaption>
+    </figure>
+
+    <div class="demo" id="d-conv">
+      <div class="demo-head"><span class="dot"></span><b>Kernel playground</b> · nine numbers, applied to every pixel</div>
+      <div class="demo-body">
+        <canvas id="convCv" width="760" height="260" aria-label="An image before and after convolution with the selected kernel"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Kernel</span>
+            <select id="convK">
+              <option value="identity">identity</option>
+              <option value="sobelx" selected>Sobel x — vertical edges</option>
+              <option value="sobely">Sobel y — horizontal edges</option>
+              <option value="lap">Laplacian — all edges</option>
+              <option value="blur">box blur</option>
+              <option value="gauss">Gaussian blur</option>
+              <option value="sharp">sharpen</option>
+              <option value="emboss">emboss</option>
+            </select>
+          </label>
+          <label class="ctrl"><span>Image</span>
+            <select id="convImg">
+              <option value="shapes" selected>shapes</option>
+              <option value="stripes">stripes</option>
+              <option value="grad">gradient + disc</option>
+            </select>
+          </label>
+        </div>
+        <div class="readout" id="convOut"></div>
+      </div>
+    </div>
+
+    <h4>Multi-channel: the shape bookkeeping that actually matters</h4>
+    <p>A colour image has 3 channels, and a hidden layer has however many the previous layer produced. A single filter is therefore not \(k\times k\) but \(C_{\text{in}}\times k\times k\) — it spans <em>all</em> input channels and collapses them to <b>one</b> output number per position. Stack \(C_{\text{out}}\) such filters and you get \(C_{\text{out}}\) output channels.</p>
+    <div class="shapes">
+      <span class="dim">x <small>(N, C<sub>in</sub>, H, W)</small></span><span class="op">*</span><span class="dim">W <small>(C<sub>out</sub>, C<sub>in</sub>, k, k)</small></span><span class="op">→</span><span class="dim out">y <small>(N, C<sub>out</sub>, H′, W′)</small></span>
+    </div>
+    \[ \#\text{params}=C_{\text{out}}\cdot C_{\text{in}}\cdot k^2+C_{\text{out}} \qquad\qquad \#\text{FLOPs}\approx 2\cdot C_{\text{out}}\cdot C_{\text{in}}\cdot k^2\cdot H'\cdot W' \]
+    <p>Note what is <em>not</em> in the parameter count: \(H\) and \(W\). A conv layer's parameter count is independent of input resolution — which is why the same backbone accepts 224×224 and 512×512 images, and why only the classifier head cares about resolution.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · assuming filters are 2D</span>
+      <p style="margin-bottom:0">People draw a 3×3 filter as a little square and then cannot explain where the channels went. A "3×3 conv from 64 to 128 channels" holds \(128\times64\times3\times3=73{,}728\) weights, not 9. Each of the 128 output channels owns a \(64\times3\times3\) volume. If you internalise nothing else from this lesson, internalise the shape \((C_{\text{out}},C_{\text{in}},k,k)\) — it is the source of most <code>RuntimeError: expected input to have N channels</code> messages.</p>
+    </div>
+
+    <h4>Receptive field</h4>
+    <p>The receptive field is the region of the <em>original input</em> that influences one output unit. Stack layers and it grows:</p>
+    \[ r_{l}=r_{l-1}+\big(k_l-1\big)\prod_{i=1}^{l-1}s_i \]
+    <p>Three stacked 3×3 convs with stride 1 give \(r=3\to5\to7\): the same receptive field as a single 7×7 conv, but with \(3\times(3^2C^2)=27C^2\) parameters instead of \(49C^2\), and two extra non-linearities. That single observation is the entire design principle behind VGG, and it is why almost nobody uses large kernels in the classic era.</p>
+
+    <div class="demo" id="d-rf">
+      <div class="demo-head"><span class="dot"></span><b>Stack calculator</b> · shapes, receptive field, parameters and FLOPs through a whole network</div>
+      <div class="demo-body">
+        <canvas id="rfCv" width="760" height="250" aria-label="Feature map size and receptive field growth through a stack of convolution layers"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Input size <b id="rfNv">224</b></span><input type="range" id="rfN" min="32" max="512" step="16" value="224"></label>
+          <label class="ctrl"><span>Kernel <b id="rfKv">3</b></span><input type="range" id="rfK" min="1" max="11" step="2" value="3"></label>
+          <label class="ctrl"><span>Layers <b id="rfLv">8</b></span><input type="range" id="rfL" min="1" max="16" step="1" value="8"></label>
+          <label class="ctrl"><span>Downsample every <b id="rfDv">2</b></span><input type="range" id="rfD" min="1" max="6" step="1" value="2"></label>
+          <label class="ctrl"><span>Channels <b id="rfCv2">64</b></span><input type="range" id="rfC" min="16" max="256" step="16" value="64"></label>
+        </div>
+        <div class="readout" id="rfOut"></div>
+      </div>
+    </div>
+  </article>
+<article class="wrap lesson" id="l49">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 43</span><span>Lesson 49</span><span class="rt">45 min</span><a class="permalink" href="../lessons/lesson-049.html">single page ↗</a></div>
+      <h3 class="lesson-title">CNN Building Blocks</h3>
+      <span class="lesson-no">49</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Feature maps and channel semantics</li><li>Max vs average pooling</li>
+        <li>Global average pooling</li><li>1×1 convolutions as channel mixers</li>
+        <li>Strided conv vs pooling</li><li>Transposed convolution and upsampling</li>
+        <li>The classification head</li><li>Assembling a full CNN</li>
+      </ol>
+    </div>
+
+    <h4>What a channel means</h4>
+    <p>After the first layer, channel \(c\) of the feature map is a spatial map answering one question: <em>"how strongly does filter \(c\)'s pattern appear here?"</em> Early channels answer things like "is there a vertical edge here"; deep channels answer "is there a dog's face here". The spatial dimensions shrink while the channel dimension grows — the network trades <b>where</b> for <b>what</b>, progressively.</p>
+
+    <h4>Pooling</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Operation</th><th>What it does</th><th>Status today</th></tr></thead>
+      <tbody>
+        <tr><td><b>Max pool 2×2</b></td><td>Keeps the strongest response in each window; gives small-shift tolerance</td><td>Still common, especially in U-Nets and older backbones</td></tr>
+        <tr><td><b>Average pool</b></td><td>Smooths; keeps magnitude information max pooling throws away</td><td>Rare mid-network, universal at the end</td></tr>
+        <tr><td><b>Strided conv</b></td><td>Downsamples with <em>learned</em> weights rather than a fixed rule</td><td>The modern default — ResNet, ConvNeXt, most detectors</td></tr>
+        <tr><td><b>Global average pool</b></td><td>Averages each channel over all positions: \((N,C,H,W)\to(N,C)\)</td><td>Universal. Replaced the giant dense head.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box intuition"><span class="lbl">Why global average pooling was such a big deal</span>
+      <p style="margin-bottom:0">AlexNet and VGG ended with flatten → dense layers, and those layers held <b>90% of the network's parameters</b> — VGG-16's first dense layer alone is \(25088\times4096\approx10^8\) weights, more than the entire convolutional stack. Global average pooling replaces all of it with a parameter-free mean and a single small classifier. The result is fewer parameters, less overfitting, and a backbone that accepts any input resolution, since averaging does not care how many positions it averages over. Everything modern does this.</p>
+    </div>
+
+    <h4>The 1×1 convolution</h4>
+    <p>It looks like it does nothing — a 1×1 window sees one pixel. But remember the shape: a 1×1 conv has weights \((C_{\text{out}},C_{\text{in}},1,1)\), so at each spatial position it applies a full \(C_{\text{in}}\to C_{\text{out}}\) linear map across channels. It is a per-position dense layer. Three uses, all essential:</p>
+    <ul>
+      <li><b>Cheap dimensionality change.</b> 256→64 channels costs \(64\times256=16{,}384\) weights; doing it with a 3×3 would cost nine times that. This is how Inception and ResNet bottlenecks afford to be deep.</li>
+      <li><b>Channel mixing.</b> Depthwise convolution (Lesson 53) deliberately does <em>not</em> mix channels, so a 1×1 is paired with it to do exactly that.</li>
+      <li><b>Adding non-linearity</b> without touching spatial extent.</li>
+    </ul>
+
+    <h4>Upsampling, and the checkerboard problem</h4>
+    <p>Segmentation and generative models need to go back up in resolution. Transposed convolution (<code>ConvTranspose2d</code>) learns the upsampling, but when the kernel size is not divisible by the stride, output positions receive unequal numbers of contributions, producing a visible <b>checkerboard artifact</b>. Two fixes: use \(k\) divisible by \(s\) (4×4 with stride 2), or — more reliably — <code>Upsample(scale_factor=2, mode='bilinear')</code> followed by an ordinary 3×3 conv. The second option is what most modern segmentation and diffusion decoders actually use.</p>
+
+    <pre><code>import torch.nn as nn
+
+class ConvBlock(nn.Module):
+    """The unit you will type a thousand times: conv -> norm -> activation."""
+    def __init__(self, cin, cout, k=3, s=1):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(cin, cout, k, stride=s, padding=k // 2, bias=False),  # bias=False: BN follows
+            nn.BatchNorm2d(cout),
+            nn.ReLU(inplace=True))
+    def forward(self, x):
+        return self.block(x)
+
+class SmallCNN(nn.Module):
+    def __init__(self, num_classes=10, w=64):
+        super().__init__()
+        self.features = nn.Sequential(
+            ConvBlock(3, w), ConvBlock(w, w), nn.MaxPool2d(2),          # 32 -> 16
+            ConvBlock(w, 2 * w), ConvBlock(2 * w, 2 * w), nn.MaxPool2d(2),   # 16 -> 8
+            ConvBlock(2 * w, 4 * w), ConvBlock(4 * w, 4 * w))
+        self.head = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),      # (N, 4w, 8, 8) -> (N, 4w, 1, 1); ANY input size works
+            nn.Flatten(),
+            nn.Dropout(0.2),
+            nn.Linear(4 * w, num_classes))
+    def forward(self, x):
+        return self.head(self.features(x))   # raw logits (Lesson 40)
+</code></pre>
+    <div class="box check"><span class="lbl">The pattern behind almost every CNN</span>
+      <p style="margin-bottom:0">Resolution halves and channels double at each stage, keeping the compute per stage roughly constant: \(H\!\times\!W\) drops 4×, \(C_{\text{in}}C_{\text{out}}\) rises 4×. Look for that balance in every architecture in the next two lessons — 224→112→56→28→14→7 with 64→128→256→512 channels is the skeleton of the entire field.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l50">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 44</span><span>Lesson 50</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-050.html">single page ↗</a></div>
+      <h3 class="lesson-title">Build a CNN From Scratch</h3>
+      <span class="lesson-no">50</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Naive loop convolution in NumPy</li><li>The im2col trick</li>
+        <li>The convolution backward pass</li><li>Pooling forward and backward</li>
+        <li>Verifying against PyTorch</li><li>The same net with <code>nn.Conv2d</code></li>
+      </ol>
+    </div>
+
+    <h4>The naive version, so the fast one makes sense</h4>
+    <pre><code>import numpy as np
+
+def conv2d_naive(x, W, b, stride=1, pad=1):
+    """x (N,Cin,H,Wd) · W (Cout,Cin,k,k) -> (N,Cout,H',W'). Correct, and painfully slow."""
+    N, Cin, H, Wd = x.shape
+    Cout, _, k, _ = W.shape
+    xp = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)))
+    Ho = (H + 2 * pad - k) // stride + 1
+    Wo = (Wd + 2 * pad - k) // stride + 1
+    out = np.zeros((N, Cout, Ho, Wo))
+    for n in range(N):
+        for co in range(Cout):
+            for i in range(Ho):
+                for j in range(Wo):
+                    patch = xp[n, :, i*stride:i*stride+k, j*stride:j*stride+k]
+                    out[n, co, i, j] = np.sum(patch * W[co]) + b[co]
+    return out
+</code></pre>
+    <p>Six nested loops in Python. For a single 224×224×64→64 layer that is roughly \(10^9\) iterations — minutes per image. The fix is not to optimise the loops but to <em>change the problem</em>.</p>
+
+    <div class="box derive"><span class="lbl">im2col — turning convolution into one matrix multiply</span>
+      <p>Every output position consumes a \(C_{\text{in}}\times k\times k\) patch and dot-products it with a filter. So: extract every patch, flatten each into a column, and stack them into a matrix \(X_{\text{col}}\) of shape \((C_{\text{in}}k^2,\ N\!\cdot\!H'W')\). Flatten the filters into \(W_{\text{row}}\) of shape \((C_{\text{out}},\ C_{\text{in}}k^2)\). Then:</p>
+      \[ Y = W_{\text{row}}\,X_{\text{col}} + \mathbf b \]
+      <p style="margin-bottom:0">One GEMM. This is why convolution is fast — not because anyone wrote a clever convolution kernel, but because it is reduced to the single operation that decades of BLAS and every tensor core on your GPU are built to do. The cost is memory: \(X_{\text{col}}\) duplicates each pixel \(k^2\) times. (Modern cuDNN also has implicit-GEMM, Winograd and FFT paths, but im2col is the one to understand.)</p>
+    </div>
+
+    <pre><code>def im2col(x, k, stride, pad):
+    N, C, H, Wd = x.shape
+    xp = np.pad(x, ((0,0), (0,0), (pad,pad), (pad,pad)))
+    Ho = (H + 2*pad - k)//stride + 1
+    Wo = (Wd + 2*pad - k)//stride + 1
+    # stride tricks give a VIEW of every patch with no copying
+    s = xp.strides
+    patches = np.lib.stride_tricks.as_strided(
+        xp, shape=(N, C, Ho, Wo, k, k),
+        strides=(s[0], s[1], s[2]*stride, s[3]*stride, s[2], s[3]))
+    return patches.transpose(1,4,5,0,2,3).reshape(C*k*k, -1), Ho, Wo
+
+def conv2d_fast(x, W, b, stride=1, pad=1):
+    Cout = W.shape[0]
+    cols, Ho, Wo = im2col(x, W.shape[2], stride, pad)
+    out = W.reshape(Cout, -1) @ cols + b.reshape(-1, 1)
+    return out.reshape(Cout, x.shape[0], Ho, Wo).transpose(1, 0, 2, 3)
+</code></pre>
+
+    <h4>The backward pass</h4>
+    <p>Once convolution is a matmul, its gradients are the matmul gradients from Lesson 22 — the outer-product rule and the \(W\T\) rule, unchanged:</p>
+    \[ \bar W_{\text{row}}=\bar Y\,X_{\text{col}}\T,\qquad \bar X_{\text{col}}=W_{\text{row}}\T\,\bar Y,\qquad \bar b=\textstyle\sum_{\text{positions}}\bar Y \]
+    <p>The only new work is <b>col2im</b>: scattering \(\bar X_{\text{col}}\) back into image shape. Because im2col duplicated each pixel across overlapping patches, and duplication is fan-out, col2im must <b>accumulate</b> — \(\mathrel{+}=\), not \(=\). That is the "copy is a summer" rule from Lesson 22, and getting it wrong is the single most common bug when people write this by hand.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · <code>=</code> instead of <code>+=</code> in col2im</span>
+      <p style="margin-bottom:0">With overlapping windows, one input pixel contributes to up to \(k^2\) outputs. Assigning instead of accumulating keeps only the last contribution, so your gradient is silently wrong by a factor that varies across the image — largest in the interior, correct at the corners. The network still trains, badly, and the loss curve looks merely disappointing rather than broken. <b>Always gradient-check</b> against finite differences (Lesson 23) before you trust a hand-written conv backward.</p>
+    </div>
+
+    <h4>Max pooling backward: a router</h4>
+    <p>Max pooling forwards only the maximum in each window, so on the backward pass the entire incoming gradient goes to <em>that one position</em> and zero goes everywhere else. Cache the argmax indices on the forward pass; the backward is a scatter. Average pooling instead divides the gradient equally among all \(k^2\) positions.</p>
+
+    <div class="box check"><span class="lbl">Verify against PyTorch — always</span>
+      <pre style="margin:10px 0 0"><code>x = np.random.randn(2, 3, 9, 9)
+W = np.random.randn(4, 3, 3, 3); b = np.random.randn(4)
+mine  = conv2d_fast(x, W, b, stride=1, pad=1)
+theirs = torch.nn.functional.conv2d(
+    torch.tensor(x), torch.tensor(W), torch.tensor(b), stride=1, padding=1).numpy()
+print(np.abs(mine - theirs).max())     # expect &lt; 1e-10 in float64</code></pre>
+    </div>
+
+    <div class="box exercise"><span class="lbl">Exercise</span>
+      <p style="margin-bottom:0">Time <code>conv2d_naive</code> against <code>conv2d_fast</code> on a \((8,16,32,32)\) input with 32 output channels. Expect a speedup between 100× and 1000×. Then measure the peak memory of <code>im2col</code> and confirm it is \(k^2=9\times\) the input — the trade you just made.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l51">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 45</span><span>Lesson 51</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-051.html">single page ↗</a></div>
+      <h3 class="lesson-title">Classic Architectures I — LeNet to VGG</h3>
+      <span class="lesson-no">51</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>LeNet-5, layer by layer</li><li>AlexNet and the 2012 ImageNet result</li>
+        <li>ZFNet visualization insights</li><li>VGG and the 3×3 stacking principle</li>
+        <li>Network-in-Network</li><li>The depth trend and its compute cost</li>
+      </ol>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="ImageNet top-5 error against year for the major architectures, with depth annotated">
+        <text class="svg-ttl" x="20" y="22">IMAGENET TOP-5 ERROR — the eight years that built the field</text>
+        <g transform="translate(60,40)">
+          <line x1="0" y1="150" x2="800" y2="150" stroke="#2A3B4E"/>
+          <line x1="0" y1="0" x2="0" y2="150" stroke="#2A3B4E"/>
+          <g class="svg-lbl" fill="#8095AA">
+            <text x="-34" y="6">30%</text><text x="-34" y="54">20%</text><text x="-34" y="102">10%</text><text x="-30" y="152">0%</text>
+          </g>
+          <g stroke="#1C2836"><line x1="0" y1="6" x2="800" y2="6"/><line x1="0" y1="54" x2="800" y2="54"/><line x1="0" y1="102" x2="800" y2="102"/></g>
+          <polyline points="30,25 130,68 250,84 380,108 520,125 650,131 760,133"
+                    fill="none" stroke="#FFB454" stroke-width="2.4"/>
+          <g fill="#FFB454">
+            <circle cx="30" cy="25" r="5"/><circle cx="130" cy="68" r="5"/><circle cx="250" cy="84" r="5"/>
+            <circle cx="380" cy="108" r="5"/><circle cx="520" cy="125" r="5"/><circle cx="650" cy="131" r="5"/><circle cx="760" cy="133" r="5"/>
+          </g>
+          <g class="svg-lbl-b" fill="#DCE6F0">
+            <text x="8" y="16">shallow SVM</text><text x="104" y="60">AlexNet</text><text x="228" y="76">ZFNet</text>
+            <text x="352" y="100">VGG-16</text><text x="486" y="117">Inception</text><text x="620" y="123">ResNet</text><text x="720" y="125">SENet</text>
+          </g>
+          <g class="svg-lbl" fill="#5BC8E6">
+            <text x="10" y="176">2011</text><text x="106" y="176">2012</text><text x="232" y="176">2013</text>
+            <text x="356" y="176">2014</text><text x="490" y="176">2014</text><text x="626" y="176">2015</text><text x="726" y="176">2017</text>
+          </g>
+          <g class="svg-lbl" fill="#8095AA">
+            <text x="10" y="194">—</text><text x="106" y="194">8 layers</text><text x="232" y="194">8</text>
+            <text x="356" y="194">16</text><text x="490" y="194">22</text><text x="626" y="194">152</text><text x="726" y="194">154</text>
+          </g>
+          <text class="svg-lbl" x="0" y="216" fill="#93D97B">human performance ≈ 5% — crossed by ResNet in 2015</text>
+        </g>
+      </svg>
+      <figcaption>Error roughly halved every two years while depth grew 20×. The single biggest jump — 26% to 16% in 2012 — is AlexNet, and it is the reason this field exists in its current form.</figcaption>
+    </figure>
+
+    <h4>LeNet-5 (1998)</h4>
+    <p>Yann LeCun's digit reader, deployed to read cheques. \(32\times32\) grayscale → conv 6@5×5 → pool → conv 16@5×5 → pool → dense 120 → dense 84 → 10. About 60,000 parameters and <code>tanh</code> activations. Every structural idea in a modern CNN is here already: alternating convolution and subsampling, growing channels, a dense classifier at the end. It then sat mostly unused for fourteen years because the data and the GPUs did not exist.</p>
+
+    <h4>AlexNet (2012)</h4>
+    <p>60M parameters, 8 layers, top-5 error 15.3% against 26.2% for the runner-up. That margin — not the architecture — is what changed the field overnight. What was actually new:</p>
+    <ul>
+      <li><b>ReLU</b> instead of tanh, roughly 6× faster to train (Lesson 20).</li>
+      <li><b>Two GPUs</b>, with the network split across them out of necessity: 3GB of memory each.</li>
+      <li><b>Dropout</b> in the dense layers, which held 90% of the parameters.</li>
+      <li><b>Heavy augmentation</b>: random crops, flips, PCA colour jitter.</li>
+      <li>Large early kernels — 11×11 stride 4 — which the very next paper showed was a mistake.</li>
+    </ul>
+
+    <h4>ZFNet (2013): look at what the filters learned</h4>
+    <p>Zeiler and Fergus built a deconvolutional visualisation to see what AlexNet's filters responded to, found that the 11×11 stride-4 first layer produced aliased, dead and mixed-frequency filters, and simply shrank it to 7×7 stride 2. Error dropped to 11.7%. The lesson is methodological and still applies: <b>visualising the model told them more than another architecture search would have</b>. You will do this yourself in Lesson 64.</p>
+
+    <h4>VGG (2014): one idea, applied relentlessly</h4>
+    <p>Use only 3×3 convolutions with stride 1 and padding 1, only 2×2 max pooling, and double the channels after each pool. Nothing else. The justification is the receptive-field arithmetic from Lesson 48:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Configuration</th><th>Receptive field</th><th>Parameters (\(C\to C\))</th><th>Non-linearities</th></tr></thead>
+      <tbody>
+        <tr><td>One 7×7 conv</td><td>7×7</td><td>\(49C^2\)</td><td>1</td></tr>
+        <tr><td>Three stacked 3×3 convs</td><td>7×7</td><td><b>\(27C^2\)</b> — 45% fewer</td><td class="tick">3</td></tr>
+      </tbody>
+    </table></div>
+    <p>Same field of view, fewer weights, more non-linearity. It is a clean argument and it settled the kernel-size question for a decade.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · VGG's real cost is not where you think</span>
+      <p style="margin-bottom:0">VGG-16 has 138M parameters, of which <b>124M sit in the three dense layers</b> and only 14M in all thirteen convolutions. Yet the convolutions consume the overwhelming majority of the <em>compute</em> — 15.5 GFLOPs per image, about 30× a ResNet-18. Parameters and FLOPs are different resources, and confusing them leads to wrong decisions: a model can be huge and fast, or tiny and slow. Always quote both.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Network-in-Network, the quiet paper</span>
+      <p style="margin-bottom:0">NiN (2013) introduced both the 1×1 convolution and global average pooling — the two ideas that make Inception, ResNet and every efficient architecture since possible. It is barely cited compared to the papers built on top of it. Worth remembering when you read the field's history: the loudest paper is rarely the one carrying the idea.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l52">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 46</span><span>Lesson 52</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-052.html">single page ↗</a></div>
+      <h3 class="lesson-title">Classic Architectures II — Inception &amp; ResNet</h3>
+      <span class="lesson-no">52</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>The Inception module and multi-scale filters</li><li>Dimensionality reduction with 1×1</li>
+        <li>Inception v2/v3/v4</li><li>The degradation problem</li>
+        <li>Residual blocks and identity mappings</li><li>Why gradients flow through skips</li>
+        <li>ResNet-18 through 152</li><li>Bottleneck and pre-activation blocks</li>
+      </ol>
+    </div>
+
+    <h4>Inception: stop choosing a kernel size</h4>
+    <p>Objects appear at many scales, so instead of picking 3×3 or 5×5, run 1×1, 3×3, 5×5 and a pooling path <em>in parallel</em> and concatenate the outputs along the channel axis. The naive version is unaffordable — a 5×5 over 256 channels is enormous — so each expensive branch is preceded by a 1×1 that squeezes the channel count first:</p>
+    <div class="shapes">
+      <span class="dim">in <small>(N, 256, H, W)</small></span><span class="op">→</span><span class="dim">1×1 → 64 <small>cheap</small></span><span class="op">→</span><span class="dim">5×5 → 32</span><span class="op">⊕</span><span class="dim out">concat <small>(N, C, H, W)</small></span>
+    </div>
+    <p>Without the squeeze: \(256\times32\times25=204{,}800\) weights. With it: \(256\times64+64\times32\times25=67{,}584\). A 3× saving on one branch, and it is what lets GoogLeNet be 22 layers deep with 5M parameters — <b>twelve times fewer than AlexNet</b> at better accuracy. Later versions add factorisation (a 5×5 becomes two 3×3s; a 3×3 becomes 1×3 then 3×1), BatchNorm (v2), and label smoothing (v3, where it was introduced).</p>
+
+    <h4>The degradation problem</h4>
+    <p>By 2015 the obvious move was to keep stacking. It stopped working — and not because of overfitting. A 56-layer plain network had <em>higher training error</em> than a 20-layer one. That is the key observation: it was not failing to generalise, it was failing to <b>fit</b>.</p>
+    <div class="box derive"><span class="lbl">Why that is strange, and what it implies</span>
+      <p>A 56-layer network can represent everything a 20-layer network can: set the extra 36 layers to the identity. So the deeper model's optimum is at least as good. It reached a worse solution anyway, which means the problem is <b>optimisation</b>, not capacity.</p>
+      <p style="margin-bottom:0">And the specific difficulty is that <em>learning the identity is hard</em> for a stack of convolutions and ReLUs. Nothing in \(\text{ReLU}(Wx+b)\) makes \(W=I\) a natural resting point. So He et al. restructured the block so that identity is what you get <b>for free</b>, and the layers only have to learn the deviation from it.</p>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 900 260" role="img" aria-label="Plain block, basic residual block, bottleneck residual block and pre-activation residual block">
+        <text class="svg-ttl" x="20" y="22">THE BLOCK, IN FOUR GENERATIONS</text>
+        <g transform="translate(24,42)">
+          <text class="svg-lbl-b" x="0" y="0">plain</text>
+          <rect x="14" y="14" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="31">3×3 conv</text>
+          <rect x="14" y="52" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="69">BN + ReLU</text>
+          <rect x="14" y="90" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="107">3×3 conv</text>
+          <rect x="14" y="128" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="145">BN + ReLU</text>
+          <line x1="66" y1="40" x2="66" y2="52" stroke="#2A3B4E"/><line x1="66" y1="78" x2="66" y2="90" stroke="#2A3B4E"/>
+          <line x1="66" y1="116" x2="66" y2="128" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="0" y="178" fill="#FF7B87">gradient must survive</text>
+          <text class="svg-lbl" x="0" y="194" fill="#FF7B87">every layer's Jacobian</text>
+        </g>
+        <g transform="translate(214,42)">
+          <text class="svg-lbl-b" x="0" y="0">basic residual · ResNet-18/34</text>
+          <rect x="14" y="14" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="31">3×3 conv</text>
+          <rect x="14" y="52" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="69">BN + ReLU</text>
+          <rect x="14" y="90" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="107">3×3 conv</text>
+          <rect x="14" y="128" width="104" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="42" y="145">BN</text>
+          <circle cx="66" cy="176" r="12" fill="#0F1822" stroke="#FFB454" stroke-width="1.8"/><text class="svg-lbl" x="62" y="181" fill="#FFB454">+</text>
+          <path d="M14 8 L -12 8 L -12 176 L 54 176" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <line x1="66" y1="154" x2="66" y2="164" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="-14" y="208" fill="#FFB454">y = x + F(x)</text>
+        </g>
+        <g transform="translate(430,42)">
+          <text class="svg-lbl-b" x="0" y="0">bottleneck · ResNet-50+</text>
+          <rect x="14" y="14" width="112" height="26" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-lbl" x="24" y="31">1×1 · 256→64</text>
+          <rect x="14" y="52" width="112" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="24" y="69">3×3 · 64→64</text>
+          <rect x="14" y="90" width="112" height="26" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-lbl" x="24" y="107">1×1 · 64→256</text>
+          <circle cx="70" cy="140" r="12" fill="#0F1822" stroke="#FFB454" stroke-width="1.8"/><text class="svg-lbl" x="66" y="145" fill="#FFB454">+</text>
+          <path d="M14 8 L -12 8 L -12 140 L 58 140" fill="none" stroke="#FFB454" stroke-width="2"/>
+          <line x1="70" y1="116" x2="70" y2="128" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="-12" y="172" fill="#5BC8E6">the 3×3 runs at 1/4 the width</text>
+          <text class="svg-lbl" x="-12" y="188">70k params vs 1.2M for two 3×3s</text>
+        </g>
+        <g transform="translate(672,42)">
+          <text class="svg-lbl-b" x="0" y="0">pre-activation · ResNet v2</text>
+          <rect x="14" y="14" width="112" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="31">BN + ReLU</text>
+          <rect x="14" y="52" width="112" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="34" y="69">3×3 conv</text>
+          <rect x="14" y="90" width="112" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="30" y="107">BN + ReLU</text>
+          <rect x="14" y="128" width="112" height="26" fill="#0F1822" stroke="#2A3B4E"/><text class="svg-lbl" x="34" y="145">3×3 conv</text>
+          <circle cx="70" cy="178" r="12" fill="#0F1822" stroke="#93D97B" stroke-width="1.8"/><text class="svg-lbl" x="66" y="183" fill="#93D97B">+</text>
+          <path d="M14 8 L -12 8 L -12 178 L 58 178" fill="none" stroke="#93D97B" stroke-width="2.4"/>
+          <line x1="70" y1="154" x2="70" y2="166" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="-12" y="210" fill="#93D97B">nothing at all on the skip path</text>
+        </g>
+      </svg>
+      <figcaption>The orange and green lines are the whole idea. In pre-activation form the skip is a pure identity from input to output, so the gradient reaches layer 1 unmodified — which is what let ResNet-1001 train at all.</figcaption>
+    </figure>
+
+    <h4>Why the gradient survives</h4>
+    <p>For \(\mathbf y=\mathbf x+F(\mathbf x)\), differentiate:</p>
+    \[ \frac{\partial\mathbf y}{\partial\mathbf x}=I+\frac{\partial F}{\partial\mathbf x} \qquad\Longrightarrow\qquad \frac{\partial L}{\partial\mathbf x_l}=\frac{\partial L}{\partial\mathbf x_L}\prod_{i=l}^{L-1}\left(I+\frac{\partial F_i}{\partial\mathbf x_i}\right) \]
+    <p>Expand that product and one term is the bare identity: the gradient at layer \(L\) reaches layer \(l\) <b>undiminished</b>, no matter how many layers sit between them. Compare with Lesson 28, where the plain-network product \(\prod\gamma_i\) decayed to \(10^{-18}\) over 30 layers. The skip connection does not reduce the vanishing gradient — it adds a path that cannot vanish at all.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Model</th><th>Blocks</th><th>Params</th><th>GFLOPs @224</th><th>ImageNet top-1</th></tr></thead>
+      <tbody>
+        <tr><td>ResNet-18</td><td>basic</td><td>11.7M</td><td>1.8</td><td>69.8%</td></tr>
+        <tr><td>ResNet-34</td><td>basic</td><td>21.8M</td><td>3.7</td><td>73.3%</td></tr>
+        <tr><td>ResNet-50</td><td>bottleneck</td><td>25.6M</td><td>4.1</td><td>76.1%</td></tr>
+        <tr><td>ResNet-101</td><td>bottleneck</td><td>44.5M</td><td>7.8</td><td>77.4%</td></tr>
+        <tr><td>ResNet-152</td><td>bottleneck</td><td>60.2M</td><td>11.6</td><td>78.3%</td></tr>
+      </tbody>
+    </table></div>
+    <p>ResNet-50 is still, ten years later, the default backbone you should reach for first. It is the reference point every paper reports against, every framework ships pretrained, and every deployment target has optimised kernels for.</p>
+
+    <pre><code>class BasicBlock(nn.Module):
+    def __init__(self, cin, cout, stride=1):
+        super().__init__()
+        self.c1 = nn.Conv2d(cin, cout, 3, stride, 1, bias=False)
+        self.b1 = nn.BatchNorm2d(cout)
+        self.c2 = nn.Conv2d(cout, cout, 3, 1, 1, bias=False)
+        self.b2 = nn.BatchNorm2d(cout)
+        # the skip must match shape; a 1x1 stride-s conv is the standard projection
+        self.skip = nn.Identity() if (stride == 1 and cin == cout) else nn.Sequential(
+            nn.Conv2d(cin, cout, 1, stride, bias=False), nn.BatchNorm2d(cout))
+
+    def forward(self, x):
+        out = F.relu(self.b1(self.c1(x)))
+        out = self.b2(self.c2(out))
+        return F.relu(out + self.skip(x))      # add BEFORE the final ReLU
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · putting the ReLU on the skip path</span>
+      <p style="margin-bottom:0">Writing <code>return self.skip(x) + F.relu(out)</code> or applying a ReLU to the shortcut breaks the identity and you lose most of the benefit — a ReLU zeroes half the gradient every time it is crossed. The order is: transform, <b>add</b>, then activate. And initialise the final BN's \(\gamma\) to <b>zero</b> (<code>zero_init_residual=True</code>): the block then starts as an exact identity, which measurably improves both stability and final accuracy.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l53">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 47</span><span>Lesson 53</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-053.html">single page ↗</a></div>
+      <h3 class="lesson-title">Modern CNN Architectures</h3>
+      <span class="lesson-no">53</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>DenseNet and feature reuse</li><li>ResNeXt cardinality</li>
+        <li>Squeeze-and-Excitation</li><li>CBAM</li>
+        <li>MobileNet v1/v2/v3 and depthwise separable convolution</li><li>ShuffleNet</li>
+        <li>EfficientNet compound scaling</li><li>RegNet</li><li>ConvNeXt</li>
+      </ol>
+    </div>
+
+    <h4>Depthwise separable convolution — the idea behind every mobile model</h4>
+    <p>A standard conv mixes <em>space</em> and <em>channels</em> in one operation. Factor it into two:</p>
+    <figure>
+      <svg viewBox="0 0 900 210" role="img" aria-label="Standard convolution compared with depthwise convolution followed by a pointwise convolution">
+        <text class="svg-ttl" x="20" y="22">ONE OPERATION, OR TWO CHEAP ONES</text>
+        <g transform="translate(30,46)">
+          <text class="svg-lbl-b" x="0" y="0">standard 3×3, 64 → 128</text>
+          <rect x="0" y="14" width="150" height="52" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl" x="12" y="36">every filter spans</text><text class="svg-lbl" x="12" y="54">all 64 channels</text>
+          <text class="svg-lbl" x="0" y="90" fill="#FFB454">128 × 64 × 3 × 3 = 73,728 params</text>
+          <text class="svg-lbl" x="0" y="112">mixes space AND channels at once</text>
+        </g>
+        <g transform="translate(330,46)">
+          <text class="svg-lbl-b" x="0" y="0">depthwise 3×3</text>
+          <rect x="0" y="14" width="130" height="52" fill="#0F1822" stroke="#5BC8E6"/>
+          <text class="svg-lbl" x="10" y="36">one filter PER</text><text class="svg-lbl" x="10" y="54">channel, no mixing</text>
+          <text class="svg-lbl" x="0" y="90" fill="#5BC8E6">64 × 3 × 3 = 576</text>
+          <text class="svg-lbl" x="0" y="112">space only</text>
+        </g>
+        <g transform="translate(510,46)">
+          <text class="svg-lbl-b" x="0" y="0">+ pointwise 1×1</text>
+          <rect x="0" y="14" width="130" height="52" fill="#0F1822" stroke="#93D97B"/>
+          <text class="svg-lbl" x="10" y="36">full 64 → 128 mix</text><text class="svg-lbl" x="10" y="54">at each position</text>
+          <text class="svg-lbl" x="0" y="90" fill="#93D97B">128 × 64 = 8,192</text>
+          <text class="svg-lbl" x="0" y="112">channels only</text>
+        </g>
+        <g transform="translate(700,60)">
+          <rect x="0" y="0" width="176" height="96" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl-b" x="12" y="24">8,768 vs 73,728</text>
+          <text class="svg-lbl" x="12" y="46" fill="#93D97B">8.4× fewer parameters</text>
+          <text class="svg-lbl" x="12" y="66">and the same 8.4× on FLOPs</text>
+          <text class="svg-lbl" x="12" y="86">for ~1% accuracy</text>
+        </g>
+      </svg>
+      <figcaption>The saving is \(\frac{1}{C_{\text{out}}}+\frac{1}{k^2}\) of the original cost. For \(k=3\) and any reasonable channel count that is close to \(1/9\).</figcaption>
+    </figure>
+    \[ \frac{\text{depthwise separable}}{\text{standard}}=\frac{C_{\text{in}}k^2+C_{\text{in}}C_{\text{out}}}{C_{\text{in}}C_{\text{out}}k^2}=\frac{1}{C_{\text{out}}}+\frac{1}{k^2} \]
+
+    <div class="demo" id="d-flops">
+      <div class="demo-head"><span class="dot"></span><b>Convolution cost</b> · standard vs grouped vs depthwise separable</div>
+      <div class="demo-body">
+        <canvas id="flCv" width="760" height="240" aria-label="Parameter and FLOP comparison across convolution types"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>C<sub>in</sub> <b id="flIv">64</b></span><input type="range" id="flI" min="16" max="512" step="16" value="64"></label>
+          <label class="ctrl"><span>C<sub>out</sub> <b id="flOv">128</b></span><input type="range" id="flO" min="16" max="512" step="16" value="128"></label>
+          <label class="ctrl"><span>Kernel <b id="flKv">3</b></span><input type="range" id="flK" min="1" max="9" step="2" value="3"></label>
+          <label class="ctrl"><span>Feature map <b id="flSv">56</b></span><input type="range" id="flS" min="7" max="224" step="7" value="56"></label>
+          <label class="ctrl"><span>Groups <b id="flGv">8</b></span><input type="range" id="flG" min="1" max="32" step="1" value="8"></label>
+        </div>
+        <div class="readout" id="flOut"></div>
+      </div>
+    </div>
+
+    <h4>The families, and what each contributed</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Architecture</th><th>The one idea</th><th>Why it mattered</th></tr></thead>
+      <tbody>
+        <tr><td><b>DenseNet</b> (2017)</td><td>Every layer receives the concatenation of <em>all</em> previous feature maps</td><td>Extreme feature reuse; very parameter-efficient. Memory-hungry in practice, which limited adoption.</td></tr>
+        <tr><td><b>ResNeXt</b> (2017)</td><td>Replace the bottleneck's 3×3 with 32 parallel grouped paths ("cardinality")</td><td>Showed that width and depth are not the only axes. Grouped convolution went mainstream here.</td></tr>
+        <tr><td><b>SENet</b> (2018)</td><td>Squeeze each channel to one number by global pooling, learn per-channel gates, rescale</td><td>Channel attention for ~1% extra FLOPs and a solid accuracy gain. Now a standard bolt-on.</td></tr>
+        <tr><td><b>MobileNetV2</b> (2018)</td><td>Inverted residuals: expand channels, depthwise, project back down, skip on the <em>narrow</em> ends</td><td>The opposite of a bottleneck, and the right shape when the middle op is cheap.</td></tr>
+        <tr><td><b>MobileNetV3</b> (2019)</td><td>NAS-searched, plus h-swish and SE blocks</td><td>The practical mobile default for years.</td></tr>
+        <tr><td><b>ShuffleNet</b> (2018)</td><td>Channel shuffle so grouped convolutions can exchange information</td><td>Fixes grouped conv's isolation problem at zero FLOP cost.</td></tr>
+        <tr><td><b>EfficientNet</b> (2019)</td><td>Scale depth, width and resolution <em>together</em> by fixed ratios</td><td>See below — the most-copied scaling result in vision.</td></tr>
+        <tr><td><b>RegNet</b> (2020)</td><td>Search over design <em>spaces</em>, not individual architectures</td><td>Produced simple, linear width rules that beat searched nets. A methodological argument.</td></tr>
+        <tr><td><b>ConvNeXt</b> (2022)</td><td>Take ResNet-50 and apply every ViT training trick and design choice, one at a time</td><td>Matched Swin Transformer. Strong evidence that much of ViT's advantage was the recipe, not attention.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box derive"><span class="lbl">EfficientNet's compound scaling</span>
+      <p>Given \(\phi\times\) more compute, how should you spend it? EfficientNet grid-searched the answer once on a small model and found that depth, width and resolution should scale together:</p>
+      \[ \text{depth}=\alpha^\phi,\quad \text{width}=\beta^\phi,\quad \text{resolution}=\gamma^\phi \qquad\text{with } \alpha\beta^2\gamma^2\approx2 \]
+      <p style="margin-bottom:0">The constraint holds because FLOPs scale linearly in depth but quadratically in width and in resolution. Their values were \(\alpha=1.2,\beta=1.1,\gamma=1.15\). The practical takeaway survives even if you never use EfficientNet: <b>scaling one axis alone saturates fast</b>. A network twice as deep at the same width and resolution wastes most of the extra compute.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · FLOPs are not latency</span>
+      <p style="margin-bottom:0">Depthwise convolutions cut FLOPs by 9× and frequently deliver nothing like a 9× speedup — often under 2×. The reason is <b>arithmetic intensity</b>: a depthwise conv does very little maths per byte of memory it touches, so it is memory-bandwidth-bound and leaves the GPU's compute units idle. Dense 3×3 convolutions map beautifully onto tensor cores; depthwise ones do not. Always measure wall-clock latency on your actual target hardware. A model that is theoretically 5× cheaper and practically the same speed is a very common and very expensive surprise.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">What to actually use in 2026</span>
+      <p style="margin-bottom:0"><b>Default backbone:</b> ResNet-50 — universally supported and a fair baseline. <b>Best accuracy per FLOP on a GPU:</b> ConvNeXt or EfficientNetV2. <b>Mobile or edge:</b> MobileNetV3 or MobileViT, chosen by measured latency. <b>Small dataset:</b> whatever has the best pretrained weights, which usually beats whatever has the best architecture. Reach for <code>timm</code> (Lesson 55) and compare three candidates on your data rather than reasoning about it from a table.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l54">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 48</span><span>Lesson 54</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-054.html">single page ↗</a></div>
+      <h3 class="lesson-title">Training a CNN on CIFAR-10 — The Full Recipe</h3>
+      <span class="lesson-no">54</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Normalization statistics</li><li>A strong baseline</li>
+        <li>The augmentation stack</li><li>LR schedule plus AMP</li>
+        <li>Label smoothing</li><li>EMA of weights</li>
+        <li>Getting past 94–96%</li><li>An ablation table</li><li>Common CIFAR mistakes</li>
+      </ol>
+    </div>
+
+    <p>Everything from Phase 3 applied to one concrete problem. CIFAR-10 is 60,000 32×32 images in 10 classes, small enough that a full run takes minutes on one GPU — which makes it the right place to feel each trick's contribution rather than read about it.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · using an ImageNet stem on 32×32 images</span>
+      <p style="margin-bottom:0">A stock <code>torchvision.models.resnet18</code> begins with a 7×7 stride-2 conv followed by a stride-2 max pool. On a 224×224 image that reduces to 56×56, which is fine. On a <b>32×32</b> image it reduces to 8×8 before the first residual block has run — you have thrown away 94% of the spatial information in two operations, and the network never recovers. Every "CIFAR ResNet" replaces the stem with a single 3×3 stride-1 conv and deletes the max pool. This one change is worth roughly 5 percentage points, and it is the most common reason people report that "ResNet doesn't work on CIFAR".</p>
+    </div>
+
+    <pre><code>import torch, torch.nn as nn, torchvision
+from torchvision.transforms import v2
+
+# Statistics computed on the TRAINING SPLIT ONLY (Lesson 14)
+MEAN, STD = (0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)
+
+train_tf = v2.Compose([
+    v2.RandomCrop(32, padding=4, padding_mode="reflect"),
+    v2.RandomHorizontalFlip(),
+    v2.TrivialAugmentWide(),
+    v2.ToImage(), v2.ToDtype(torch.float32, scale=True), v2.Normalize(MEAN, STD),
+    v2.RandomErasing(p=0.25)])                       # after normalize (Lesson 38)
+
+def cifar_resnet18(num_classes=10):
+    m = torchvision.models.resnet18(weights=None, num_classes=num_classes)
+    m.conv1 = nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)   # 7x7/2 -> 3x3/1
+    m.maxpool = nn.Identity()                                        # delete it
+    return m
+
+model = cifar_resnet18().cuda().to(memory_format=torch.channels_last)
+model = torch.compile(model)
+
+decay = [p for n, p in model.named_parameters() if p.ndim &gt;= 2]
+nodecay = [p for n, p in model.named_parameters() if p.ndim &lt; 2]
+opt = torch.optim.SGD([{"params": decay, "weight_decay": 5e-4},
+                       {"params": nodecay, "weight_decay": 0.0}],
+                      lr=0.1, momentum=0.9, nesterov=True)
+
+EPOCHS, steps = 60, len(train_loader)
+sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=0.2,
+                                            total_steps=EPOCHS * steps, pct_start=0.15)
+criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+scaler = torch.amp.GradScaler("cuda")
+ema = torch.optim.swa_utils.AveragedModel(
+    model, avg_fn=lambda a, c, n: 0.999 * a + 0.001 * c)
+
+for epoch in range(EPOCHS):
+    model.train()
+    for xb, yb in train_loader:
+        xb = xb.cuda(non_blocking=True).to(memory_format=torch.channels_last)
+        yb = yb.cuda(non_blocking=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            loss = criterion(model(xb), yb)
+        opt.zero_grad(set_to_none=True)
+        scaler.scale(loss).backward()
+        scaler.step(opt); scaler.update(); sched.step()
+        ema.update_parameters(model)
+</code></pre>
+
+    <h4>What each piece buys</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Added on top of the previous row</th><th>Test accuracy</th><th>Δ</th></tr></thead>
+      <tbody>
+        <tr><td>ResNet-18, ImageNet stem, no augmentation</td><td>~86.5%</td><td>—</td></tr>
+        <tr><td>+ CIFAR stem (3×3/1, no maxpool)</td><td>~91.2%</td><td class="tick">+4.7</td></tr>
+        <tr><td>+ random crop &amp; flip</td><td>~94.1%</td><td class="tick">+2.9</td></tr>
+        <tr><td>+ one-cycle LR schedule</td><td>~94.9%</td><td class="tick">+0.8</td></tr>
+        <tr><td>+ TrivialAugment &amp; random erasing</td><td>~95.6%</td><td class="tick">+0.7</td></tr>
+        <tr><td>+ label smoothing 0.1</td><td>~95.8%</td><td>+0.2</td></tr>
+        <tr><td>+ EMA of weights</td><td>~96.1%</td><td>+0.3</td></tr>
+      </tbody>
+    </table></div>
+    <p>Read the shape of that table, not the numbers. The two changes that mattered — fixing the stem and adding basic augmentation — are both about <b>respecting the data</b>, and together they are worth more than everything else combined. The clever tricks each contribute a few tenths. That ordering is typical of real projects and is the opposite of how the literature is usually read.</p>
+
+    <div class="box intuition"><span class="lbl">EMA — free accuracy, almost</span>
+      <p style="margin-bottom:0">Keep a shadow copy of the weights updated as \(\theta_{\text{ema}}\leftarrow\rho\,\theta_{\text{ema}}+(1-\rho)\,\theta\) with \(\rho\approx0.999\), and evaluate <em>that</em>. SGD's final iterate is still bouncing inside the noise ball from Lesson 33; the average sits closer to its centre. Costs one extra copy of the weights and no extra compute in the backward pass. Nearly every strong vision and diffusion result uses it. Remember to update the EMA model's BatchNorm statistics before evaluating — <code>torch.optim.swa_utils.update_bn</code> does this.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · CIFAR-specific traps</span>
+      <p><b>Reporting the best epoch's test accuracy.</b> If you evaluate on test every epoch and report the maximum, you have selected on test — worth a spurious 0.3–0.5% (Lesson 39). Hold out 5,000 training images as validation and touch test once.</p>
+      <p><b>Normalizing with ImageNet statistics.</b> CIFAR's channel means differ; use CIFAR's own.</p>
+      <p style="margin-bottom:0"><b>Believing a 0.2% improvement.</b> The seed-to-seed standard deviation on CIFAR-10 is roughly 0.15–0.25%. Three seeds, or do not claim it.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l55">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 49</span><span>Lesson 55</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-055.html">single page ↗</a></div>
+      <h3 class="lesson-title">Transfer Learning in Vision, Hands-On</h3>
+      <span class="lesson-no">55</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>torchvision and <code>timm</code> model zoos</li><li>Choosing a backbone by accuracy, latency and size</li>
+        <li>Replacing the head</li><li>Freezing schedules</li>
+        <li>Fine-tuning on a small custom dataset</li><li>Handling class imbalance</li>
+        <li>When a linear probe is enough</li>
+      </ol>
+    </div>
+
+    <h4><code>timm</code> is the model zoo you want</h4>
+    <p>torchvision ships perhaps 80 models. <code>timm</code> (PyTorch Image Models) ships well over a thousand pretrained checkpoints with a uniform interface, including every ConvNeXt, EfficientNet, ViT and hybrid variant, and — critically — the correct preprocessing config for each one.</p>
+    <pre><code>import timm, torch
+
+# every model, one interface. num_classes=0 gives you a pure feature extractor.
+model = timm.create_model("convnext_tiny.fb_in22k_ft_in1k",
+                          pretrained=True, num_classes=37)   # head replaced for you
+
+# use the checkpoint's OWN preprocessing, not a guess
+cfg = timm.data.resolve_model_data_config(model)
+train_tf = timm.data.create_transform(**cfg, is_training=True)
+val_tf   = timm.data.create_transform(**cfg, is_training=False)
+print(cfg)   # {'input_size': (3,224,224), 'mean': ..., 'std': ..., 'crop_pct': 0.875}
+
+# shortlist candidates by what you actually care about
+for name in timm.list_models("*convnext*", pretrained=True)[:5]:
+    print(name)
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · the wrong normalization constants</span>
+      <p style="margin-bottom:0">Not every checkpoint uses ImageNet's mean and std. CLIP-pretrained backbones use different values; Inception-family models expect \([-1,1]\) rather than standardised inputs. Feed a model the wrong normalisation and accuracy silently drops by several points — everything runs, nothing errors. Always pull the constants from <code>resolve_model_data_config</code> rather than copying the ImageNet numbers from memory.</p>
+    </div>
+
+    <h4>Linear probe first, always</h4>
+    <p>Before fine-tuning anything, freeze the backbone, extract features once, and fit logistic regression on them. It takes minutes and answers the question that determines your whole approach:</p>
+    <pre><code>@torch.no_grad()
+def extract(model, loader):
+    model.eval().cuda()
+    feats, labels = [], []
+    for xb, yb in loader:
+        f = model.forward_features(xb.cuda())
+        f = model.forward_head(f, pre_logits=True)     # pooled embedding, no classifier
+        feats.append(f.cpu()); labels.append(yb)
+    return torch.cat(feats), torch.cat(labels)
+
+from sklearn.linear_model import LogisticRegression
+Xtr, ytr = extract(backbone, train_loader)
+Xva, yva = extract(backbone, val_loader)
+probe = LogisticRegression(max_iter=2000, C=1.0).fit(Xtr, ytr)
+print("linear probe:", probe.score(Xva, yva))
+</code></pre>
+    <div class="box check"><span class="lbl">What the probe result tells you to do next</span>
+      <p style="margin-bottom:0"><b>Probe already near your target</b> → ship the probe, or fine-tune lightly. You are done in an afternoon. <b>Probe decent but short</b> → fine-tune with layer-wise LR decay; expect a few points. <b>Probe near chance</b> → the backbone's features do not describe your domain at all (medical, satellite, microscopy, audio spectrograms). Fine-tuning deeply or using a domain-specific pretrained model is now mandatory, and you should budget accordingly.</p>
+    </div>
+
+    <h4>Class imbalance</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Technique</th><th>How</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td><b>Class-weighted loss</b></td><td><code>CrossEntropyLoss(weight=w)</code> with \(w_c\propto1/n_c\)</td><td>First thing to try. Simple, no data pipeline change.</td></tr>
+        <tr><td><b>Weighted sampler</b></td><td><code>WeightedRandomSampler</code> to balance each batch</td><td>Severe imbalance; interacts well with BatchNorm.</td></tr>
+        <tr><td><b>Focal loss</b></td><td>Down-weights easy examples (Lesson 21)</td><td>Extreme imbalance, especially detection.</td></tr>
+        <tr><td><b>Threshold tuning</b></td><td>Leave training alone; move the decision threshold</td><td>Often the best answer. Free, and it is what Lesson 43's demo is about.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Whatever you choose, evaluate with macro-F1 and per-class recall, never accuracy.</p>
+  </article>
+<article class="wrap lesson" id="l56">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 50</span><span>Lesson 56</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-056.html">single page ↗</a></div>
+      <h3 class="lesson-title">Object Detection I — Foundations</h3>
+      <span class="lesson-no">56</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Classification vs localization vs detection vs segmentation</li><li>Box formats</li>
+        <li>IoU</li><li>Non-max suppression and soft-NMS</li>
+        <li>Anchor boxes</li><li>Positive/negative assignment</li>
+        <li>Precision-recall for detection</li><li>mAP and mAP@[.5:.95], step by step</li>
+        <li>COCO and Pascal VOC</li>
+      </ol>
+    </div>
+
+    <h4>The four tasks</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Task</th><th>Output per image</th><th>Typical loss</th></tr></thead>
+      <tbody>
+        <tr><td>Classification</td><td>One label</td><td>Cross-entropy</td></tr>
+        <tr><td>Localization</td><td>One label + one box</td><td>CE + smooth-L1</td></tr>
+        <tr><td><b>Detection</b></td><td>\(N\) labels + \(N\) boxes, \(N\) unknown</td><td>CE/focal + box regression</td></tr>
+        <tr><td>Segmentation</td><td>A label per pixel</td><td>CE + Dice</td></tr>
+      </tbody>
+    </table></div>
+    <p>Detection is qualitatively harder because <b>\(N\) varies</b>. A network outputs a fixed-size tensor; the image might contain zero objects or forty. Every detector in the next two lessons is, at bottom, a different answer to that one problem.</p>
+
+    <h4>Box formats and IoU</h4>
+    <p>Three conventions, and mixing them is a rite of passage: <code>xyxy</code> (corners), <code>xywh</code> (top-left plus size), and <code>cxcywh</code> (centre plus size, usually normalised to \([0,1]\)). COCO's JSON uses <code>xywh</code> in pixels; YOLO's text files use normalised <code>cxcywh</code>; torchvision expects <code>xyxy</code>.</p>
+    \[ \text{IoU}(A,B)=\frac{|A\cap B|}{|A\cup B|}=\frac{|A\cap B|}{|A|+|B|-|A\cap B|} \]
+    <pre><code>def iou_xyxy(a, b):
+    """a (N,4), b (M,4) -> (N,M). The single most-used function in detection."""
+    x1 = torch.max(a[:, None, 0], b[None, :, 0])
+    y1 = torch.max(a[:, None, 1], b[None, :, 1])
+    x2 = torch.min(a[:, None, 2], b[None, :, 2])
+    y2 = torch.min(a[:, None, 3], b[None, :, 3])
+    inter = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)   # clamp: no negative overlap
+    area_a = (a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1])
+    area_b = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    return inter / (area_a[:, None] + area_b[None, :] - inter + 1e-9)
+</code></pre>
+
+    <div class="demo" id="d-nms">
+      <div class="demo-head"><span class="dot"></span><b>IoU and non-max suppression</b> · what survives, and what a threshold change costs you</div>
+      <div class="demo-body">
+        <canvas id="nmsCv" width="760" height="330" aria-label="Overlapping detection boxes before and after non-max suppression"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>IoU threshold <b id="nmsTv">0.50</b></span><input type="range" id="nmsT" min="0.05" max="0.95" step="0.05" value="0.5"></label>
+          <label class="ctrl"><span>Score threshold <b id="nmsSv">0.30</b></span><input type="range" id="nmsS" min="0.05" max="0.9" step="0.05" value="0.3"></label>
+          <label class="ctrl"><span>Crowding <b id="nmsCv2">2</b></span><input type="range" id="nmsC" min="1" max="4" step="1" value="2"></label>
+          <button class="btn" id="nmsNew">New detections</button>
+        </div>
+        <div class="readout" id="nmsOut"></div>
+      </div>
+    </div>
+
+    <h4>Non-max suppression</h4>
+    <p>Detectors produce many overlapping boxes for the same object. NMS keeps the highest-scoring one and deletes its near-duplicates:</p>
+    <pre><code>def nms(boxes, scores, iou_thresh=0.5):
+    keep, order = [], scores.argsort(descending=True)
+    while order.numel() &gt; 0:
+        i = order[0]
+        keep.append(i.item())
+        if order.numel() == 1:
+            break
+        ious = iou_xyxy(boxes[i][None], boxes[order[1:]])[0]
+        order = order[1:][ious &lt;= iou_thresh]      # drop everything that overlaps too much
+    return keep
+</code></pre>
+    <div class="box pitfall"><span class="lbl">Pitfall · NMS deletes real objects in crowds</span>
+      <p style="margin-bottom:0">Two people standing shoulder to shoulder can have genuinely overlapping boxes with IoU above 0.5. Hard NMS deletes one of them, and no amount of training fixes it because the error happens after the model. <b>Soft-NMS</b> decays the neighbour's score by \(s_j\leftarrow s_j\,e^{-\text{IoU}^2/\sigma}\) instead of deleting it, so a strong-but-overlapping detection survives. Also remember to run NMS <b>per class</b> — a "person" box and a "backpack" box are supposed to overlap. Class-agnostic NMS is a classic silent bug.</p>
+    </div>
+
+    <h4>mAP, computed honestly</h4>
+    <p>Average Precision for one class is the area under its precision–recall curve. The procedure:</p>
+    <ol>
+      <li>Sort all predictions for that class across the whole dataset by confidence, descending.</li>
+      <li>Walk down the list. A prediction is a <b>true positive</b> if it has IoU ≥ threshold with an unmatched ground-truth box; otherwise it is a false positive. Each ground truth can be matched <b>once</b> — a second box on the same object is a duplicate, not a second hit.</li>
+      <li>Accumulate precision and recall at each step, then integrate.</li>
+    </ol>
+    <p>mAP is the mean of AP over classes. <b>mAP@0.5</b> (Pascal VOC's metric) uses a single IoU threshold of 0.5 and is forgiving about box tightness. <b>mAP@[.5:.95]</b> (COCO's primary metric) averages AP over ten thresholds from 0.50 to 0.95 in steps of 0.05, so it heavily rewards precise localisation. A model can score 0.65 on the first and 0.42 on the second; quoting the wrong one makes numbers incomparable across papers.</p>
+    <div class="box check"><span class="lbl">Anchors and assignment, in one paragraph</span>
+      <p style="margin-bottom:0">Most detectors pre-place a grid of reference boxes (<b>anchors</b>) of several scales and aspect ratios, then predict an <em>offset</em> from each anchor rather than absolute coordinates — regressing a small correction is far easier than regressing a coordinate from scratch. Training then needs an <b>assignment rule</b>: an anchor with IoU ≥ 0.7 against some ground truth is positive, IoU &lt; 0.3 is negative, and anything in between is ignored so it contributes no gradient. Assignment is where most of a detector's behaviour is decided, and it is why anchor-free methods (Lesson 58) are attractive — they delete a whole layer of hyperparameters.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l57">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 51</span><span>Lesson 57</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-057.html">single page ↗</a></div>
+      <h3 class="lesson-title">Object Detection II — Two-Stage Detectors</h3>
+      <span class="lesson-no">57</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Sliding windows and selective search</li><li>R-CNN</li>
+        <li>SPP-net</li><li>Fast R-CNN and RoI pooling</li>
+        <li>Faster R-CNN and the Region Proposal Network</li><li>RoI Align</li>
+        <li>Mask R-CNN</li><li>Feature Pyramid Networks</li>
+      </ol>
+    </div>
+
+    <h4>The lineage, as a sequence of bottleneck removals</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Model</th><th>The fix</th><th>Time / image</th></tr></thead>
+      <tbody>
+        <tr><td><b>R-CNN</b> (2014)</td><td>Selective search proposes ~2000 regions; run the CNN on <em>each</em> one</td><td>~47 s</td></tr>
+        <tr><td><b>SPP-net</b> (2014)</td><td>Run the CNN <em>once</em> on the whole image; pool from the shared feature map</td><td>~2 s</td></tr>
+        <tr><td><b>Fast R-CNN</b> (2015)</td><td>RoI pooling + a single multi-task loss, so it trains end to end</td><td>~0.3 s</td></tr>
+        <tr><td><b>Faster R-CNN</b> (2015)</td><td>Replace selective search with a learned Region Proposal Network</td><td><b>~0.2 s</b></td></tr>
+      </tbody>
+    </table></div>
+    <p>Each step removes whatever had become the slowest part. By Faster R-CNN, every component is a neural network trained jointly and the hand-designed proposal algorithm is gone entirely. This is a good template for how progress in the field usually looks: not one insight, but four years of deleting the non-learned parts.</p>
+
+    <h4>The Region Proposal Network</h4>
+    <p>A small conv head slides over the shared feature map. At every position it looks at \(k\) anchors (Faster R-CNN uses 9: three scales × three aspect ratios) and outputs, for each, an objectness score and four box offsets. Top proposals go to the second stage for classification and refinement. The RPN is trained with the same assignment rule from Lesson 56 and shares all its convolutional features with the detection head — which is exactly where the speedup comes from.</p>
+
+    <div class="box derive"><span class="lbl">RoI Pool vs RoI Align — why half a pixel mattered</span>
+      <p>A proposal in image coordinates must be mapped onto a feature map that has been downsampled by 16 or 32. <b>RoI Pooling</b> rounds those coordinates to integers twice: once mapping the box onto the grid, once dividing it into bins. On a stride-16 feature map, a rounding error of 0.5 cells is <b>8 pixels</b> in the original image.</p>
+      <p style="margin-bottom:0">For a bounding box, 8 pixels of slop is survivable. For a per-pixel mask it is fatal — the mask ends up systematically offset from the object. <b>RoI Align</b> removes both roundings and samples at exact fractional positions with bilinear interpolation. That single change improved Mask R-CNN's mask AP by around 10 points on COCO, and it is the reason Mask R-CNN works at all.</p>
+    </div>
+
+    <h4>Feature Pyramid Networks</h4>
+    <p>Deep feature maps are semantically strong but coarse (stride 32); shallow maps are fine-grained but semantically weak. A small object is invisible at stride 32 and unrecognisable at stride 4. FPN fixes this with a top-down path: upsample the deep map, add it laterally to the shallower one, and repeat — producing a pyramid where <em>every</em> level is both high-resolution and semantically strong. Objects are then assigned to a pyramid level by size.</p>
+    <p>FPN is not a detector; it is a neck that plugs into almost anything, and it is present in Faster R-CNN, RetinaNet, Mask R-CNN, and most YOLO variants. If you see a detector reporting a big jump on small objects, FPN or a descendant is usually why.</p>
+
+    <div class="box intuition"><span class="lbl">Two-stage vs one-stage, honestly</span>
+      <p style="margin-bottom:0">Two-stage detectors filter to a few hundred proposals before classifying, so their classifier sees a roughly balanced set. One-stage detectors score every one of ~100,000 anchor positions, of which perhaps ten are objects — a 10,000:1 imbalance that plain cross-entropy cannot handle. That single fact is why one-stage detection needed focal loss to become competitive, which is where Lesson 58 begins.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l58">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 52</span><span>Lesson 58</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-058.html">single page ↗</a></div>
+      <h3 class="lesson-title">Object Detection III — One-Stage &amp; DETR</h3>
+      <span class="lesson-no">58</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>YOLO v1's grid formulation</li><li>The YOLO lineage</li>
+        <li>SSD multi-scale defaults</li><li>RetinaNet and focal loss</li>
+        <li>Anchor-free: FCOS and CenterNet</li><li>DETR and set prediction</li>
+        <li>Hungarian matching</li><li>Deformable DETR</li><li>Choosing a detector</li>
+      </ol>
+    </div>
+
+    <h4>YOLO: detection as one regression</h4>
+    <p>Divide the image into an \(S\times S\) grid. Each cell predicts \(B\) boxes with confidences plus one class distribution. The whole thing is a single forward pass with no proposal stage — hence "You Only Look Once", and hence 45 FPS in 2016 when Faster R-CNN managed 5. v1 was noticeably less accurate, especially on small and clustered objects, because one cell could only claim so many boxes. The lineage since then has mostly been engineering: anchors and multi-scale prediction (v2/v3), CSP backbones and mosaic augmentation (v4/v5), anchor-free heads and decoupled classification/regression branches (v8 onward).</p>
+
+    <div class="box derive"><span class="lbl">Focal loss — the fix for 100,000 background anchors</span>
+      <p>With extreme foreground–background imbalance, the summed loss is dominated by a vast number of easy negatives that are each already classified correctly with \(p_t\approx0.99\). Individually negligible, collectively overwhelming. Focal loss multiplies cross-entropy by a factor that vanishes for confident predictions:</p>
+      \[ \text{FL}(p_t)=-\alpha_t\,(1-p_t)^{\gamma}\log(p_t) \]
+      <p style="margin-bottom:0">At \(\gamma=2\), an easy negative with \(p_t=0.99\) is down-weighted by \((0.01)^2=10^{-4}\), while a hard example at \(p_t=0.5\) is down-weighted only 4×. The gradient is therefore reallocated to the examples that are still wrong. RetinaNet applied this and became the first one-stage detector to beat two-stage accuracy while staying faster — one loss function closing a gap that architecture had not.</p>
+    </div>
+
+    <h4>Anchor-free detection</h4>
+    <p>Anchors bring scales, aspect ratios, IoU thresholds and assignment rules — a large hyperparameter surface that must be re-tuned per dataset. <b>FCOS</b> discards them: every feature-map location directly regresses four distances to the object's edges (left, top, right, bottom), with a "centerness" score suppressing predictions from near the boundary. <b>CenterNet</b> goes further and predicts object centres as peaks in a heatmap, plus a size regression — and because a peak is unique, it needs <em>no NMS at all</em>, just a 3×3 max-pool to find local maxima.</p>
+
+    <h4>DETR: detection as set prediction</h4>
+    <p>DETR removes both anchors and NMS by reframing the problem. A transformer decoder takes \(N=100\) learned "object queries" and outputs exactly \(N\) predictions, each a class (including a special "no object") and a box. Training uses the <b>Hungarian algorithm</b> to compute the optimal one-to-one matching between predictions and ground truths, then applies the loss only along that matching.</p>
+    <div class="box intuition"><span class="lbl">Why bipartite matching removes the need for NMS</span>
+      <p style="margin-bottom:0">Duplicate boxes exist because conventional detectors reward <em>every</em> anchor near an object. Under one-to-one matching, exactly one prediction is assigned to each ground truth and all others are pushed towards "no object". Producing a duplicate is therefore actively <b>penalised</b> by the loss rather than cleaned up afterwards. The architecture stops needing a hand-written post-processing step because the training objective already forbids the behaviour that step existed to fix. That is an elegant idea and worth carrying forward.</p>
+    </div>
+    <p>The original DETR converged notoriously slowly — 500 epochs on COCO, roughly 10× a Faster R-CNN — because global attention over all feature positions takes a long time to focus. <b>Deformable DETR</b> attends to a small learned set of sampling points per query instead, cutting training to 50 epochs and greatly improving small-object performance.</p>
+
+    <div class="box check"><span class="lbl">Which detector to actually reach for</span>
+      <p style="margin-bottom:0"><b>Real-time on a modest GPU or edge device</b> → a current YOLO. Mature tooling, excellent speed/accuracy, easy export. <b>Highest accuracy, latency is negotiable</b> → DINO-DETR or Cascade R-CNN with a strong backbone. <b>You also need instance masks</b> → Mask R-CNN, or Mask2Former. <b>Crowded scenes</b> → anything anchor-free or DETR-family, precisely to avoid NMS. <b>Few-shot or open-vocabulary</b> → Grounding DINO or OWL-ViT, which take a text prompt (Lesson 109). Start from a maintained implementation; detection has a very large amount of fiddly, easy-to-get-wrong detail, and re-implementing assignment from scratch is rarely the best use of a week.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l59">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 53</span><span>Lesson 59</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-059.html">single page ↗</a></div>
+      <h3 class="lesson-title">Segmentation</h3>
+      <span class="lesson-no">59</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Semantic vs instance vs panoptic</li><li>FCN and learned upsampling</li>
+        <li>U-Net and its skip connections</li><li>SegNet</li>
+        <li>DeepLab, atrous convolution and ASPP</li><li>PSPNet</li>
+        <li>Dice, IoU, Tversky and boundary losses</li><li>mIoU</li><li>Segment Anything</li>
+      </ol>
+    </div>
+
+    <h4>Three different questions</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Type</th><th>Question answered</th><th>Two adjacent cars</th></tr></thead>
+      <tbody>
+        <tr><td><b>Semantic</b></td><td>What class is this pixel?</td><td>One merged "car" region</td></tr>
+        <tr><td><b>Instance</b></td><td>Which object is this pixel part of?</td><td>Two separate car masks; road unlabelled</td></tr>
+        <tr><td><b>Panoptic</b></td><td>Both, for everything</td><td>Two car instances <em>and</em> a labelled road</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <svg viewBox="0 0 900 270" role="img" aria-label="U-Net encoder decoder architecture with skip connections between matching resolutions">
+        <text class="svg-ttl" x="20" y="22">U-NET — the skips are the whole architecture</text>
+        <g transform="translate(50,42)">
+          <g fill="#0F1822" stroke="#5BC8E6">
+            <rect x="0"   y="10"  width="34" height="110"/>
+            <rect x="66"  y="26"  width="34" height="78"/>
+            <rect x="132" y="42"  width="34" height="46"/>
+          </g>
+          <rect x="198" y="54" width="42" height="22" fill="#0F1822" stroke="#B79CFF"/>
+          <g fill="#0F1822" stroke="#93D97B">
+            <rect x="272" y="42"  width="34" height="46"/>
+            <rect x="338" y="26"  width="34" height="78"/>
+            <rect x="404" y="10"  width="34" height="110"/>
+          </g>
+          <rect x="470" y="10" width="34" height="110" fill="#0F1822" stroke="#FFB454"/>
+          <g stroke="#2A3B4E" fill="none">
+            <path d="M34 65 L66 65"/><path d="M100 65 L132 65"/><path d="M166 65 L198 65"/>
+            <path d="M240 65 L272 65"/><path d="M306 65 L338 65"/><path d="M372 65 L404 65"/><path d="M438 65 L470 65"/>
+          </g>
+          <g stroke="#FFB454" stroke-width="2" fill="none" stroke-dasharray="5 4">
+            <path d="M17 10 L17 -10 L421 -10 L421 10"/>
+            <path d="M83 26 L83 6 L355 6 L355 26"/>
+            <path d="M149 42 L149 24 L289 24 L289 42"/>
+          </g>
+          <text class="svg-lbl" x="-4" y="140">572²</text><text class="svg-lbl" x="62" y="140">286²</text>
+          <text class="svg-lbl" x="128" y="140">143²</text><text class="svg-lbl" x="196" y="140">bottleneck</text>
+          <text class="svg-lbl" x="268" y="140">143²</text><text class="svg-lbl" x="334" y="140">286²</text>
+          <text class="svg-lbl" x="400" y="140">572²</text><text class="svg-lbl" x="466" y="140">mask</text>
+          <text class="svg-lbl-b" x="0" y="172" fill="#5BC8E6">encoder — what is here</text>
+          <text class="svg-lbl-b" x="272" y="172" fill="#93D97B">decoder — where exactly</text>
+          <text class="svg-lbl" x="0" y="196" fill="#FFB454">The dashed skips carry full-resolution detail straight across, so the decoder does not</text>
+          <text class="svg-lbl" x="0" y="212" fill="#FFB454">have to reinvent boundaries the encoder already threw away by downsampling.</text>
+        </g>
+      </svg>
+      <figcaption>Concatenate, do not add — U-Net's skips concatenate encoder features onto the decoder, doubling channels and letting the decoder choose what to use. This is why it needs so little training data and why medical imaging has used essentially the same architecture since 2015.</figcaption>
+    </figure>
+
+    <h4>Atrous convolution and ASPP</h4>
+    <p>Segmentation faces a direct conflict: you need a large receptive field for context, but downsampling destroys the spatial precision the output needs. U-Net resolves it with skips. <b>DeepLab</b> resolves it differently — with dilated (atrous) convolution from Lesson 48, growing the receptive field <em>without</em> downsampling at all. <b>ASPP</b> then runs several dilation rates in parallel (6, 12, 18) and fuses them, capturing objects at multiple scales in one layer. It is the Inception idea applied to receptive field rather than kernel size.</p>
+
+    <h4>Losses — and why cross-entropy alone is not enough</h4>
+    <p>A tumour occupying 0.5% of an MRI slice makes pixel-wise cross-entropy trivially minimisable by predicting "background" everywhere. Dice loss measures overlap directly, so an all-background prediction scores zero:</p>
+    \[ \mathcal L_{\text{Dice}}=1-\frac{2\sum_i p_i g_i+\epsilon}{\sum_i p_i+\sum_i g_i+\epsilon} \]
+    <div class="tablewrap"><table>
+      <thead><tr><th>Loss</th><th>Behaviour</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td>Cross-entropy</td><td>Stable gradients, ignores class balance</td><td>Always include some</td></tr>
+        <tr><td>Dice</td><td>Directly optimises overlap; noisy gradients on tiny objects</td><td>Imbalanced masks</td></tr>
+        <tr><td><b>CE + Dice</b></td><td>Stability plus overlap</td><td><b>The standard default</b></td></tr>
+        <tr><td>Tversky</td><td>Dice with tunable FP/FN weighting via \(\alpha,\beta\)</td><td>When misses cost more than false alarms</td></tr>
+        <tr><td>Boundary / Hausdorff</td><td>Penalises contour error specifically</td><td>Thin structures — vessels, roads, cracks</td></tr>
+      </tbody>
+    </table></div>
+    <p>Report <b>mIoU</b>: per-class \(\text{TP}/(\text{TP}+\text{FP}+\text{FN})\), averaged over classes. Pixel accuracy has exactly the same failure mode as classification accuracy on imbalanced data (Lesson 43), and for the same reason.</p>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · interpolating masks</span>
+      <p style="margin-bottom:0">Resizing a segmentation mask with bilinear interpolation produces fractional class indices — halfway between class 3 and class 7 is class 5, which is a different object entirely. Masks must be resized with <b>nearest-neighbour</b>. Related: when you augment, the geometric transform must be applied identically to image and mask, which is why <code>albumentations</code> and <code>torchvision.transforms.v2</code> take both together. Applying independent random crops to image and mask is a bug that produces a model which trains to a plausible-looking loss and predicts nonsense.</p>
+    </div>
+
+    <div class="box intuition"><span class="lbl">Segment Anything (2023)</span>
+      <p style="margin-bottom:0">SAM was trained on 1.1 billion masks and segments objects it has never been given a label for, prompted by a point, a box or a rough mask. It is <em>class-agnostic</em> — it tells you where the object boundary is, not what the object is. That makes it a labelling accelerator more than a finished solution: prompt SAM, get pixel-accurate masks in seconds, then attach your own classifier. If you are about to hand-annotate a segmentation dataset, try SAM first; it routinely cuts annotation time by an order of magnitude.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l60">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 54</span><span>Lesson 60</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-060.html">single page ↗</a></div>
+      <h3 class="lesson-title">Other Vision Tasks</h3>
+      <span class="lesson-no">60</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Pose estimation with heatmaps</li><li>OCR with CRNN and CTC</li>
+        <li>Face detection and recognition</li><li>Monocular depth</li>
+        <li>Super-resolution</li><li>Denoising and inpainting</li>
+        <li>Optical flow</li><li>Multi-object tracking</li><li>Video classification</li>
+      </ol>
+    </div>
+
+    <p>Nine tasks, one lesson. The goal is not depth in each but recognising the shared machinery — almost all of these are a backbone from Lesson 53 with a different head and a different loss.</p>
+
+    <h4>Heatmaps: the trick that unifies half of these</h4>
+    <p>Pose estimation could regress \((x,y)\) coordinates directly. It works badly — regressing a coordinate from a global feature vector is exactly the spatially-destructive step Lesson 47 warned about. Instead, predict a <b>heatmap</b> per keypoint: a full-resolution map whose target is a small Gaussian centred on the true location, trained with MSE. The prediction is the argmax.</p>
+    <div class="box intuition"><span class="lbl">Why heatmaps beat coordinate regression</span>
+      <p style="margin-bottom:0">The heatmap preserves spatial structure end to end — every output pixel corresponds to an input location, so the network never has to encode "position" into a vector. It also represents uncertainty naturally: a diffuse blob means "somewhere around here", which a coordinate pair cannot express. And the loss is dense, giving gradient signal at every pixel rather than from two numbers. The same idea powers CenterNet (Lesson 58), landmark detection, and keypoint-based tracking.</p>
+    </div>
+
+    <h4>CTC: reading text without knowing where the characters are</h4>
+    <p>OCR has an alignment problem. A CRNN turns an image strip into \(T\) timesteps, but the word "cat" has 3 characters, not \(T\) — and nobody labelled which timestep contains which letter. <b>Connectionist Temporal Classification</b> solves it by introducing a blank symbol and summing the probability over <em>every</em> alignment that collapses to the target:</p>
+    \[ p(\mathbf y\mid\mathbf x)=\sum_{\pi\in\mathcal B^{-1}(\mathbf y)}\prod_{t=1}^{T}p(\pi_t\mid\mathbf x) \]
+    <p>where \(\mathcal B\) removes blanks and merges repeats, so <code>c-aa-t</code>, <code>cc-a-t</code> and <code>-c-a-t</code> all collapse to <code>cat</code>. The sum has exponentially many terms and is computed in \(O(T\cdot L)\) by dynamic programming, in the same family as the forward algorithm for HMMs. You will meet CTC again for speech in Lesson 110 — the alignment problem is identical.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Task</th><th>Output head</th><th>Loss</th><th>Representative model</th></tr></thead>
+      <tbody>
+        <tr><td>Pose estimation</td><td>\(K\) heatmaps</td><td>MSE on Gaussians</td><td>HRNet, OpenPose</td></tr>
+        <tr><td>OCR</td><td>Per-timestep character distribution</td><td>CTC</td><td>CRNN, TrOCR</td></tr>
+        <tr><td>Face recognition</td><td>Normalised embedding</td><td>ArcFace margin (Lesson 61)</td><td>ArcFace, AdaFace</td></tr>
+        <tr><td>Monocular depth</td><td>Dense depth map</td><td>Scale-invariant log loss</td><td>MiDaS, Depth Anything</td></tr>
+        <tr><td>Super-resolution</td><td>Upsampled image</td><td>L1 + perceptual + adversarial</td><td>ESRGAN, SwinIR</td></tr>
+        <tr><td>Inpainting</td><td>Image + mask → image</td><td>Reconstruction + adversarial</td><td>LaMa, diffusion (Lesson 108)</td></tr>
+        <tr><td>Optical flow</td><td>Per-pixel 2D displacement</td><td>EPE on the flow field</td><td>RAFT</td></tr>
+        <tr><td>Video classification</td><td>Clip-level logits</td><td>Cross-entropy</td><td>SlowFast, VideoMAE</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Multi-object tracking</h4>
+    <p>The dominant paradigm is <b>tracking by detection</b>: run a detector every frame, then associate detections across frames. SORT uses a Kalman filter for motion prediction plus Hungarian matching on IoU — fast, and remarkably strong. DeepSORT adds an appearance embedding so an object surviving an occlusion can be re-identified. ByteTrack's contribution is almost embarrassingly simple: also try to match the <em>low-confidence</em> detections that everyone else discards, because an occluded object usually produces a weak detection rather than none. It beat far more complex trackers.</p>
+
+    <div class="box intuition"><span class="lbl">Video is expensive, and 2D often wins</span>
+      <p style="margin-bottom:0">3D convolutions multiply cost by the temporal kernel size. SlowFast splits the work: a slow pathway at low frame rate with many channels for appearance, a fast pathway at high frame rate with few channels for motion. But the honest baseline is worth knowing — <b>a 2D CNN on individual frames with averaged predictions is a strong baseline on many video benchmarks</b>, because a great many "action recognition" labels are inferable from a single frame. Always run that baseline before paying for temporal modelling.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l61">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 54-b</span><span>Lesson 61</span><span class="rt">40 min</span><a class="permalink" href="../lessons/lesson-061.html">single page ↗</a></div>
+      <h3 class="lesson-title">Metric Learning &amp; Embeddings</h3>
+      <span class="lesson-no">61</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Learning a similarity space</li><li>Siamese networks</li>
+        <li>Contrastive loss</li><li>Triplet loss and mining</li>
+        <li>N-pair and InfoNCE</li><li>ArcFace and CosFace margins</li>
+        <li>Image retrieval with FAISS</li><li>Recall@k</li>
+      </ol>
+    </div>
+
+    <h4>When classification is the wrong shape</h4>
+    <p>A face recognition system cannot have a softmax output per person: the set of people changes daily, most have one enrolled photo, and retraining for each new employee is absurd. The same holds for product search, duplicate detection and re-identification. What you want instead is an <b>embedding function</b> \(f\) such that distance means similarity:</p>
+    \[ \|f(\mathbf x_a)-f(\mathbf x_p)\|\ \ll\ \|f(\mathbf x_a)-f(\mathbf x_n)\| \]
+    <p>Then adding a new class is just storing one more vector. Recognition becomes nearest-neighbour search.</p>
+
+    <h4>Triplet loss and the mining problem</h4>
+    \[ \mathcal L=\max\!\Big(0,\ \|f(a)-f(p)\|^2-\|f(a)-f(n)\|^2+\alpha\Big) \]
+    <p>Push the positive closer than the negative by at least a margin \(\alpha\). The subtlety is that after a few epochs, a randomly chosen triplet almost always already satisfies the margin — the loss is exactly zero and the gradient with it. <b>Mining</b> is therefore not an optimisation; it is the difference between training and not training.</p>
+    <div class="box pitfall"><span class="lbl">Pitfall · hardest-negative mining collapses the model</span>
+      <p style="margin-bottom:0">The obvious move is to always pick the hardest negative in the batch. It fails: the hardest negatives are frequently mislabelled examples or near-duplicates, and chasing them drives \(f\) to a constant function where every distance is zero — a degenerate solution with zero loss. Use <b>semi-hard</b> mining instead: negatives that are farther than the positive but still inside the margin. FaceNet's result depended on this detail, and it is the standard first explanation for "my embedding model collapsed".</p>
+    </div>
+
+    <h4>Margin losses: the modern answer</h4>
+    <p>Triplet loss needs careful batch construction and mining. ArcFace sidesteps all of it by staying with a softmax classifier over training identities, but adding an <b>angular margin</b> to the correct class before the softmax:</p>
+    \[ \mathcal L=-\log\frac{e^{s\cos(\theta_y+m)}}{e^{s\cos(\theta_y+m)}+\sum_{j\ne y}e^{s\cos\theta_j}} \]
+    <p>Both weights and features are L2-normalised, so the logit is purely the cosine of the angle between a feature and its class centre. Adding \(m\) before the cosine forces the correct class to be right by a geometric margin on the hypersphere. Typical values \(s=64,\ m=0.5\). It trains as easily as ordinary classification, needs no mining, and outperforms triplet loss — which is why essentially all face recognition uses it now. At inference you discard the classifier and keep the embedding.</p>
+
+    <pre><code>import faiss, torch, numpy as np
+
+emb = torch.nn.functional.normalize(embeddings, dim=1).cpu().numpy().astype("float32")
+index = faiss.IndexFlatIP(emb.shape[1])       # inner product on normalized vectors = cosine
+index.add(emb)                                 # gallery
+D, I = index.search(query_emb, k=10)           # exact search
+
+# beyond ~1M vectors, switch to an approximate index
+quant = faiss.IndexFlatIP(emb.shape[1])
+index = faiss.IndexIVFFlat(quant, emb.shape[1], 4096, faiss.METRIC_INNER_PRODUCT)
+index.train(emb); index.add(emb); index.nprobe = 32     # nprobe trades recall for speed
+
+def recall_at_k(I, labels_q, labels_g, k):
+    hits = [(labels_g[I[i, :k]] == labels_q[i]).any() for i in range(len(labels_q))]
+    return float(np.mean(hits))
+</code></pre>
+    <div class="box check"><span class="lbl">Evaluate with Recall@k, not accuracy</span>
+      <p style="margin-bottom:0">Retrieval quality is "was the right item in the top \(k\)". Report Recall@1, @5, @10, and mean average precision over the ranking. And normalise your embeddings before indexing — with L2-normalised vectors, inner product <em>is</em> cosine similarity, and forgetting the normalisation is a common bug that makes retrieval quietly rank by vector magnitude instead of direction.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l62">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 55</span><span>Lesson 62</span><span class="rt">55 min</span><a class="permalink" href="../lessons/lesson-062.html">single page ↗</a></div>
+      <h3 class="lesson-title">Vision Transformers</h3>
+      <span class="lesson-no">62</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+        <ol class="two">
+        <li>Patch embedding — an image as 16×16 words</li><li>The CLS token</li>
+        <li>ViT end to end</li><li>Data hunger</li>
+        <li>DeiT and distillation tokens</li><li>Swin's shifted windows</li>
+        <li>Hybrid designs</li><li>CNN vs ViT inductive biases, honestly</li>
+      </ol>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 900 240" role="img" aria-label="Vision Transformer pipeline from image patches to classification">
+        <text class="svg-ttl" x="20" y="22">VIT — cut the image into patches, then treat them as a sentence</text>
+        <g transform="translate(24,44)">
+          <text class="svg-lbl-b" x="0" y="0">224×224 image</text>
+          <rect x="0" y="12" width="112" height="112" fill="#0F1822" stroke="#2A3B4E"/>
+          <g stroke="#5BC8E6" opacity="0.55">
+            <line x1="28" y1="12" x2="28" y2="124"/><line x1="56" y1="12" x2="56" y2="124"/><line x1="84" y1="12" x2="84" y2="124"/>
+            <line x1="0" y1="40" x2="112" y2="40"/><line x1="0" y1="68" x2="112" y2="68"/><line x1="0" y1="96" x2="112" y2="96"/>
+          </g>
+          <rect x="0" y="12" width="28" height="28" fill="#FFB454" opacity="0.35"/>
+          <text class="svg-lbl" x="0" y="144">16×16 patches → 14×14 = 196</text>
+        </g>
+        <g transform="translate(172,44)">
+          <text class="svg-lbl-b" x="0" y="0">flatten + linear</text>
+          <rect x="0" y="18" width="92" height="26" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl" x="8" y="35">768 → 768</text>
+          <text class="svg-lbl" x="0" y="64">each patch is 16·16·3</text>
+          <text class="svg-lbl" x="0" y="80">= 768 numbers → one</text>
+          <text class="svg-lbl" x="0" y="96">token embedding</text>
+          <text class="svg-lbl" x="0" y="122" fill="#93D97B">+ position embedding</text>
+          <text class="svg-lbl" x="0" y="138" fill="#93D97B">+ [CLS] token</text>
+        </g>
+        <g transform="translate(300,44)">
+          <g fill="#0F1822" stroke="#B79CFF">
+            <rect x="0" y="18" width="20" height="20"/><rect x="26" y="18" width="20" height="20"/>
+            <rect x="52" y="18" width="20" height="20"/><rect x="78" y="18" width="20" height="20"/>
+          </g>
+          <text class="svg-lbl" x="4" y="32" fill="#B79CFF">C</text>
+          <text class="svg-lbl" x="0" y="56">197 tokens</text>
+        </g>
+        <g transform="translate(430,44)">
+          <text class="svg-lbl-b" x="0" y="0">transformer encoder ×12</text>
+          <rect x="0" y="14" width="150" height="104" fill="#0F1822" stroke="#2A3B4E"/>
+          <rect x="14" y="28" width="122" height="24" fill="#0F1822" stroke="#5BC8E6"/><text class="svg-lbl" x="24" y="44">multi-head attention</text>
+          <rect x="14" y="60" width="122" height="24" fill="#0F1822" stroke="#93D97B"/><text class="svg-lbl" x="44" y="76">MLP 4×</text>
+          <text class="svg-lbl" x="14" y="104">pre-norm + residual (L84)</text>
+          <text class="svg-lbl" x="0" y="140" fill="#FF7B87">every patch attends to every patch</text>
+          <text class="svg-lbl" x="0" y="156" fill="#FF7B87">from layer 1 — no locality prior</text>
+        </g>
+        <g transform="translate(620,44)">
+          <text class="svg-lbl-b" x="0" y="0">head</text>
+          <rect x="0" y="18" width="20" height="20" fill="#0F1822" stroke="#B79CFF"/><text class="svg-lbl" x="4" y="32" fill="#B79CFF">C</text>
+          <path d="M26 28 L58 28" stroke="#2A3B4E"/>
+          <rect x="64" y="16" width="76" height="24" fill="#0F1822" stroke="#FFB454"/>
+          <text class="svg-lbl" x="76" y="32">MLP → K</text>
+          <text class="svg-lbl" x="0" y="60">only the CLS token's</text>
+          <text class="svg-lbl" x="0" y="76">final state is used</text>
+        </g>
+        <g transform="translate(770,110)">
+          <rect x="0" y="0" width="106" height="70" fill="#0F1822" stroke="#2A3B4E"/>
+          <text class="svg-lbl" x="8" y="20" fill="#FFB454">attention is</text>
+          <text class="svg-lbl" x="8" y="36" fill="#FFB454">O(n²) in tokens</text>
+          <text class="svg-lbl" x="8" y="56">196² = 38,416</text>
+        </g>
+      </svg>
+      <figcaption>The only vision-specific component is the patch embedding. Everything after it is the 2017 transformer from Lesson 80, unchanged — which is precisely why the architecture was interesting.</figcaption>
+    </figure>
+
+    <div class="demo" id="d-patch">
+      <div class="demo-head"><span class="dot"></span><b>Patch arithmetic</b> · why patch size is the most consequential ViT hyperparameter</div>
+      <div class="demo-body">
+        <canvas id="paCv" width="760" height="220" aria-label="Image patch grid and the resulting token count and attention cost"></canvas>
+        <div class="ctrls">
+          <label class="ctrl"><span>Image size <b id="paIv">224</b></span><input type="range" id="paI" min="96" max="1024" step="32" value="224"></label>
+          <label class="ctrl"><span>Patch size <b id="paPv">16</b></span><input type="range" id="paP" min="4" max="32" step="2" value="16"></label>
+          <label class="ctrl"><span>Embed dim <b id="paDv">768</b></span><input type="range" id="paD" min="192" max="1536" step="192" value="768"></label>
+          <label class="ctrl"><span>Layers <b id="paLv">12</b></span><input type="range" id="paL" min="4" max="48" step="2" value="12"></label>
+        </div>
+        <div class="readout" id="paOut"></div>
+      </div>
+    </div>
+
+    <h4>The data hunger, and what it revealed</h4>
+    <p>ViT trained on ImageNet-1k alone <em>loses</em> to a ResNet of similar size. Trained on JFT-300M it wins decisively. That crossover is the most instructive result in the paper: a CNN's locality and translation-equivariance priors are worth roughly 100 million images. Below that, the priors help; above it, they are a constraint the model would rather learn its way around.</p>
+    <p>DeiT then showed the gap was not really about data but about <b>recipe</b>: with heavy augmentation, strong regularisation and a distillation token that learns to match a CNN teacher, ViT reaches competitive ImageNet accuracy using ImageNet alone. The distillation token is a neat idea — a second special token, alongside CLS, whose loss target is the teacher's prediction, letting the model absorb the CNN's inductive bias through supervision rather than architecture.</p>
+
+    <h4>Swin: put the hierarchy back</h4>
+    <p>Plain ViT keeps one resolution throughout, which is wasteful and useless for detection or segmentation, where a feature pyramid is required. Swin restores the CNN's structure: compute attention only within local windows (7×7 patches), merge patches between stages to halve resolution and double channels, and <b>shift the window grid</b> by half a window on alternate layers so information crosses window boundaries. Cost drops from \(O(n^2)\) to \(O(n)\) in the number of patches, and the output is a proper multi-scale pyramid that plugs straight into FPN. Swin became the default transformer backbone for dense prediction.</p>
+
+    <div class="box intuition"><span class="lbl">CNN vs ViT — the honest summary</span>
+      <p>ViTs have weaker inductive biases, so they need more data or better recipes, but scale further and transfer better. They also see globally from layer one, where a CNN needs depth to accumulate receptive field. Their attention maps are somewhat more interpretable, and they are more robust to texture bias and some corruptions.</p>
+      <p style="margin-bottom:0">But ConvNeXt is the crucial control experiment. Take a ResNet-50 and apply, one at a time, the things that changed alongside the architecture — AdamW, 300 epochs, heavy augmentation, larger kernels, fewer activations and norms, LayerNorm, inverted bottlenecks — and you match Swin on ImageNet, detection and segmentation, with no attention anywhere. <b>A large share of "transformers beat CNNs" was the training recipe, not the attention.</b> Hold onto that scepticism when reading architecture papers; it generalises.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · changing input resolution on a ViT</span>
+      <p style="margin-bottom:0">A CNN accepts any input size (Lesson 49). A ViT does not — its learned position embeddings have one entry per patch position, so a 224-trained model fed 384 pixels has 576 patches and only 196 embeddings. You must <b>interpolate the position embeddings</b> onto the new grid, which every good implementation provides (<code>timm</code> does it automatically). Skip it and you get a shape error at best, or silently scrambled positions at worst.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l63">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 55-b</span><span>Lesson 63</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-063.html">single page ↗</a></div>
+      <h3 class="lesson-title">Self-Supervised Learning for Vision</h3>
+      <span class="lesson-no">63</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Pretext tasks</li><li>SimCLR and NT-Xent</li>
+        <li>MoCo's momentum queue</li><li>BYOL, SimSiam, Barlow Twins, VICReg</li>
+        <li>DINO and DINOv2</li><li>Masked image modeling: BEiT and MAE</li>
+        <li>Evaluating with linear probes</li>
+      </ol>
+    </div>
+
+    <h4>The premise</h4>
+    <p>Labels are expensive; images are free. Self-supervised learning invents a task whose supervision comes from the data itself, learns representations by solving it, and then transfers those representations to real tasks with very few labels. Early attempts used <b>pretext tasks</b> — predict the rotation applied to an image, solve a jigsaw of shuffled patches, colourise a greyscale photo. They worked somewhat, but the model tends to learn shortcuts specific to the pretext rather than general features.</p>
+
+    <h4>Contrastive learning</h4>
+    <p>SimCLR's formulation: take an image, apply two random augmentations to get a positive pair, treat all other images in the batch as negatives, and pull positives together while pushing negatives apart with the NT-Xent loss:</p>
+    \[ \mathcal L_{i,j}=-\log\frac{\exp\big(\text{sim}(\mathbf z_i,\mathbf z_j)/\tau\big)}{\sum_{k\ne i}\exp\big(\text{sim}(\mathbf z_i,\mathbf z_k)/\tau\big)} \]
+    <p>Three details carry most of the performance, and all three are counterintuitive:</p>
+    <ul>
+      <li><b>The augmentation is the task.</b> Random crop plus colour distortion is essential — without colour jitter the network solves the problem by matching colour histograms, which is a shortcut, not a representation. The augmentations define what invariances you are asking for.</li>
+      <li><b>A projection head helps, and you throw it away.</b> The contrastive loss is applied to \(g(f(\mathbf x))\), but the representation you keep is \(f(\mathbf x)\). The head absorbs the information destroyed by the invariance objective, leaving \(f\) richer than the loss alone would allow.</li>
+      <li><b>Batch size matters enormously.</b> Negatives come from the batch, so SimCLR needs 4096+ — which is why MoCo's momentum-updated queue of past embeddings was such a practical contribution: it decouples the negative count from the batch size.</li>
+    </ul>
+
+    <div class="box derive"><span class="lbl">BYOL — no negatives at all, which should not work</span>
+      <p>BYOL removes negatives entirely: an online network predicts the output of a momentum-updated target network on a different augmentation of the same image. With no repulsive term, the obvious solution is to output a constant for everything. It does not collapse, and explaining why took the field several papers.</p>
+      <p style="margin-bottom:0">The ingredients that prevent collapse are the <b>predictor head</b> on the online branch only (breaking the symmetry) and the <b>stop-gradient</b> on the target branch. SimSiam then showed the momentum encoder is not even necessary — stop-gradient plus predictor suffices. The lesson is that architectural asymmetry can substitute for an explicit repulsive loss, which was genuinely surprising.</p>
+    </div>
+
+    <h4>Masked image modeling</h4>
+    <p>The BERT idea (Lesson 87) transplanted to images: mask most of the patches and reconstruct them. <b>MAE</b> makes it efficient and effective with two choices: mask a very high fraction — <b>75%</b>, far higher than BERT's 15%, because images are much more redundant than text — and pass only the <em>visible</em> patches through the encoder, with a lightweight decoder reconstructing the rest. The encoder therefore processes 25% of the tokens, making pretraining roughly 3× faster despite the harder task.</p>
+
+    <h4>DINOv2 and what to actually use</h4>
+    <p>DINO is self-distillation with no labels: a student matches a teacher's output distribution over different crops, with centring and sharpening preventing collapse. Its striking property is <b>emergent segmentation</b> — attention maps from a DINO ViT delineate object boundaries without ever having seen a mask. DINOv2 scaled this with a heavily curated dataset, producing general-purpose features that are excellent under a frozen linear probe across classification, depth and segmentation.</p>
+    <div class="box check"><span class="lbl">The practical recommendation</span>
+      <p style="margin-bottom:0">Unless you are researching SSL, <b>do not train it yourself</b> — it requires large batches, long schedules and careful tuning. Download DINOv2 or a CLIP backbone (Lesson 109) and probe it. Train your own only when your domain is genuinely unlike natural images — satellite, histopathology, industrial inspection — and you have a large pool of unlabelled in-domain data and few labels. That is the situation SSL is actually for, and there it is transformative.</p>
+    </div>
+    <div class="box pitfall"><span class="lbl">Pitfall · the linear probe can mislead</span>
+      <p style="margin-bottom:0">Linear probe accuracy is the standard SSL benchmark, but it measures whether information is <em>linearly</em> accessible, not whether it is present. A representation can encode something perfectly while a linear classifier cannot reach it, and methods can be tuned to score well on probes specifically. Always also report fine-tuned accuracy and, ideally, low-shot performance at 1% and 10% of labels — the regime you adopted SSL for in the first place.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l64">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 56</span><span>Lesson 64</span><span class="rt">50 min</span><a class="permalink" href="../lessons/lesson-064.html">single page ↗</a></div>
+      <h3 class="lesson-title">Interpretability &amp; Adversarial Robustness in Vision</h3>
+      <span class="lesson-no">64</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Visualizing filters and feature maps</li><li>Activation maximization</li>
+        <li>Saliency maps</li><li>Guided Backprop</li>
+        <li>CAM, Grad-CAM and successors</li><li>Occlusion sensitivity</li>
+        <li>FGSM and PGD</li><li>Adversarial training</li>
+        <li>Revealing spurious correlations</li>
+      </ol>
+    </div>
+
+    <h4>Grad-CAM, which is the one you will use</h4>
+    <p>Take the feature maps \(A^k\) of the last convolutional layer. Weight each channel by how much the target class score responds to it, then combine and keep the positive part:</p>
+    \[ \alpha_k^c=\frac{1}{HW}\sum_{i,j}\frac{\partial y^c}{\partial A^k_{ij}},\qquad L^c_{\text{Grad-CAM}}=\relu\!\Big(\sum_k \alpha_k^c A^k\Big) \]
+    <p>The ReLU matters: you want evidence <em>for</em> the class, not against it. The result is a coarse heatmap (the resolution of the last conv layer, typically 7×7) upsampled over the image. It works on any CNN with no retraining and no architectural change, which is why it displaced CAM — CAM required a global-average-pooled architecture.</p>
+    <pre><code>class GradCAM:
+    def __init__(self, model, layer):
+        self.model, self.acts, self.grads = model.eval(), None, None
+        layer.register_forward_hook(lambda m, i, o: setattr(self, "acts", o))
+        layer.register_full_backward_hook(lambda m, gi, go: setattr(self, "grads", go[0]))
+
+    def __call__(self, x, cls=None):
+        logits = self.model(x)
+        cls = logits.argmax(1) if cls is None else cls
+        self.model.zero_grad()
+        logits[range(len(cls)), cls].sum().backward()
+        w = self.grads.mean(dim=(2, 3), keepdim=True)          # alpha_k
+        cam = torch.relu((w * self.acts).sum(1, keepdim=True))
+        cam = torch.nn.functional.interpolate(cam, x.shape[-2:], mode="bilinear")
+        return (cam / (cam.amax(dim=(2,3), keepdim=True) + 1e-8)).squeeze(1)
+
+cam = GradCAM(model, model.layer4[-1])      # last conv block of a ResNet
+</code></pre>
+    <div class="box intuition"><span class="lbl">What this is actually for</span>
+      <p style="margin-bottom:0">Not for reassuring stakeholders — for finding the bugs your metrics hide. The canonical cases are real: a pneumonia classifier attending to the hospital's scanner watermark rather than the lung; a husky-vs-wolf model attending to <em>snow</em>; a skin-lesion model keying on the ruler that dermatologists place beside malignancies. Every one of these had excellent validation accuracy, because the shortcut was present in validation too. Grad-CAM on your worst <em>and your best</em> predictions is the cheapest shortcut detector there is, and it belongs in every project's error analysis.</p>
+    </div>
+
+    <h4>Adversarial examples</h4>
+    <p>Take a correctly classified image and add a perturbation invisible to a human but chosen to maximise the loss:</p>
+    \[ \text{FGSM:}\quad \mathbf x'=\mathbf x+\epsilon\,\mathrm{sign}\!\big(\nabla_{\mathbf x}L(\mathbf x,y)\big) \]
+    <p>One gradient step with \(\epsilon=8/255\) is typically enough to flip a confident prediction. <b>PGD</b> iterates FGSM with small steps and projects back into the \(\epsilon\)-ball each time, and is the standard strong attack. What makes this more than a curiosity is <b>transferability</b>: an example crafted against one model often fools a completely different model trained on different data, which means an attacker needs no access to your weights.</p>
+
+    <div class="box derive"><span class="lbl">Why they exist</span>
+      <p style="margin-bottom:0">The original "excessive non-linearity" explanation turned out to be backwards. Goodfellow's argument is that models are too <b>locally linear</b>: for a linear model, a perturbation \(\boldsymbol\eta\) with \(\|\boldsymbol\eta\|_\infty\le\epsilon\) changes the logit by \(\mathbf w\T\boldsymbol\eta\), which for \(\boldsymbol\eta=\epsilon\,\mathrm{sign}(\mathbf w)\) equals \(\epsilon\|\mathbf w\|_1\) — and that grows with dimension. In high-dimensional space, many tiny coordinated changes sum to a large logit shift. A later view is that adversarial examples exploit <em>real but non-robust</em> features: patterns that genuinely predict the label on natural data but are imperceptible and brittle. On that account the model is not malfunctioning; it is using signal we did not intend it to use.</p>
+    </div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · defences that only look like defences</span>
+      <p style="margin-bottom:0">A long list of published defences worked by <b>gradient masking</b> — making gradients uninformative rather than making the model robust. They reported high accuracy under gradient-based attack and then fell to attacks that estimated gradients differently or attacked a substitute model. Adversarial training (train on PGD examples) remains the only broadly reliable defence, and it costs 3–10× the training time and several points of clean accuracy. If you evaluate robustness, use AutoAttack or an established benchmark, never your own attack against your own model.</p>
+    </div>
+  </article>
+<article class="wrap lesson" id="l65">
+    <div class="lesson-head">
+      <div class="tags"><span class="day">Day 56-b</span><span>Lesson 65</span><span class="rt">60 min</span><a class="permalink" href="../lessons/lesson-065.html">single page ↗</a></div>
+      <h3 class="lesson-title">✅ Project Checkpoint #2 — Custom Vision System</h3>
+      <span class="lesson-no">65</span>
+    </div>
+    <div class="chapters"><span>Chapters</span>
+      <ol class="two">
+        <li>Collecting and labelling a custom dataset</li><li>Picking a backbone or detector</li>
+        <li>Augmentation and training</li><li>Evaluating with the right metrics</li>
+        <li>Error analysis with Grad-CAM</li><li>Export and ship a demo</li>
+      </ol>
+    </div>
+
+    <p>Checkpoint #1 handed you a dataset. This one does not. Collecting and labelling your own data is where most real vision projects actually live, and it will teach you more about your problem than any architecture choice.</p>
+
+    <div class="box exercise"><span class="lbl">The brief</span>
+      <p>Build a working vision system on data you gather yourself. Pick <b>one</b> track:</p>
+      <p><b>A · Detection</b> — 300–800 images, 3–8 object classes, labelled with boxes in CVAT or Label Studio. Something in your own environment: parts on a bench, items on shelves, birds at a feeder.</p>
+      <p><b>B · Segmentation</b> — 150–400 images with masks. Use SAM (Lesson 59) to bootstrap the annotation and correct by hand; report how much time that saved.</p>
+      <p style="margin-bottom:0"><b>C · Retrieval</b> — 2,000+ images across 50+ identities or product types. Train with ArcFace, index with FAISS, evaluate Recall@k.</p>
+    </div>
+
+    <h4>Required deliverables</h4>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th>Deliverable</th><th>Draws on</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>A datasheet: how images were collected, by whom, over what period, known biases, and the labelling protocol including how disagreements were resolved</td><td>L14, L41</td></tr>
+        <tr><td>2</td><td>A split that respects structure — if images come in bursts or from the same scene, split by <em>scene</em>, never by image</td><td>L14</td></tr>
+        <tr><td>3</td><td>A linear probe baseline before any fine-tuning</td><td>L55</td></tr>
+        <tr><td>4</td><td>The trained system, with the recipe from Lesson 54 adapted to your task</td><td>L53–L59</td></tr>
+        <tr><td>5</td><td>Correct metrics: mAP@[.5:.95] for detection, mIoU plus per-class IoU for segmentation, Recall@k for retrieval</td><td>L43, L56, L59, L61</td></tr>
+        <tr><td>6</td><td>Grad-CAM or attention analysis on your ten worst <em>and</em> ten best predictions</td><td>L64</td></tr>
+        <tr><td>7</td><td>An ONNX export and a Gradio demo someone else can run</td><td>L119</td></tr>
+        <tr><td>8</td><td>A one-page report, including a "where this should not be deployed" section</td><td>Phase 3</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="box pitfall"><span class="lbl">Pitfall · the leak that will get you</span>
+      <p style="margin-bottom:0">You photograph 40 objects from 15 angles each and randomly split 600 images. Near-identical frames of the same physical object land in both train and test, and your reported mAP is fiction — you have measured memorisation. <b>Split by object, by scene, or by capture session</b>, never by frame. This is the single most common flaw in self-collected vision datasets, it inflates results dramatically, and it is invisible unless you go looking. Run a near-duplicate check across your splits (embed everything with a pretrained backbone, flag cross-split pairs with cosine similarity above ~0.95) and report the result.</p>
+    </div>
+
+    <div class="box check"><span class="lbl">What "done" looks like</span>
+      <p style="margin-bottom:0">A stranger can install your demo, point it at a new image, and get a sensible answer — and your report tells them honestly when it will fail. If your error analysis did not surprise you at least once, look harder; a model trained on self-collected data has almost always latched onto something about your collection process rather than the objects. Finding that is the deliverable. Phase 5 begins on Day 57 and leaves images behind for sequences.</p>
+    </div>
+  </article>
+  <section class="wrap"><div class="pager"><a id="prevLink" href="phase-3.html" rel="prev"><span class="dir">← Previous phase</span><span class="ttl">Training Deep Networks Well</span></a><a id="nextLink" class="nx" href="phase-5.html" rel="next"><span class="dir">Next phase →</span><span class="ttl">Sequence Models &amp; Classical NLP</span></a></div></section>
+
+  </main>
+</div>
+
+<script>window.SITE = { root:"../", current:0, phase:"p4", mode:"phase" };</script>
+<script src="../assets/site.js"></script>
+<script src="../assets/demos.js"></script>
+</body>
+</html>
