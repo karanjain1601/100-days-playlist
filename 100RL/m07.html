@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 7 — Function Approximation · 130 Days of RL</title>
+<meta name="description" content="Days 61–69: the VE objective, semi-gradient methods, linear TD and its fixed point, Fourier, tile-coding and RBF features, LSTD and LSPI, Mountain Car with semi-gradient SARSA, average reward, and the deadly triad with Baird's counterexample and gradient-TD methods.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m7">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 7 · Function Approximation · Days 61–69</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 7 · Function Approximation</h4>
+  <nav>
+    <a href="#d61"><span class="n">D61</span>Why Function Approximation</a>
+    <a href="#d62"><span class="n">D62</span>SGD &amp; Semi-Gradient</a>
+    <a href="#d63"><span class="n">D63</span>Linear FA &amp; the TD Fixed Point</a>
+    <a href="#d64"><span class="n">D64</span>Features I: Fourier</a>
+    <a href="#d65"><span class="n">D65</span>Tile Coding &amp; RBFs</a>
+    <a href="#d66"><span class="n">D66</span>LSTD &amp; LSPI</a>
+    <a href="#d67"><span class="n">D67</span>Control: Mountain Car</a>
+    <a href="#d68"><span class="n">D68</span>Average Reward</a>
+    <a href="#d69"><span class="n">D69</span>The Deadly Triad</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="7"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m06.html">◂ Module 6</a><a href="m08.html">Module 8 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 7 · Days 61–69 · Weeks 13–14</p>
+<h1>Function Approximation</h1>
+<p class="dek">Every method so far stored one number per state or state–action pair. This module replaces the table with a parameterized function, which is the only way reinforcement learning reaches problems with continuous or astronomically many states. It is also where the theory gets hard: the TD target stops being a proper gradient, only linear methods keep clean guarantees, and off-policy bootstrapping with function approximation can diverge. Modules 3–6 supply the algorithms being approximated; Module 8 puts a neural network where the linear features were and inherits every problem met here.</p>
+<ul class="chips">
+  <li><b>9</b> lessons</li>
+  <li><b>6h 05m</b> video</li>
+  <li><b>13h 00m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto Ch. 9–11</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Write the value-error objective \(\overline{\text{VE}}\) with its state weighting \(\mu\), and compute the on-policy distribution of an episodic task.</li>
+    <li>Derive gradient Monte Carlo and say exactly which term semi-gradient TD drops, and why that means it is not the gradient of anything.</li>
+    <li>Derive the TD fixed point \(\mathbf w_{TD} = A^{-1}\mathbf b\), prove \(A\) is positive definite on-policy, and prove \(\overline{\text{VE}}(\mathbf w_{TD}) \le \frac{1}{1-\gamma}\min_{\mathbf w}\overline{\text{VE}}(\mathbf w)\).</li>
+    <li>Build aggregation, polynomial, Fourier, tile-coded and RBF features, and predict how each will generalize.</li>
+    <li>Implement LSTD with Sherman–Morrison updates, and LSPI.</li>
+    <li>Solve Mountain Car with semi-gradient SARSA and tile coding, and a continuing queueing task with differential semi-gradient SARSA.</li>
+    <li>Make Baird's counterexample diverge, stabilize it with TDC, and say which leg of the deadly triad each deep-RL stabilizer weakens.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 61 -->
+<article class="day" id="d61">
+  <header class="day-head">
+    <span class="day-no">DAY 61</span>
+    <h2>Why Function Approximation</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">A table learns about one state at a time, so it has to visit every state, many times. Function approximation replaces the table with a function \(\hat v(s, \mathbf w)\) that has far fewer parameters than there are states, so every update generalizes. The price is that no setting of \(\mathbf w\) gets every state right, and we have to say which states matter, through a weighting \(\mu\).</p>
+
+  <h3>Where tables die</h3>
+  <p>Memory is rarely the binding constraint: a table of \(10^6\) states × 4 actions in float64 is 32 MB. Experience is. A table learns nothing about a state until it visits it, and each entry needs many visits to average out noise, so the data required grows at least linearly with the number of states. Past roughly a million states, or as soon as states are continuous, tabular methods stop being practical long before they stop fitting in memory.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Problem</th><th>States</th><th>Tabular?</th></tr></thead>
+    <tbody>
+      <tr><td>Dyna Maze (Day 55)</td><td class="num">47</td><td>trivially</td></tr>
+      <tr><td>FrozenLake 8 × 8</td><td class="num">64</td><td>yes</td></tr>
+      <tr><td>Backgammon</td><td class="num">≈ 10²⁰</td><td>no (TD-Gammon used a neural network)</td></tr>
+      <tr><td>Go, 19 × 19</td><td class="num">≈ 10¹⁷⁰ legal positions</td><td>no</td></tr>
+      <tr><td>Atari from pixels (84 × 84 × 4, 256 grey levels)</td><td class="num">256<sup>28224</sup> possible inputs</td><td>no; almost all are unreachable</td></tr>
+      <tr><td>Mountain Car, CartPole</td><td class="num">continuous</td><td>only after discretizing, and badly</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Generalization across states</h3>
+  <p>The fix is to let experience with one state inform the estimates of others. View each update \(s \mapsto u\) as a training example for a supervised learner: input \(S_t\), target \(U_t\) (a return, or a bootstrapped estimate of one). Any regression method could be used in principle, but RL makes two demands most supervised methods don't expect. Data arrive one example at a time, from a distribution the learner's own policy shapes, so the method must learn <em>online</em>. And the targets are <em>nonstationary</em>: bootstrapped targets change as the estimates change, and in control the policy, and hence the true values, change too.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 178" role="img" aria-label="A table update changes one entry; an approximator update changes the estimate in a neighbourhood of the updated state">
+      <defs>
+        <marker id="ah-d61m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="160" y="30" class="s-ttl s-mid">table: one entry per state</text>
+      <path d="M30,80h260M30,116h260M30,80v36M56,80v36M82,80v36M108,80v36M134,80v36M160,80v36M186,80v36M212,80v36M238,80v36M264,80v36M290,80v36" class="s-grid"/>
+      <rect x="108" y="80" width="26" height="36" class="s-node-mod"/>
+      <path d="M121,72 L121,52" class="s-ln-mod" marker-end="url(#ah-d61m)"/>
+      <text x="43" y="132" class="s-ink3 s-mid s-sm">s₁</text><text x="121" y="132" class="s-mod s-mid s-sm">s₄</text><text x="277" y="132" class="s-ink3 s-mid s-sm">s₁₀</text>
+      <text x="160" y="160" class="s-ink2 s-mid s-sm">an update at s₄ changes only V(s₄)</text>
+      <text x="500" y="30" class="s-ttl s-mid">approximator: d ≪ |S| weights</text>
+      <line x1="370" y1="125" x2="630" y2="125" class="s-ln"/>
+      <polyline points="370,120 388.6,111.1 407.1,102.6 425.7,95.1 444.3,88.7 462.9,84 481.4,81 500,80 518.6,81 537.1,84 555.7,88.7 574.3,95.1 592.9,102.6 611.4,111.1 630,120" class="s-ln s-dash"/>
+      <polyline points="370,120 388.6,111 407.1,101.2 416.4,95.1 425.7,87.3 435,77.7 444.3,67.7 453.6,59.7 462.9,56.1 472.1,57.6 481.4,62.8 490.7,68.9 500,74.1 509.3,77.7 518.6,80.1 537.1,83.9 555.7,88.7 574.3,95.1 592.9,102.6 611.4,111.1 630,120" class="s-ln-mod"/>
+      <circle cx="461" cy="56.4" r="4" class="s-mod"/>
+      <text x="461" y="44" class="s-mod s-mid s-sm">update at s</text>
+      <text x="500" y="145" class="s-ink3 s-mid s-sm">state s →</text>
+      <text x="500" y="160" class="s-ink2 s-mid s-sm">the same update moves v̂ for every nearby state</text>
+    </svg>
+    <figcaption><b>Generalization.</b> Dashed: \(\hat v\) before; solid: after one update at the marked state. Generalization is what lets an agent value states it has never seen, and also what lets an update in one place damage estimates somewhere else.</figcaption>
+  </figure>
+
+  <h3>The parameter vector</h3>
+  <p>We approximate \(v_\pi\) with a parameterized function \(\hat v(s, \mathbf w) \approx v_\pi(s)\), where \(\mathbf w \in \R^d\) and typically \(d \ll |\mathcal S|\). The function might be linear in features of the state (Days 63–65), a neural network (Module 8), or a decision tree. Because there are fewer weights than states, changing one weight changes the estimated value of many states, and making one state's estimate more accurate generally makes others' less accurate. That is the whole difference from the tabular case, where every state has its own parameter and all of them can be right at once.</p>
+
+  <h3>The value-error objective and μ</h3>
+  <div class="box def"><span class="tag">Definition · mean squared value error</span>
+    <p>Given a state weighting \(\mu(s) \ge 0\) with \(\sum_s \mu(s) = 1\),</p>
+    $$\overline{\text{VE}}(\mathbf w) \doteq \sum_{s \in \mathcal S} \mu(s)\,\big[v_\pi(s) - \hat v(s, \mathbf w)\big]^2 .$$
+    <p>\(\sqrt{\overline{\text{VE}}}\) is the \(\mu\)-weighted root-mean-square error of the value estimates.</p>
+  </div>
+  <p>Because we can't make every state correct, \(\mu\) says how much we care about each one, and the natural choice is the fraction of time spent in it. Two caveats travel with this objective. First, it is not obviously the right one: what we ultimately want is a good policy, and a small average error can hide a large error in one rarely visited but decisive state. Second, for nonlinear \(\hat v\) we can usually only reach a local minimum. It is still the objective the theory of Days 62–66 is built on.</p>
+
+  <h3>The on-policy distribution</h3>
+  <p>When we evaluate \(\pi\) from experience generated by \(\pi\), \(\mu\) is the <em>on-policy distribution</em>. In a continuing task it is the stationary distribution of the chain \(P_\pi\) (Day 6): \(\mu^\top P_\pi = \mu^\top\). Episodic tasks need a little more care, because the distribution depends on where episodes start.</p>
+  <div class="box deriv"><span class="tag">Derivation · episodic on-policy distribution (S&amp;B §9.2)</span>
+    <p>Let \(h(s)\) be the probability that an episode starts in \(s\), and \(\eta(s)\) the expected number of time steps spent in \(s\) in one episode. Time is spent in \(s\) either because an episode starts there or because the agent arrives from some state \(\bar s\) it was in on the previous step:</p>
+    $$\eta(s) = h(s) + \sum_{\bar s} \eta(\bar s) \sum_a \pi(a \mid \bar s)\, p(s \mid \bar s, a), \qquad \mu(s) = \frac{\eta(s)}{\sum_{s'} \eta(s')}.$$
+    <p>In matrix form, with \(P_\pi\) restricted to non-terminal states (rows sum to less than 1 where the episode can end), \(\boldsymbol\eta = \mathbf h + P_\pi^\top \boldsymbol\eta\), so \(\boldsymbol\eta = (I - P_\pi^\top)^{-1}\mathbf h\). This is the fundamental matrix of an absorbing chain from Day 6. With discounting, S&B suggest treating it as a form of termination by multiplying the second term by \(\gamma\).</p>
+  </div>
+  <p>S&amp;B's 1000-state random walk (Example 9.1) is the test bed for the next few days. States are numbered 1 to 1000 and every episode starts in state 500. Each step jumps to one of the 100 states to the left or the 100 to the right, all equally likely; jumps that would pass an end terminate the episode there, with reward −1 on the left and +1 on the right. All other rewards are 0 and \(\gamma = 1\).</p>
+  <pre><code>import numpy as np
+
+N, K, START = 1000, 100, 499          # states 1..1000 stored as 0..999; episodes start in state 500
+P = np.zeros((N, N))                  # transitions between non-terminal states only
+r = np.zeros(N)                       # expected reward on leaving each state
+for s in range(N):
+    for d in range(1, K + 1):
+        for s2, R in ((s - d, -1.0), (s + d, 1.0)):
+            if 0 &lt;= s2 &lt; N:
+                P[s, s2] += 0.5 / K
+            else:
+                r[s] += 0.5 / K * R   # jumping off an end terminates with reward -1 or +1
+
+h = np.zeros(N); h[START] = 1.0       # start-state distribution
+eta = np.linalg.solve(np.eye(N) - P.T, h)    # eta = h + P^T eta: expected visits per episode
+mu = eta / eta.sum()                         # the on-policy distribution
+v_pi = np.linalg.solve(np.eye(N) - P, r)     # true values, gamma = 1
+
+print(f"expected episode length {eta.sum():.1f}, mu peaks at state {mu.argmax() + 1}")
+print(f"v(1) = {v_pi[0]:.3f}, v(500) = {v_pi[START]:.3f}, v(1000) = {v_pi[-1]:.3f}")</code></pre>
+  <p class="code-cap">Episodes last about 83 steps on average. \(\mu\) has a spike of about 0.0137 at the start state, which every episode visits at least once, on top of a tent shape that peaks near 0.0017 beside it: the two scale marks on S&amp;B's Figure 9.1. \(v_\pi\) runs from about −0.92 at state 1 to +0.92 at state 1000, nearly linearly except near the ends. Day 62 plots both.</p>
+
+  <h3>Partial observability, handled implicitly</h3>
+  <p>Function approximation also covers a case the tabular theory assumed away. If the parameterized form cannot let \(\hat v\) depend on some aspect of the state, it is just as if that aspect were unobservable (S&amp;B Ch. 9 introduction). A linear value function of a feature vector that omits velocity treats two states that differ only in velocity as the same state, exactly as an agent that can't observe velocity would. So all the results of this module apply unchanged when the features are only a partial view of the state.</p>
+  <div class="box intuition"><span class="tag">Intuition · what FA can and can't do about hidden state</span>
+    <p>Function approximation can <em>ignore</em> information gracefully: aliased states share one estimate, which converges to some average of their true values. It cannot <em>recover</em> information. If the current observation doesn't determine the future, no function of the current observation fixes that; you need memory, such as stacked frames (Day 74) or a recurrent state (Day 121).</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>μ moves with the policy.</b> In control, every policy improvement changes the on-policy distribution, and hence the objective the approximator is fitting.</li>
+      <li><b>Low VE is not a good policy.</b> The objective averages; a large error in a rare state just before a cliff costs almost nothing in \(\overline{\text{VE}}\) and everything in return.</li>
+      <li><b>Interference.</b> In a table, updates are isolated. With generalization, a burst of updates in one region (the agent stuck in a corner) can overwrite what was learned elsewhere.</li>
+      <li><b>Off-policy data weights the wrong states.</b> If experience comes from a behaviour policy, its distribution is the one implicitly being fitted. Day 69 shows how badly that can go.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run the snippet and plot \(\mu\) and \(v_\pi\) for the 1000-state walk. Check \(\mu\) by simulating \(10^4\) episodes and histogramming the visited states.</li>
+      <li>Why does \(v_\pi\) bend near the two ends rather than staying linear? Answer from the dynamics, then check against the plot.</li>
+      <li>Move the start state to 200 and recompute \(\mu\). Which states now dominate \(\overline{\text{VE}}\)?</li>
+      <li>Count parameters: a 100 × 100 discretization of Mountain Car's (position, velocity) per action, versus the 8 tilings of 9 × 9 tiles per action used on Day 67. Then estimate how many visits each would need for every parameter to be updated 10 times.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto Ch. 9 introduction, §9.1–9.2</p>
+</article>
+
+<!-- ================================================================ DAY 62 -->
+<article class="day" id="d62">
+  <header class="day-head">
+    <span class="day-no">DAY 62</span>
+    <h2>SGD &amp; Semi-Gradient Methods</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Stochastic gradient descent on \(\overline{\text{VE}}\) needs the true value \(v_\pi(S_t)\) as its target. Replace it with an unbiased sample, the return, and you have a true gradient method with the usual guarantees. Replace it with a bootstrapped TD target and the update ignores how that target depends on \(\mathbf w\): it becomes a <em>semi</em>-gradient method, faster and fully online, but no longer the gradient of any objective.</p>
+
+  <h3>SGD on the value error</h3>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    <p>Differentiate the objective of Day 61:</p>
+    $$\nabla \overline{\text{VE}}(\mathbf w) = -2\sum_s \mu(s)\,\big[v_\pi(s) - \hat v(s, \mathbf w)\big]\,\nabla \hat v(s, \mathbf w).$$
+    <p>If states arrive distributed according to \(\mu\), as they do on-policy, then \(-2\big[v_\pi(S_t) - \hat v(S_t, \mathbf w)\big]\nabla\hat v(S_t, \mathbf w)\) is an unbiased sample of this gradient. A step of size \(\tfrac12\alpha\) against it gives</p>
+    $$\mathbf w_{t+1} = \mathbf w_t + \alpha\,\big[v_\pi(S_t) - \hat v(S_t, \mathbf w_t)\big]\,\nabla \hat v(S_t, \mathbf w_t).$$
+  </div>
+  <p>We don't know \(v_\pi(S_t)\), so substitute a target \(U_t\):</p>
+  $$\mathbf w_{t+1} = \mathbf w_t + \alpha\,\big[U_t - \hat v(S_t, \mathbf w_t)\big]\,\nabla \hat v(S_t, \mathbf w_t).$$
+  <p>If \(U_t\) is unbiased, \(\E[U_t \mid S_t = s] = v_\pi(s)\), then the expected update is still exactly \(-\tfrac12\alpha\nabla\overline{\text{VE}}\), and with step sizes satisfying the Robbins–Monro conditions (Day 5) \(\mathbf w_t\) converges to a local optimum (S&amp;B §9.3).</p>
+
+  <h3>Gradient Monte Carlo: a true gradient method</h3>
+  <p>The Monte Carlo return \(G_t\) is an unbiased estimate of \(v_\pi(S_t)\) by definition, so plugging \(U_t = G_t\) into the update gives a genuine SGD method on \(\overline{\text{VE}}\).</p>
+  <div class="box algo"><span class="tag">Algorithm · Gradient Monte Carlo prediction</span>
+    <ol>
+      <li>Input: the policy \(\pi\), a differentiable \(\hat v(s, \mathbf w)\), a step size \(\alpha &gt; 0\). Initialize \(\mathbf w\) (for example to 0).</li>
+      <li>Loop for each episode:
+        <ol>
+          <li>Generate an episode \(S_0, A_0, R_1, \dots, S_{T-1}, A_{T-1}, R_T\) with \(\pi\).</li>
+          <li>For \(t = 0, 1, \dots, T-1\): \(\mathbf w \leftarrow \mathbf w + \alpha\big[G_t - \hat v(S_t, \mathbf w)\big]\nabla\hat v(S_t, \mathbf w)\).</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+
+  <h3>Why the TD target makes it semi-gradient</h3>
+  <p>Now use the bootstrapped target \(U_t = R_{t+1} + \gamma\hat v(S_{t+1}, \mathbf w)\). It is biased (it depends on the current estimate), but the real problem is structural.</p>
+  <div class="box deriv"><span class="tag">Derivation · the dropped term</span>
+    <p>The TD update is</p>
+    $$\mathbf w \leftarrow \mathbf w + \alpha\,\delta_t\,\nabla\hat v(S_t, \mathbf w), \qquad \delta_t = R_{t+1} + \gamma\hat v(S_{t+1}, \mathbf w) - \hat v(S_t, \mathbf w).$$
+    <p>This is SGD on \(\tfrac12\delta_t^2\) <em>as if the target were a constant</em>. The full gradient of that squared error is</p>
+    $$\nabla\,\tfrac12\delta_t^2 = \delta_t\,\big[\gamma\nabla\hat v(S_{t+1}, \mathbf w) - \nabla\hat v(S_t, \mathbf w)\big],$$
+    <p>and semi-gradient TD keeps only the second half: it moves the estimate towards the target, but ignores the effect the same step has on the target. Hence "semi-gradient".</p>
+  </div>
+  <div class="box thm"><span class="tag">Result · the TD update is not a gradient field</span>
+    <p>For a linear \(\hat v = \mathbf w^\top\mathbf x(s)\) (Day 63), the expected semi-gradient TD update is \(\mathbf b - A\mathbf w\) with \(A = \E\big[\mathbf x_t(\mathbf x_t - \gamma\mathbf x_{t+1})^\top\big]\). A vector field \(F(\mathbf w)\) is the gradient of some scalar function only if its Jacobian is symmetric. Here the Jacobian is \(-A\), and \(A\) is not symmetric in general, because \(\E[\mathbf x_t\mathbf x_{t+1}^\top] \ne \E[\mathbf x_{t+1}\mathbf x_t^\top]\). So there is no objective \(J\) with \(-\nabla J(\mathbf w) = \mathbf b - A\mathbf w\): semi-gradient TD is not descending anything.</p>
+  </div>
+
+  <h3>What you lose and what you keep</h3>
+  <ul>
+    <li><b>Lost:</b> the guarantee that a well-defined objective decreases, and with it the general convergence argument. Tsitsiklis &amp; Van Roy (1997) give an example in which semi-gradient TD with a nonlinear approximator diverges even on-policy, and Day 69 shows linear semi-gradient TD diverging off-policy.</li>
+    <li><b>Kept:</b> with <em>linear</em> features and on-policy data, semi-gradient TD provably converges, to a point called the TD fixed point (Day 63).</li>
+    <li><b>Gained:</b> everything that made TD attractive in Module 5. Updates are online and immediate, work in continuing tasks, and usually learn much faster than Monte Carlo because the targets have far lower variance.</li>
+  </ul>
+  <p>Why not take the full gradient of \(\delta_t^2\)? That is the <b>residual-gradient</b> method (Baird 1995), and it does descend an objective, the mean squared TD error. But with stochastic transitions, the expected squared TD error is not the squared Bellman error, and estimating the latter's gradient without bias needs two independent samples of \(S_{t+1}\) from the same \(S_t\), which a real environment can't provide. It also tends to converge slowly, and S&amp;B (§11.5) show it can converge to clearly wrong values. Practical methods use the semi-gradient.</p>
+  <div class="box algo"><span class="tag">Algorithm · Semi-gradient TD(0) prediction</span>
+    <ol>
+      <li>Input: \(\pi\), a differentiable \(\hat v\) with \(\hat v(\text{terminal}, \cdot) = 0\), a step size \(\alpha &gt; 0\). Initialize \(\mathbf w\).</li>
+      <li>Loop for each episode: initialize \(S\); loop for each step:
+        <ol>
+          <li>\(A \sim \pi(\cdot \mid S)\); take \(A\), observe \(R, S'\).</li>
+          <li>\(\mathbf w \leftarrow \mathbf w + \alpha\big[R + \gamma\hat v(S', \mathbf w) - \hat v(S, \mathbf w)\big]\nabla\hat v(S, \mathbf w)\), with \(\hat v(S', \mathbf w) = 0\) if \(S'\) is terminal.</li>
+          <li>\(S \leftarrow S'\), until \(S\) is terminal.</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+
+  <h3>State aggregation, the simplest approximator</h3>
+  <p>Partition the states into groups and give each group one weight: \(\hat v(s, \mathbf w) = w_{g(s)}\). The gradient \(\nabla\hat v(s, \mathbf w)\) is 1 in component \(g(s)\) and 0 elsewhere, so each update moves only the weight of the current state's group. Aggregation is the special case of linear function approximation (Day 63) with one-hot group features.</p>
+  <div class="box deriv"><span class="tag">Derivation · what gradient MC converges to under aggregation</span>
+    <p>\(\overline{\text{VE}}\) separates by group: \(\sum_g \sum_{s \in g} \mu(s)\,(v_\pi(s) - w_g)^2\). Setting the derivative with respect to \(w_g\) to zero,</p>
+    $$w_g^* = \frac{\sum_{s \in g} \mu(s)\, v_\pi(s)}{\sum_{s \in g} \mu(s)},$$
+    <p>the \(\mu\)-weighted average of the true values within the group. Within a group, states visited more often pull the estimate harder.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 290" role="img" aria-label="True values of the 1000-state random walk with the gradient Monte Carlo and semi-gradient TD solutions under 10-group state aggregation, and the on-policy distribution below">
+      <line x1="60" y1="110" x2="620" y2="110" class="s-grid s-dash"/>
+      <line x1="60" y1="20" x2="60" y2="200" class="s-ln"/>
+      <text x="52" y="24" class="s-ink3 s-end s-sm">+1</text><text x="52" y="114" class="s-ink3 s-end s-sm">0</text><text x="52" y="204" class="s-ink3 s-end s-sm">−1</text>
+      <polyline points="60,193 74,189.9 88,186.4 102,182.3 116.1,177.7 130.1,173.6 144.1,169.4 158.1,165.1 172.1,160.9 186.1,156.6 200.1,152.4 214.2,148.1 228.2,143.9 242.2,139.6 256.2,135.4 270.2,131.1 284.2,126.9 298.2,122.7 312.3,118.4 326.3,114.2 340.3,109.9 354.3,105.7 368.3,101.4 382.3,97.2 396.3,92.9 410.4,88.7 424.4,84.4 438.4,80.2 452.4,75.9 466.4,71.7 480.4,67.5 494.4,63.2 508.4,59 522.5,54.7 536.5,50.5 550.5,46.2 564.5,42.1 578.5,37.5 592.5,33.5 606.5,29.9 620,27" class="s-ln-ink"/>
+      <polyline points="60,184.7 115.5,184.7 116.1,168.6 171.6,168.6 172.1,152 227.6,152 228.2,135.1 283.7,135.1 284.2,117.8 339.7,117.8 340.3,101.6 395.8,101.6 396.3,84.9 451.8,84.9 452.4,68 507.9,68 508.4,51.4 563.9,51.4 564.5,35.3 620,35.3" class="s-ln-mod"/>
+      <polyline points="60,172.4 115.5,172.4 116.1,153.2 171.6,153.2 172.1,137.3 227.6,137.3 228.2,123.1 283.7,123.1 284.2,110.1 339.7,110.1 340.3,99 395.8,99 396.3,87.5 451.8,87.5 452.4,75.1 507.9,75.1 508.4,61.1 563.9,61.1 564.5,44.3 620,44.3" class="s-ln-warn s-dash"/>
+      <g class="s-sm">
+        <line x1="75" y1="34" x2="97" y2="34" class="s-ln-ink"/><text x="104" y="38">true v_π</text>
+        <line x1="75" y1="52" x2="97" y2="52" class="s-ln-mod"/><text x="104" y="56">gradient MC limit (min VE): VE ≈ 0.0030</text>
+        <line x1="75" y1="70" x2="97" y2="70" class="s-ln-warn s-dash"/><text x="104" y="74">semi-gradient TD fixed point: VE ≈ 0.0136</text>
+      </g>
+      <line x1="60" y1="262" x2="620" y2="262" class="s-ln"/>
+      <polyline points="60,259.4 74,258.3 88,257 102,255.6 116.1,253.9 130.1,252.4 144.1,250.8 158.1,249.3 172.1,247.7 186.1,246.2 200.1,244.7 214.2,243.1 228.2,241.6 242.2,240 256.2,238.5 270.2,237 284.2,234.7 298.2,233.6 312.3,232.8 326.3,232.3 340.3,232 354.3,232.3 368.3,232.9 382.3,233.7 396.3,235.8 410.4,237.1 424.4,238.6 438.4,240.1 452.4,241.7 466.4,243.2 480.4,244.7 494.4,246.3 508.4,247.8 522.5,249.4 536.5,250.9 550.5,252.5 564.5,254 578.5,255.6 592.5,257.1 606.5,258.4 620,259.4" class="s-ln-info"/>
+      <line x1="339.7" y1="262" x2="339.7" y2="214" class="s-ln-info"/>
+      <text x="346" y="220" class="s-info s-sm">start state: ×8, off scale</text>
+      <text x="52" y="250" class="s-ink3 s-end s-sm">μ</text>
+      <text x="60" y="278" class="s-ink3 s-mid s-sm">1</text><text x="340" y="278" class="s-ink3 s-mid s-sm">500</text><text x="620" y="278" class="s-ink3 s-mid s-sm">1000</text>
+    </svg>
+    <figcaption><b>Computed exactly</b> for the 1000-state walk with 10 groups of 100: the gradient MC limit from the formula above, the TD fixed point from Day 63's \(A^{-1}\mathbf b\). Learning runs of the code below land on the same staircases. TD's steps are flatter, pulled towards zero, and its \(\overline{\text{VE}}\) is about 4.6 times larger, which is S&amp;B's Figure 9.2 observation that TD's asymptotic values are worse than MC's here.</figcaption>
+  </figure>
+  <pre><code>import numpy as np
+
+N, K, GROUPS = 1000, 100, 10
+rng = np.random.default_rng(0)
+
+def episode():
+    """One episode of the 1000-state random walk: visited states (0..999) and the final reward."""
+    s, states = 499, []                          # start in state 500
+    while 0 &lt;= s &lt; N:
+        states.append(s)
+        s += int(rng.integers(1, K + 1)) * (1 if rng.random() &lt; 0.5 else -1)
+    return states, (1.0 if s &gt;= N else -1.0)
+
+group = lambda s: s * GROUPS // N                # one-hot group features: grad v_hat = x(s)
+
+def gradient_mc(n_episodes=100_000, alpha=2e-5):
+    w = np.zeros(GROUPS)
+    for _ in range(n_episodes):
+        states, G = episode()                    # gamma = 1 and only the last reward is non-zero,
+        for s in states:                         # so G_t = G for every t
+            w[group(s)] += alpha * (G - w[group(s)])
+    return w
+
+def semi_gradient_td(n_episodes=100_000, alpha=2e-4):
+    w = np.zeros(GROUPS)
+    for _ in range(n_episodes):
+        states, R = episode()
+        for t, s in enumerate(states):
+            if t + 1 &lt; len(states):              # reward 0: bootstrap from the next state's estimate
+                target = w[group(states[t + 1])]
+            else:                                # final transition: reward R, v_hat(terminal) = 0
+                target = R
+            w[group(s)] += alpha * (target - w[group(s)])
+    return w
+
+print("MC:", gradient_mc().round(2))
+print("TD:", semi_gradient_td().round(2))</code></pre>
+  <p class="code-cap">About a minute and a half per method in pure Python; S&amp;B use \(\alpha = 2 \times 10^{-5}\) for gradient MC. The TD loop replays a stored episode, which is equivalent to updating online because the walk doesn't depend on \(\mathbf w\). In the reference run the learned weights matched the exact solutions in the figure to about two decimal places.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Gradients through the target.</b> In autodiff code, forgetting <code>no_grad</code> or <code>detach</code> on the TD target turns semi-gradient TD into the residual-gradient method, a different algorithm with different fixed points (Day 9).</li>
+      <li><b>Nonlinear approximators can diverge even on-policy.</b> The linear convergence result of Day 63 does not extend to neural networks.</li>
+      <li><b>"TD converged" doesn't mean "TD is accurate".</b> TD's limit is a different point from the \(\overline{\text{VE}}\) minimum, and can be noticeably worse, as in the figure.</li>
+      <li><b>Step size depends on the features.</b> With one-hot groups, \(\alpha\) is the per-group step. With features of larger norm, the same \(\alpha\) moves \(\hat v\) much further (Day 63 gives the rule of thumb).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run both methods and plot their weights over the exact \(v_\pi\) from Day 61, as in the figure.</li>
+      <li>Compute the exact limits with linear algebra, \(\mathbf w_{MC} = (X^\top DX)^{-1}X^\top D\mathbf v_\pi\) and \(\mathbf w_{TD} = A^{-1}\mathbf b\) (Day 63), and confirm they match your learned weights.</li>
+      <li>Vary the number of groups over 5, 10, 20, 50 and 100, and plot \(\overline{\text{VE}}\) of both limits. Does TD's disadvantage shrink as the aggregation gets finer?</li>
+      <li>Implement the residual-gradient update with a single sample of \(S_{t+1}\) (no <code>stop-gradient</code> on the target). Where does it converge on this task, and why?</li>
+      <li>Implement \(n\)-step semi-gradient TD and try \(n = 4\) and \(n = 16\) (S&amp;B §9.4, Figure 9.2 right).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §9.3, §11.5 · Tsitsiklis &amp; Van Roy 1997, “An Analysis of Temporal-Difference Learning with Function Approximation” · Baird 1995, “Residual Algorithms: Reinforcement Learning with Function Approximation”</p>
+</article>
+
+<!-- ================================================================ DAY 63 -->
+<article class="day" id="d63">
+  <header class="day-head">
+    <span class="day-no">DAY 63</span>
+    <h2>Linear Function Approximation</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">With \(\hat v = \mathbf w^\top\mathbf x(s)\) the gradient is simply the feature vector, gradient Monte Carlo finds the global minimum of \(\overline{\text{VE}}\), and semi-gradient TD provably converges to a single point, the TD fixed point \(\mathbf w_{TD} = A^{-1}\mathbf b\), whose error is within a factor \(1/(1-\gamma)\) of the best possible. This is the only setting in which function approximation and bootstrapping come with clean guarantees.</p>
+
+  <h3>Feature vectors and linear values</h3>
+  <div class="box def"><span class="tag">Definition · linear value function</span>
+    <p>Each state is represented by a feature vector \(\mathbf x(s) = \big(x_1(s), \dots, x_d(s)\big)^\top\), and</p>
+    $$\hat v(s, \mathbf w) = \mathbf w^\top\mathbf x(s) = \sum_{i=1}^d w_i\, x_i(s), \qquad \nabla\hat v(s, \mathbf w) = \mathbf x(s).$$
+    <p>Stack the feature vectors as the rows of \(X \in \R^{|\mathcal S| \times d}\) and let \(D = \operatorname{diag}(\mu)\). Then the vector of all estimates is \(X\mathbf w\).</p>
+  </div>
+  <p>The general SGD update becomes \(\mathbf w \leftarrow \mathbf w + \alpha\big[U_t - \mathbf w^\top\mathbf x(S_t)\big]\mathbf x(S_t)\). \(\overline{\text{VE}}(\mathbf w) = (\mathbf v_\pi - X\mathbf w)^\top D(\mathbf v_\pi - X\mathbf w)\) is a convex quadratic, so if the features are linearly independent on the states with \(\mu &gt; 0\) it has exactly one minimum, the \(\mu\)-weighted least-squares fit</p>
+  $$\mathbf w_{\overline{\text{VE}}} = (X^\top DX)^{-1}X^\top D\,\mathbf v_\pi,$$
+  <p>and linear gradient Monte Carlo converges to it under the usual step-size conditions. There are no local minima to worry about.</p>
+
+  <h3>The TD fixed point</h3>
+  <div class="box deriv"><span class="tag">Derivation · the expected TD update</span>
+    <p>Write \(\mathbf x_t = \mathbf x(S_t)\). Linear semi-gradient TD(0) is</p>
+    $$\mathbf w_{t+1} = \mathbf w_t + \alpha\big(R_{t+1} + \gamma\mathbf w_t^\top\mathbf x_{t+1} - \mathbf w_t^\top\mathbf x_t\big)\mathbf x_t = \mathbf w_t + \alpha\Big(R_{t+1}\mathbf x_t - \mathbf x_t(\mathbf x_t - \gamma\mathbf x_{t+1})^\top\mathbf w_t\Big).$$
+    <p>In steady state on-policy, take the expectation given \(\mathbf w_t\):</p>
+    $$\E[\mathbf w_{t+1} \mid \mathbf w_t] = \mathbf w_t + \alpha(\mathbf b - A\mathbf w_t), \qquad \mathbf b \doteq \E[R_{t+1}\mathbf x_t] \in \R^d, \quad A \doteq \E\big[\mathbf x_t(\mathbf x_t - \gamma\mathbf x_{t+1})^\top\big] \in \R^{d \times d}.$$
+    <p>If the iteration converges, it must be to a point where \(\mathbf b - A\mathbf w = 0\):</p>
+    $$\mathbf w_{TD} = A^{-1}\mathbf b.$$
+    <p>In matrix form, with \(\mathbf r\) the expected one-step rewards and \(P\) the state-transition matrix under \(\pi\): \(A = X^\top D(I - \gamma P)X\) and \(\mathbf b = X^\top D\mathbf r\).</p>
+  </div>
+
+  <h3>Why it converges on-policy</h3>
+  <div class="box thm"><span class="tag">Theorem · linear TD(0) converges on-policy (Tsitsiklis &amp; Van Roy 1997; S&amp;B §9.4)</span>
+    <p>If \(P\) is irreducible and \(\mu\) is its stationary distribution (so every \(\mu(s) &gt; 0\)), \(\gamma &lt; 1\), and \(X\) has full column rank, then \(A\) is positive definite. Hence the expected update converges to \(\mathbf w_{TD}\) for any sufficiently small \(\alpha\), and the stochastic algorithm converges to it with probability 1 under the usual decreasing step sizes.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof sketch</span>
+    <p><b>Positive definite implies convergence.</b> \(\mathbf w_{t+1} - \mathbf w_{TD} = (I - \alpha A)(\mathbf w_t - \mathbf w_{TD})\), which shrinks to zero when every eigenvalue of \(I - \alpha A\) lies inside the unit circle. If \(\mathbf y^\top A\mathbf y &gt; 0\) for all \(\mathbf y \ne 0\), every eigenvalue \(\lambda\) of \(A\) has \(\operatorname{Re}\lambda &gt; 0\), so \(|1 - \alpha\lambda| &lt; 1\) for small enough \(\alpha\).</p>
+    <p><b>The key matrix.</b> \(\mathbf y^\top A\mathbf y = (X\mathbf y)^\top M(X\mathbf y)\) with \(M = D(I - \gamma P)\), so it suffices that \(M\) is positive definite. Its diagonal entries \(\mu_i(1 - \gamma P_{ii})\) are positive and its off-diagonal entries \(-\gamma\mu_i P_{ij}\) are non-positive. Its row sums are \(D(I - \gamma P)\mathbf 1 = (1 - \gamma)\boldsymbol\mu &gt; 0\). Its column sums are</p>
+    $$\mathbf 1^\top D(I - \gamma P) = \boldsymbol\mu^\top - \gamma\boldsymbol\mu^\top P = (1 - \gamma)\boldsymbol\mu^\top &gt; 0,$$
+    <p>using stationarity, \(\boldsymbol\mu^\top P = \boldsymbol\mu^\top\). The symmetric part \(\tfrac12(M + M^\top)\) therefore has a positive diagonal, non-positive off-diagonals and positive row sums: it is strictly diagonally dominant, hence positive definite by Gershgorin's theorem. Since \(\mathbf y^\top M\mathbf y = \mathbf y^\top\tfrac12(M + M^\top)\mathbf y\), \(M\) is positive definite, and so is \(A\) when \(X\) has full column rank. ∎</p>
+  </div>
+  <p>The column-sum step is the only place the proof uses the fact that the data are on-policy. Replace \(\mu\) by some other distribution (that of a behaviour policy) and \(\boldsymbol\mu^\top P \ne \boldsymbol\mu^\top\); the column sums can turn negative, \(A\) can lose positive definiteness, and the iteration can diverge. That is Day 69.</p>
+
+  <h3>How good is the fixed point?</h3>
+  <div class="box thm"><span class="tag">Theorem · TD error bound (S&amp;B eq. 9.14)</span>
+    $$\overline{\text{VE}}(\mathbf w_{TD}) \;\le\; \frac{1}{1-\gamma}\,\min_{\mathbf w}\overline{\text{VE}}(\mathbf w).$$
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Write \(\|\mathbf v\|_\mu^2 = \sum_s \mu(s)v(s)^2\), so \(\overline{\text{VE}}(\mathbf w) = \|\mathbf v_\pi - X\mathbf w\|_\mu^2\). Let \(\Pi = X(X^\top DX)^{-1}X^\top D\) be the \(\mu\)-weighted projection onto the representable functions \(\{X\mathbf w\}\), so \(\Pi\mathbf v_\pi = X\mathbf w_{\overline{\text{VE}}}\), and let \(T\mathbf v = \mathbf r + \gamma P\mathbf v\) be the Bellman operator, with \(T\mathbf v_\pi = \mathbf v_\pi\).</p>
+    <p><b>Step 1: the TD fixed point is a projected Bellman fixed point.</b> With \(\hat{\mathbf v} = X\mathbf w_{TD}\), the condition \(A\mathbf w = \mathbf b\) reads \(X^\top D(\mathbf r + \gamma P\hat{\mathbf v} - \hat{\mathbf v}) = 0\): the Bellman residual is \(\mu\)-orthogonal to every feature. Hence \(\Pi(T\hat{\mathbf v} - \hat{\mathbf v}) = 0\), that is, \(\hat{\mathbf v} = \Pi T\hat{\mathbf v}\).</p>
+    <p><b>Step 2: \(T\) is a \(\gamma\)-contraction in \(\|\cdot\|_\mu\).</b> \(\|T\mathbf u - T\mathbf v\|_\mu = \gamma\|P(\mathbf u - \mathbf v)\|_\mu\), and for any \(\mathbf z\), by Jensen's inequality and then stationarity,</p>
+    $$\|P\mathbf z\|_\mu^2 = \sum_s \mu(s)\Big(\sum_{s'}P_{ss'}z_{s'}\Big)^2 \le \sum_s \mu(s)\sum_{s'}P_{ss'}z_{s'}^2 = \sum_{s'}(\boldsymbol\mu^\top P)_{s'}\,z_{s'}^2 = \|\mathbf z\|_\mu^2.$$
+    <p><b>Step 3: Pythagoras.</b> \(\mathbf v_\pi - \Pi\mathbf v_\pi\) is \(\mu\)-orthogonal to the subspace and \(\Pi\mathbf v_\pi - \hat{\mathbf v}\) lies in it, so</p>
+    $$\|\mathbf v_\pi - \hat{\mathbf v}\|_\mu^2 = \|\mathbf v_\pi - \Pi\mathbf v_\pi\|_\mu^2 + \|\Pi\mathbf v_\pi - \hat{\mathbf v}\|_\mu^2.$$
+    <p>For the second term, \(\Pi\mathbf v_\pi - \hat{\mathbf v} = \Pi T\mathbf v_\pi - \Pi T\hat{\mathbf v}\), and \(\Pi\) is non-expansive in \(\|\cdot\|_\mu\), so it is at most \(\gamma^2\|\mathbf v_\pi - \hat{\mathbf v}\|_\mu^2\). Rearranging,</p>
+    $$\overline{\text{VE}}(\mathbf w_{TD}) \le \frac{1}{1-\gamma^2}\,\min_{\mathbf w}\overline{\text{VE}}(\mathbf w) \le \frac{1}{1-\gamma}\,\min_{\mathbf w}\overline{\text{VE}}(\mathbf w),$$
+    <p>since \(1 - \gamma^2 = (1 - \gamma)(1 + \gamma) \ge 1 - \gamma\). ∎</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 600 222" role="img" aria-label="Geometry of the TD fixed point: the true value function lies off the plane of representable functions; its projection is the best approximation; the TD fixed point is another point on the plane">
+      <polygon points="60,180 400,180 540,120 200,120" class="s-node"/>
+      <text x="120" y="172" class="s-ink2 s-sm">representable: v̂ = Xw</text>
+      <line x1="330" y1="34" x2="330" y2="148" class="s-ln s-dash"/>
+      <line x1="330" y1="34" x2="232" y2="150" class="s-ln-mod"/>
+      <line x1="232" y1="150" x2="330" y2="150" class="s-grid s-dash"/>
+      <circle cx="330" cy="30" r="4.5" class="s-ink"/>
+      <circle cx="330" cy="150" r="4.5" class="s-acc"/>
+      <circle cx="232" cy="152" r="4.5" class="s-mod"/>
+      <text x="340" y="34">v_π</text>
+      <text x="340" y="154" class="s-sm">Πv_π (min VE)</text>
+      <text x="224" y="141" class="s-mod s-end s-sm">Xw_TD = ΠT(Xw_TD)</text>
+      <text x="338" y="96" class="s-ink2 s-sm">√min VE</text>
+      <text x="272" y="88" class="s-mod s-end s-sm">√VE(w_TD)</text>
+      <text x="300" y="212" class="s-mod s-mid s-sm">√VE(w_TD) ≤ √min VE / √(1 − γ²)</text>
+    </svg>
+    <figcaption><b>The geometry of the bound.</b> The best representable approximation is the \(\mu\)-orthogonal projection \(\Pi\mathbf v_\pi\). TD finds a different point, the fixed point of "apply \(T\), then project". The right angle at \(\Pi\mathbf v_\pi\) is the Pythagoras step of the proof.</figcaption>
+  </figure>
+  <p>The bound is loose when \(\gamma\) is close to 1 (a factor of 100 in S&amp;B's form at \(\gamma = 0.99\), about 50 in the \(1/(1-\gamma^2)\) form), and in practice TD is often much closer to the optimum than that. It still matters: it says that semi-gradient TD can't wander arbitrarily far from the best that the features allow, as long as the data are on-policy.</p>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+n, d, gamma = 50, 5, 0.9
+P = rng.dirichlet(np.ones(n) * 0.3, size=n)       # a random ergodic chain under pi
+r = rng.normal(size=n)                            # expected reward r_pi(s)
+X = rng.normal(size=(n, d))                       # feature matrix: row s is x(s)
+
+evals, evecs = np.linalg.eig(P.T)                 # on-policy (stationary) distribution mu
+mu = np.real(evecs[:, np.argmin(np.abs(evals - 1))])
+mu /= mu.sum()
+D = np.diag(mu)
+v_pi = np.linalg.solve(np.eye(n) - gamma * P, r)
+
+A = X.T @ D @ (np.eye(n) - gamma * P) @ X         # A = E[x (x - gamma x')^T]
+b = X.T @ D @ r                                   # b = E[R x]
+w_td = np.linalg.solve(A, b)                      # the TD fixed point
+w_ve = np.linalg.solve(X.T @ D @ X, X.T @ D @ v_pi)   # argmin VE: mu-weighted least squares
+
+VE = lambda w: mu @ (v_pi - X @ w) ** 2
+print(f"min VE {VE(w_ve):.3f}   VE(w_TD) {VE(w_td):.3f}   bound {VE(w_ve) / (1 - gamma):.3f}")
+print("A + A^T positive definite:", np.linalg.eigvalsh(A + A.T).min() &gt; 0)</code></pre>
+  <p class="code-cap">With five random features for fifty states the approximation is poor, but the reference run gives min VE ≈ 1.384 and VE(w<sub>TD</sub>) ≈ 1.415, far inside the bound of ≈ 13.8, and confirms \(A + A^\top\) is positive definite.</p>
+
+  <h3>Why linear is the only case with clean theory</h3>
+  <p>Three facts made the analysis work, and each depends on linearity. The objective \(\overline{\text{VE}}\) is a convex quadratic in \(\mathbf w\), so MC has a unique global optimum. The expected TD update is affine, \(\mathbf b - A\mathbf w\), so it has a single fixed point characterized by one matrix. And the representable set is a linear subspace, so \(\Pi\) is a fixed linear map that is non-expansive in the same norm in which \(T\) contracts. With a neural network, the representable set is a curved manifold, "project onto it" is neither linear nor unique, and the expected update is a nonlinear vector field whose fixed points can be many, unstable, or absent. Deep value-based RL (Module 8) runs without any of these guarantees, which is why it needs target networks and replay to behave.</p>
+  <div class="box note"><span class="tag">Choosing α for linear methods (S&amp;B §9.6)</span>
+    <p>A useful rule of thumb: to learn in about \(\tau\) experiences with roughly the same feature vector, set \(\alpha = \big(\tau\,\E[\mathbf x^\top\mathbf x]\big)^{-1}\). For tile coding with \(n\) active binary features, \(\mathbf x^\top\mathbf x = n\), which gives the \(\alpha/n\) scaling of Day 65.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Off-policy weighting.</b> The proof needs \(\mu\) to be stationary for the policy being evaluated. Under a behaviour policy's distribution, \(A\) may not be positive definite (Day 69).</li>
+      <li><b>Dependent features.</b> If \(X\) loses column rank, \(A\) is singular and there are many fixed points. TD still runs, but LSTD (Day 66) needs regularization.</li>
+      <li><b>Feature scale.</b> Doubling every feature quadruples \(\mathbf x^\top\mathbf x\) and effectively quadruples the step size. Normalize features, or scale \(\alpha\) as in the note.</li>
+      <li><b>The bound is a \(\mu\)-average.</b> States with tiny \(\mu\) can carry large errors without violating it.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the snippet for \(\gamma \in \{0.5, 0.9, 0.99\}\) and ten random seeds each. Plot \(\overline{\text{VE}}(\mathbf w_{TD}) / \min\overline{\text{VE}}\) against both bounds, \(1/(1-\gamma)\) and \(1/(1-\gamma^2)\).</li>
+      <li>Simulate linear semi-gradient TD(0) on the chain, sampling transitions from \(P\), and plot \(\|\mathbf w_t - \mathbf w_{TD}\|\) against \(t\) for a few constant step sizes.</li>
+      <li>Replace \(D\) by a uniform weighting while keeping \(P\), and test whether \(A + A^\top\) stays positive definite across many random chains. Try to construct a chain where it fails.</li>
+      <li>Fill in every step of the bound's proof, including why \(\Pi\) is non-expansive in \(\|\cdot\|_\mu\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §9.4, §9.6 · Tsitsiklis &amp; Van Roy 1997, “An Analysis of Temporal-Difference Learning with Function Approximation” · Bertsekas &amp; Tsitsiklis 1996, <i>Neuro-Dynamic Programming</i>, Ch. 6</p>
+</article>
+
+<!-- ================================================================ DAY 64 -->
+<article class="day" id="d64">
+  <header class="day-head">
+    <span class="day-no">DAY 64</span>
+    <h2>Feature Construction I</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">A linear method is only as good as its features. Aggregation, polynomials and Fourier bases are three ways to turn a continuous state into a feature vector. Fourier features are global, smooth and orthogonal under a uniform weighting, which makes them far easier for SGD than polynomials of the same order.</p>
+
+  <h3>State aggregation revisited</h3>
+  <p>Aggregation (Day 62) is one-hot coding over a partition: complete generalization within a cell, none across a boundary. Its only design choice is resolution. Coarse cells learn fast but represent only a staircase; fine cells represent detail but each one sees little data. Aggregation is also tile coding with a single tiling, and Day 65 shows how overlapping several offset partitions removes most of its weakness.</p>
+
+  <h3>Polynomial bases and their scaling problems</h3>
+  <div class="box def"><span class="tag">Definition · polynomial basis of order n</span>
+    <p>For a state \(\mathbf s = (s_1, \dots, s_k)\), each feature is a monomial</p>
+    $$x_i(\mathbf s) = \prod_{j=1}^k s_j^{\,c_{i,j}}, \qquad c_{i,j} \in \{0, 1, \dots, n\},$$
+    <p>giving \((n+1)^k\) features. For \(k = 2\), \(n = 2\): \(1, s_1, s_2, s_1s_2, s_1^2, s_2^2, s_1^2s_2, s_1s_2^2, s_1^2s_2^2\).</p>
+  </div>
+  <p>Products such as \(s_1s_2\) are <b>interaction terms</b>: they let the value's dependence on one variable change with another, which no sum of single-variable features can do. Polynomials have two problems. The count \((n+1)^k\) grows exponentially with the dimension (order 5 in 4 dimensions is already 1,296 features), so in practice you must pick a subset. And monomials are badly conditioned, which is the problem that actually ruins SGD.</p>
+  <div class="box deriv"><span class="tag">Derivation · polynomials are ill-conditioned, Fourier features are not</span>
+    <p>SGD on a quadratic converges at a rate set by the condition number of the feature Gram matrix \(\E[\mathbf x\mathbf x^\top]\) (Day 5: the steepest direction caps \(\alpha\), and the flattest then crawls). Take one dimension with \(s\) uniform on \([0, 1]\). For monomials,</p>
+    $$\E[s^i s^j] = \int_0^1 s^{i+j}\,ds = \frac{1}{i+j+1},$$
+    <p>which is the Hilbert matrix, notorious for an exponentially growing condition number. Numerically: about \(1.5\times10^4\) at order 3, \(1.5\times10^7\) at order 5, and \(5\times10^{14}\) at order 10. For the cosines used by the Fourier basis,</p>
+    $$\int_0^1 \cos(\pi i s)\cos(\pi j s)\,ds = \begin{cases} 1 &amp; i = j = 0,\\ \tfrac12 &amp; i = j \ge 1,\\ 0 &amp; i \ne j,\end{cases}$$
+    <p>so the Gram matrix is diagonal and its condition number is exactly 2, at any order. Under a non-uniform \(\mu\) the cosines are no longer exactly orthogonal, but they stay far better conditioned than monomials.</p>
+  </div>
+  <p>This is why S&amp;B do not recommend polynomials for online learning.</p>
+
+  <h3>Fourier bases</h3>
+  <div class="box def"><span class="tag">Definition · Fourier cosine basis of order n (Konidaris et al. 2011; S&amp;B §9.5.2)</span>
+    <p>Rescale the state so that \(\mathbf s \in [0, 1]^k\). For each integer vector \(\mathbf c^i = (c^i_1, \dots, c^i_k)\) with \(c^i_j \in \{0, \dots, n\}\),</p>
+    $$x_i(\mathbf s) = \cos\!\big(\pi\,\mathbf s^\top\mathbf c^i\big),$$
+    <p>giving \((n+1)^k\) features. \(\mathbf c^i = \mathbf 0\) is the constant feature.</p>
+  </div>
+  <p>Each \(\mathbf c^i\) is a vector of frequencies. Its non-zero entries say which dimensions the feature varies along, and how fast. A vector with a single non-zero entry, such as \((2, 0)\), gives a feature that varies along one dimension only. A vector with several, such as \((1, 1)\), varies along a diagonal: this is <b>coupling</b>, the Fourier version of an interaction term. If you believe interactions are weak, the <b>uncoupled</b> basis keeps only the vectors with at most one non-zero entry, \(kn + 1\) features instead of \((n+1)^k\) (21 instead of 1,296 for \(k = 4\), \(n = 5\)). The <b>order</b> \(n\) sets the highest frequency, and hence the finest detail representable.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 190" role="img" aria-label="One-dimensional Fourier cosine features for c from 0 to 3, and two two-dimensional features showing an uncoupled and a coupled frequency vector">
+      <text x="210" y="18" class="s-ttl s-mid">1-D features cos(πcs), s ∈ [0, 1]</text>
+      <line x1="60" y1="90" x2="360" y2="90" class="s-grid s-dash"/>
+      <line x1="60" y1="30" x2="60" y2="150" class="s-ln"/>
+      <text x="52" y="39" class="s-ink3 s-end s-sm">1</text><text x="52" y="94" class="s-ink3 s-end s-sm">0</text><text x="52" y="149" class="s-ink3 s-end s-sm">−1</text>
+      <line x1="60" y1="35" x2="360" y2="35" class="s-ln-ink"/>
+      <polyline points="60,35 75,35.7 90,37.7 105,41 120,45.5 135,51.1 150,57.7 165,65 180,73 195,81.4 210,90 225,98.6 240,107 255,115 270,122.3 285,128.9 300,134.5 315,139 330,142.3 345,144.3 360,145" class="s-ln-mod"/>
+      <polyline points="60,35 75,37.7 90,45.5 105,57.7 120,73 135,90 150,107 165,122.3 180,134.5 195,142.3 210,145 225,142.3 240,134.5 255,122.3 270,107 285,90 300,73 315,57.7 330,45.5 345,37.7 360,35" class="s-ln-acc"/>
+      <polyline points="60,35 75,41 90,57.7 105,81.4 120,107 135,128.9 150,142.3 160,145 165,144.3 180,134.5 195,115 210,90 225,65 240,45.5 255,35.7 260,35 270,37.7 285,51.1 300,73 315,98.6 330,122.3 345,139 360,145" class="s-ln-info"/>
+      <g class="s-sm">
+        <line x1="70" y1="172" x2="90" y2="172" class="s-ln-ink"/><text x="96" y="176">c = 0</text>
+        <line x1="140" y1="172" x2="160" y2="172" class="s-ln-mod"/><text x="166" y="176">c = 1</text>
+        <line x1="210" y1="172" x2="230" y2="172" class="s-ln-acc"/><text x="236" y="176">c = 2</text>
+        <line x1="280" y1="172" x2="300" y2="172" class="s-ln-info"/><text x="306" y="176">c = 3</text>
+      </g>
+      <rect x="430" y="30" width="90" height="90" class="s-node"/>
+      <line x1="452.5" y1="30" x2="452.5" y2="120" class="s-ln-mod"/><line x1="497.5" y1="30" x2="497.5" y2="120" class="s-ln-mod"/>
+      <text x="441" y="80" class="s-mid">+</text><text x="475" y="80" class="s-mid">−</text><text x="509" y="80" class="s-mid">+</text>
+      <text x="475" y="138" class="s-ink2 s-mid s-sm">c = (2, 0): s₁ only</text>
+      <rect x="540" y="30" width="90" height="90" class="s-node"/>
+      <line x1="585" y1="120" x2="540" y2="75" class="s-ln-mod"/><line x1="630" y1="75" x2="585" y2="30" class="s-ln-mod"/>
+      <text x="551" y="113" class="s-mid">+</text><text x="585" y="80" class="s-mid">−</text><text x="620" y="44" class="s-mid">+</text>
+      <text x="585" y="138" class="s-ink2 s-mid s-sm">c = (1, 1): coupled</text>
+      <text x="530" y="160" class="s-ink3 s-mid s-sm">lines: where the feature is 0</text>
+      <text x="530" y="175" class="s-ink3 s-mid s-sm">(s₁ to the right, s₂ upwards)</text>
+    </svg>
+    <figcaption><b>Fourier features.</b> Left: the first four 1-D features. Right: two 2-D features. An uncoupled vector varies along one axis; a coupled one varies along a diagonal, so a weight on it can express "the value depends on \(s_1 + s_2\)", an interaction.</figcaption>
+  </figure>
+  <p>Why cosines only? On \([0, 1]\), any reasonable function can be extended to an even function on \([-1, 1]\), and an even function has a cosine-only Fourier series, so no sine terms are needed. Why do they work well? They are global and smooth, which suits the smooth value functions of many control problems; they are orthogonal under uniform weighting, which keeps SGD well conditioned; and higher orders add detail without disturbing what lower orders represent. Konidaris et al. (2011) also recommend a separate step size per feature, \(\alpha_i = \alpha / \|\mathbf c^i\|_2\) (and \(\alpha\) for \(\mathbf c = \mathbf 0\)), so that high-frequency features move more cautiously.</p>
+  <pre><code>import itertools
+import numpy as np
+
+class FourierBasis:
+    """x_i(s) = cos(pi * c_i . s) for s rescaled to [0, 1]^k (Konidaris et al. 2011)."""
+    def __init__(self, low, high, order, coupled=True):
+        self.low = np.asarray(low, float)
+        self.span = np.asarray(high, float) - self.low
+        k = len(self.low)
+        if coupled:                              # every c in {0..n}^k: (n + 1)^k features
+            C = list(itertools.product(range(order + 1), repeat=k))
+        else:                                    # at most one non-zero entry: k*n + 1 features
+            C = [(0,) * k] + [tuple(c if j == i else 0 for j in range(k))
+                              for i in range(k) for c in range(1, order + 1)]
+        self.C = np.array(C, dtype=float)
+        norms = np.linalg.norm(self.C, axis=1)
+        self.lr_scale = 1.0 / np.where(norms &gt; 0, norms, 1.0)   # alpha_i = alpha / ||c_i||
+
+    def __call__(self, s):
+        z = (np.asarray(s, float) - self.low) / self.span       # into [0, 1]^k
+        return np.cos(np.pi * self.C @ z)
+
+# Gradient MC on the 1000-state walk with an order-10 basis (episode() is Day 62's):
+fb = FourierBasis(low=[0], high=[999], order=10)
+w, alpha = np.zeros(len(fb.C)), 5e-5
+for _ in range(5000):
+    states, G = episode()
+    for s in states:
+        x = fb([s])
+        w += alpha * fb.lr_scale * (G - w @ x) * x               # per-feature step sizes</code></pre>
+  <p class="code-cap">S&amp;B's Figure 9.5 compares Fourier and polynomial bases of orders 5, 10 and 20 for gradient MC on the 1000-state walk, and the Fourier basis learns much better at every order. A 5,000-episode reference run of this code showed the same ordering, with noticeably lower \(\sqrt{\overline{\text{VE}}}\) for Fourier features at each order.</p>
+
+  <h3>Feature normalization</h3>
+  <p>The Fourier basis assumes every input lies in \([0, 1]\), and the assumption is load-bearing: \(\cos\) is even and periodic, so a state rescaled to \(-0.3\) produces exactly the same features as one at \(0.3\), and \(1.3\) the same as \(0.7\). Those states become indistinguishable. Use the environment's declared bounds (Gymnasium's <code>observation_space.low</code> and <code>high</code>) when they are finite. For unbounded dimensions, such as CartPole's velocities, choose bounds from data and clip. Polynomials and neural networks prefer standardized inputs (zero mean, unit variance), for the conditioning reasons above. Whatever the basis, the effective step size scales with \(\mathbf x^\top\mathbf x\) (Day 63), so a change of feature scale is a change of learning rate.</p>
+
+  <h3>Manual feature engineering and interaction terms</h3>
+  <p>Hand-designed features can encode knowledge that would take a generic basis many terms to discover. In Mountain Car (Day 67) the dynamics are \(\dot x_{t+1} = \dot x_t + 0.001A_t - 0.0025\cos(3x_t)\), so the car's mechanical energy is</p>
+  $$E(x, \dot x) = \tfrac12\dot x^2 + \tfrac{0.0025}{3}\sin(3x),$$
+  <p>and the solution is essentially "pump energy until it suffices to reach the top". A single energy feature captures what a grid needs dozens of cells for. In CartPole, angle and angular velocity matter mostly together: a pole tilting right while rotating right is in trouble, while one tilting right but rotating back is recovering. That is an interaction, \(\theta\dot\theta\), which a linear function of \(\theta\) and \(\dot\theta\) separately can't express. TD-Gammon's later versions added hand-crafted backgammon features to the raw board encoding. The general lesson: when the effect of one variable depends on another, the features must contain the product, a coupled term, or a nonlinearity.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Basis</th><th>Features (k dims, order or resolution n)</th><th>Locality</th><th>Conditioning</th><th>Good for</th></tr></thead>
+    <tbody>
+      <tr><td>Aggregation</td><td class="num">n<sup>k</sup></td><td>local, hard edges</td><td>diagonal</td><td>a quick baseline</td></tr>
+      <tr><td>Polynomial</td><td class="num">(n+1)<sup>k</sup></td><td>global</td><td>very poor</td><td>low order, offline least squares</td></tr>
+      <tr><td>Fourier (coupled)</td><td class="num">(n+1)<sup>k</sup></td><td>global, smooth</td><td>good</td><td>smooth values, few dimensions</td></tr>
+      <tr><td>Fourier (uncoupled)</td><td class="num">kn + 1</td><td>global, smooth</td><td>good</td><td>more dimensions, weak interactions</td></tr>
+      <tr><td>Tile coding (Day 65)</td><td class="num">tilings × tiles per tiling</td><td>local, overlapping</td><td>good</td><td>online control, the classic default</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Unscaled Fourier inputs alias states</b> through the evenness and periodicity of cosine. Always rescale to \([0, 1]\), and clip.</li>
+      <li><b>The coupled basis explodes</b> with dimension: order 5 in 10 dimensions is \(6^{10} \approx 6\times10^7\) features.</li>
+      <li><b>High orders ring.</b> A global smooth basis approximating a value function with a cliff overshoots on both sides of it (the Gibbs phenomenon).</li>
+      <li><b>Polynomials extrapolate wildly.</b> Outside the range of the training data, high-order monomials take huge values, and a policy that wanders there acts on nonsense.</li>
+      <li><b>No constant feature.</b> Without \(\mathbf c = \mathbf 0\) (or a bias) the approximator can't represent a shift in the average value.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Implement a polynomial basis beside <code>FourierBasis</code> and reproduce S&amp;B Figure 9.5 qualitatively: gradient MC on the 1000-state walk, orders 5, 10 and 20, 5,000 episodes, \(\sqrt{\overline{\text{VE}}}\) every 100 episodes. Tune \(\alpha\) separately for each basis (values around \(10^{-4}\) are a reasonable start).</li>
+      <li>Compute the condition number of \(X^\top DX\) for both bases at orders 3 to 10, using the random walk's \(\mu\) from Day 61 instead of a uniform weighting. Does Fourier's advantage survive?</li>
+      <li>Rescale the walk's states to \([-1, 1]\) instead of \([0, 1]\), leave the Fourier code unchanged, and explain the result.</li>
+      <li>Fit a Mountain Car value function (for any fixed policy, such as "push in the direction of the velocity") by gradient MC, with and without the energy feature added to an order-3 Fourier basis. Compare \(\overline{\text{VE}}\) estimated against long Monte Carlo rollouts.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §9.5.1–9.5.2 · Konidaris, Osentoski &amp; Thomas 2011, “Value Function Approximation in Reinforcement Learning Using the Fourier Basis”</p>
+</article>
+
+<!-- ================================================================ DAY 65 -->
+<article class="day" id="d65">
+  <header class="day-head">
+    <span class="day-no">DAY 65</span>
+    <h2>Feature Construction II — Tile Coding &amp; RBFs</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Coarse coding represents a state by which of many overlapping receptive fields it falls into. Tile coding is the practical version: several offset grids with exactly one active tile in each, so a value is a sum of \(n\) weights, costs \(O(n)\) to compute, and generalizes to a neighbouring state in proportion to the number of tiles the two share.</p>
+
+  <h3>Coarse coding and generalization width</h3>
+  <p>Cover the state space with overlapping regions, such as circles in two dimensions, and give each a binary feature that is 1 when the state is inside it. A state activates the few features whose regions contain it. Two states share exactly the features whose regions contain both, so an update at one changes the other's value in proportion to their overlap. The <b>size and shape</b> of the regions set how far and in which directions learning generalizes; their <b>number and density</b> set the finest detail that can eventually be represented. S&amp;B's Example 9.3 shows the two are separate: learning a one-dimensional square wave with narrow, medium and broad intervals, broad features generalize much further early in learning, but after enough examples the three learned functions are nearly equally detailed, because acuity is set by the number of features rather than their width.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Left: coarse coding with overlapping circles; two states share one feature. Right: two offset tilings; a point activates one tile in each">
+      <text x="130" y="16" class="s-ttl s-mid">coarse coding</text>
+      <g class="s-grid"><circle cx="55" cy="150" r="45"/><circle cx="185" cy="150" r="45"/><circle cx="60" cy="45" r="45"/><circle cx="190" cy="40" r="45"/><circle cx="215" cy="95" r="45"/></g>
+      <circle cx="90" cy="90" r="45" class="s-ln"/>
+      <circle cx="120" cy="135" r="45" class="s-ln"/>
+      <circle cx="140" cy="80" r="45" class="s-ln-mod"/>
+      <circle cx="115" cy="100" r="4" class="s-ink"/><text x="108" y="104" class="s-end">X</text>
+      <circle cx="165" cy="95" r="4" class="s-ink"/><text x="172" y="92">Y</text>
+      <text x="130" y="210" class="s-ink2 s-mid s-sm">X: 3 features on · Y: 1 · shared: 1</text>
+      <text x="470" y="13" class="s-ttl s-mid">two offset tilings</text>
+      <rect x="425" y="65" width="45" height="45" class="s-node-mod"/>
+      <path d="M380,20h180v180h-180z M425,20v180 M470,20v180 M515,20v180 M380,65h180 M380,110h180 M380,155h180" class="s-ln"/>
+      <path d="M413.75,20v180 M458.75,20v180 M503.75,20v180 M548.75,20v180 M380,31.25h180 M380,76.25h180 M380,121.25h180 M380,166.25h180" class="s-ln-info s-dash"/>
+      <rect x="413.75" y="76.25" width="45" height="45" class="s-ln-info"/>
+      <circle cx="455" cy="95" r="4" class="s-ink"/><text x="462" y="92" class="s-sm">P</text>
+      <g class="s-sm">
+        <line x1="572" y1="60" x2="590" y2="60" class="s-ln"/><text x="596" y="64">tiling 1</text>
+        <line x1="572" y1="80" x2="590" y2="80" class="s-ln-info s-dash"/><text x="596" y="84">tiling 2</text>
+        <rect x="572" y="94" width="18" height="12" class="s-node-mod"/><text x="596" y="104">active</text>
+      </g>
+      <text x="470" y="218" class="s-ink2 s-mid s-sm">v̂(P) = w(active tile, tiling 1) + w(active tile, tiling 2)</text>
+    </svg>
+    <figcaption><b>Receptive fields.</b> Left: an update at X changes the value at Y only through the one circle they share. Right: tile coding uses grids instead of circles, so exactly one tile per tiling is active and the active indices can be computed arithmetically. Tiling 2 is offset by a quarter tile horizontally and three quarters vertically.</figcaption>
+  </figure>
+
+  <h3>Tile coding</h3>
+  <div class="box def"><span class="tag">Definition · tile coding</span>
+    <p>A <b>tiling</b> is a partition of the (bounded) state space into tiles, usually a uniform grid. Use \(n\) tilings, each offset from the others by a fraction of a tile width. Every tile of every tiling is one binary feature, so a state activates exactly \(n\) features, one per tiling, and</p>
+    $$\hat v(s, \mathbf w) = \sum_{i \in \mathcal I(s)} w_i, \qquad |\mathcal I(s)| = n.$$
+  </div>
+  <p>Because exactly \(n\) features are active and each equals 1, an update at \(s\) adds \(\alpha(U - \hat v(s))\) to each of the \(n\) active weights, which moves \(\hat v(s)\) by \(n\alpha(U - \hat v(s))\). Setting \(\alpha = \beta/n\) therefore moves \(\hat v(s)\) a fraction \(\beta\) of the way to the target in one update: \(\alpha = 1/n\) jumps all the way, and S&amp;B suggest values like \(\alpha = 1/(10n)\) to move a tenth of the way. A nearby state that shares \(m\) of the \(n\) tiles moves by the fraction \(\beta m/n\), which is the generalization.</p>
+
+  <h3>Offsets: uniform vs asymmetric</h3>
+  <p>The obvious choice offsets tiling \(j\) by \(j/n\) of a tile in <em>every</em> dimension, a displacement vector \((1, 1, \dots)\). All the tilings then slide along the main diagonal, and generalization is stretched along that diagonal: a state shares more tiles with neighbours displaced diagonally than with neighbours displaced the same distance along an axis. Miller &amp; Glanz (1996) recommend displacement vectors made of the first odd integers, \((1, 3, 5, \dots, 2k-1)\), which spread the tilings more evenly and give more uniform, closer to spherical, generalization. S&amp;B add that \(n\) should be a power of 2 and at least \(4k\) for \(k\) dimensions.</p>
+  <p>The demo below implements exactly this. The left panel draws every tiling over a 2-D input space and highlights the active tile in each as you hover; clicking (or dragging) trains \(\hat v\) towards the chosen target at that point; the right panel shows the learned \(\hat v\) as a heatmap. Things to try:</p>
+  <ul>
+    <li>Set <b>1 tiling</b> and click once: one square changes. That is state aggregation.</li>
+    <li>Set <b>8 tilings</b>, <b>uniform</b> offsets, and click once in the middle: the bump is a diamond stretched along the diagonal. Switch to <b>asymmetric (1,3)</b>, reset, and click again: the bump is more nearly round.</li>
+    <li>Change <b>tiles/dim</b> from 3 to 10 at a fixed number of tilings: the bump gets narrower (less generalization, finer final resolution).</li>
+    <li>Set \(\alpha = 1\) and click: the value at the clicked point jumps exactly to the target, because the demo uses the \(\alpha/n\) step. Then click with target −1 right next to it and watch the two updates compete through the shared tiles.</li>
+  </ul>
+  <div class="demo" data-demo="tile-coding"><p class="demo-loading">Loading demo…</p></div>
+  <p>The readout under the canvas confirms the structure: hundreds of binary features, exactly \(n\) of them active at any point.</p>
+
+  <h3>Computational efficiency and hashing</h3>
+  <p>Tile coding never builds a feature vector. The active index in each tiling is arithmetic: scale the state to tile units, add the tiling's offset, take the floor in each dimension, and flatten. Evaluating \(\hat v\) costs \(O(nk)\) whatever the total number of features, and an update touches only \(n\) weights. Memory is the problem: \(n\) tilings of \(T\) tiles per dimension in \(k\) dimensions need \(n(T+1)^k\) weights (the \(+1\) because offsets push states into one extra tile per dimension), exponential in \(k\). Two remedies are standard. <b>Hashing</b> maps each (tiling, tile coordinates) pair pseudo-randomly into a table of fixed size \(M\); most of a large state space is never visited, collisions are rare and scattered, and their effect is small. Sutton's tile-coding software implements this with an index hash table. <b>Tiling subsets of dimensions</b> (each pair of variables, or each variable alone) trades interactions between distant variables for linear rather than exponential memory.</p>
+  <pre><code>import numpy as np
+
+class TileCoder:
+    """n_tilings uniform grids over a box; tiling j is shifted by j * (1, 3, 5, ...) / n_tilings of a tile."""
+    def __init__(self, low, high, tiles_per_dim, n_tilings):
+        self.low = np.asarray(low, float)
+        self.scale = tiles_per_dim / (np.asarray(high, float) - self.low)  # tiles per unit of input
+        self.k, self.n, self.T = len(self.low), n_tilings, tiles_per_dim
+        disp = 2 * np.arange(self.k) + 1                                   # asymmetric (1, 3, 5, ...)
+        self.offsets = (np.arange(n_tilings)[:, None] * disp / n_tilings) % 1.0
+        self.per_tiling = (tiles_per_dim + 1) ** self.k                    # one spare tile per dim
+        self.size = n_tilings * self.per_tiling                            # total binary features
+
+    def active(self, s):
+        """Indices of the n_tilings active features (exactly one per tiling)."""
+        z = (np.asarray(s, float) - self.low) * self.scale                 # position in tile units
+        coords = np.clip(np.floor(z + self.offsets).astype(int), 0, self.T)   # [n_tilings, k]
+        flat = np.ravel_multi_index(tuple(coords.T), (self.T + 1,) * self.k)
+        return np.arange(self.n) * self.per_tiling + flat
+
+tc = TileCoder(low=[0, 0], high=[1, 1], tiles_per_dim=5, n_tilings=8)
+w, alpha = np.zeros(tc.size), 0.5
+v = lambda s: w[tc.active(s)].sum()                 # v_hat(s) = sum of the n active weights
+s = [0.3, 0.6]
+w[tc.active(s)] += alpha / tc.n * (1.0 - v(s))      # alpha / n: v_hat(s) moves halfway to 1
+print(v(s), v([0.36, 0.66]), v([0.9, 0.1]))         # 0.5, 0.3125 (5 of 8 tiles shared), 0.0</code></pre>
+  <p class="code-cap">For hashing, replace the last line of <code>active</code> with <code>[hash((j, *c)) % M for j, c in enumerate(coords)]</code> for a table of size <code>M</code>. Python's hash of a tuple of integers is deterministic across runs.</p>
+
+  <h3>Radial basis functions</h3>
+  <div class="box def"><span class="tag">Definition · RBF features</span>
+    $$x_i(s) = \exp\!\left(-\frac{\|s - c_i\|^2}{2\sigma_i^2}\right),$$
+    <p>with centres \(c_i\) (often on a grid) and widths \(\sigma_i\).</p>
+  </div>
+  <p>RBFs are the graded version of coarse coding: instead of a feature being on or off, it responds by how close the state is to its centre. The resulting approximation is smooth and differentiable. S&amp;B's assessment is that this rarely buys much in practice over tile coding, at a higher computational cost (every feature is non-zero somewhere, so either evaluate them all or truncate) and with more tuning, and that the number of centres needed grows exponentially with dimension just as tiles do. If the centres and widths are themselves learned by gradient descent, the result is an RBF network: a nonlinear approximator, without the guarantees of Day 63.</p>
+  <pre><code>centres = np.stack(np.meshgrid(np.linspace(0, 1, 9), np.linspace(0, 1, 9)), -1).reshape(-1, 2)
+rbf = lambda s, sigma=0.1: np.exp(-((centres - np.asarray(s)) ** 2).sum(1) / (2 * sigma ** 2))</code></pre>
+
+  <h3>Comparing generalization behaviour</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Aggregation</th><th>Tile coding</th><th>RBF</th><th>Fourier</th></tr></thead>
+    <tbody>
+      <tr><td><b>Active features per state</b></td><td>1</td><td>\(n\)</td><td>all (or nearby, if truncated)</td><td>all</td></tr>
+      <tr><td><b>Shape of generalization</b></td><td>the cell, then nothing</td><td>a piecewise-constant bump, shaped by the offsets</td><td>a smooth bump</td><td>global ripples</td></tr>
+      <tr><td><b>Cost per evaluation</b></td><td>\(O(k)\)</td><td>\(O(nk)\)</td><td>\(O(dk)\)</td><td>\(O(dk)\)</td></tr>
+      <tr><td><b>Approximation</b></td><td>staircase</td><td>fine staircase</td><td>smooth</td><td>smooth</td></tr>
+      <tr><td><b>Scaling with dimension</b></td><td>exponential</td><td>exponential; hashing helps</td><td>exponential</td><td>exponential coupled, linear uncoupled</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Forgetting to divide α by n.</b> With \(\alpha = 0.5\) and 8 tilings, one update moves \(\hat v\) by four times the error, overshooting the target and oscillating or diverging.</li>
+      <li><b>No spare tile.</b> Offsets push the top edge of the range into tile index \(T\). Without the extra tile per dimension, those states overflow into the next row or tiling.</li>
+      <li><b>A hash table that is too small</b> merges unrelated states. Watch for values that move when you train somewhere else entirely.</li>
+      <li><b>Resolution too fine.</b> Many tiles per dimension means each tile is rarely visited, generalization is small, and learning is slow. Start coarse.</li>
+      <li><b>Unbounded inputs.</b> Tile coding needs a box. Clip or choose bounds from data, or states outside the box all collapse onto the edge tiles.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Implement <code>TileCoder</code>, check that exactly \(n\) features are active everywhere in the box, and that one update with \(\alpha = \beta/n\) moves \(\hat v(s)\) by exactly the fraction \(\beta\).</li>
+      <li>Coarse coding (S&amp;B Example 9.3): learn a 1-D square wave on \([0, 2]\) from uniformly sampled points with 50 interval features of narrow, medium and broad width. Plot the learned function after 10, 40, 160, 640, 2,560 and 10,240 examples.</li>
+      <li>Measure the generalization profile: train once at the centre of the box, then plot \(\hat v\) along the horizontal axis and along the diagonal through that point, for uniform and asymmetric offsets with 8 tilings.</li>
+      <li>Add hashing with \(M \in \{64, 256, 4096\}\) and fit a smooth 2-D target, such as \(\sin(3s_1)\cos(2s_2)\), from random samples. Plot the final error against \(M\).</li>
+      <li>Replace the tiles with 81 RBFs on a grid (\(\sigma\) equal to a tile width) and fit the same target. Compare final error and time per update.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §9.5.3–9.5.5 · Albus 1975, “A New Approach to Manipulator Control: the Cerebellar Model Articulation Controller (CMAC)” · Sutton 1996, “Generalization in Reinforcement Learning: Successful Examples Using Sparse Coarse Coding”</p>
+</article>
+
+<!-- ================================================================ DAY 66 -->
+<article class="day" id="d66">
+  <header class="day-head">
+    <span class="day-no">DAY 66</span>
+    <h2>Least-Squares Methods</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Semi-gradient TD approaches the fixed point \(\mathbf w_{TD} = A^{-1}\mathbf b\) one noisy step at a time. LSTD estimates \(A\) and \(\mathbf b\) from all the data seen so far and solves for the fixed point directly: no step size and the most out of every sample, for \(O(d^2)\) work per step instead of \(O(d)\).</p>
+
+  <h3>LSTD: solving for the TD fixed point</h3>
+  <p>Day 63 showed that linear TD converges to the solution of \(A\mathbf w = \mathbf b\) with \(A = \E[\mathbf x_t(\mathbf x_t - \gamma\mathbf x_{t+1})^\top]\) and \(\mathbf b = \E[R_{t+1}\mathbf x_t]\). Both are expectations, so estimate them by sums over the transitions seen so far:</p>
+  $$\hat A_t = \sum_{k=0}^{t-1}\mathbf x_k(\mathbf x_k - \gamma\mathbf x_{k+1})^\top + \varepsilon I, \qquad \hat{\mathbf b}_t = \sum_{k=0}^{t-1}R_{k+1}\mathbf x_k, \qquad \mathbf w_t = \hat A_t^{-1}\hat{\mathbf b}_t.$$
+  <p>Proper averages would divide both by \(t\), but the factors cancel in \(\hat A^{-1}\hat{\mathbf b}\). The small \(\varepsilon I\) keeps \(\hat A_t\) invertible before enough data has arrived. This is <b>LSTD</b> (Bradtke &amp; Barto 1996; Boyan 2002), and its solution is the TD fixed point for the empirical data, with no step size to tune.</p>
+
+  <h3>Sherman–Morrison: an O(d²) incremental inverse</h3>
+  <p>Inverting \(\hat A_t\) from scratch costs \(O(d^3)\) per step. But each step adds a rank-one term to \(\hat A\), and the inverse of a rank-one update has a closed form.</p>
+  <div class="box thm"><span class="tag">Lemma · Sherman–Morrison</span>
+    <p>For invertible \(B\) and vectors \(\mathbf u, \mathbf v\) with \(1 + \mathbf v^\top B^{-1}\mathbf u \ne 0\),</p>
+    $$(B + \mathbf u\mathbf v^\top)^{-1} = B^{-1} - \frac{B^{-1}\mathbf u\,\mathbf v^\top B^{-1}}{1 + \mathbf v^\top B^{-1}\mathbf u}.$$
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Multiply \(B + \mathbf u\mathbf v^\top\) by the right-hand side and write \(\beta = \mathbf v^\top B^{-1}\mathbf u\), a scalar:</p>
+    $$I + \mathbf u\mathbf v^\top B^{-1} - \frac{\mathbf u\mathbf v^\top B^{-1} + \mathbf u(\mathbf v^\top B^{-1}\mathbf u)\mathbf v^\top B^{-1}}{1 + \beta} = I + \mathbf u\mathbf v^\top B^{-1} - \frac{(1 + \beta)\,\mathbf u\mathbf v^\top B^{-1}}{1 + \beta} = I. \;∎$$
+    <p>For LSTD, \(\mathbf u = \mathbf x_t\) and \(\mathbf v = \mathbf x_t - \gamma\mathbf x_{t+1}\). The update needs two matrix–vector products and an outer product: \(O(d^2)\).</p>
+  </div>
+  <div class="box algo"><span class="tag">Algorithm · LSTD for estimating v̂ ≈ v<sub>π</sub> (S&amp;B §9.8), O(d²) version</span>
+    <ol>
+      <li>Input: feature map \(\mathbf x\) with \(\mathbf x(\text{terminal}) = \mathbf 0\); small \(\varepsilon &gt; 0\). Set \(\widehat{A^{-1}} \leftarrow \varepsilon^{-1}I\) and \(\hat{\mathbf b} \leftarrow \mathbf 0\).</li>
+      <li>For each transition \((\mathbf x, R, \mathbf x')\) generated by \(\pi\):
+        <ol>
+          <li>\(\mathbf v \leftarrow \widehat{A^{-1}}^{\,\top}(\mathbf x - \gamma\mathbf x')\)</li>
+          <li>\(\widehat{A^{-1}} \leftarrow \widehat{A^{-1}} - (\widehat{A^{-1}}\mathbf x)\mathbf v^\top / (1 + \mathbf v^\top\mathbf x)\)</li>
+          <li>\(\hat{\mathbf b} \leftarrow \hat{\mathbf b} + R\,\mathbf x\); \(\;\mathbf w \leftarrow \widehat{A^{-1}}\hat{\mathbf b}\)</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <pre><code>import numpy as np
+
+def lstd(transitions, d, gamma, eps=1e-3):
+    """LSTD(0), inverse kept by Sherman-Morrison: O(d^2) per transition and no step size."""
+    A_inv = np.eye(d) / eps                       # inverse of the regularizer eps * I
+    b = np.zeros(d)
+    for x, r, x2, terminal in transitions:
+        v = x - (0.0 if terminal else gamma) * x2  # this transition adds x v^T to A
+        Ax = A_inv @ x
+        vA = v @ A_inv
+        A_inv -= np.outer(Ax, vA) / (1.0 + vA @ x)
+        b += r * x
+    return A_inv @ b
+
+# Check against Day 63's chain: append this to that snippet.
+rng2 = np.random.default_rng(1)
+s, data = 0, []
+for t in range(100_000):
+    s2 = rng2.choice(n, p=P[s])
+    data.append((X[s], r[s] + rng2.normal(scale=0.1), X[s2], False))   # noisy rewards, mean r(s)
+    s = s2
+print(lstd(data, d, gamma).round(3), w_td.round(3))                   # agree to about 3 decimals</code></pre>
+
+  <h3>Data efficiency vs O(d²) cost</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Semi-gradient TD(0)</th><th>LSTD</th></tr></thead>
+    <tbody>
+      <tr><td><b>Memory</b></td><td>\(O(d)\)</td><td>\(O(d^2)\)</td></tr>
+      <tr><td><b>Compute per step</b></td><td>\(O(d)\)</td><td>\(O(d^2)\) incremental, or \(O(d^3)\) per batch solve</td></tr>
+      <tr><td><b>Step size</b></td><td>needs tuning; too large diverges, too small crawls</td><td>none (only \(\varepsilon\))</td></tr>
+      <tr><td><b>Use of data</b></td><td>each sample nudges \(\mathbf w\) once</td><td>every sample counts fully, forever</td></tr>
+      <tr><td><b>Nonstationarity</b></td><td>tracks a changing target</td><td>never forgets, which hurts when the policy changes</td></tr>
+    </tbody>
+  </table></div>
+  <p>The cost depends only on \(d\), not on the number of states, and it is the binding constraint. With \(d = 1{,}000\), \(\hat A^{-1}\) has a million entries, which is fine. With tile coding at \(d \approx 10^5\) it has \(10^{10}\), which is not.</p>
+
+  <h3>LSPI: least-squares policy iteration</h3>
+  <p>Lagoudakis &amp; Parr (2003) turn LSTD into a control method. <b>LSTDQ</b> evaluates action values \(\hat q(s, a) = \mathbf w^\top\boldsymbol\phi(s, a)\) for a given policy \(\pi\) from samples \((s, a, r, s')\):</p>
+  $$\hat A = \sum \boldsymbol\phi(s, a)\big(\boldsymbol\phi(s, a) - \gamma\boldsymbol\phi(s', \pi(s'))\big)^\top, \qquad \hat{\mathbf b} = \sum \boldsymbol\phi(s, a)\,r, \qquad \mathbf w = \hat A^{-1}\hat{\mathbf b}.$$
+  <p>The next action comes from the policy being evaluated, not from the data, so the same batch of samples, collected by any behaviour policy, can evaluate every policy in turn. LSPI alternates: evaluate the current greedy policy with LSTDQ on the fixed batch, make the policy greedy with respect to the new \(\hat q\), and repeat until the policy stops changing.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 670 185" role="img" aria-label="LSPI loop: a fixed batch of samples feeds LSTDQ, which produces weights; the greedy policy for those weights supplies next actions to the next LSTDQ solve">
+      <defs>
+        <marker id="ah-d66" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d66m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="335" y="24" class="s-ink2 s-mid s-sm">one batch of data, reused by every iteration</text>
+      <rect x="20" y="60" width="170" height="50" rx="6" class="s-node"/>
+      <text x="105" y="82" class="s-mid">samples D</text>
+      <text x="105" y="98" class="s-ink2 s-mid s-sm">(s, a, r, s′), any b</text>
+      <rect x="245" y="60" width="170" height="50" rx="6" class="s-node-mod"/>
+      <text x="330" y="82" class="s-mod s-mid">LSTDQ</text>
+      <text x="330" y="98" class="s-ink2 s-mid s-sm">solve Â w = b̂</text>
+      <rect x="470" y="60" width="180" height="50" rx="6" class="s-node"/>
+      <text x="560" y="82" class="s-mid">greedy π</text>
+      <text x="560" y="98" class="s-ink2 s-mid s-sm">π(s) = argmax φ(s, a)ᵀw</text>
+      <path d="M190,85 L243,85" class="s-ln" marker-end="url(#ah-d66)"/>
+      <path d="M415,85 L468,85" class="s-ln-mod" marker-end="url(#ah-d66m)"/>
+      <text x="441" y="78" class="s-mod s-mid s-sm">w</text>
+      <path d="M560,110 Q445,175 332,112" class="s-ln" marker-end="url(#ah-d66)"/>
+      <text x="445" y="168" class="s-ink2 s-mid s-sm">next actions π(s′) inside Â</text>
+      <text x="560" y="135" class="s-ink3 s-sm">stop when π repeats</text>
+    </svg>
+    <figcaption><b>LSPI.</b> Policy iteration (Day 30) with the evaluation step done by least squares on a fixed batch. No environment interaction happens inside the loop.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · LSPI (Lagoudakis &amp; Parr 2003)</span>
+    <ol>
+      <li>Collect a batch \(\mathcal D\) of samples \((s, a, r, s')\) with any exploratory policy. Choose features \(\boldsymbol\phi(s, a)\); initialize \(\mathbf w\).</li>
+      <li>Repeat:
+        <ol>
+          <li>\(\pi(s) \leftarrow \arg\max_a \boldsymbol\phi(s, a)^\top\mathbf w\) <span class="step">(implicit; never stored)</span></li>
+          <li>\(\mathbf w \leftarrow \text{LSTDQ}(\mathcal D, \boldsymbol\phi, \gamma, \pi)\)</li>
+        </ol>
+        until the policy (or \(\mathbf w\)) stops changing.
+      </li>
+    </ol>
+  </div>
+  <pre><code>import numpy as np
+
+S, GAMMA, DEG = 20, 0.9, 4
+rng = np.random.default_rng(0)
+
+def step(s, a):                                    # a = 0 left, 1 right; the move slips w.p. 0.1
+    move = (1 if a == 1 else -1) * (1 if rng.random() &lt; 0.9 else -1)
+    s2 = min(max(s + move, 0), S - 1)
+    return s2, float(s2 in (0, S - 1))             # reward 1 for reaching either end
+
+def phi(s, a):                                     # polynomial in s, one block per action
+    f = np.zeros(2 * (DEG + 1))
+    f[a * (DEG + 1):(a + 1) * (DEG + 1)] = (s / (S - 1)) ** np.arange(DEG + 1)
+    return f
+
+samples, s = [], int(rng.integers(S))              # one batch from a uniformly random policy
+for _ in range(5000):
+    a = int(rng.integers(2))
+    s2, r = step(s, a)
+    samples.append((s, a, r, s2))
+    s = s2
+
+def lstdq(samples, policy, eps=1e-3):              # evaluate `policy` from off-policy samples
+    d = 2 * (DEG + 1)
+    A, b = eps * np.eye(d), np.zeros(d)
+    for s, a, r, s2 in samples:
+        f = phi(s, a)
+        A += np.outer(f, f - GAMMA * phi(s2, policy(s2)))   # next action from the evaluated policy
+        b += r * f
+    return np.linalg.solve(A, b)
+
+w, old = np.zeros(2 * (DEG + 1)), None
+for it in range(20):                               # LSPI: evaluate, improve, repeat on the same data
+    greedy = lambda s, w=w: int(phi(s, 1) @ w &gt; phi(s, 0) @ w)
+    w = lstdq(samples, greedy)
+    pi = "".join("LR"[int(phi(s, 1) @ w &gt; phi(s, 0) @ w)] for s in range(S))
+    print(it, pi)
+    if pi == old:
+        break
+    old = pi</code></pre>
+  <p class="code-cap">A 20-state slippery chain, continuing, with reward for reaching either end. In the reference run LSPI settled in five iterations on the optimal policy: left in states 0–9, right in 10–19.</p>
+  <p>LSPI is sample-efficient, needs no step size, and reuses one batch indefinitely. It also has no general convergence guarantee: Lagoudakis &amp; Parr bound the performance of the policies it produces in terms of the approximation errors, but the iteration can oscillate between policies, and it only works if the batch covers the actions the greedy policies choose.</p>
+
+  <h3>When LSTD beats SGD, and when it is infeasible</h3>
+  <p>LSTD wins when \(d\) is small or moderate (up to a few thousand), data are expensive and computation is not, the policy is fixed (prediction, or LSPI's batch evaluation), and you want results without tuning a step size. It is infeasible when \(d\) is large (high-resolution tile coding, many hashed features), when the approximator is nonlinear (there is no closed-form fixed point for a neural network), or when the targets keep moving, as in online control where the policy improves every step and old data describe a policy you no longer follow.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>ε matters early.</b> A large \(\varepsilon\) shrinks early solutions towards zero; a tiny one makes the first inverses numerically huge.</li>
+      <li><b>Round-off accumulates</b> in long Sherman–Morrison recursions. In long runs, periodically recompute the inverse from \(\hat A\) itself.</li>
+      <li><b>It never forgets.</b> In online control, \(\hat A\) and \(\hat{\mathbf b}\) mix data from every past policy. Use LSTDQ on a batch, or discount old data with a forgetting factor.</li>
+      <li><b>Coverage.</b> LSTDQ can only learn about actions that appear in the batch. If the batch rarely contains the actions a greedy policy chooses, its evaluation of that policy is extrapolation through the features.</li>
+      <li><b>Off-policy \(\hat A\)</b> need not be positive definite (Day 69); the solution can exist and still be poor.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Compare LSTD with semi-gradient TD on the 1000-state walk using 10-group aggregation and an order-10 Fourier basis. Plot \(\sqrt{\overline{\text{VE}}}\) against the number of episodes, with TD's \(\alpha\) tuned for each basis.</li>
+      <li>Time one LSTD update for \(d \in \{10, 100, 1000\}\) and fit the scaling exponent.</li>
+      <li>After \(10^5\) transitions, compare the Sherman–Morrison inverse with <code>np.linalg.inv</code> of the explicitly accumulated \(\hat A\). How large is the drift?</li>
+      <li>Run LSPI on the chain with 200, 500 and 1,000 samples. When does it stop finding the optimal policy?</li>
+      <li>Collect the batch with an always-left policy instead of a random one. What does LSPI do, and which assumption failed?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §9.8 · Bradtke &amp; Barto 1996, “Linear Least-Squares Algorithms for Temporal Difference Learning” · Boyan 2002, “Technical Update: Least-Squares Temporal Difference Learning” · Lagoudakis &amp; Parr 2003, “Least-Squares Policy Iteration”</p>
+</article>
+
+<!-- ================================================================ DAY 67 -->
+<article class="day" id="d67">
+  <header class="day-head">
+    <span class="day-no">DAY 67</span>
+    <h2>Control with Function Approximation</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">120m practice</span></p>
+  </header>
+
+  <p class="thesis">Control with function approximation is semi-gradient TD applied to action values: features \(\mathbf x(s, a)\), a linear \(\hat q\), and \(\varepsilon\)-greedy action selection on top. On Mountain Car with eight tilings it solves, in a few hundred episodes, a task that a table can only approach by coarse discretization, and lets you watch the value function discover the counterintuitive answer of backing up the hill first.</p>
+
+  <h3>Semi-gradient SARSA</h3>
+  <p>Replace \(\hat v(s, \mathbf w)\) by \(\hat q(s, a, \mathbf w) \approx q_\pi(s, a)\). The general update is \(\mathbf w \leftarrow \mathbf w + \alpha\big[U_t - \hat q(S_t, A_t, \mathbf w)\big]\nabla\hat q(S_t, A_t, \mathbf w)\), and the one-step SARSA target is \(U_t = R_{t+1} + \gamma\hat q(S_{t+1}, A_{t+1}, \mathbf w)\). Control then follows generalized policy iteration (Day 33): act \(\varepsilon\)-greedily with respect to \(\hat q\), and learn \(\hat q\) for the policy you are following.</p>
+  <div class="box algo"><span class="tag">Algorithm · Episodic semi-gradient SARSA for estimating q̂ ≈ q<sub>*</sub> (S&amp;B §10.1)</span>
+    <ol>
+      <li>Input: a differentiable \(\hat q(s, a, \mathbf w)\); step size \(\alpha &gt; 0\); small \(\varepsilon &gt; 0\). Initialize \(\mathbf w\) (for example \(\mathbf w = \mathbf 0\)).</li>
+      <li>Loop for each episode:
+        <ol>
+          <li>\(S, A \leftarrow\) initial state and an \(\varepsilon\)-greedy action from \(\hat q(S, \cdot, \mathbf w)\).</li>
+          <li>Loop for each step: take \(A\), observe \(R, S'\).
+            <ol>
+              <li>If \(S'\) is terminal: \(\mathbf w \leftarrow \mathbf w + \alpha\big[R - \hat q(S, A, \mathbf w)\big]\nabla\hat q(S, A, \mathbf w)\); go to the next episode.</li>
+              <li>Choose \(A'\) \(\varepsilon\)-greedily from \(\hat q(S', \cdot, \mathbf w)\).</li>
+              <li>\(\mathbf w \leftarrow \mathbf w + \alpha\big[R + \gamma\hat q(S', A', \mathbf w) - \hat q(S, A, \mathbf w)\big]\nabla\hat q(S, A, \mathbf w)\).</li>
+              <li>\(S \leftarrow S'\); \(A \leftarrow A'\).</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+
+  <h3>Action-value features x(s, a)</h3>
+  <p>Three constructions cover almost everything:</p>
+  <ul>
+    <li><b>Stacked state features.</b> One copy of \(\mathbf x(s)\) per action, so \(\hat q(s, a) = \mathbf w_a^\top\mathbf x(s)\). Actions share nothing, which is right when actions are few and unrelated. The code below does this.</li>
+    <li><b>Joint coding.</b> Tile-code \((s, a)\) together, with the action as an extra (discrete) input to the hash, as S&amp;B's software does. With continuous or ordered actions, tiles that span neighbouring actions let them share what they learn.</li>
+    <li><b>One output per action.</b> A network with \(|\mathcal A|\) outputs computes every \(\hat q(s, \cdot)\) in one pass. That is DQN's design (Day 71).</li>
+  </ul>
+  <p>All three need \(\max_a \hat q(s, a)\) for the greedy action, which is cheap for a few discrete actions. With continuous actions the maximization is itself an optimization problem, one reason policy-gradient methods (Module 9) take over there.</p>
+
+  <h3>ε-greedy over approximate values</h3>
+  <p>Action selection is unchanged from the tabular case, with one subtlety worth exploiting. In Mountain Car every reward is −1, so every true action value is negative and an all-zero initial \(\hat q\) is <em>optimistic</em> everywhere. Whatever the agent has tried looks worse than what it hasn't, so the greedy policy explores systematically, and S&amp;B use \(\varepsilon = 0\). Generalization spreads that optimism: one update lowers the values of a whole neighbourhood, pushing the agent towards regions it hasn't visited. As for convergence, nothing as clean as Day 63 holds for control. Linear semi-gradient SARSA does not diverge in the on-policy setting, but its weights can keep oscillating within a region rather than converging to a point (Gordon 2001).</p>
+
+  <h3>Mountain Car</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 228" role="img" aria-label="Mountain Car: an underpowered car in a valley must back up the left slope before it can climb to the goal on the right">
+      <defs>
+        <marker id="ah-d67m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <polyline points="40,98.4 54.1,109.7 68.2,121.5 82.4,133.5 96.5,145.1 110.6,155.9 124.7,165.5 138.8,173.5 152.9,179.6 167.1,183.4 181.2,185 195.3,184.1 209.4,180.9 223.5,175.5 237.6,168 251.8,158.9 265.9,148.4 280,136.9 294.1,125 308.2,113.1 322.4,101.6 336.5,91.1 350.6,82 364.7,74.5 378.8,69.1 392.9,65.9 400,65.2" class="s-ln-ink"/>
+      <line x1="40" y1="58" x2="40" y2="104" class="s-ln-ink"/>
+      <text x="46" y="56" class="s-ink2 s-sm">x = −1.2: velocity reset to 0</text>
+      <rect x="180" y="171" width="18" height="9" rx="2" class="s-node-mod"/>
+      <circle cx="184" cy="182" r="2.5" class="s-ink"/><circle cx="194" cy="182" r="2.5" class="s-ink"/>
+      <line x1="400" y1="65" x2="400" y2="38" class="s-ln-ink"/>
+      <path d="M400,38 L414,43 L400,48 z" class="s-acc"/>
+      <text x="400" y="28" class="s-ink2 s-mid s-sm">goal: x ≥ 0.5</text>
+      <path d="M176,163 C150,150 105,126 76,104" class="s-ln-mod s-dash" marker-end="url(#ah-d67m)"/>
+      <text x="112" y="112" class="s-mod s-sm">1</text>
+      <path d="M86,118 C150,205 300,195 388,74" class="s-ln-mod s-dash" marker-end="url(#ah-d67m)"/>
+      <text x="300" y="186" class="s-mod s-sm">2</text>
+      <line x1="167" y1="200" x2="209" y2="200" class="s-ln"/>
+      <text x="188" y="214" class="s-ink2 s-mid s-sm">start x ∈ [−0.6, −0.4], ẋ = 0</text>
+      <g class="s-sm">
+        <text x="425" y="96">ẋₜ₊₁ = ẋₜ + 0.001 Aₜ − 0.0025 cos(3xₜ)</text>
+        <text x="425" y="114">xₜ₊₁ = xₜ + ẋₜ₊₁   (both clipped)</text>
+        <text x="425" y="132">A ∈ {−1, 0, +1}; Gymnasium: 0, 1, 2</text>
+        <text x="425" y="150">x ∈ [−1.2, 0.5], ẋ ∈ [−0.07, 0.07]</text>
+        <text x="425" y="168">reward −1 every step</text>
+      </g>
+    </svg>
+    <figcaption><b>Mountain Car</b> (S&amp;B Example 10.1; Moore 1990). Gravity is stronger than the engine, so full throttle forward from the valley stalls. The solution swings left first (1) and uses the momentum from rolling back down to reach the goal (2): the car has to move away from the goal to get to it.</figcaption>
+  </figure>
+  <p>S&amp;B's settings are 8 tilings, each an 8 × 8 grid over the bounded position–velocity box, with asymmetric offsets; one block of tile features per action; \(\alpha = 0.1/8\) (their Figure 10.2 also shows \(0.2/8\) and \(0.5/8\)); \(\varepsilon = 0\); \(\hat q\) initialized to 0; learning curves averaged over 100 runs. In Gymnasium the task is <code>MountainCar-v0</code>: observations are \([x, \dot x]\), actions 0, 1, 2 mean push left, no push, push right, and the episode terminates when \(x \ge 0.5\). It also has a default <code>TimeLimit</code> of 200 steps, which S&amp;B's task does not: an untrained agent needs hundreds or thousands of steps to stumble onto the goal, so for a faithful reproduction raise the limit. Either way, a truncated episode must still bootstrap (Day 8).</p>
+  <pre><code>import numpy as np
+import gymnasium as gym
+# TileCoder is the Day 65 class.
+
+env = gym.make("MountainCar-v0", max_episode_steps=10_000)   # S&amp;B's task has no 200-step cap
+tc = TileCoder(low=[-1.2, -0.07], high=[0.5, 0.07], tiles_per_dim=8, n_tilings=8)
+n_actions = env.action_space.n
+w = np.zeros((n_actions, tc.size))         # x(s, a): one block of tile features per action
+alpha, gamma, eps = 0.1 / tc.n, 1.0, 0.0   # S&amp;B §10.1; q_hat = 0 is optimistic (all returns &lt; 0)
+rng = np.random.default_rng(0)
+
+def q(tiles):                              # q_hat(s, a) for every action: sum of active weights
+    return w[:, tiles].sum(axis=1)
+
+def policy(tiles):                         # epsilon-greedy with random tie-breaking
+    qs = q(tiles)
+    if rng.random() &lt; eps:
+        return int(rng.integers(n_actions))
+    return int(rng.choice(np.flatnonzero(qs == qs.max())))
+
+steps_per_episode = []
+for episode in range(500):
+    obs, _ = env.reset(seed=episode)
+    tiles = tc.active(obs)
+    a = policy(tiles)
+    for t in range(1, 10_001):
+        obs2, r, terminated, truncated, _ = env.step(a)
+        target = r
+        if not terminated:                 # bootstrap unless the car really reached the goal
+            tiles2 = tc.active(obs2)
+            a2 = policy(tiles2)
+            target += gamma * q(tiles2)[a2]
+        w[a, tiles] += alpha * (target - q(tiles)[a])   # gradient of q_hat is x(s, a)
+        if terminated or truncated:
+            break
+        tiles, a = tiles2, a2
+    steps_per_episode.append(t)
+print(steps_per_episode[:5], np.mean(steps_per_episode[-50:]))</code></pre>
+  <p class="code-cap">About 20 seconds for 500 episodes. Gymnasium allows positions up to 0.6, but tiles are only ever computed for non-terminal states, which have \(x &lt; 0.5\). In the reference run (against a re-implementation of <code>MountainCar-v0</code>'s dynamics), the first episodes took between about 800 and 3,200 steps, and the last 50 of 500 averaged about 146.</p>
+
+  <h3>The cost-to-go surface</h3>
+  <p>The quantity to look at is the cost-to-go, \(-\max_a \hat q(s, a, \mathbf w)\): the estimated number of steps to the goal from each (position, velocity).</p>
+  <pre><code>import matplotlib.pyplot as plt
+
+xs, vs = np.linspace(-1.2, 0.5, 80), np.linspace(-0.07, 0.07, 80)
+cost = np.array([[-q(tc.active([x, v])).max() for x in xs] for v in vs])
+plt.imshow(cost, origin="lower", extent=[-1.2, 0.5, -0.07, 0.07], aspect="auto")
+plt.xlabel("position"); plt.ylabel("velocity"); plt.colorbar(label="steps to go")
+plt.show()</code></pre>
+  <p class="code-cap">A fragment: run it after (or during) the training loop above, with the same <code>q</code> and <code>tc</code>.</p>
+  <p>In S&amp;B's Figure 10.1, snapshots taken during the first episode show values lowered only along the path the car has actually travelled, plus the neighbourhood its tiles generalize to; optimism makes the agent keep moving into unvisited regions. Later snapshots develop a spiral: the low-cost region winds around the state space, because the optimal policy is an oscillation of growing amplitude in position–velocity space. States with high leftward velocity near the left of the valley are cheap, since they are already on their way to a successful swing.</p>
+
+  <h3>Effect of α and the number of tilings</h3>
+  <p>Keep \(\alpha\) expressed as a fraction of \(1/n\) (Day 65), so the size of each update in value terms is independent of the number of tilings. Within that, a larger fraction learns faster at first but gives noisier estimates, and too large a fraction makes learning erratic; S&amp;B's Figure 10.2 compares \(0.1/8\), \(0.2/8\) and \(0.5/8\). More tilings at a fixed tile size give finer resolution with the same breadth of generalization, at proportionally more computation per step; fewer tilings learn a blockier surface. S&amp;B's §10.2 also shows that \(n\)-step semi-gradient SARSA with \(n = 8\) learns this task faster than one-step SARSA, the same trade-off as Day 48.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Treating the 200-step truncation as termination.</b> The bootstrap is dropped at the time limit, so states that happen to be visited at step 200 learn a value of −1 instead of "many more steps to go". The agent learns a distorted cost-to-go and may never find the goal reliably.</li>
+      <li><b>Random exploration kills momentum.</b> In Mountain Car an \(\varepsilon\)-random push can undo a swing. With optimistic initial values, \(\varepsilon = 0\) is both sufficient and better.</li>
+      <li><b>Forgetting α/n.</b> \(\alpha = 0.1\) with 8 tilings is eight times S&amp;B's step and learns much worse.</li>
+      <li><b>Deterministic tie-breaking.</b> With all values at 0, <code>argmax</code> always pushes left; optimism still eventually drives exploration, but symmetric random ties learn faster.</li>
+      <li><b>Expecting convergence.</b> The weights can keep drifting and the policy can keep changing slightly. Judge by returns averaged over runs, not by whether \(\mathbf w\) has stopped moving.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 120 min</h4>
+    <ol>
+      <li>Run the code for 10 seeds and plot steps per episode on a log scale, mean with a bootstrap band (Day 7).</li>
+      <li>Sweep \(\alpha \in \{0.1/8, 0.2/8, 0.5/8, 1.0/8\}\), then the number of tilings \(\{2, 4, 8, 16\}\) at a fixed \(\alpha n\). Reproduce S&amp;B Figure 10.2 qualitatively and describe the trade-offs you see.</li>
+      <li>Plot the cost-to-go after episodes 1, 12, 100 and 500 and describe the spiral as it forms.</li>
+      <li>Rerun with Gymnasium's default 200-step limit, first correctly (bootstrapping on truncation), then with the classic bug (treating truncation as termination). Compare the learning curves.</li>
+      <li>Implement \(n\)-step semi-gradient SARSA (S&amp;B §10.2) and compare \(n = 1, 4, 8\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §10.1–10.2 · Moore 1990, “Efficient Memory-Based Learning for Robot Control” (PhD thesis, origin of Mountain Car) · Gordon 2001, “Reinforcement Learning with Function Approximation Converges to a Region” · Gymnasium documentation, MountainCar-v0</p>
+</article>
+
+<!-- ================================================================ DAY 68 -->
+<article class="day" id="d68">
+  <header class="day-head">
+    <span class="day-no">DAY 68</span>
+    <h2>Continuing Tasks &amp; Average Reward</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">In a continuing task with function approximation, discounting stops being a meaningful part of the problem: averaged over the states the policy actually visits, every discount factor ranks policies exactly as the average reward does. The clean formulation is to maximize the average reward \(r(\pi)\) and to learn <em>differential</em> values measured relative to it.</p>
+
+  <h3>Why discounting is problematic with function approximation</h3>
+  <p>A continuing task has no episodes and, in general, no distinguished start state. With a table, that doesn't matter: there is a policy that is discounted-optimal in every state at once, and we can find it. With function approximation we can't make every state's value right simultaneously, so we need a single scalar objective to rank policies, and the natural candidate, the discounted value averaged over the states the policy visits, turns out to carry no information about \(\gamma\) at all (the derivation below). Worse, the policy improvement theorem (Day 29) no longer holds: making the policy greedy with respect to an approximate \(\hat q\) can improve some states and harm others, so there is no guarantee that a greedy step improves anything. The tabular justification for discounted control does not survive.</p>
+
+  <h3>The average-reward setting</h3>
+  <div class="box def"><span class="tag">Definition · average reward (Day 27; S&amp;B §10.3)</span>
+    $$r(\pi) \doteq \lim_{h \to \infty}\frac1h\sum_{t=1}^h \E\big[R_t \mid S_0, A_{0:t-1} \sim \pi\big] = \sum_s \mu_\pi(s)\sum_a \pi(a \mid s)\sum_{s', r} p(s', r \mid s, a)\, r.$$
+    <p>The second form needs <b>ergodicity</b>: the steady-state distribution \(\mu_\pi(s) = \lim_t \Pr(S_t = s)\) exists and doesn't depend on \(S_0\). It satisfies \(\sum_s \mu_\pi(s)\sum_a\pi(a \mid s)\,p(s' \mid s, a) = \mu_\pi(s')\).</p>
+  </div>
+  <p>Policies are ranked by \(r(\pi)\), the reward per step in the long run. The start state, and any transient early behaviour, have no effect on it.</p>
+
+  <h3>Differential value functions</h3>
+  <p>Returns are now measured relative to the average:</p>
+  $$G_t \doteq R_{t+1} - r(\pi) + R_{t+2} - r(\pi) + R_{t+3} - r(\pi) + \cdots,$$
+  <p>the <em>differential return</em>, and \(v_\pi(s) = \E_\pi[G_t \mid S_t = s]\), \(q_\pi(s, a) = \E_\pi[G_t \mid S_t = s, A_t = a]\) are the differential value functions: how much better than average it is to be here. They satisfy Bellman equations with \(r - r(\pi)\) in place of \(r\) and no discount:</p>
+  $$q_\pi(s, a) = \sum_{s', r} p(s', r \mid s, a)\Big[r - r(\pi) + \sum_{a'}\pi(a' \mid s')\,q_\pi(s', a')\Big].$$
+  <p>These equations determine values only up to an additive constant; the definition through \(G_t\) picks one, and for choosing actions only differences matter anyway. The TD errors follow directly, with \(\bar R_t\) an estimate of \(r(\pi)\):</p>
+  $$\delta_t = R_{t+1} - \bar R_t + \hat q(S_{t+1}, A_{t+1}, \mathbf w_t) - \hat q(S_t, A_t, \mathbf w_t).$$
+
+  <h3>Differential semi-gradient SARSA</h3>
+  <div class="box algo"><span class="tag">Algorithm · Differential semi-gradient SARSA (S&amp;B §10.3)</span>
+    <ol>
+      <li>Input: a differentiable \(\hat q(s, a, \mathbf w)\); step sizes \(\alpha, \beta &gt; 0\). Initialize \(\mathbf w\) and \(\bar R\) (for example to 0). Observe \(S\) and choose \(A\) (for example \(\varepsilon\)-greedily).</li>
+      <li>Loop for each step:
+        <ol>
+          <li>Take \(A\); observe \(R, S'\). Choose \(A'\) as a function of \(\hat q(S', \cdot, \mathbf w)\).</li>
+          <li>\(\delta \leftarrow R - \bar R + \hat q(S', A', \mathbf w) - \hat q(S, A, \mathbf w)\)</li>
+          <li>\(\bar R \leftarrow \bar R + \beta\delta\)</li>
+          <li>\(\mathbf w \leftarrow \mathbf w + \alpha\,\delta\,\nabla\hat q(S, A, \mathbf w)\)</li>
+          <li>\(S \leftarrow S'\); \(A \leftarrow A'\)</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>The average-reward estimate is updated with \(\delta\) rather than with \(R - \bar R\). Both errors work, but S&amp;B's Exercise 10.8 shows why \(\delta\) works better: once the values are roughly right, the value terms in \(\delta\) cancel the predictable part of each reward, so \(\delta\) is small at every step, not merely zero on average, and \(\bar R\) settles instead of being kicked around by each individual reward.</p>
+
+  <h3>The access-control queuing example</h3>
+  <p>S&amp;B's Example 10.2: a bank of 10 servers and a single queue of customers of four priorities, who pay 1, 2, 4 or 8 if served. At each step the customer at the head of the queue is either accepted (given a free server, collecting its payment) or rejected (reward 0); a customer is always rejected if no server is free. The queue never empties, priorities are uniformly random, and each busy server becomes free with probability 0.06 per step. The state is (number of free servers, priority of the current customer), the task is continuing and undiscounted, and S&amp;B solve it with differential semi-gradient SARSA in tabular form, with \(\alpha = \beta = 0.01\) and \(\varepsilon = 0.1\).</p>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+N_SERVERS, P_FREE = 10, 0.06
+PAY = np.array([1.0, 2.0, 4.0, 8.0])             # reward for serving each priority
+
+def step(free, prio, accept):
+    reward = 0.0
+    if accept and free &gt; 0:                      # with no free server the customer is rejected
+        free -= 1
+        reward = PAY[prio]
+    free += rng.binomial(N_SERVERS - free, P_FREE)   # each busy server frees up w.p. 0.06
+    return free, int(rng.integers(4)), reward    # the next customer's priority is uniform
+
+Q = np.zeros((N_SERVERS + 1, 4, 2))              # tabular = one-hot features x(s, a)
+R_bar, alpha, beta, eps = 0.0, 0.01, 0.01, 0.1   # S&amp;B Example 10.2
+
+def act(free, prio):
+    if rng.random() &lt; eps:
+        return int(rng.integers(2))
+    q = Q[free, prio]
+    return int(rng.choice(np.flatnonzero(q == q.max())))
+
+free, prio = N_SERVERS, int(rng.integers(4))
+a = act(free, prio)
+for t in range(2_000_000):
+    free2, prio2, r = step(free, prio, a)
+    a2 = act(free2, prio2)
+    delta = r - R_bar + Q[free2, prio2, a2] - Q[free, prio, a]   # differential TD error
+    R_bar += beta * delta                        # average-reward estimate, updated with delta
+    Q[free, prio, a] += alpha * delta            # semi-gradient step (the gradient is one-hot)
+    free, prio, a = free2, prio2, a2
+
+print(f"average reward {R_bar:.2f}")
+for p in range(4):                               # 1 = accept, by number of free servers 1..10
+    print(int(PAY[p]), "".join(str(int(Q[f, p, 1] &gt; Q[f, p, 0])) for f in range(1, N_SERVERS + 1)))</code></pre>
+  <p class="code-cap">About a minute in pure Python. The reference run's estimate of the average reward was about 2.7 per step.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 215" role="img" aria-label="Learned access-control policy: accept or reject by customer priority and number of free servers">
+      <text x="310" y="22" class="s-ttl s-mid">learned policy after 2 million steps (one run)</text>
+      <g class="s-node-mod">
+        <rect x="110" y="40" width="400" height="30"/>
+        <rect x="110" y="70" width="360" height="30"/>
+        <rect x="230" y="100" width="240" height="30"/>
+        <rect x="270" y="130" width="200" height="30"/>
+      </g>
+      <g class="s-node">
+        <rect x="470" y="70" width="40" height="30"/>
+        <rect x="110" y="100" width="120" height="30"/><rect x="470" y="100" width="40" height="30"/>
+        <rect x="110" y="130" width="160" height="30"/><rect x="470" y="130" width="40" height="30"/>
+      </g>
+      <path d="M150,40v120M190,40v120M230,40v120M270,40v120M310,40v120M350,40v120M390,40v120M430,40v120M470,40v120M110,70h400M110,100h400M110,130h400" class="s-grid"/>
+      <g class="s-ink2 s-end s-sm"><text x="100" y="59">pays 8</text><text x="100" y="89">pays 4</text><text x="100" y="119">pays 2</text><text x="100" y="149">pays 1</text></g>
+      <g class="s-ink3 s-mid s-sm"><text x="130" y="176">1</text><text x="170" y="176">2</text><text x="210" y="176">3</text><text x="250" y="176">4</text><text x="290" y="176">5</text><text x="330" y="176">6</text><text x="370" y="176">7</text><text x="410" y="176">8</text><text x="450" y="176">9</text><text x="490" y="176">10</text></g>
+      <text x="310" y="194" class="s-ink3 s-mid s-sm">number of free servers</text>
+      <rect x="530" y="60" width="18" height="14" class="s-node-mod"/><text x="555" y="71" class="s-sm">accept</text>
+      <rect x="530" y="84" width="18" height="14" class="s-node"/><text x="555" y="95" class="s-sm">reject</text>
+    </svg>
+    <figcaption><b>The policy the code learned.</b> Priority-8 customers are always accepted; priority-4 customers whenever a server is free; low-priority customers only when many servers are idle, saving capacity for better-paying customers. The rejections at 10 free servers are an artefact: that state is rarely reached once the agent accepts freely, and S&amp;B note the same effect in their Figure 10.5, attributing it to insufficient data.</figcaption>
+  </figure>
+
+  <h3>The futility of discounting</h3>
+  <p>Suppose we insist on discounting in a continuing task and, lacking a start state, measure a policy by its discounted value averaged over the states it visits. That objective turns out to be the average reward in disguise.</p>
+  <div class="box deriv"><span class="tag">Derivation · S&amp;B §10.4</span>
+    <p>Let \(v_\pi^\gamma\) be the discounted value function and \(J(\pi) = \sum_s \mu_\pi(s)\,v_\pi^\gamma(s)\). Expand one step with the Bellman equation:</p>
+    $$\begin{aligned}
+    J(\pi) &amp;= \sum_s \mu_\pi(s)\sum_a \pi(a \mid s)\sum_{s', r} p(s', r \mid s, a)\big[r + \gamma v_\pi^\gamma(s')\big] \\
+    &amp;= r(\pi) + \gamma\sum_{s'} v_\pi^\gamma(s')\sum_s \mu_\pi(s)\sum_a \pi(a \mid s)\,p(s' \mid s, a) \\
+    &amp;= r(\pi) + \gamma\sum_{s'} v_\pi^\gamma(s')\,\mu_\pi(s') \qquad \text{(stationarity of } \mu_\pi\text{)} \\
+    &amp;= r(\pi) + \gamma J(\pi),
+    \end{aligned}$$
+    <p>so</p>
+    $$J(\pi) = \frac{r(\pi)}{1 - \gamma}.$$
+  </div>
+  <p>The averaged discounted objective is the average reward times a constant. It orders policies exactly as \(r(\pi)\) does for every \(\gamma\), so the discount rate has no effect on the problem. Combined with the loss of the policy improvement theorem, this is S&amp;B's case for deprecating the discounted formulation of control with function approximation in continuing tasks. The average-reward setting loses the policy improvement theorem too; in Chapter 13, S&amp;B point to the policy gradient theorem (Day 83) as the result that plays a similar role for parameterized policies.</p>
+  <div class="box note"><span class="tag">In practice</span>
+    <p>Deep RL still uses \(\gamma = 0.99\) in continuing tasks. Read it as a property of the <em>solution method</em> (it shortens the effective horizon to about \(1/(1-\gamma)\) and reduces variance) rather than of the problem. Average-reward methods are less common in deep RL, but the differential TD error above is the whole of the change.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>β is a second learning rate.</b> Too large and \(\bar R\) is noisy and the values chase it; too small and \(\bar R\) lags, biasing every TD error.</li>
+      <li><b>Ergodicity can fail.</b> If a policy has several recurrent classes, its average reward depends on where it starts and \(r(\pi)\) is not one number.</li>
+      <li><b>Differential values are relative.</b> Don't compare their magnitudes across runs or algorithms; they are defined only up to a constant offset by the Bellman equation.</li>
+      <li><b>Episodic environments aren't continuing.</b> Using an episodic environment in an average-reward method means treating the reset as part of the dynamics; the transition into the reset state must not be bootstrapped from as if nothing happened.</li>
+      <li><b>Rarely visited states keep arbitrary values</b>, as in the 10-free-server column.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run the access-control code and plot the learned policy and the differential values \(\max_a Q\) by priority against free servers. Compare with S&amp;B Figure 10.5.</li>
+      <li>Update \(\bar R\) with \(R - \bar R\) instead of \(\delta\) and compare the variance of \(\bar R\) over the last 100,000 steps.</li>
+      <li>Check the futility identity numerically: build a small random ergodic MDP and a few random policies, and verify \(\sum_s\mu_\pi(s)v_\pi^\gamma(s) = r(\pi)/(1-\gamma)\) for \(\gamma \in \{0.5, 0.9, 0.99\}\).</li>
+      <li>Solve access control with ordinary discounted SARSA, \(\gamma \in \{0.9, 0.99\}\). Does the learned policy differ from the average-reward one? Explain why it can, even though \(J\) ranks policies identically.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §10.3–10.4 · Mahadevan 1996, “Average Reward Reinforcement Learning: Foundations, Algorithms, and Empirical Results” · Schwartz 1993, “A Reinforcement Learning Method for Maximizing Undiscounted Rewards”</p>
+</article>
+
+<!-- ================================================================ DAY 69 -->
+<article class="day" id="d69">
+  <header class="day-head">
+    <span class="day-no">DAY 69</span>
+    <h2>The Deadly Triad &amp; Off-Policy Stability</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Function approximation, bootstrapping and off-policy training are each harmless on their own and in pairs. Together they can drive value estimates to infinity even when the true values are exactly representable, and Baird's seven-state star shows it in a few lines of code. The fixes change the objective (gradient-TD methods descend the projected Bellman error), change the distribution of updates (emphatic TD), or, in deep RL, slow the feedback loop down.</p>
+
+  <h3>The deadly triad</h3>
+  <p>Sutton &amp; Barto (§11.3) name three ingredients:</p>
+  <ul>
+    <li><b>Function approximation:</b> a generalizing representation with fewer parameters than states.</li>
+    <li><b>Bootstrapping:</b> targets that include current estimates, as in TD and DP, rather than complete returns.</li>
+    <li><b>Off-policy training:</b> updates distributed according to a behaviour policy rather than the target policy.</li>
+  </ul>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Combination</th><th>Example</th><th>Stable?</th></tr></thead>
+    <tbody>
+      <tr><td>FA + bootstrapping, on-policy</td><td>linear semi-gradient TD (Day 63)</td><td>yes, converges to \(\mathbf w_{TD}\)</td></tr>
+      <tr><td>FA + off-policy, no bootstrapping</td><td>gradient MC with importance sampling</td><td>yes, a true gradient method</td></tr>
+      <tr><td>Bootstrapping + off-policy, tabular</td><td>Q-learning (Day 45)</td><td>yes</td></tr>
+      <tr><td>All three</td><td>off-policy semi-gradient TD, DQN</td><td>can diverge</td></tr>
+    </tbody>
+  </table></div>
+  <p>Instability is not caused by control, by greedy policies, or by sampling: Baird's example below diverges in pure prediction, with expected updates.</p>
+
+  <h3>Baird's counterexample</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 270" role="img" aria-label="Baird's counterexample: six upper states and one lower state; the solid action always leads to the lower state, the dashed action to a random upper state">
+      <defs>
+        <marker id="ah-d69m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+        <marker id="ah-d69" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <g class="s-ln-mod">
+        <path d="M75,62 L292.3,183" marker-end="url(#ah-d69m)"/><path d="M181,62 L311.4,183" marker-end="url(#ah-d69m)"/><path d="M287,62 L330.5,182" marker-end="url(#ah-d69m)"/>
+        <path d="M393,62 L349.5,182" marker-end="url(#ah-d69m)"/><path d="M499,62 L368.6,183" marker-end="url(#ah-d69m)"/><path d="M605,62 L387.7,183" marker-end="url(#ah-d69m)"/>
+      </g>
+      <path d="M30,112 H650" class="s-ln s-dash"/>
+      <g class="s-ln s-dash">
+        <path d="M75,110 V66" marker-end="url(#ah-d69)"/><path d="M181,110 V66" marker-end="url(#ah-d69)"/><path d="M287,110 V66" marker-end="url(#ah-d69)"/>
+        <path d="M393,110 V66" marker-end="url(#ah-d69)"/><path d="M499,110 V66" marker-end="url(#ah-d69)"/><path d="M605,110 V66" marker-end="url(#ah-d69)"/>
+        <path d="M392,200 H560 V116" marker-end="url(#ah-d69)"/>
+      </g>
+      <g class="s-node"><ellipse cx="75" cy="45" rx="46" ry="17"/><ellipse cx="181" cy="45" rx="46" ry="17"/><ellipse cx="287" cy="45" rx="46" ry="17"/><ellipse cx="393" cy="45" rx="46" ry="17"/><ellipse cx="499" cy="45" rx="46" ry="17"/><ellipse cx="605" cy="45" rx="46" ry="17"/></g>
+      <ellipse cx="340" cy="200" rx="52" ry="18" class="s-node-mod"/>
+      <g class="s-mid"><text x="75" y="49">2w₁+w₈</text><text x="181" y="49">2w₂+w₈</text><text x="287" y="49">2w₃+w₈</text><text x="393" y="49">2w₄+w₈</text><text x="499" y="49">2w₅+w₈</text><text x="605" y="49">2w₆+w₈</text><text x="340" y="204" class="s-mod">w₇+2w₈</text></g>
+      <text x="280" y="204" class="s-ink3 s-end s-sm">state 7</text>
+      <g class="s-sm">
+        <line x1="20" y1="240" x2="44" y2="240" class="s-ln-mod"/><text x="50" y="244">solid → state 7 (π: always; b: probability 1/7)</text>
+        <line x1="20" y1="258" x2="44" y2="258" class="s-ln s-dash"/><text x="50" y="262">dashed → one of the six upper states, uniformly (b: 6/7)</text>
+        <text x="660" y="262" class="s-ink2 s-end">all rewards 0 · γ = 0.99</text>
+      </g>
+    </svg>
+    <figcaption><b>Baird's counterexample</b> (S&amp;B Example 11.1, §11.2). Each ellipse shows that state's linear value estimate. From any state, the dashed action jumps to one of the six upper states at random and the solid action goes to state 7. The true values are all 0, which \(\mathbf w = \mathbf 0\) represents exactly.</figcaption>
+  </figure>
+  <p>The behaviour policy \(b\) takes the dashed action with probability 6/7 and the solid one with 1/7, so the next state is uniformly distributed and \(b\)'s on-policy distribution is uniform over all seven states. The target policy \(\pi\) always takes the solid action, so its on-policy distribution is concentrated entirely on state 7. Every reward is 0 and \(\gamma = 0.99\). The features are \(\mathbf x(i) = 2\mathbf e_i + \mathbf e_8\) for the upper states \(i = 1, \dots, 6\) and \(\mathbf x(7) = \mathbf e_7 + 2\mathbf e_8\): eight features for seven states, so many weight vectors represent the true values exactly, \(\mathbf w = \mathbf 0\) among them. Starting from \(\mathbf w = (1, 1, 1, 1, 1, 1, 10, 1)^\top\), off-policy semi-gradient TD(0) with importance ratios \(\rho = \pi/b\) (7 for solid, 0 for dashed) sends the weights to infinity. So does the semi-gradient DP version, which replaces sampling with exact expected updates over a uniform state distribution: S&amp;B show it diverges for any positive step size.</p>
+  <pre><code>import numpy as np
+
+gamma, alpha = 0.99, 0.01
+X = np.zeros((7, 8))                       # Baird's features: x(s) for states 1..7 as rows 0..6
+for i in range(6):
+    X[i, i], X[i, 7] = 2.0, 1.0            # upper states: v_hat = 2 w_i + w_8
+X[6, 6], X[6, 7] = 1.0, 2.0                # lower state:  v_hat = w_7 + 2 w_8
+w0 = np.array([1, 1, 1, 1, 1, 1, 10, 1], dtype=float)
+
+# (1) off-policy semi-gradient TD(0). b: dashed w.p. 6/7, solid w.p. 1/7; pi: always solid.
+rng = np.random.default_rng(0)
+w, s = w0.copy(), int(rng.integers(7))
+for t in range(1000):
+    if rng.random() &lt; 6 / 7:
+        s2, rho = int(rng.integers(6)), 0.0    # dashed: to a random upper state; pi never does this
+    else:
+        s2, rho = 6, 7.0                       # solid: to the lower state; rho = 1 / (1/7)
+    delta = 0.0 + gamma * X[s2] @ w - X[s] @ w # every reward is zero
+    w += alpha * rho * delta * X[s]
+    s = s2
+print("TD after 1000 steps: ", w.round(1))
+
+# (2) semi-gradient DP: expected updates, every state weighted equally (b's distribution)
+w = w0.copy()
+for k in range(1000):
+    target = gamma * X[6] @ w                  # under pi every state moves to the lower state
+    w += alpha / 7 * X.T @ (target - X @ w)
+print("DP after 1000 sweeps:", w.round(1))</code></pre>
+  <p class="code-cap">In the reference run, \(w_8\) had grown from 1 to about 317 after 1,000 TD steps and to about 335 after 1,000 DP sweeps, and it keeps growing without bound.</p>
+  <div class="box deriv"><span class="tag">Why it diverges</span>
+    <p><b>Mechanism.</b> Take a solid transition from upper state \(i\) to state 7. Its TD error is \(\delta = \gamma(w_7 + 2w_8) - (2w_i + w_8)\), positive at the start, and the update raises \(w_i\) by \(2\alpha\rho\delta\) and \(w_8\) by \(\alpha\rho\delta\). But \(w_8\) enters state 7's estimate with weight 2, so raising it raises the <em>target</em> of every future solid transition by more than it raises this state's estimate. The update that would pull \(w_8\) back down is the one from state 7 itself, where \(\delta = (\gamma - 1)\hat v(7)\), and under \(b\) state 7 receives only 1/7 of the updates. Under \(\pi\)'s own distribution it would receive all of them.</p>
+    <p><b>Linear algebra.</b> The expected update is \(\mathbf w \leftarrow \mathbf w + \alpha(\mathbf b - A\mathbf w)\) with \(A = X^\top D(I - \gamma P_\pi)X\), where \(D\) is \(b\)'s uniform distribution but \(P_\pi\) is \(\pi\)'s dynamics. Day 63's proof of positive definiteness used \(\boldsymbol\mu^\top P = \boldsymbol\mu^\top\), and that fails here. Numerically, \(A\) has an eigenvalue with real part about \(-0.24\), so \(I - \alpha A\) has an eigenvalue of modulus greater than 1 for every \(\alpha &gt; 0\), and the iteration diverges along it. Weighting the same updates by \(\pi\)'s distribution (all on state 7) leaves no eigenvalue with negative real part, and the iteration is stable.</p>
+  </div>
+
+  <h3>The projected Bellman error</h3>
+  <p>If semi-gradient TD isn't minimizing anything, what <em>should</em> an off-policy method minimize? Consider the space of all value functions, with the subspace of representable ones \(\{X\mathbf w\}\). Write \(B_\pi\) for the Bellman operator, \(\Pi\) for the \(\mu\)-weighted projection onto the subspace (Day 63), and \(\bar\delta_{\mathbf w} = B_\pi\mathbf v_{\mathbf w} - \mathbf v_{\mathbf w}\) for the Bellman error vector.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 620 240" role="img" aria-label="Geometry of value-function error measures: value error to v pi, Bellman error to the Bellman image, and projected Bellman error inside the representable plane">
+      <defs>
+        <marker id="ah-d69b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <text x="20" y="20" class="s-ink3 s-sm">the space of value functions</text>
+      <polygon points="40,200 420,200 580,130 200,130" class="s-node"/>
+      <text x="80" y="192" class="s-ink2 s-sm">representable: v_w = Xw</text>
+      <line x1="190" y1="175" x2="470" y2="30" class="s-ln-info"/>
+      <line x1="470" y1="30" x2="470" y2="160" class="s-grid s-dash"/>
+      <path d="M190,175 L248,62" class="s-ln-ink" marker-end="url(#ah-d69b)"/>
+      <line x1="250" y1="55" x2="250" y2="165" class="s-ln s-dash"/>
+      <line x1="190" y1="175" x2="250" y2="165" class="s-ln-mod"/>
+      <circle cx="190" cy="175" r="4.5" class="s-ink"/>
+      <circle cx="250" cy="55" r="4" class="s-ink2"/>
+      <circle cx="250" cy="165" r="4" class="s-ink2"/>
+      <circle cx="470" cy="30" r="4.5" class="s-ink"/>
+      <circle cx="470" cy="160" r="4" class="s-acc"/>
+      <circle cx="390" cy="160" r="4.5" class="s-mod"/>
+      <text x="180" y="180" class="s-end">v_w</text>
+      <text x="258" y="52" class="s-sm">B_π v_w</text>
+      <text x="258" y="160" class="s-sm">ΠB_π v_w</text>
+      <text x="478" y="34">v_π</text>
+      <text x="478" y="164" class="s-sm">Πv_π</text>
+      <text x="386" y="176" class="s-mod s-mid s-sm">TD fixed point: PBE = 0</text>
+      <text x="212" y="112" class="s-end s-sm">√BE</text>
+      <text x="218" y="190" class="s-mod s-mid s-sm">√PBE</text>
+      <text x="330" y="95" class="s-info s-sm">√VE</text>
+    </svg>
+    <figcaption><b>Four error measures</b> (after S&amp;B Figure 11.3). Applying \(B_\pi\) takes \(\mathbf v_{\mathbf w}\) out of the subspace; the Bellman error is that whole jump, and the projected Bellman error is its shadow inside the subspace. Linear TD's fixed point is where the shadow vanishes. The value error, distance to \(\mathbf v_\pi\), is what we would like to minimize but can't measure.</figcaption>
+  </figure>
+  <div class="box def"><span class="tag">Definitions · error measures</span>
+    <ul>
+      <li>\(\overline{\text{VE}}(\mathbf w) = \|\mathbf v_{\mathbf w} - \mathbf v_\pi\|_\mu^2\): the target, unknowable without \(\mathbf v_\pi\).</li>
+      <li>\(\overline{\text{BE}}(\mathbf w) = \|\bar\delta_{\mathbf w}\|_\mu^2\): the mean squared Bellman error.</li>
+      <li>\(\overline{\text{PBE}}(\mathbf w) = \|\Pi\bar\delta_{\mathbf w}\|_\mu^2\): the mean squared projected Bellman error. Zero exactly at the TD fixed point.</li>
+      <li>\(\overline{\text{TDE}}(\mathbf w) = \E[\delta_t^2]\): the mean squared TD error, which residual gradient minimizes (Day 62).</li>
+    </ul>
+  </div>
+  <p>S&amp;B (§11.6) show that \(\overline{\text{BE}}\) is not even <em>learnable</em>: two MDPs that generate identical data distributions can have different \(\overline{\text{BE}}\)-minimizing weights, so no algorithm can find its minimum from data alone. \(\overline{\text{PBE}}\) is learnable, and its minimum is the familiar TD fixed point, which makes it the objective of choice.</p>
+  <div class="box deriv"><span class="tag">Derivation · the gradient of PBE (S&amp;B §11.7)</span>
+    <p>With \(\Pi = X(X^\top DX)^{-1}X^\top D\), \(\|\Pi\mathbf v\|_\mu^2 = (X^\top D\mathbf v)^\top(X^\top DX)^{-1}(X^\top D\mathbf v)\). Off-policy, with importance ratio \(\rho_t\), \(X^\top D\bar\delta_{\mathbf w} = \E[\rho_t\delta_t\mathbf x_t]\) and \(X^\top DX = \E[\mathbf x_t\mathbf x_t^\top]\), so</p>
+    $$\overline{\text{PBE}}(\mathbf w) = \E[\rho_t\delta_t\mathbf x_t]^\top\,\E[\mathbf x_t\mathbf x_t^\top]^{-1}\,\E[\rho_t\delta_t\mathbf x_t].$$
+    <p>Since \(\nabla\delta_t = \gamma\mathbf x_{t+1} - \mathbf x_t\),</p>
+    $$\nabla\overline{\text{PBE}}(\mathbf w) = 2\,\E\big[\rho_t(\gamma\mathbf x_{t+1} - \mathbf x_t)\mathbf x_t^\top\big]\,\E[\mathbf x_t\mathbf x_t^\top]^{-1}\,\E[\rho_t\delta_t\mathbf x_t].$$
+    <p>This is a product of three expectations, and the first and last both depend on the next state, so a single sample can't give an unbiased estimate of it. The trick is to learn the last two factors separately: \(\mathbf v \approx \E[\mathbf x_t\mathbf x_t^\top]^{-1}\E[\rho_t\delta_t\mathbf x_t]\) is the least-squares solution for predicting \(\rho_t\delta_t\) from \(\mathbf x_t\), learnable by the LMS rule \(\mathbf v \leftarrow \mathbf v + \beta\rho_t(\delta_t - \mathbf v^\top\mathbf x_t)\mathbf x_t\).</p>
+  </div>
+
+  <h3>Gradient-TD methods: GTD2 and TDC</h3>
+  <p>With \(\mathbf v\) standing in for the last two factors, stochastic gradient descent on \(\overline{\text{PBE}}\), \(\mathbf w \leftarrow \mathbf w - \tfrac12\alpha\nabla\overline{\text{PBE}}\), becomes</p>
+  $$\textbf{GTD2:}\qquad \mathbf w_{t+1} = \mathbf w_t + \alpha\rho_t(\mathbf x_t - \gamma\mathbf x_{t+1})\,\mathbf x_t^\top\mathbf v_t .$$
+  <p>Rewriting \(\E[\rho_t(\mathbf x_t - \gamma\mathbf x_{t+1})\mathbf x_t^\top] = \E[\mathbf x_t\mathbf x_t^\top] - \gamma\E[\rho_t\mathbf x_{t+1}\mathbf x_t^\top]\) (using \(\E_b[\rho_t \mid S_t] = 1\)) before substituting \(\mathbf v\) gives the other form,</p>
+  $$\textbf{TDC:}\qquad \mathbf w_{t+1} = \mathbf w_t + \alpha\rho_t\big(\delta_t\mathbf x_t - \gamma\mathbf x_{t+1}\,\mathbf x_t^\top\mathbf v_t\big),$$
+  <p>which is ordinary off-policy semi-gradient TD plus a correction term (TD with gradient correction, also called GTD(0)). Both are \(O(d)\) per step and are proven to converge off-policy with linear features under suitable step-size conditions, in which (for TDC) the secondary learner \(\mathbf v\), with step \(\beta\), adapts faster than \(\mathbf w\) (Sutton et al. 2009).</p>
+  <div class="box algo"><span class="tag">Algorithm · TDC (one step, off-policy, linear)</span>
+    <ol>
+      <li>\(\delta \leftarrow R + \gamma\mathbf w^\top\mathbf x' - \mathbf w^\top\mathbf x\); \(\rho \leftarrow \pi(A \mid S)/b(A \mid S)\)</li>
+      <li>\(\mathbf w \leftarrow \mathbf w + \alpha\rho\big(\delta\mathbf x - \gamma\mathbf x'(\mathbf x^\top\mathbf v)\big)\)</li>
+      <li>\(\mathbf v \leftarrow \mathbf v + \beta\rho(\delta - \mathbf v^\top\mathbf x)\mathbf x\)</li>
+    </ol>
+  </div>
+  <pre><code># TDC on Baird's counterexample: replace part (1) of the snippet above with this.
+rng = np.random.default_rng(0)
+w, v, s = w0.copy(), np.zeros(8), int(rng.integers(7))
+alpha, beta = 0.005, 0.05
+for t in range(20_000):
+    if rng.random() &lt; 6 / 7:
+        s2, rho = int(rng.integers(6)), 0.0
+    else:
+        s2, rho = 6, 7.0
+    x, x2 = X[s], X[s2]
+    delta = gamma * x2 @ w - x @ w
+    w += alpha * rho * (delta * x - gamma * x2 * (x @ v))   # TD step plus gradient correction
+    v += beta * rho * (delta - v @ x) * x                    # LMS estimate of E[xx^T]^-1 E[rho delta x]
+    s = s2
+
+delta_bar = gamma * X[6] @ w - X @ w                         # expected TD error per state under pi
+g = X.T @ delta_bar / 7                                      # X^T D delta_bar with D uniform
+print("PBE", g @ np.linalg.solve(X.T @ X / 7, g), "VE", np.mean((X @ w) ** 2))</code></pre>
+  <p class="code-cap">In the reference run the weights stopped growing at once, and \(\overline{\text{PBE}}\) fell to about \(10^{-4}\) within 5,000 steps. \(\overline{\text{VE}}\) stayed near 3.7: the estimate settled close to a constant value of about 1.9 in every state. With \(\gamma = 0.99\) a nearly constant value function has a tiny Bellman error, so TDC creeps towards the true \(\mathbf v = \mathbf 0\) along that nearly flat direction very slowly. Stable is not the same as accurate, a point S&amp;B also make about TDC on this example (§11.7).</p>
+
+  <h3>Emphatic TD</h3>
+  <p>Gradient-TD changes the objective; emphatic TD changes the <em>distribution</em> of updates. The idea is to reweight each update so that, in expectation, updates are distributed as they would be under the target policy's own visitation, restoring the stability of the on-policy case (Day 63) without changing the update rule. One-step emphatic TD (S&amp;B §11.8) is</p>
+  $$\delta_t = R_{t+1} + \gamma\hat v(S_{t+1}, \mathbf w_t) - \hat v(S_t, \mathbf w_t), \qquad \mathbf w_{t+1} = \mathbf w_t + \alpha M_t\rho_t\delta_t\nabla\hat v(S_t, \mathbf w_t), \qquad M_t = \gamma\rho_{t-1}M_{t-1} + I_t,$$
+  <p>with \(M_{-1} = 0\) and an interest \(I_t\) saying how much we care about \(S_t\) (often 1). The emphasis \(M_t\) accumulates discounted, importance-weighted interest along the trajectory, so states that the target policy would reach are emphasized. In expectation, emphatic TD converges on Baird's counterexample. Its sampled version, however, has such high variance that S&amp;B report it is nearly impossible to get consistent results in computational experiments with it on this problem.</p>
+
+  <h3>Practical mitigations in deep RL</h3>
+  <p>Deep value-based RL (Module 8) has all three ingredients and none of the guarantees. What it uses instead are engineering choices that each weaken one leg of the triad.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Mitigation</th><th>Weakens</th><th>How</th><th>Day</th></tr></thead>
+    <tbody>
+      <tr><td>Target networks</td><td>bootstrapping</td><td>the target uses a slowly updated copy, breaking the fast feedback loop seen in Baird's example</td><td>73</td></tr>
+      <tr><td>Experience replay (bounded, recent)</td><td>off-policy</td><td>keeps the training distribution close to recent policies while decorrelating samples</td><td>72</td></tr>
+      <tr><td>Double Q-learning</td><td>bootstrapping</td><td>removes the overestimation that inflates targets</td><td>75</td></tr>
+      <tr><td>Multi-step returns</td><td>bootstrapping</td><td>more real reward, less reliance on the estimate, per target</td><td>78</td></tr>
+      <tr><td>On-policy methods (PPO)</td><td>off-policy</td><td>the data come from (nearly) the current policy</td><td>91</td></tr>
+      <tr><td>Smaller γ, Huber loss, gradient clipping</td><td>the feedback gain</td><td>shorter horizons and bounded updates limit how fast errors compound</td><td>73</td></tr>
+    </tbody>
+  </table></div>
+  <p>Van Hasselt et al. (2018) studied the triad empirically in deep Q-learning on Atari. They found unbounded divergence to be rare, but "soft divergence", temporarily very large value estimates, to be common, and found that target networks, double Q-learning and multi-step returns each reduced it. Gradient-TD and emphatic methods, despite their guarantees, are rarely used in deep RL: their extra step sizes and variance cost more in practice than the stability they buy.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>DQN is triad-complete.</b> Q-learning with a neural network and replay has all three ingredients; its stabilizers are what stand between you and Baird's example.</li>
+      <li><b>Importance ratios inflate variance.</b> Here \(\rho = 7\) on one step; in \(n\)-step or trace methods the product of ratios can be enormous.</li>
+      <li><b>Gradient-TD has two step sizes</b>, both of which need tuning, and is often slow in practice.</li>
+      <li><b>Emphatic TD's variance</b> can make its sampled version useless even where its expected version is provably stable.</li>
+      <li><b>"It stopped diverging" is not "it is right".</b> TDC on Baird's example is stable and still far from the true values after 20,000 steps.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Reproduce S&amp;B Figure 11.2: plot all eight weights over 1,000 steps of off-policy semi-gradient TD and 1,000 sweeps of semi-gradient DP.</li>
+      <li>Build \(A\) for \(b\)'s uniform weighting and for \(\pi\)'s on-policy weighting, print the eigenvalues, and connect them to what you saw. Then run the DP iteration with the on-policy weighting and confirm it is stable.</li>
+      <li>Run TDC with \(\alpha = 0.005\), \(\beta = 0.05\) for 20,000 steps and plot \(\sqrt{\overline{\text{PBE}}}\) and \(\sqrt{\overline{\text{VE}}}\) over time. Try \(\beta \le \alpha\): what happens?</li>
+      <li>Implement expected one-step emphatic TD on Baird's example (replace sampled quantities by their expectations) and show it converges. Then run the sampled version with five seeds and plot how much the runs disagree.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §11.1–11.8 · Baird 1995, “Residual Algorithms: Reinforcement Learning with Function Approximation” · Sutton et al. 2009, “Fast Gradient-Descent Methods for Temporal-Difference Learning with Linear Function Approximation” · Sutton, Mahmood &amp; White 2016, “An Emphatic Approach to the Problem of Off-policy Temporal-Difference Learning” · van Hasselt et al. 2018, “Deep Reinforcement Learning and the Deadly Triad”</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m06.html"><small>Previous · Days 54–60</small>◂ Module 6 — Planning, Models &amp; Search</a>
+  <a class="next" href="m08.html"><small>Next · Days 70–81</small>Module 8 — Deep Value-Based RL ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

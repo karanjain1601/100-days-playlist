@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 11 — Exploration · 130 Days of RL</title>
+<meta name="description" content="Days 102–105: exploration theory (regret, PAC-MDP, optimism, R-MAX, MBIE-EB), count and pseudo-count bonuses, curiosity with ICM and RND, and deep exploration with Bootstrapped DQN, NGU, Agent57 and Go-Explore.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m11">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 11 · Exploration · Days 102–105</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 11 · Exploration</h4>
+  <nav>
+    <a href="#d102"><span class="n">D102</span>Exploration Theory</a>
+    <a href="#d103"><span class="n">D103</span>Count &amp; Pseudo-Count Bonuses</a>
+    <a href="#d104"><span class="n">D104</span>Curiosity: ICM &amp; RND</a>
+    <a href="#d105"><span class="n">D105</span>Posterior Sampling, NGU &amp; Go-Explore</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="11"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m10.html">◂ Module 10</a><a href="m12.html">Module 12 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 11 · Days 102–105 · Week 21</p>
+<h1>Exploration</h1>
+<p class="dek">Four lessons on the problem Module 1 isolated in bandits and every later module quietly assumed away: how an agent should collect the data it learns from when rewards are sparse and the useful states are far away. The module runs from the tabular theory of optimism and sample complexity, through count-based and curiosity bonuses that carry those ideas into deep RL, to the deep-exploration machinery behind the first agents to beat humans on every Atari game. Module 12 then takes away the ability to explore altogether and asks what can be learned from a fixed dataset.</p>
+<ul class="chips">
+  <li><b>4</b> lessons</li>
+  <li><b>2h 45m</b> video</li>
+  <li><b>5h 30m</b> practice</li>
+  <li>Reading: <b>Bellemare et al. 2016 · Burda et al. 2019 · Ecoffet et al. 2021</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Show why ε-greedy needs time exponential in the depth of a chain, and define regret and PAC-MDP sample complexity precisely.</li>
+    <li>Explain how R-MAX and MBIE-EB turn optimism into polynomial guarantees, and derive the \(\beta/\sqrt{n}\) bonus from a concentration inequality.</li>
+    <li>Derive the pseudo-count \(\hat N = \rho(1 - \rho')/(\rho' - \rho)\) and implement count bonuses with density models or SimHash.</li>
+    <li>Explain why ICM's inverse-dynamics features ignore what the agent can't affect, why the noisy TV still traps prediction-error curiosity, and how RND avoids it.</li>
+    <li>Implement RND with observation and intrinsic-return normalization, non-episodic intrinsic returns and two value heads.</li>
+    <li>Distinguish dithering from deep exploration, and describe Bootstrapped DQN, parameter noise, NGU, Agent57's meta-controller and Go-Explore's archive.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 102 -->
+<article class="day" id="d102">
+  <header class="day-head">
+    <span class="day-no">DAY 102</span>
+    <h2>Exploration Theory</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Random dithering explores a deep, sparse-reward problem in time exponential in its depth. Optimism in the face of uncertainty, acting as if every insufficiently tried action were as good as it could possibly be, brings that down to polynomial. The tabular theory makes this precise, and its central idea survives into deep RL even though its guarantees do not.</p>
+
+  <h3>Why ε-greedy fails on hard-exploration tasks</h3>
+  <p>DQN scored 0 on Montezuma's Revenge (Mnih et al., 2015). The first reward, a key, requires a long, precise sequence of moves down ladders, along ropes and past a skull, and almost every deviation loses a life. With 18 actions and nothing to learn from until the key, ε-greedy is a random walk, and a random walk essentially never produces that sequence. The chain below isolates the structure.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 178" role="img" aria-label="A chain of n states: action right moves one state along with zero reward until the far end pays 1; action left from any state returns to the start with reward 0.01">
+      <defs>
+        <marker id="ah-d102" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+        <marker id="ah-d102b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <circle cx="60" cy="80" r="22" class="s-node-mod"/><text x="60" y="84" class="s-mid">s₁</text>
+      <circle cx="150" cy="80" r="22" class="s-node"/><text x="150" y="84" class="s-mid">s₂</text>
+      <circle cx="240" cy="80" r="22" class="s-node"/><text x="240" y="84" class="s-mid">s₃</text>
+      <circle cx="330" cy="80" r="22" class="s-node"/><text x="330" y="84" class="s-mid">s₄</text>
+      <text x="390" y="84" class="s-ink3 s-mid">…</text>
+      <circle cx="450" cy="80" r="22" class="s-node"/><text x="450" y="84" class="s-mid s-sm">sₙ₋₂</text>
+      <circle cx="540" cy="80" r="22" class="s-node"/><text x="540" y="84" class="s-mid s-sm">sₙ₋₁</text>
+      <circle cx="630" cy="80" r="22" class="s-node"/><text x="630" y="84" class="s-mid">sₙ</text>
+      <path d="M82,80 L127,80" class="s-ln-mod" marker-end="url(#ah-d102)"/>
+      <path d="M172,80 L217,80" class="s-ln-mod" marker-end="url(#ah-d102)"/>
+      <path d="M262,80 L307,80" class="s-ln-mod" marker-end="url(#ah-d102)"/>
+      <path d="M352,80 L372,80" class="s-ln-mod"/>
+      <path d="M408,80 L427,80" class="s-ln-mod" marker-end="url(#ah-d102)"/>
+      <path d="M472,80 L517,80" class="s-ln-mod" marker-end="url(#ah-d102)"/>
+      <path d="M562,80 L607,80" class="s-ln-mod" marker-end="url(#ah-d102)"/>
+      <path d="M620,60 C600,22 660,22 641,60" class="s-ln-mod" marker-end="url(#ah-d102)"/>
+      <text x="630" y="18" class="s-mod s-mid s-sm">right: r = 1</text>
+      <text x="195" y="58" class="s-mod s-mid s-sm">right: r = 0</text>
+      <path d="M150,102 C140,130 84,130 68,103" class="s-ln s-dash" marker-end="url(#ah-d102b)"/>
+      <path d="M330,102 C300,150 110,150 72,104" class="s-ln s-dash" marker-end="url(#ah-d102b)"/>
+      <path d="M630,102 C580,165 120,165 62,104" class="s-ln s-dash" marker-end="url(#ah-d102b)"/>
+      <text x="350" y="174" class="s-ink2 s-mid s-sm">left, from any state: back to s₁ with r = 0.01</text>
+    </svg>
+    <figcaption><b>A combination lock.</b> One action leads forward with no reward; the other returns to the start with a small reward. The greedy policy learns the small reward first and from then on goes left; reaching the far end requires \(n - 1\) consecutive exploratory "right" actions.</figcaption>
+  </figure>
+  <div class="box deriv"><span class="tag">Derivation · dithering takes exponential time</span>
+    <p>Suppose each step goes right with probability \(p\), independently. Reaching \(s_n\) from \(s_1\) needs a run of \(k = n - 1\) consecutive rights, and any left restarts the attempt. The expected number of steps until the first run of \(k\) successes is the standard waiting-time result</p>
+    $$\E[T] = \frac{p^{-k} - 1}{1 - p}.$$
+    <p>With uniform random actions (\(p = \tfrac12\)) this is \(2^n - 2\). With ε-greedy whose greedy action is "left", \(p = \varepsilon/2\), so \(\E[T] \approx (2/\varepsilon)^{n-1}\): about \(5 \times 10^{24}\) steps for \(\varepsilon = 0.1\) and \(n = 20\).</p>
+  </div>
+  <p>The failure isn't the amount of randomness but its structure. Per-step noise is <em>dithering</em>: it never commits to a plan long enough to get anywhere. Day 105 calls the alternative <em>deep exploration</em>. The algorithms in this lesson get it by making unexplored actions look valuable, so the greedy policy itself heads for them, step after step.</p>
+
+  <h3>Regret formulations</h3>
+  <p>Regret extends Day 10's bandit definition to MDPs. It counts the reward lost while learning, compared with an agent that knew the optimal policy from the start.</p>
+  <div class="box def"><span class="tag">Definition · regret</span>
+    <ul>
+      <li><b>Episodic</b>, horizon \(H\), \(K\) episodes, policy \(\pi_k\) in episode \(k\): \(\displaystyle \operatorname{Regret}(K) = \sum_{k=1}^{K} \big(V^*_1(s^k_1) - V^{\pi_k}_1(s^k_1)\big)\), over \(T = KH\) steps.</li>
+      <li><b>Average reward</b> (Day 68), optimal gain \(\rho^*\): \(\displaystyle \operatorname{Regret}(T) = T\rho^* - \sum_{t=1}^{T} R_t\).</li>
+    </ul>
+    <p>Sublinear regret, \(\operatorname{Regret}(T)/T \to 0\), means the agent's average performance converges to optimal. The best possible rate is \(\sqrt T\), as for bandits.</p>
+  </div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Algorithm</th><th>Setting</th><th>Guarantee (up to log factors)</th></tr></thead>
+    <tbody>
+      <tr><td>UCRL2 (Jaksch et al. 2010)</td><td>communicating MDP, diameter \(D\)</td><td>regret \(\tilde O(DS\sqrt{AT})\); lower bound \(\Omega(\sqrt{DSAT})\)</td></tr>
+      <tr><td>PSRL (Osband et al. 2013)</td><td>episodic, Bayesian</td><td>Bayesian regret \(\tilde O(HS\sqrt{AT})\)</td></tr>
+      <tr><td>UCBVI (Azar et al. 2017)</td><td>episodic</td><td>regret \(\tilde O(\sqrt{HSAT})\) for large \(T\), matching the lower bound</td></tr>
+      <tr><td>R-MAX (Brafman &amp; Tennenholtz 2002)</td><td>discounted</td><td>PAC-MDP; sample complexity \(\tilde O\big(S^2A/(\varepsilon^3(1-\gamma)^6)\big)\)</td></tr>
+      <tr><td>MBIE-EB (Strehl &amp; Littman 2008)</td><td>discounted</td><td>PAC-MDP, same order as R-MAX</td></tr>
+    </tbody>
+  </table></div>
+  <p class="code-cap">Every row is optimistic or posterior-sampling based. The R-MAX and MBIE-EB rates are from the analysis in Strehl, Li &amp; Littman (2009).</p>
+
+  <h3>PAC-MDP and sample complexity</h3>
+  <p>Regret weighs mistakes by how bad they are. PAC-MDP analysis (Kakade 2003; Strehl et al. 2006) counts them instead.</p>
+  <div class="box def"><span class="tag">Definition · PAC-MDP</span>
+    <p>Let \(\mathcal A_t\) be the (non-stationary) policy an algorithm follows from time \(t\) onwards. Its <b>sample complexity of exploration</b> is the number of time steps at which \(V^{\mathcal A_t}(s_t) &lt; V^*(s_t) - \varepsilon\), the steps on which it is not \(\varepsilon\)-optimal. The algorithm is <b>PAC-MDP</b> if, with probability at least \(1 - \delta\), that number is bounded by a polynomial in \(S\), \(A\), \(1/\varepsilon\), \(1/\delta\) and \(1/(1-\gamma)\).</p>
+  </div>
+  <p>The bound doesn't say when the mistakes happen, only that there are polynomially many. ε-greedy is not PAC-MDP: on the chain its mistakes number about \((2/\varepsilon)^{n}\), exponential in \(S\).</p>
+
+  <h3>Optimism in the face of uncertainty</h3>
+  <p>UCB (Day 14) picked the arm with the highest plausible value. In an MDP the same principle means building the most optimistic model consistent with the data, then acting optimally in it. It works because optimism is self-correcting.</p>
+  <div class="box thm"><span class="tag">Lemma · explore or exploit (informal)</span>
+    <p>Suppose the agent's value estimates are optimistic, \(\tilde V \ge V^*\), and accurate on the state–action pairs it has tried often enough ("known"). Then at every step one of two things holds. Either the optimistic policy is unlikely to reach an unknown pair within the effective horizon, in which case its real value is close to \(\tilde V \ge V^*\), so it is near-optimal. Or it reaches an unknown pair with non-negligible probability, in which case it gains information. Each pair becomes known after a bounded number of visits, so the second case can happen only polynomially often.</p>
+  </div>
+  <p>Kearns &amp; Singh's E³ (2002) made this explicit with separate explore and exploit phases. R-MAX folds both into a single optimistic model.</p>
+  <div class="box algo"><span class="tag">Algorithm · R-MAX</span>
+    <ol>
+      <li>Keep visit counts \(n(s, a)\) and empirical rewards and transitions. A pair is <b>known</b> once \(n(s, a) \ge m\).</li>
+      <li>Build the model \(\hat M\): known pairs use the empirical \(\hat R, \hat P\); every unknown pair leads deterministically to an absorbing state with reward \(R_{\max}\) forever, so its value is \(R_{\max}/(1-\gamma)\), the largest possible.</li>
+      <li>Act greedily with respect to the optimal policy of \(\hat M\).</li>
+      <li>When a pair becomes known, update \(\hat M\) and re-solve it. <span class="step">(the policy changes at most \(SA\) times)</span></li>
+    </ol>
+  </div>
+
+  <h3>MBIE-EB: optimism as a bonus</h3>
+  <p>R-MAX's hard switch at \(m\) visits is crude. MBIE-EB (Strehl &amp; Littman 2008) shrinks the optimism smoothly. It solves</p>
+  $$\tilde Q(s, a) = \hat R(s, a) + \gamma \sum_{s'} \hat P(s' \mid s, a)\, \max_{a'} \tilde Q(s', a') + \frac{\beta}{\sqrt{n(s, a)}}$$
+  <p>by value iteration on the empirical model and acts greedily. The bonus is a confidence width.</p>
+  <div class="box deriv"><span class="tag">Derivation · where β/√n comes from</span>
+    <p>Rewards lie in \([0, 1]\), so values lie in \([0, 1/(1-\gamma)]\). For a pair visited \(n\) times and a fixed value function \(V\), Hoeffding's inequality (Day 14) gives, with probability at least \(1 - \delta\),</p>
+    $$\Big|\hat R(s, a) - R(s, a)\Big| \le \sqrt{\frac{\ln(2/\delta)}{2n}}, \qquad \Big|\big(\hat P - P\big)V\,(s, a)\Big| \le \frac{1}{1-\gamma}\sqrt{\frac{\ln(2/\delta)}{2n}}.$$
+    <p>Add the two widths to the empirical backup and you get an upper confidence bound on the true backup. Apply this at every step of value iteration and, by induction, \(\tilde Q \ge Q^*\) with high probability. A union bound over all pairs and visit counts replaces \(\delta\) by \(\delta/(SAm)\), giving \(\beta\) of order \(\frac{1}{1-\gamma}\sqrt{\ln(SAm/\delta)}\). The real proof also has to handle \(V\) depending on the same data, which costs extra logarithmic factors but doesn't change the \(1/\sqrt n\) shape.</p>
+  </div>
+  <pre><code>import numpy as np
+
+def chain_step(s, a, n):
+    """Action 0: back to the start, reward 0.01. Action 1: one step right; reward 1 at the far end."""
+    if a == 0:
+        return 0, 0.01
+    s2 = min(s + 1, n - 1)
+    return s2, (1.0 if s2 == n - 1 else 0.0)
+
+def eps_greedy_q(n=20, steps=20_000, gamma=0.95, alpha=0.1, eps=0.1, seed=0):
+    rng = np.random.default_rng(seed)
+    Q, s, total = np.zeros((n, 2)), 0, 0.0
+    for t in range(steps):
+        a = int(rng.integers(2)) if rng.random() &lt; eps else int(np.argmax(Q[s]))
+        s2, r = chain_step(s, a, n)
+        Q[s, a] += alpha * (r + gamma * Q[s2].max() - Q[s, a])
+        total, s = total + r, s2
+    return total
+
+def mbie_eb(n=20, steps=20_000, gamma=0.95, beta=0.5, seed=0):
+    rng = np.random.default_rng(seed)
+    N, R, T = np.zeros((n, 2)), np.zeros((n, 2)), np.zeros((n, 2, n))
+    v_max = 1 / (1 - gamma)
+    Q, s, total = np.full((n, 2), v_max), 0, 0.0
+    for t in range(steps):
+        a = int(np.argmax(Q[s] + 1e-6 * rng.random(2)))          # greedy, random tie-break
+        s2, r = chain_step(s, a, n)
+        N[s, a] += 1; R[s, a] += r; T[s, a, s2] += 1
+        total, s = total + r, s2
+        if t % 20 == 0:                                          # re-plan in the optimistic model
+            n_sa = np.maximum(N, 1)
+            R_hat, P_hat = R / n_sa, T / n_sa[..., None]
+            for _ in range(100):                                 # value iteration with the bonus
+                Q = np.where(N &gt; 0, R_hat + beta / np.sqrt(n_sa) + gamma * P_hat @ Q.max(1), v_max)
+    return total
+
+print(eps_greedy_q(), mbie_eb())   # about 190 vs about 19,700 over 20,000 steps</code></pre>
+  <p class="code-cap">ε-greedy settles on the 0.01 loop and collects about \(0.01\) per step. MBIE-EB treats untried pairs as worth \(1/(1-\gamma)\), walks to the end of the chain early, and then collects 1 per step. Untried pairs are treated exactly as R-MAX would treat them.</p>
+
+  <h3>The tabular guarantees you give up in deep RL</h3>
+  <div class="box trap"><span class="tag">What breaks · when the theory meets pixels</span>
+    <ul>
+      <li><b>No counts.</b> In a continuous or pixel state space no state recurs exactly, so \(n(s, a)\) is 0 or 1 everywhere and every bonus is maximal. Day 103 is about getting a usable count back.</li>
+      <li><b>No known/unknown partition.</b> A network generalizes, so a never-visited state can be partly known. The lemma's clean case split doesn't exist.</li>
+      <li><b>No empirical model to plan in.</b> MBIE-EB re-solves the optimistic MDP. Deep agents can only add the bonus to the reward and hope the value function propagates it.</li>
+      <li><b>Bounds scale with \(S\).</b> The polynomials are finite but huge; with \(S\) in the billions they guarantee nothing. They also explore <em>every</em> unknown corner, including irrelevant ones, which is the noisy-TV problem of Day 104 in tabular form.</li>
+      <li><b>ε-greedy is fine sometimes.</b> When rewards are dense and good states lie near where the policy already goes, dithering works. Most Atari games are like that, which is why DQN did well on them.</li>
+    </ul>
+    <p>What survives is the principle: add a bonus that shrinks as experience accumulates (Days 103–104), or sample a plausible value function and commit to it (Day 105). Provable deep-RL exploration exists only under strong structural assumptions, for example linear MDPs (LSVI-UCB, Jin et al. 2020).</p>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run the snippet for \(n \in \{5, 10, 15, 20\}\). Record the step at which each agent first reaches \(s_n\) (cap at \(10^6\) steps) and plot it on a log scale against \(n\). Which curve is a straight line?</li>
+      <li>Check \(\E[T] = 2^n - 2\) for uniformly random actions by simulation for \(n \le 12\).</li>
+      <li>Implement R-MAX on the same chain for \(m \in \{1, 5, 20\}\). How does the time to reach \(s_n\) scale with \(m\), and what does a large \(m\) buy you in a stochastic version of the chain (right succeeds with probability 0.9)?</li>
+      <li>Sweep MBIE-EB's \(\beta \in \{0, 0.05, 0.5, 5\}\). Explain each result, including why \(\beta = 0\) still explores here (look at the initialization).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Strehl &amp; Littman 2008, “An analysis of model-based Interval Estimation for Markov Decision Processes” · Brafman &amp; Tennenholtz 2002, “R-MAX – A General Polynomial Time Algorithm for Near-Optimal Reinforcement Learning” · Kakade 2003, “On the Sample Complexity of Reinforcement Learning” (PhD thesis) · Jaksch, Ortner &amp; Auer 2010, “Near-optimal Regret Bounds for Reinforcement Learning” · Lattimore &amp; Szepesvári, <i>Bandit Algorithms</i>, the chapter on MDPs</p>
+</article>
+
+<!-- ================================================================ DAY 103 -->
+<article class="day" id="d103">
+  <header class="day-head">
+    <span class="day-no">DAY 103</span>
+    <h2>Count-Based &amp; Pseudo-Count Exploration</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Bonuses that decay like \(1/\sqrt N\) work in tables because states repeat. In large state spaces they don't, so the count has to be manufactured: by asking a density model how much one more sighting of a state would change its mind, or by counting coarse hash codes instead of states.</p>
+
+  <h3>Visit-count bonuses in tabular settings</h3>
+  <p>The model-free version of MBIE-EB adds the bonus to the reward and lets ordinary Q-learning do the rest:</p>
+  $$r^+(s, a) = r(s, a) + \frac{\beta}{\sqrt{N(s, a)}} \qquad \text{or, with state counts,} \qquad r^+(s) = r(s) + \frac{\beta}{\sqrt{N(s)}}.$$
+  <p>The \(1/\sqrt N\) is the width of a confidence interval on a mean (Day 14); the Bayesian exploration bonus of Kolter &amp; Ng (2009) uses \(\beta/(1 + N)\) instead, which decays faster. Either way the bonus itself is local: it rewards the novel transition and nothing else. The <em>direction</em> comes from bootstrapping. A state next to a novel one inherits value from it, the state before that inherits a little less, and the greedy policy follows the gradient of inherited bonus towards the frontier. This is also why bonuses need fast value propagation: if the critic is slow, the bonus has decayed by the time its value reaches the start state.</p>
+
+  <h3>Pseudo-counts from density models</h3>
+  <p>Bellemare et al. (2016) observed that a density model already contains a notion of count. Train a model \(\rho\) online on the sequence of observations \(x_1, \dots, x_n\).</p>
+  <div class="box def"><span class="tag">Definition · density, recoding probability, pseudo-count</span>
+    <p>\(\rho_n(x)\) is the probability the model assigns to \(x\) after training on \(x_{1:n}\). The <b>recoding probability</b> \(\rho'_n(x)\) is the probability it would assign to \(x\) after one more update on \(x\) itself. The model is <b>learning-positive</b> if \(\rho'_n(x) \ge \rho_n(x)\): seeing \(x\) never makes \(x\) less likely. The <b>pseudo-count</b> \(\hat N_n(x)\) and <b>pseudo-total</b> \(\hat n\) are defined by requiring the model to behave like an empirical frequency, before and after the update:</p>
+    $$\rho_n(x) = \frac{\hat N_n(x)}{\hat n}, \qquad \rho'_n(x) = \frac{\hat N_n(x) + 1}{\hat n + 1}.$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · solving for the pseudo-count</span>
+    <p>From the first equation \(\hat N = \rho\, \hat n\). Substitute into the second: \(\rho'(\hat n + 1) = \rho\, \hat n + 1\), so \(\hat n(\rho' - \rho) = 1 - \rho'\). Therefore</p>
+    $$\hat n = \frac{1 - \rho'}{\rho' - \rho}, \qquad \hat N(x) = \frac{\rho(x)\,\big(1 - \rho'(x)\big)}{\rho'(x) - \rho(x)}.$$
+    <p><b>Check:</b> for the empirical model, \(\rho = N/n\) and \(\rho' = (N+1)/(n+1)\). Then \(1 - \rho' = (n - N)/(n + 1)\) and \(\rho' - \rho = (n - N)/(n(n+1))\), so \(\hat N = \frac{N}{n}\cdot\frac{n - N}{n+1}\cdot\frac{n(n+1)}{n - N} = N\). The pseudo-count is exact whenever the model is a counter.</p>
+    <p><b>Prediction gain.</b> Write \(\operatorname{PG}_n(x) = \log\rho'_n(x) - \log\rho_n(x)\). When \(\rho' \ll 1\), as it always is for images, \(\hat N \approx \rho/(\rho' - \rho) = 1/(e^{\operatorname{PG}} - 1)\). The paper also shows that the information gain about the model is at most PG, which is at most \(1/\hat N\): count bonuses and information-gain curiosity measure closely related things.</p>
+  </div>
+  <p>The exploration bonus is then \(r^+(x) = \beta\,(\hat N(x) + 0.01)^{-1/2}\), with \(\beta = 0.05\) in the paper. Because the model generalizes, a frame that differs from familiar frames only in irrelevant pixels gets a high pseudo-count even if it has never been seen exactly.</p>
+  <pre><code>import numpy as np
+
+class FactorizedDensity:
+    """rho(x) = prod_i p_i(x_i): an independent categorical per input dimension, fitted by counting."""
+    def __init__(self, n_dims, levels=8):
+        self.counts = np.ones((n_dims, levels))            # add-one prior on every value
+        self.total = float(levels)                         # per-dimension count total
+        self.idx = np.arange(n_dims)
+
+    def log_prob(self, x):                                 # x: int array [n_dims] in [0, levels)
+        return np.log(self.counts[self.idx, x] / self.total).sum()
+
+    def update_and_pseudo_count(self, x):
+        log_rho = self.log_prob(x)                         # before seeing x
+        self.counts[self.idx, x] += 1
+        self.total += 1
+        log_rho2 = self.log_prob(x)                        # recoding probability: after one update
+        pg = log_rho2 - log_rho                            # prediction gain, positive for this model
+        # N = rho (1 - rho') / (rho' - rho) = (1 - rho') / (exp(pg) - 1), written to avoid overflow
+        return -np.expm1(log_rho2) * np.exp(-pg) / -np.expm1(-pg)
+
+d = FactorizedDensity(n_dims=1, levels=4)
+print([round(float(d.update_and_pseudo_count(np.array([x]))), 3) for x in [0, 1, 0, 2, 0, 0]])
+# [1.0, 1.0, 2.0, 1.0, 3.0, 4.0]: the count of x before this visit, including the add-one prior</code></pre>
+  <p class="code-cap">With one dimension the "density" is a counter and the formula returns exact counts. With several dimensions it generalizes: two states that share most feature values share pseudo-count. A product over 1,764 pixels is a poor counter for whole frames, though: the prediction gain is enormous and the pseudo-count stays near zero until a frame has been seen very many times. That is why the paper used a pixel model conditioned on context.</p>
+
+  <h3>CTS and PixelCNN-based counts</h3>
+  <p>Bellemare et al. used <b>CTS</b> (context tree switching; Bellemare et al. 2014), a model of each pixel conditioned on its neighbours above and to the left, on frames downsampled to 42×42 with 8 grey levels. It is cheap, updated online on every frame, and learning-positive by construction, so \(\rho'\) is exact. They paired it with a DQN whose targets mix in the Monte Carlo return, which propagates sparse bonuses much faster than one-step backups. On Montezuma's Revenge the paper reports the agent visiting 15 of the first level's 24 rooms in 50 million frames, against 2 for plain DQN. It was the first substantial progress on the game.</p>
+  <p>Ostrovski et al. (2017) replaced CTS with a <b>PixelCNN</b> trained online by SGD. A neural model is not exactly learning-positive, and computing \(\rho'\) takes a "what-if" gradient step on \(x\) whose effect depends on the learning rate. They therefore use the prediction gain directly, with a decaying scale, \(\hat N_n(x) \approx \big(\exp(c\, n^{-1/2} (\operatorname{PG}_n(x))_+) - 1\big)^{-1}\). Combined with mixed Monte Carlo returns in DQN and Reactor agents, this gave further gains across the hard-exploration games.</p>
+
+  <h3>Hash-based counts: #Exploration</h3>
+  <p>Tang et al. (2017) asked whether a density model is necessary at all. Map each state to a short binary code with a locality-sensitive hash and count codes in a hash table:</p>
+  $$\phi(s) = \operatorname{sgn}\big(A\, g(s)\big) \in \{-1, +1\}^k, \qquad A_{ij} \sim \mathcal N(0, 1), \qquad r^+(s) = \frac{\beta}{\sqrt{n(\phi(s))}},$$
+  <p>where \(g\) is a preprocessing step (downsampling, or a learned encoder). This is SimHash (Charikar 2002). A random hyperplane separates two vectors at angle \(\theta\) with probability \(\theta/\pi\), so each bit of two states' codes agrees with probability \(1 - \theta/\pi\). Similar states collide, dissimilar ones usually don't, and \(k\) sets the granularity: few bits means coarse cells and broad generalization, many bits means fine cells and counts close to exact. For Atari the paper also learns \(g\) with an autoencoder whose code layer is pushed towards binary values, so that bits encode features the autoencoder found useful rather than raw pixel intensities.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 240" role="img" aria-label="SimHash in two dimensions: three random hyperplanes through the origin split the plane into six cells; a dense cell has a high count and a small bonus, sparse cells have count one">
+      <line x1="57" y1="158" x2="263" y2="82" class="s-ln-info"/>
+      <line x1="131" y1="226" x2="189" y2="14" class="s-ln-info"/>
+      <line x1="76" y1="49" x2="244" y2="191" class="s-ln-info"/>
+      <circle cx="160" cy="120" r="3" class="s-ink3"/>
+      <g class="s-acc">
+        <circle cx="195" cy="75" r="3"/><circle cx="205" cy="85" r="3"/><circle cx="210" cy="70" r="3"/>
+        <circle cx="220" cy="90" r="3"/><circle cx="190" cy="90" r="3"/><circle cx="200" cy="62" r="3"/>
+        <circle cx="215" cy="78" r="3"/><circle cx="225" cy="72" r="3"/><circle cx="198" cy="98" r="3"/>
+        <circle cx="230" cy="85" r="3"/>
+        <circle cx="140" cy="60" r="3"/><circle cx="120" cy="80" r="3"/><circle cx="90" cy="115" r="3"/>
+        <circle cx="120" cy="170" r="3"/><circle cx="180" cy="190" r="3"/><circle cx="200" cy="175" r="3"/>
+        <circle cx="250" cy="125" r="3"/>
+      </g>
+      <g class="s-sm">
+        <text x="228" y="46" class="s-mid">n = 10</text>
+        <text x="130" y="26" class="s-mid">n = 2</text>
+        <text x="62" y="100" class="s-mid">n = 1</text>
+        <text x="92" y="200" class="s-mid">n = 1</text>
+        <text x="190" y="222" class="s-mid">n = 2</text>
+        <text x="266" y="150" class="s-mid">n = 1</text>
+      </g>
+      <g class="s-sm">
+        <text x="330" y="44">k random hyperplanes through the origin</text>
+        <text x="330" y="62">code(s) = sgn(A g(s)) ∈ {−1, +1}ᵏ</text>
+        <text x="330" y="90">similar states share codes:</text>
+        <text x="330" y="108">each bit agrees with prob. 1 − θ/π</text>
+        <text x="330" y="136">count visits per code;</text>
+        <text x="330" y="154">bonus β / √n(code)</text>
+        <text x="330" y="182" class="s-ink2">dense cell: n = 10, bonus β/√10</text>
+        <text x="330" y="200" class="s-ink2">rare cell: n = 1, full bonus β</text>
+      </g>
+    </svg>
+    <figcaption><b>Counting cells instead of states.</b> With \(k = 3\) hyperplanes in two dimensions the plane splits into six cells (of the \(2^3\) possible codes). Real use takes \(k\) of 16–256 bits on high-dimensional \(g(s)\), where the number of occupied cells is set by the data, not by \(k\).</figcaption>
+  </figure>
+  <pre><code>import numpy as np
+
+class SimHashCounter:
+    """Count states by the sign pattern of k random projections: phi(s) = sgn(A g(s))."""
+    def __init__(self, obs_dim, k=32, beta=0.01, seed=0):
+        self.A = np.random.default_rng(seed).standard_normal((k, obs_dim))
+        self.counts, self.beta = {}, beta
+
+    def bonus(self, obs):                                  # obs: [B, obs_dim], preprocessed g(s)
+        codes = np.packbits(obs @ self.A.T &gt; 0, axis=1)    # k bits per state, packed into bytes
+        out = np.empty(len(obs))
+        for i, code in enumerate(codes):
+            key = code.tobytes()
+            self.counts[key] = self.counts.get(key, 0) + 1
+            out[i] = self.beta / np.sqrt(self.counts[key])
+        return out</code></pre>
+  <p class="code-cap">Center \(g(s)\) (subtract a running mean) before hashing: hyperplanes through the origin split by angle only, so uncentered inputs that all point the same way land in a handful of cells.</p>
+
+  <h3>The exploration bonus added to reward</h3>
+  <p>All of these methods train on \(r_t + \beta\, r^+_t\). Three practical consequences follow.</p>
+  <ul>
+    <li><b>The bonus is non-stationary.</b> It shrinks as counts grow, so the value function is always chasing a moving reward. Replayed transitions carry the bonus computed when they were stored, which is stale; recomputing it at sampling time is more correct and more expensive.</li>
+    <li><b>Scale matters.</b> β trades novelty against task reward and must be set relative to the reward scale. Too large and the agent ignores the task; too small and the bonus is lost in reward noise. Day 104 replaces hand-tuning with normalization.</li>
+    <li><b>Propagation speed matters.</b> Mixed Monte Carlo returns or \(n\)-step targets (Day 78) get the bonus back to the start state before it decays.</li>
+  </ul>
+
+  <h3>Results on hard Atari games</h3>
+  <p>Bellemare et al. (2016) sorted Atari games by exploration difficulty. The "hard exploration, sparse reward" group, the standard test set since, is Freeway, Gravitar, Montezuma's Revenge, Pitfall!, Private Eye, Solaris and Venture. Count-based bonuses transformed Montezuma's Revenge and Venture and helped on several others. SimHash, despite its simplicity, was competitive with density-model counts on several of these games and on sparse-reward continuous-control tasks. Pitfall! and Solaris stayed essentially unsolved by count bonuses; Day 105 explains why.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Counting the wrong novelty.</b> Pixel-level models count score digits, timers and flickering sprites as novelty. A state that differs only in its clock reading looks new forever.</li>
+      <li><b>Granularity.</b> Too coarse a hash merges the room with the key into the room without it; too fine and every state is unique again. The right \(k\) is task-dependent.</li>
+      <li><b>Density model mechanics.</b> The model must be updated on every frame, in order, and \(\rho'\) needs a second evaluation after a what-if update. Neural models also forget, which makes pseudo-counts drift down.</li>
+      <li><b>Detachment.</b> Once the bonus near a frontier is consumed, nothing reminds the agent that the frontier was promising, and it may never return. Go-Explore (Day 105) is built around this failure.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Add a \(\beta/\sqrt{N(s, a)}\) bonus to the ε-greedy Q-learner from Day 102's chain (keep ε, initialize \(Q = 0\)). Does it reach the end? Compare learning curves for one-step Q-learning and for 10-step returns.</li>
+      <li>Run the <code>FactorizedDensity</code> check above. Then discretize MountainCar's (position, velocity) into 16 bins each and compare the factorized model's pseudo-counts with the true counts of the joint cell along a random-policy trajectory. Where do they disagree, and why?</li>
+      <li>Add SimHash bonuses to a DQN (or tile-coded Q-learning) on <code>MountainCar-v0</code>. Sweep \(k \in \{4, 16, 64\}\) and β, and plot the number of steps until the first success over five seeds.</li>
+      <li>Optional: on an Atari game such as Venture, downsample frames to 42×42 with 8 grey levels, run a random agent, and plot the SimHash bonus over time. Find a frame where the bonus spikes and look at what changed.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Bellemare et al. 2016, “Unifying Count-Based Exploration and Intrinsic Motivation” · Ostrovski et al. 2017, “Count-Based Exploration with Neural Density Models” · Tang et al. 2017, “#Exploration: A Study of Count-Based Exploration for Deep Reinforcement Learning” · Kolter &amp; Ng 2009, “Near-Bayesian Exploration in Polynomial Time”</p>
+</article>
+
+<!-- ================================================================ DAY 104 -->
+<article class="day" id="d104">
+  <header class="day-head">
+    <span class="day-no">DAY 104</span>
+    <h2>Curiosity: ICM &amp; RND</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Curiosity rewards the agent for transitions its own model predicts badly. That is useful when the error measures ignorance and harmful when it measures noise. ICM shrinks the noise by predicting in a feature space trained to care only about what the agent can affect; RND removes it by predicting a deterministic function of the observation that can always be learned.</p>
+
+  <h3>Prediction error as intrinsic reward</h3>
+  <p>The idea goes back to Schmidhuber (1991): train a forward model \(\hat f\) on the agent's transitions and pay the agent its prediction error,</p>
+  $$r^i_t = \big\|\hat f(\phi(s_t), a_t) - \phi(s_{t+1})\big\|^2,$$
+  <p>where \(\phi\) is some feature map, perhaps the identity. Where the agent has been often, the model is good and the reward is small; where it hasn't, the reward is large. Like a pseudo-count, the error generalizes through the model, so it works in spaces where nothing repeats. Stadie et al. (2015) applied it to Atari with autoencoder features. Burda et al. (2019, the RND paper) list four reasons a prediction can be wrong, and only the first is the one we want to reward:</p>
+  <ol>
+    <li><b>Too little training data</b> near this input: epistemic uncertainty, which shrinks with experience.</li>
+    <li><b>Stochasticity</b> of the target: aleatoric noise, which never shrinks.</li>
+    <li><b>Model misspecification</b>: the predictor's function class can't represent the target.</li>
+    <li><b>Learning dynamics</b>: the optimizer hasn't found the best predictor yet.</li>
+  </ol>
+
+  <h3>ICM: the inverse-dynamics feature trick</h3>
+  <p>Pathak et al. (2017) attack source 2 with the choice of \(\phi\). The Intrinsic Curiosity Module trains three things on the agent's transitions.</p>
+  <div class="box def"><span class="tag">Definition · Intrinsic Curiosity Module</span>
+    <ul>
+      <li><b>Encoder</b> \(\phi(s)\), shared by the two models below.</li>
+      <li><b>Inverse model</b> \(\hat a_t = g(\phi(s_t), \phi(s_{t+1}))\), trained with cross-entropy \(L_I\) to predict which action was taken.</li>
+      <li><b>Forward model</b> \(\hat\phi(s_{t+1}) = f(\phi(s_t), a_t)\), trained with \(L_F = \tfrac12\|\hat\phi(s_{t+1}) - \phi(s_{t+1})\|^2\).</li>
+    </ul>
+    <p>The intrinsic reward is the forward error, \(r^i_t = \tfrac{\eta}{2}\|\hat\phi(s_{t+1}) - \phi(s_{t+1})\|^2\), and everything is trained jointly with the policy:</p>
+    $$\min_{\theta_P, \theta_I, \theta_F}\ \Big[-\lambda\, \E_{\pi_{\theta_P}}\Big[\sum_t r_t\Big] + (1-\beta)\, L_I + \beta\, L_F\Big], \qquad \beta = 0.2,\ \lambda = 0.1.$$
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 230" role="img" aria-label="ICM: a shared encoder maps s_t and s_t+1 to features; an inverse model predicts the action from both features; a forward model predicts the next features from the current features and action; the forward error is the intrinsic reward">
+      <defs>
+        <marker id="ah-d104" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="20" y="37" width="64" height="30" rx="4" class="s-node"/><text x="52" y="57" class="s-mid">sₜ</text>
+      <rect x="20" y="185" width="64" height="30" rx="4" class="s-node"/><text x="52" y="205" class="s-mid">sₜ₊₁</text>
+      <rect x="110" y="37" width="56" height="30" rx="4" class="s-node-mod"/><text x="138" y="57" class="s-mid">φ</text>
+      <rect x="110" y="185" width="56" height="30" rx="4" class="s-node-mod"/><text x="138" y="205" class="s-mid">φ</text>
+      <line x1="138" y1="67" x2="138" y2="116" class="s-grid s-dash"/><line x1="138" y1="140" x2="138" y2="185" class="s-grid s-dash"/>
+      <text x="138" y="132" class="s-ink3 s-mid s-sm">shared</text>
+      <path d="M84,52 L109,52" class="s-ln" marker-end="url(#ah-d104)"/>
+      <path d="M84,200 L109,200" class="s-ln" marker-end="url(#ah-d104)"/>
+      <rect x="300" y="30" width="140" height="44" rx="6" class="s-node-mod"/>
+      <text x="370" y="50" class="s-mid s-sm">forward model f</text><text x="370" y="65" class="s-ink2 s-mid s-sm">predicts φ(sₜ₊₁)</text>
+      <rect x="300" y="110" width="140" height="44" rx="6" class="s-node"/>
+      <text x="370" y="130" class="s-mid s-sm">inverse model g</text><text x="370" y="145" class="s-ink2 s-mid s-sm">predicts aₜ</text>
+      <text x="370" y="13" class="s-mid s-sm">aₜ</text>
+      <path d="M370,17 L370,29" class="s-ln" marker-end="url(#ah-d104)"/>
+      <path d="M166,52 L299,52" class="s-ln" marker-end="url(#ah-d104)"/>
+      <text x="200" y="45" class="s-ink2 s-sm">φ(sₜ)</text>
+      <path d="M230,52 L230,124 L299,124" class="s-ln" marker-end="url(#ah-d104)"/>
+      <path d="M166,200 L530,200 L530,69" class="s-ln" marker-end="url(#ah-d104)"/>
+      <path d="M250,200 L250,140 L299,140" class="s-ln" marker-end="url(#ah-d104)"/>
+      <text x="390" y="214" class="s-ink2 s-mid s-sm">φ(sₜ₊₁)</text>
+      <circle cx="530" cy="52" r="16" class="s-node"/><text x="530" y="57" class="s-mid">−</text>
+      <path d="M440,52 L513,52" class="s-ln" marker-end="url(#ah-d104)"/>
+      <text x="476" y="45" class="s-ink2 s-mid s-sm">φ̂</text>
+      <path d="M546,52 L598,52" class="s-ln" marker-end="url(#ah-d104)"/>
+      <text x="604" y="56" class="s-acc">rⁱ</text>
+      <text x="552" y="86" class="s-acc s-sm">intrinsic reward</text>
+      <text x="552" y="100" class="s-acc s-sm">(η/2)‖φ̂ − φ‖²</text>
+      <path d="M440,132 L499,132" class="s-ln" marker-end="url(#ah-d104)"/>
+      <text x="504" y="136" class="s-sm">âₜ</text>
+      <text x="552" y="128" class="s-sm">L_I: cross-entropy</text>
+      <text x="552" y="142" class="s-sm">against the real aₜ</text>
+    </svg>
+    <figcaption><b>The Intrinsic Curiosity Module.</b> The encoder (module colour) is shaped mainly by the inverse loss: it has to keep whatever helps tell which action was taken. The forward model then predicts in that feature space, and its error is the curiosity reward.</figcaption>
+  </figure>
+  <p><b>Why inverse features ignore uncontrollable noise.</b> Split what an observation contains into three kinds of thing: (1) what the agent controls; (2) what it doesn't control but that affects it, like an approaching enemy; (3) what neither affects nor is affected by it, like leaves blowing or TV static. The inverse model is trained only to recover \(a_t\) from \((s_t, s_{t+1})\). Things of kind (3) evolve the same way whatever the agent does, so they carry no information about \(a_t\) and the inverse loss gives the encoder no reason to represent them. With finite capacity, and the encoder trained mainly through \(L_I\), they are largely dropped. The forward model then never has to predict them, so they cannot produce error. Kind (1) is encoded by construction. Kind (2) is encoded only to the extent it helps infer the action, which is the method's weakness: an inverse model can miss things that matter for the task.</p>
+  <p>The paper reports that ICM let an A3C agent solve sparse and very sparse versions of a VizDoom navigation task where plain A3C failed, and that in Super Mario Bros with <em>no</em> extrinsic reward the curious agent learned to travel a substantial part of the first level, with features that transferred to later levels.</p>
+
+  <h3>The noisy-TV problem</h3>
+  <p>Put a television showing random static on a wall. A prediction-error agent can never predict the next frame, so staring at the TV pays a high intrinsic reward forever, and a curious agent becomes a couch potato. ICM's features ignore a TV the agent can't influence. But give the agent a remote and channel changes become a consequence of its actions, so the inverse model encodes them, and the trap is back. Burda et al.'s large-scale study of curiosity (2019) put exactly this into a 3D maze: a TV whose channel changed when the agent pressed an action severely slowed a forward-dynamics curiosity agent's exploration.</p>
+  <p>The same study also found that curiosity alone, with no extrinsic reward, achieves surprisingly good game scores on many Atari games, because dying and repeating the start is boring. And it found that a fixed random convolutional network is a strong feature map for curiosity, often comparable to learned features, though inverse-dynamics features generalized better to new Mario levels. That second result is the seed of RND.</p>
+
+  <h3>Random Network Distillation</h3>
+  <div class="box def"><span class="tag">Definition · RND (Burda, Edwards, Storkey &amp; Klimov 2019)</span>
+    <p>A <b>target</b> network \(f: \mathcal O \to \R^k\) is randomly initialized and never trained. A <b>predictor</b> \(\hat f(\cdot\,; \theta)\) of the same architecture is trained by SGD to minimize \(\|\hat f(x; \theta) - f(x)\|^2\) on the observations the agent visits. The intrinsic reward for a transition is the predictor's error on the next observation,</p>
+    $$i_t = \big\|\hat f(s_{t+1}; \theta) - f(s_{t+1})\big\|^2.$$
+  </div>
+  <p><b>Why RND avoids the stochasticity trap.</b> The target is a deterministic function of \(s_{t+1}\) alone, not of \((s_t, a_t)\). However random the transition, once the agent is looking at a given observation there is exactly one right answer, so source 2 (aleatoric noise) is gone. The target has the same architecture as the predictor, so it is exactly representable and source 3 (misspecification) is gone too. What remains is mostly source 1: the error is large on observations unlike anything the predictor has been trained on, and shrinks as similar observations accumulate. RND is a learned novelty detector, a smooth substitute for a count.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 200" role="img" aria-label="RND: the normalized next observation goes into a fixed random target network and a trained predictor; the squared difference is the intrinsic reward, which is divided by a running standard deviation of intrinsic returns">
+      <defs>
+        <marker id="ah-d104b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="20" y="80" width="90" height="36" rx="4" class="s-node"/><text x="65" y="102" class="s-mid">sₜ₊₁</text>
+      <rect x="140" y="80" width="120" height="36" rx="4" class="s-node"/><text x="200" y="96" class="s-mid s-sm">whiten,</text><text x="200" y="109" class="s-mid s-sm">clip to ±5</text>
+      <path d="M110,98 L139,98" class="s-ln" marker-end="url(#ah-d104b)"/>
+      <rect x="300" y="28" width="140" height="44" rx="6" class="s-node"/><text x="370" y="47" class="s-mid s-sm">target f</text><text x="370" y="62" class="s-ink2 s-mid s-sm">random, frozen</text>
+      <rect x="300" y="124" width="140" height="44" rx="6" class="s-node-mod"/><text x="370" y="143" class="s-mid s-sm">predictor f̂</text><text x="370" y="158" class="s-ink2 s-mid s-sm">trained by SGD</text>
+      <path d="M260,90 L299,54" class="s-ln" marker-end="url(#ah-d104b)"/>
+      <path d="M260,106 L299,142" class="s-ln" marker-end="url(#ah-d104b)"/>
+      <circle cx="500" cy="98" r="18" class="s-node"/><text x="500" y="102" class="s-mid s-sm">‖·‖²</text>
+      <path d="M440,52 L485,87" class="s-ln" marker-end="url(#ah-d104b)"/>
+      <path d="M440,144 L485,109" class="s-ln" marker-end="url(#ah-d104b)"/>
+      <path d="M518,98 L560,98" class="s-ln" marker-end="url(#ah-d104b)"/>
+      <text x="566" y="102" class="s-acc">iₜ</text>
+      <path d="M496,116 C490,150 470,160 441,158" class="s-ln s-dash" marker-end="url(#ah-d104b)"/>
+      <text x="502" y="150" class="s-ink3 s-sm">gradient: predictor only</text>
+      <text x="340" y="192" class="s-ink2 s-mid s-sm">intrinsic reward iₜ = ‖f̂(s) − f(s)‖², divided by a running std of intrinsic returns</text>
+    </svg>
+    <figcaption><b>Random Network Distillation.</b> The predictor (module colour) learns to imitate a random function on the states the agent has visited. On a new kind of state it hasn't imitated it yet, and the error is the bonus. The target never changes, so no amount of environment randomness can keep the error high on a familiar observation.</figcaption>
+  </figure>
+  <p>RND does not make every novelty source harmless. A TV that shows a fresh, high-entropy image every frame is a genuine source of new observations. The predictor eventually learns the target on that image distribution, so the bonus decays, but more slowly than for ordinary states. RND removes the irreducible error that stochastic transitions cause in forward models; it does not remove novelty.</p>
+
+  <h3>Making RND work: normalization, non-episodic returns, two heads</h3>
+  <ul>
+    <li><b>Observation normalization.</b> Each input dimension is whitened with running statistics and clipped to \([-5, 5]\), and the statistics are initialized by running a random policy for a few thousand steps before training. Without this a random target's output is dominated by the raw input scale, and the bonus says nothing about novelty.</li>
+    <li><b>Intrinsic reward normalization.</b> The error's scale differs across environments and falls over training. RND divides intrinsic rewards by a running estimate of the standard deviation of the <em>intrinsic return</em> (a discounted running sum of intrinsic rewards), which makes one bonus coefficient work across games.</li>
+    <li><b>Non-episodic intrinsic returns.</b> The intrinsic return ignores episode ends. The paper's argument: the agent should value all the novel states it could find in the future, whether in this episode or a later one. If losing a life zeroed the intrinsic return, curiosity would make the agent cautious near danger, exactly where new rooms tend to be. The extrinsic return stays episodic; otherwise an agent could find a reward near the start, lose on purpose, and collect it again.</li>
+    <li><b>Two value heads.</b> The two streams need different discounts and different episode semantics, so they can't share one value function. PPO learns \(V_E\) with \(\gamma_E = 0.999\) (episodic) and \(V_I\) with \(\gamma_I = 0.99\) (non-episodic), computes the two advantages separately, and combines them as \(A = 2A_E + A_I\).</li>
+  </ul>
+  <pre><code>import torch
+import torch.nn as nn
+
+def mlp(n_in, n_out):
+    return nn.Sequential(nn.Linear(n_in, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU(),
+                         nn.Linear(256, n_out))
+
+class RunningMeanStd:
+    def __init__(self, shape=()):
+        self.mean, self.var, self.count = torch.zeros(shape), torch.ones(shape), 1e-4
+
+    def update(self, x):                                # merge batch moments (Chan et al.)
+        b_mean, b_var, b_n = x.mean(0), x.var(0, unbiased=False), x.shape[0]
+        delta, tot = b_mean - self.mean, self.count + b_n
+        self.mean = self.mean + delta * b_n / tot
+        self.var = (self.var * self.count + b_var * b_n + delta ** 2 * self.count * b_n / tot) / tot
+        self.count = tot
+
+class RND(nn.Module):
+    def __init__(self, obs_dim, k=128):
+        super().__init__()
+        self.target, self.predictor = mlp(obs_dim, k), mlp(obs_dim, k)
+        self.target.requires_grad_(False)               # the target is never trained
+        self.obs_rms, self.ret_rms = RunningMeanStd((obs_dim,)), RunningMeanStd()
+        self.ret = None                                 # running discounted intrinsic return, per env
+
+    def error(self, obs):                               # [B]; also the predictor's training loss
+        x = ((obs - self.obs_rms.mean) / self.obs_rms.var.sqrt()).clamp(-5.0, 5.0)
+        return (self.predictor(x) - self.target(x)).pow(2).mean(-1)
+
+    @torch.no_grad()
+    def intrinsic_reward(self, next_obs, gamma_i=0.99):
+        r = self.error(next_obs)
+        self.ret = r if self.ret is None else gamma_i * self.ret + r   # never reset at episode ends
+        self.ret_rms.update(self.ret)
+        return r / self.ret_rms.var.sqrt()              # scale by the std of intrinsic *returns*
+
+# each rollout step (one row per parallel env):  rnd.obs_rms.update(next_obs)
+#                                                r_int = rnd.intrinsic_reward(next_obs)
+# predictor update on a minibatch:  loss = rnd.error(next_obs_batch).mean(); loss.backward(); ...</code></pre>
+  <pre><code># Inside the PPO update (gae() as on Day 88): two returns, two discounts, one advantage.
+adv_ext, ret_ext = gae(r_ext, v_ext, terminated, gamma=0.999, lam=0.95)                   # episodic
+adv_int, ret_int = gae(r_int, v_int, torch.zeros_like(terminated), gamma=0.99, lam=0.95)  # never done
+adv = 2.0 * adv_ext + 1.0 * adv_int                       # the RND paper's coefficients
+value_loss = 0.5 * ((v_ext_pred - ret_ext) ** 2).mean() + 0.5 * ((v_int_pred - ret_int) ** 2).mean()</code></pre>
+  <p class="code-cap">The second block is a fragment of a PPO update. The paper also trains the predictor on a random fraction of each batch (for example 25% when using many parallel environments), so the predictor's effective learning rate does not grow with the number of environments.</p>
+  <p>The paper reports that RND was the first method to exceed average human performance on Montezuma's Revenge without demonstrations or access to the game's internal state, occasionally completing the first level, with strong results on Venture and Gravitar too. It did little for Pitfall!.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>The bonus fades everywhere.</b> As the predictor generalizes, whole regions stop paying, including regions the agent still needs to pass through to reach new ones. Once the bonus near a frontier is spent, nothing draws the agent back. Day 105 adds an episodic term for this.</li>
+      <li><b>Skipping observation normalization</b> turns the bonus into a measure of input magnitude. It is the most common reason a reimplementation "doesn't explore".</li>
+      <li><b>Predictor too strong.</b> A predictor much larger than the target, or trained too fast, fits everything immediately and the signal disappears.</li>
+      <li><b>Curiosity where it isn't needed.</b> On dense-reward tasks a curiosity bonus is a distraction and usually costs extrinsic score.</li>
+      <li><b>Novelty farming.</b> Agents learn to produce cheap novelty, such as changing the score display or toggling an object back and forth, when doing so is easier than reaching new places.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Add the RND module to your PPO (Day 91) on a sparse-reward task: <code>MountainCar-v0</code>, or a MiniGrid multi-room or key-door environment. Compare against PPO without the bonus over three seeds, measuring time to first success.</li>
+      <li><b>Noisy TV.</b> Append a 16-dimensional "TV" to the observation that is resampled from \(\mathcal N(0, I)\) whenever the agent takes a designated action. Compare a raw forward-model curiosity bonus with RND, and plot the fraction of steps spent on the TV action over training.</li>
+      <li>Ablate, one at a time: observation normalization; non-episodic vs episodic intrinsic returns; two value heads vs a single head trained on \(r_E + r_I\).</li>
+      <li>Plot the intrinsic reward along single episodes early, mid and late in training. Where does it stay high, and why?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Pathak et al. 2017, “Curiosity-driven Exploration by Self-supervised Prediction” · Burda et al. 2019, “Large-Scale Study of Curiosity-Driven Learning” · Burda et al. 2019, “Exploration by Random Network Distillation” · Schmidhuber 1991, “Curious Model-Building Control Systems” · Stadie, Levine &amp; Abbeel 2015, “Incentivizing Exploration in Reinforcement Learning with Deep Predictive Models”</p>
+</article>
+
+<!-- ================================================================ DAY 105 -->
+<article class="day" id="d105">
+  <header class="day-head">
+    <span class="day-no">DAY 105</span>
+    <h2>Posterior Sampling, NGU &amp; Go-Explore</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">A bonus tells the agent where novelty is; it does not make the agent commit to getting there. Deep exploration needs temporally consistent behaviour: sample one plausible value function and follow it for a whole episode, perturb the policy's parameters once instead of its actions at every step, or remember promising states explicitly and go straight back to them.</p>
+
+  <h3>Deep exploration vs dithering</h3>
+  <p>Day 102's chain showed the cost of dithering: per-step independent randomization (ε-greedy, Boltzmann, Gaussian action noise) needs \(\approx (2/\varepsilon)^{n}\) steps to traverse \(n\) states. Osband et al. call the alternative <b>deep exploration</b>: exploration directed over multiple time steps, where the agent takes an action because of what it might learn several steps later. An agent that believes the end of the chain might be valuable, and acts on that belief consistently for a whole episode, crosses the chain in \(n\) steps.</p>
+  <p>Posterior sampling for RL (PSRL; Strens 2000, Osband et al. 2013) does exactly that in the tabular case. At the start of each episode it samples an MDP from the posterior given the data so far, computes that MDP's optimal policy, and follows it for the whole episode. It is Thompson sampling (Day 16) with episodes as the unit of commitment, and it has Bayesian regret \(\tilde O(HS\sqrt{AT})\). Re-sampling at every step would destroy the commitment and turn it back into dithering.</p>
+
+  <h3>Bootstrapped DQN: randomized value functions</h3>
+  <p>Osband et al. (2016) approximate posterior sampling over Q-functions with an ensemble. A shared torso feeds \(K = 10\) heads \(Q_k(s, a)\), each with its own target head. At the start of every episode the agent samples one head uniformly and acts greedily with respect to it for the entire episode. Each stored transition carries a bootstrap mask \(m \in \{0, 1\}^K\), \(m_k \sim \operatorname{Bernoulli}(p)\), and head \(k\) learns only from transitions with \(m_k = 1\). Heads that saw different data, and started from different random weights, disagree most where data are scarce. A head that happens to be optimistic about the far end of the chain walks there, purposefully, for a whole episode.</p>
+  <pre><code>import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class BootQ(nn.Module):
+    def __init__(self, obs_dim, n_actions, K=10, hidden=256):
+        super().__init__()
+        self.torso = nn.Sequential(nn.Linear(obs_dim, hidden), nn.ReLU())
+        self.heads = nn.ModuleList(nn.Linear(hidden, n_actions) for _ in range(K))
+
+    def forward(self, x):                                    # [K, B, A]
+        z = self.torso(x)
+        return torch.stack([head(z) for head in self.heads])
+
+def boot_loss(q, q_targ, s, a, r, s2, term, mask, gamma=0.99):
+    """a: [B] long; r, term: [B] float; mask: [B, K] bootstrap mask stored with each transition."""
+    K = len(q.heads)
+    q_sa = q(s).gather(2, a[None, :, None].expand(K, -1, 1)).squeeze(2)        # [K, B]
+    with torch.no_grad():
+        a2 = q(s2).argmax(2, keepdim=True)                   # Double-DQN target, per head
+        y = r + gamma * (1 - term) * q_targ(s2).gather(2, a2).squeeze(2)
+    m = mask.T.float()                                       # [K, B]
+    per_head = (F.smooth_l1_loss(q_sa, y, reduction="none") * m).sum(1) / m.sum(1).clamp(min=1)
+    return per_head.mean()                                   # averaging over heads = 1/K in the torso
+
+# acting: at reset, k = rng.integers(K); then a = q(obs)[k].argmax() for the whole episode</code></pre>
+  <p class="code-cap">The paper normalizes the torso's gradient by \(1/K\); averaging the per-head losses does the same. It also found \(p = 1\) (every head sees every transition) nearly as good as \(p = 0.5\): random initialization alone diversifies the heads.</p>
+  <p>The paper reports that Bootstrapped DQN learns long chains that ε-greedy DQN never solves, and that on Atari it learns faster than DQN on most games. Pure bootstrapping has one gap: where there is no data at all, nothing forces the heads to disagree. <b>Randomized prior functions</b> (Osband et al., 2018) fix this by adding a fixed random network to each head, \(Q_k = f_k + \beta\, p_k\), and training only \(f_k\), so heads differ by construction until data pull them together. Fitting data on top of a fixed random function is the same trick RND (Day 104) uses for its target.</p>
+
+  <h3>Parameter-space noise</h3>
+  <p>Plappert et al. (2018) perturb the weights instead of the actions: sample \(\tilde\theta = \theta + \mathcal N(0, \sigma^2 I)\) at the start of an episode and act with \(\tilde\theta\) throughout. The same state now produces the same action for the whole episode, so the exploration is temporally consistent and state-dependent: the perturbed policy is a coherent alternative policy, not a jittery version of the current one. NoisyNets (Fortunato et al., 2018; Day 78) learn the noise scale by gradient descent; Plappert et al. adapt one scale by hand.</p>
+  <ul>
+    <li><b>Layer normalization</b> between layers keeps the effect of a single σ comparable across layers.</li>
+    <li><b>Adaptive σ</b>: measure the distance \(d\) between perturbed and unperturbed actions on recent states, then set \(\sigma \leftarrow 1.01\,\sigma\) if \(d &lt; \delta\) and \(\sigma \leftarrow \sigma/1.01\) otherwise. For DQN, \(\delta\) is chosen so the perturbed greedy policy differs from the unperturbed one about as much as ε-greedy would, \(\delta = -\log(1 - \varepsilon + \varepsilon/|\mathcal A|)\) in KL. For DDPG it is a target action-space standard deviation.</li>
+  </ul>
+
+  <h3>Never Give Up: episodic and lifelong novelty</h3>
+  <p>Count and RND bonuses decay over <em>training</em>: once a region has been seen enough, it stops paying, even if crossing it again is the only way to reach something new. Never Give Up (NGU; Badia et al., 2020a) adds a bonus that resets every episode, and uses the lifelong bonus only to modulate it.</p>
+  <div class="box def"><span class="tag">Definition · NGU intrinsic reward</span>
+    <p><b>Episodic novelty.</b> Keep the embeddings \(f(x)\) of every state visited in the current episode in a memory \(M\), emptied at each reset. With \(N_k\) the \(k = 10\) nearest neighbours of \(f(x_t)\) in \(M\),</p>
+    $$r^{\text{episodic}}_t = \frac{1}{\sqrt{\sum_{f_i \in N_k} K\big(f(x_t), f_i\big)} + c}, \qquad K(x, y) = \frac{\epsilon}{d^2(x, y)/d_m^2 + \epsilon},$$
+    <p>with \(d_m^2\) a running mean of squared neighbour distances and small constants \(\epsilon = c = 10^{-3}\). The kernel sum is a soft count of similar states this episode, so this is a \(1/\sqrt{\text{count}}\) bonus. The embedding \(f\) is trained with an inverse-dynamics loss, as in ICM, so similarity is about controllable aspects of the state.</p>
+    <p><b>Lifelong novelty.</b> \(\alpha_t = 1 + (\operatorname{err}_t - \mu_e)/\sigma_e\), where \(\operatorname{err}_t\) is an RND error and \(\mu_e, \sigma_e\) its running mean and standard deviation.</p>
+    <p><b>Combined:</b> \(r^i_t = r^{\text{episodic}}_t \cdot \min\{\max\{\alpha_t, 1\}, L\}\) with \(L = 5\).</p>
+  </div>
+  <p>Within an episode the agent is always paid for reaching states it hasn't seen <em>this episode</em>, so the incentive to range widely never decays to zero: it never gives up. Across training the RND factor multiplies that by up to 5 for states that are new globally. NGU also learns a family of \(N = 32\) policies at once with a single network conditioned on an index \(j\), with pairs \((\beta_j, \gamma_j)\) ranging from pure exploitation (\(\beta = 0\), high \(\gamma\)) to strongly exploratory (\(\beta = 0.3\), lower \(\gamma\)). Built on the distributed recurrent agent R2D2 (Day 121), the paper reports large gains on the hard-exploration games, including the first positive scores on Pitfall! without demonstrations or hand-crafted features, while staying strong on the dense-reward games.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 200" role="img" aria-label="NGU: an episodic kNN novelty bonus is multiplied by a clipped lifelong RND novelty factor to give the intrinsic reward">
+      <defs>
+        <marker id="ah-d105" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="20" y="22" width="230" height="58" rx="6" class="s-node-mod"/>
+      <text x="135" y="42" class="s-mid s-sm">episodic: kNN of f(xₜ) in this</text>
+      <text x="135" y="57" class="s-mid s-sm">episode's memory (reset each episode)</text>
+      <text x="135" y="72" class="s-ink2 s-mid s-sm">r_episodic ≈ 1/√(soft count)</text>
+      <rect x="20" y="118" width="230" height="58" rx="6" class="s-node"/>
+      <text x="135" y="138" class="s-mid s-sm">lifelong: RND error, normalized</text>
+      <text x="135" y="153" class="s-mid s-sm">α = 1 + (err − μ)/σ</text>
+      <text x="135" y="168" class="s-ink2 s-mid s-sm">decays slowly over training</text>
+      <circle cx="330" cy="98" r="18" class="s-node"/><text x="330" y="103" class="s-mid">×</text>
+      <path d="M250,52 L315,88" class="s-ln" marker-end="url(#ah-d105)"/>
+      <path d="M250,146 L315,108" class="s-ln" marker-end="url(#ah-d105)"/>
+      <text x="292" y="146" class="s-ink3 s-sm">clip to [1, 5]</text>
+      <path d="M348,98 L398,98" class="s-ln" marker-end="url(#ah-d105)"/>
+      <text x="404" y="102" class="s-acc">rⁱₜ</text>
+      <g class="s-sm">
+        <text x="440" y="40">within an episode: keep finding</text>
+        <text x="440" y="56">new states (memory resets)</text>
+        <text x="440" y="90">across training: boost states</text>
+        <text x="440" y="106">that are new globally (×1 to ×5)</text>
+        <text x="440" y="150" class="s-ink2">32 policies (βⱼ, γⱼ), from pure</text>
+        <text x="440" y="166" class="s-ink2">exploitation to very exploratory</text>
+      </g>
+    </svg>
+    <figcaption><b>NGU's intrinsic reward.</b> The episodic term (module colour) carries the exploration; the lifelong term only scales it, by a factor between 1 and 5. A state that is globally familiar still pays its episodic bonus the first time it is reached in each episode.</figcaption>
+  </figure>
+  <pre><code>import numpy as np
+
+class EpisodicNovelty:
+    """NGU's episodic bonus: inverse kernel similarity to the k nearest embeddings seen this episode."""
+    def __init__(self, k=10, eps=1e-3, c=1e-3, max_sim=8.0):
+        self.k, self.eps, self.c, self.max_sim = k, eps, c, max_sim
+        self.dm2 = 0.0                                     # running mean of squared kNN distances
+        self.memory = []
+
+    def reset(self):                                       # at the start of every episode
+        self.memory = []
+
+    def bonus(self, emb):
+        self.memory.append(emb)                            # the current state counts as a neighbour
+        d2 = np.sort(((np.asarray(self.memory) - emb) ** 2).sum(1))[: self.k]
+        self.dm2 = 0.99 * self.dm2 + 0.01 * d2.mean()      # persists across episodes
+        kernel = self.eps / (d2 / (self.dm2 + 1e-8) + self.eps)
+        sim = np.sqrt(kernel.sum()) + self.c
+        return 0.0 if sim &gt; self.max_sim else 1.0 / sim   # NGU also zeroes very familiar states
+
+def ngu_intrinsic(r_episodic, rnd_error, err_mean, err_std, L=5.0):
+    alpha = 1.0 + (rnd_error - err_mean) / (err_std + 1e-8)   # lifelong novelty from RND
+    return r_episodic * min(max(alpha, 1.0), L)</code></pre>
+  <p class="code-cap">Checked on random 8-dimensional embeddings: fresh states earn about 1.0, while revisiting one state earns 0.71, 0.58, 0.50, 0.45, … roughly \(1/\sqrt{n}\), as a count bonus would. The paper adds a few details omitted here, such as subtracting a small "cluster distance" from \(d^2\) before the kernel.</p>
+
+  <h3>Agent57's adaptive meta-controller</h3>
+  <p>Agent57 (Badia et al., 2020b) was the first agent to exceed the human benchmark on all 57 Atari games. It starts from NGU and makes three main changes.</p>
+  <ul>
+    <li><b>Split value functions.</b> \(Q(x, a, j) = Q^e(x, a, j; \theta^e) + \beta_j\, Q^i(x, a, j; \theta^i)\), two networks trained on their own rewards, so the very different scales of extrinsic and intrinsic reward don't interfere inside one network.</li>
+    <li><b>A meta-controller.</b> Each actor runs a sliding-window UCB bandit (Day 14) over the 32 \((\beta_j, \gamma_j)\) policies and picks which one to run for the next episode, rewarded by that episode's extrinsic return. On dense-reward games it learns to pick exploitative arms; on hard-exploration games it keeps choosing exploratory ones. The sliding window lets the choice change as learning progresses.</li>
+    <li><b>Longer horizons.</b> Discounts up to 0.9997 and longer backpropagation-through-time windows for long-term credit assignment.</li>
+  </ul>
+  <p>The cost was scale: on the hardest games, tens of billions of frames.</p>
+
+  <h3>Go-Explore: remember, return, then explore</h3>
+  <p>Ecoffet et al. (2021) diagnose two failures shared by every bonus method so far. <b>Detachment</b>: an agent partly explores region A, wanders into region B and spends B's bonus, and by then has forgotten how to get back to A's still-unexplored frontier, with nothing in the reward to remind it. <b>Derailment</b>: even when the agent does head back towards a promising state, the exploration noise along the way knocks it off course before it arrives. Go-Explore's answer is to stop asking the policy to remember the frontier, and to store it explicitly.</p>
+  <div class="box algo"><span class="tag">Algorithm · Go-Explore, phase 1 (exploration)</span>
+    <ol>
+      <li>Keep an <b>archive</b> mapping each <b>cell</b> to the best way found to reach it: a saved simulator state (or the action sequence), its score, its trajectory length and visit counts. A cell is a coarse state description, for example the frame downscaled to about 11×8 pixels with 8 intensity levels, or, with domain knowledge, room, level, position and keys held.</li>
+      <li>Repeat:
+        <ol>
+          <li><b>Select</b> a cell, with probability favouring cells that have been chosen or visited rarely (weights like \(1/\sqrt{n + 1}\)).</li>
+          <li><b>Go</b> back to it: restore its saved simulator state, so no exploration noise is involved and derailment can't happen. <span class="step">(the policy-based variant instead trains a goal-conditioned policy to return)</span></li>
+          <li><b>Explore</b> from it for about 100 steps with random actions (repeating the previous action with high probability).</li>
+          <li><b>Update</b> the archive: add every new cell found, and replace a cell's entry if it was reached with a higher score, or the same score in fewer steps.</li>
+        </ol>
+      </li>
+    </ol>
+    <p><b>Phase 2 (robustification).</b> Phase 1's trajectories rely on a deterministic, resettable game. Train a robust policy from the best trajectories by imitation under stochasticity (sticky actions), using the backward algorithm of Salimans &amp; Chen (2018): start episodes near the end of the demonstration and move the start point earlier as the policy succeeds.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 222" role="img" aria-label="Go-Explore loop: select a cell from the archive, return to it by restoring its state, explore with random actions, and add new or better cells to the archive">
+      <defs>
+        <marker id="ah-d105b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="30" y="70" width="170" height="80" rx="8" class="s-node-mod"/>
+      <text x="115" y="96" class="s-ttl s-mid">archive</text>
+      <text x="115" y="116" class="s-ink2 s-mid s-sm">cell → saved state, score,</text>
+      <text x="115" y="131" class="s-ink2 s-mid s-sm">trajectory, visit counts</text>
+      <rect x="260" y="20" width="150" height="44" rx="6" class="s-node"/>
+      <text x="335" y="39" class="s-mid">1 · select</text><text x="335" y="55" class="s-ink2 s-mid s-sm">favour rarely visited</text>
+      <rect x="470" y="20" width="180" height="44" rx="6" class="s-node"/>
+      <text x="560" y="39" class="s-mid">2 · go: restore state</text><text x="560" y="55" class="s-ink2 s-mid s-sm">(no exploration noise)</text>
+      <rect x="470" y="150" width="180" height="44" rx="6" class="s-node"/>
+      <text x="560" y="169" class="s-mid">3 · explore</text><text x="560" y="185" class="s-ink2 s-mid s-sm">~100 random actions</text>
+      <rect x="260" y="150" width="150" height="44" rx="6" class="s-node"/>
+      <text x="335" y="169" class="s-mid">4 · update</text><text x="335" y="185" class="s-ink2 s-mid s-sm">new cells, better paths</text>
+      <path d="M200,95 C230,80 240,50 259,42" class="s-ln-mod" marker-end="url(#ah-d105b)"/>
+      <path d="M410,42 L469,42" class="s-ln-mod" marker-end="url(#ah-d105b)"/>
+      <path d="M560,64 L560,149" class="s-ln-mod" marker-end="url(#ah-d105b)"/>
+      <path d="M470,172 L411,172" class="s-ln-mod" marker-end="url(#ah-d105b)"/>
+      <path d="M260,172 C240,170 220,150 201,130" class="s-ln-mod" marker-end="url(#ah-d105b)"/>
+      <text x="340" y="214" class="s-ink2 s-mid s-sm">phase 2: robustify the best trajectories by imitation under sticky actions</text>
+    </svg>
+    <figcaption><b>The state-archive trick.</b> The archive is an explicit memory of the frontier, so detachment can't happen. Returning by restoring a saved state involves no exploration noise, so derailment can't happen. Exploration starts at the frontier, not at the start of the game.</figcaption>
+  </figure>
+  <p>The results were striking. The Nature paper reports scores on Montezuma's Revenge and Pitfall! far above any earlier method. Across the hard-exploration games it reports exceeding the previous state of the art on all of them, and beating human performance on every Atari game previously unsolved by learning algorithms. A policy-based variant also solved a sparse-reward robotic pick-and-place task.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Crude posteriors.</b> Without masks or prior functions, bootstrap heads collapse towards the same function and the ensemble stops exploring. Ten heads is a very coarse posterior.</li>
+      <li><b>Parameter noise needs calibration.</b> Without layer normalization and adaptive σ, a perturbation either does nothing or produces a broken policy.</li>
+      <li><b>NGU depends on its embedding.</b> If \(f\) doesn't separate meaningfully different states, kNN novelty is noise. The per-episode memory and kNN search also cost compute and memory at every step.</li>
+      <li><b>Go-Explore's phase 1 needs a resettable, deterministic simulator</b> (or a reliable goal-conditioned policy), and a good cell representation is domain knowledge in disguise. Phase 2 can fail to imitate very long trajectories.</li>
+      <li><b>Hard-exploration wins don't transfer to the whole suite.</b> Taiga et al. (2020) re-evaluated several bonus methods on top of a common Rainbow agent and found that, across the full Atari suite, none clearly beat ε-greedy, and their gains concentrated on a few games like Montezuma's Revenge. Choose exploration methods for the problem you have.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Run Bootstrapped DQN on Day 102's chain with one-hot states for \(n \in \{10, 20, 50\}\). Compare one head with ε-greedy, ten heads with \(p = 0.5\), ten heads with \(p = 1\), and ten heads with randomized prior functions. Plot episodes until the end of the chain is first reached.</li>
+      <li>Use <code>EpisodicNovelty</code> with a fixed random embedding in a small MiniGrid room. Compare the per-episode sum of episodic bonus for a policy that walks in circles and one that sweeps the room.</li>
+      <li>Implement Go-Explore phase 1 on a deterministic maze with a key and a door. Use cells <code>(x, y, has_key)</code> and restore states by copying the environment. Count the cells discovered within a fixed step budget, against random exploration from the start state with the same budget.</li>
+      <li>For count bonuses, RND, Bootstrapped DQN, NGU and Go-Explore, write one sentence each on whether it suffers from detachment, from derailment, or from both.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Osband et al. 2016, “Deep Exploration via Bootstrapped DQN” · Plappert et al. 2018, “Parameter Space Noise for Exploration” · Badia et al. 2020a, “Never Give Up: Learning Directed Exploration Strategies” · Badia et al. 2020b, “Agent57: Outperforming the Atari Human Benchmark” · Ecoffet et al. 2021, “First return, then explore” · Osband et al. 2018, “Randomized Prior Functions for Deep Reinforcement Learning” · Taiga et al. 2020, “On Bonus-Based Exploration Methods in the Arcade Learning Environment”</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m10.html"><small>Previous · Days 97–101</small>◂ Module 10 — Model-Based Deep RL &amp; Search</a>
+  <a class="next" href="m12.html"><small>Next · Days 106–112</small>Module 12 — Imitation &amp; Offline RL ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

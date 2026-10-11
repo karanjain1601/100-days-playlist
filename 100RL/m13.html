@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 13 — Hierarchy, Meta, Multi-Agent &amp; Scale · 130 Days of RL</title>
+<meta name="description" content="Days 113–121: options and hierarchical RL, goal-conditioned RL and hindsight replay, skill discovery, successor features, meta-RL, multi-agent RL from Markov games to QMIX and MAPPO, self-play leagues, and distributed RL with memory.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m13">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 13 · Hierarchy, Meta, Multi-Agent &amp; Scale · Days 113–121</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 13 · Hierarchy, Meta &amp; Scale</h4>
+  <nav>
+    <a href="#d113"><span class="n">D113</span>Options Framework</a>
+    <a href="#d114"><span class="n">D114</span>Goal-Conditioned RL &amp; HER</a>
+    <a href="#d115"><span class="n">D115</span>FeUdal, HIRO &amp; Skills</a>
+    <a href="#d116"><span class="n">D116</span>Successor Features</a>
+    <a href="#d117"><span class="n">D117</span>Meta-RL</a>
+    <a href="#d118"><span class="n">D118</span>MARL Foundations</a>
+    <a href="#d119"><span class="n">D119</span>MADDPG, QMIX &amp; MAPPO</a>
+    <a href="#d120"><span class="n">D120</span>Self-Play &amp; Leagues</a>
+    <a href="#d121"><span class="n">D121</span>Distributed RL &amp; Memory</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="13"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m12.html">◂ Module 12</a><a href="m14.html">Module 14 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 13 · Days 113–121 · Weeks 23–25</p>
+<h1>Hierarchy, Meta, Multi-Agent &amp; Scale</h1>
+<p class="dek">Nine lessons that drop three assumptions the course has made so far: that an agent acts at one time scale, learns one task, and is alone. Options, goal-conditioned policies and skills give it temporal abstraction; successor features and meta-RL let it transfer to new tasks quickly; Markov games, value decomposition and self-play leagues handle many learners at once; and distributed actor–learner systems with recurrent memory are what make all of it run at scale. Module 12 learned from fixed data; this module goes back to interaction, and its large-scale PPO, self-play and population training are the machinery that the RLHF and industrial systems of Module 14 are built on.</p>
+<ul class="chips">
+  <li><b>9</b> lessons</li>
+  <li><b>6h 25m</b> video</li>
+  <li><b>13h 00m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto §17.2–17.3 · Albrecht et al., <i>Multi-Agent RL</i></b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Write the SMDP Q-learning and intra-option updates, and derive option-critic's termination gradient and say what it does with the advantage.</li>
+    <li>Implement Hindsight Experience Replay on bit-flipping and explain why relabelled transitions are valid off-policy data.</li>
+    <li>Factor \(Q^\pi(s, a) = \psi^\pi(s, a)^\top \mathbf w\), prove the generalized policy improvement theorem, and use it to act on a new reward with no learning.</li>
+    <li>Say where adaptation lives in RL², MAML and PEARL, and compute MAML's two-level meta-gradient correctly.</li>
+    <li>Define Nash and correlated equilibria on a matrix game, and explain how CTDE, VDN, QMIX, COMA and MAPPO deal with non-stationarity and credit assignment.</li>
+    <li>Explain why naive self-play cycles and how fictitious play, AlphaStar's league and population-based training avoid it.</li>
+    <li>Write out the V-trace target and choose between zero-state, stored-state and burn-in strategies for recurrent replay.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 113 -->
+<article class="day" id="d113">
+  <header class="day-head">
+    <span class="day-no">DAY 113</span>
+    <h2>Hierarchical RL &amp; the Options Framework</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">An option is a closed-loop sub-policy with its own rules for starting and stopping. Add options to an MDP and a single decision can span many time steps, which turns the problem into a semi-Markov decision process. Every TD method you know carries over, once the discount for a decision becomes \(\gamma^k\).</p>
+
+  <h3>Temporal abstraction</h3>
+  <p>Primitive actions are too fine-grained to plan with. A robot arm acting at 50 Hz takes thousands of actions to make a cup of tea, and a reward at the end has to be credited back across all of them. People plan in units like “walk to the kitchen” and “boil the kettle”, and each unit is itself a closed-loop behaviour that reacts to what it sees. Temporal abstraction gives an agent the same thing. It pays off in three distinct ways, and different methods deliver different ones, so keep them apart:</p>
+  <ul>
+    <li><b>Credit assignment over fewer decisions.</b> If an option lasts 50 steps, a 5,000-step task is only 100 decisions long for the level that chooses options, and its backups jump 50 steps at a time.</li>
+    <li><b>Exploration.</b> A random walk over primitive actions drifts away from its start like \(\sqrt t\). A random walk over extended behaviours covers far more ground per decision. The snippet below measures the difference.</li>
+    <li><b>Reuse.</b> A “go through the doorway” behaviour learned once serves every task in the building.</li>
+  </ul>
+  <p>The historical frameworks are Feudal RL (Dayan &amp; Hinton 1993), hierarchies of abstract machines (Parr &amp; Russell 1998) and MAXQ (Dietterich 2000). The options framework of Sutton, Precup &amp; Singh (1999) became the standard because it is the smallest change to the MDP: it keeps the MDP exactly as it is and adds a set of extended actions on top.</p>
+
+  <h3>An option is ⟨initiation set, policy, termination⟩</h3>
+  <div class="box def"><span class="tag">Definition · option</span>
+    <p>An option \(\omega = \langle \mathcal I_\omega, \pi_\omega, \beta_\omega \rangle\) consists of</p>
+    <ul>
+      <li>an <b>initiation set</b> \(\mathcal I_\omega \subseteq \mathcal S\), the states in which \(\omega\) may be started;</li>
+      <li>an <b>intra-option policy</b> \(\pi_\omega(a \mid s)\), how it behaves while running;</li>
+      <li>a <b>termination condition</b> \(\beta_\omega : \mathcal S \to [0, 1]\), the probability of stopping on arrival in each state.</li>
+    </ul>
+    <p>A primitive action \(a\) is the option with \(\mathcal I = \{s : a \in \mathcal A(s)\}\), \(\pi(a \mid s) = 1\) and \(\beta \equiv 1\). A <b>policy over options</b> \(\mu(\omega \mid s)\) picks an option where it may start; the option runs until \(\beta\) fires, then \(\mu\) chooses again. This is call-and-return execution.</p>
+  </div>
+  <p>If \(\pi_\omega\) and \(\beta_\omega\) depend only on the current state, \(\omega\) is a <em>Markov</em> option. If they depend on the history since the option started (a time-out after 8 steps, say), it is a <em>semi-Markov</em> option. The distinction decides whether intra-option learning, below, applies. The classic example is the four-rooms gridworld of the 1999 paper: eight hallway options, two per room, each of which takes the agent from anywhere in its room to one of that room's two doorways.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 212" role="img" aria-label="One trajectory seen at three time scales: primitive steps, options, and SMDP decisions">
+      <defs>
+        <marker id="ah-d113m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="8" y="84" class="s-ink3 s-sm">SMDP</text>
+      <text x="8" y="126" class="s-ink3 s-sm">options</text>
+      <text x="8" y="180" class="s-ink3 s-sm">MDP</text>
+      <path d="M70,80 Q178,20 286,80" class="s-ln-mod" marker-end="url(#ah-d113m)"/>
+      <path d="M286,80 Q304,58 322,80" class="s-ln-mod" marker-end="url(#ah-d113m)"/>
+      <path d="M322,80 Q466,20 610,80" class="s-ln-mod" marker-end="url(#ah-d113m)"/>
+      <text x="178" y="42" class="s-mod s-mid s-sm">k = 6 · discount γ⁶</text>
+      <text x="304" y="60" class="s-mod s-mid s-sm">k = 1</text>
+      <text x="466" y="42" class="s-mod s-mid s-sm">k = 8 · discount γ⁸</text>
+      <circle cx="70" cy="80" r="4" class="s-mod"/><circle cx="286" cy="80" r="4" class="s-mod"/>
+      <circle cx="322" cy="80" r="4" class="s-mod"/><circle cx="610" cy="80" r="4" class="s-mod"/>
+      <text x="70" y="100" class="s-ink2 s-mid s-sm">S₀</text>
+      <text x="278" y="100" class="s-ink2 s-mid s-sm">S₆</text>
+      <text x="330" y="100" class="s-ink2 s-mid s-sm">S₇</text>
+      <text x="610" y="100" class="s-ink2 s-mid s-sm">S₁₅</text>
+      <rect x="70" y="108" width="216" height="26" rx="4" class="s-node-mod"/>
+      <text x="178" y="125" class="s-mid">ω₁: go to hallway</text>
+      <rect x="286" y="108" width="36" height="26" rx="4" class="s-node"/>
+      <text x="304" y="125" class="s-mid">a</text>
+      <rect x="322" y="108" width="288" height="26" rx="4" class="s-node-mod"/>
+      <text x="466" y="125" class="s-mid">ω₂: go to goal</text>
+      <line x1="286" y1="104" x2="286" y2="140" class="s-ln-warn"/>
+      <line x1="610" y1="104" x2="610" y2="140" class="s-ln-warn"/>
+      <text x="292" y="152" class="s-warn s-sm">β fires</text>
+      <text x="604" y="152" class="s-warn s-sm s-end">β fires</text>
+      <line x1="70" y1="176" x2="610" y2="176" class="s-ln"/>
+      <g class="s-acc">
+        <circle cx="70" cy="176" r="3.5"/><circle cx="106" cy="176" r="3.5"/><circle cx="142" cy="176" r="3.5"/><circle cx="178" cy="176" r="3.5"/>
+        <circle cx="214" cy="176" r="3.5"/><circle cx="250" cy="176" r="3.5"/><circle cx="286" cy="176" r="3.5"/><circle cx="322" cy="176" r="3.5"/>
+        <circle cx="358" cy="176" r="3.5"/><circle cx="394" cy="176" r="3.5"/><circle cx="430" cy="176" r="3.5"/><circle cx="466" cy="176" r="3.5"/>
+        <circle cx="502" cy="176" r="3.5"/><circle cx="538" cy="176" r="3.5"/><circle cx="574" cy="176" r="3.5"/><circle cx="610" cy="176" r="3.5"/>
+      </g>
+      <text x="70" y="198" class="s-ink3 s-mid s-sm">t = 0</text>
+      <text x="286" y="198" class="s-ink3 s-mid s-sm">6</text>
+      <text x="322" y="198" class="s-ink3 s-mid s-sm">7</text>
+      <text x="610" y="198" class="s-ink3 s-mid s-sm">15</text>
+    </svg>
+    <figcaption><b>One trajectory, three time scales.</b> The MDP sees 15 primitive steps. In call-and-return execution, \(\omega_1\) runs for 6 steps until its termination condition fires, a primitive action (a one-step option) follows, and then \(\omega_2\) runs for 8 steps. The SMDP over options sees just three decisions, each with its own duration \(k\), so each of its backups discounts by \(\gamma^k\).</figcaption>
+  </figure>
+
+  <h3>SMDPs revisited</h3>
+  <p><a href="m02.html#d27">Day 27</a> introduced semi-Markov decision processes, MDPs whose actions take a random amount of time. The central result of the options paper is that you never have to build one by hand: options on top of an MDP give you one automatically.</p>
+  <div class="box thm"><span class="tag">Theorem · options define an SMDP (Sutton, Precup &amp; Singh 1999)</span>
+    <p>For any MDP and any set of options \(\Omega\), the process that chooses only among options and runs each to termination is an SMDP. With \(k\) the random duration of option \(\omega\) started in \(s\) at time \(t\), its model is</p>
+    $$r(s, \omega) = \E\Big[\textstyle\sum_{i=0}^{k-1} \gamma^i R_{t+i+1} \,\Big|\, \omega \text{ started in } s\Big], \qquad p(s' \mid s, \omega) = \sum_{j=1}^{\infty} \gamma^j \Pr(k = j,\ S_{t+j} = s' \mid s, \omega).$$
+    <p>The transition model has the discount folded in, so its rows sum to less than 1. The optimal option values satisfy</p>
+    $$q^*_\Omega(s, \omega) = r(s, \omega) + \sum_{s'} p(s' \mid s, \omega) \max_{\omega' \in \Omega(s')} q^*_\Omega(s', \omega').$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · SMDP Q-learning</span>
+    <p>Split the return at the moment the option terminates, \(t + k\):</p>
+    $$G_t = \underbrace{\textstyle\sum_{i=0}^{k-1} \gamma^i R_{t+i+1}}_{\text{reward collected while } \omega \text{ ran}} + \gamma^k\, G_{t+k}.$$
+    <p>Condition on \((S_t, \omega)\) and apply the tower rule exactly as on Day 3, with the option-level next state \(S_{t+k}\) in place of \(S_{t+1}\). Replace the expectation by one sample and the unknown future value by the current greedy estimate:</p>
+    $$Q(S_t, \omega) \leftarrow Q(S_t, \omega) + \alpha\Big[\textstyle\sum_{i=0}^{k-1} \gamma^i R_{t+i+1} + \gamma^k \max_{\omega'} Q(S_{t+k}, \omega') - Q(S_t, \omega)\Big].$$
+    <p>If every option lasts one step this is ordinary Q-learning (Day 45). The only changes are the discounted reward accumulated over the option and the \(\gamma^k\) on the bootstrap. Under the usual tabular conditions it converges to \(q^*_\Omega\) (Parr 1998).</p>
+  </div>
+  <p>Two consequences. First, if \(\Omega\) leaves out the primitive actions then \(q^*_\Omega \le q^*\), because the agent can only commit to whole options; include the primitives and nothing is lost. Second, planning with option models takes fewer sweeps. In four-rooms, value iteration over hallway options moves value from room to room in a handful of iterations, where primitive value iteration needs roughly as many sweeps as the shortest path has steps.</p>
+
+  <pre><code>import numpy as np
+
+N, GAMMA, ALPHA, EPS = 50, 0.99, 0.5, 0.1
+OPTIONS = [(-1, 1), (+1, 1),          # primitive actions = one-step options
+           (-1, 8), (+1, 8)]          # "walk 8 cells left/right" (semi-Markov: counts its own steps)
+
+def run_option(s, o):
+    """Execute option o from s until it terminates. Return discounted reward, s', duration k, done."""
+    direction, length = OPTIONS[o]
+    G, k, done = 0.0, 0, False
+    while not done and k &lt; length:
+        s = min(max(s + direction, 0), N - 1)
+        done = s == N - 1                       # reward +1 on reaching the right end
+        G += GAMMA ** k * float(done)
+        k += 1
+    return G, s, k, done
+
+def smdp_q_learning(allowed, rng, episodes=100):
+    Q, lengths = np.zeros((N, len(OPTIONS))), []
+    for _ in range(episodes):
+        s, done, t = 0, False, 0
+        while not done:
+            q = Q[s, allowed]
+            o = allowed[rng.integers(len(allowed))] if rng.random() &lt; EPS else \
+                allowed[rng.choice(np.flatnonzero(q == q.max()))]       # random tie-breaking
+            G, s2, k, done = run_option(s, o)
+            target = G + (0.0 if done else GAMMA ** k * Q[s2, allowed].max())
+            Q[s, o] += ALPHA * (target - Q[s, o])        # SMDP Q-learning: bootstrap with gamma^k
+            s, t = s2, t + k
+        lengths.append(t)                                # primitive steps this episode
+    return np.array(lengths)
+
+for name, allowed in [("primitives", [0, 1]), ("with options", [0, 1, 2, 3])]:
+    L = np.array([smdp_q_learning(allowed, np.random.default_rng(seed)) for seed in range(10)])
+    print(f"{name:13s} first episode {L[:, 0].mean():6.0f} steps   last 10 episodes {L[:, -10:].mean():4.0f}")</code></pre>
+  <p class="code-cap">Averaged over 10 seeds, the first episode takes about 3,000 primitive steps with primitives only and about 340 once the 8-step options are available; both settle at about 55 steps (the shortest path is 49, the rest is ε-exploration). The options don't change what is optimal here. They change how fast undirected exploration finds the reward: a random walk needs about \((N-1)^2\) steps to cross the corridor, and options multiply the distance covered per decision.</p>
+
+  <h3>Intra-option learning</h3>
+  <p>SMDP Q-learning is wasteful. It updates one option, once, when that option ends. Yet every primitive transition \((S_t, A_t, R_{t+1}, S_{t+1})\) is also evidence about every Markov option that would have chosen \(A_t\) in \(S_t\), whether or not that option was the one running. Intra-option learning uses each transition to update all of those options at once, one step at a time and off-policy.</p>
+  <div class="box algo"><span class="tag">Algorithm · intra-option Q-learning (Markov options, deterministic \(\pi_\omega\))</span>
+    <ol>
+      <li>Observe a transition \((S_t, A_t, R_{t+1}, S_{t+1})\), generated by any behaviour.</li>
+      <li>For every option \(\omega\) with \(\pi_\omega(S_t) = A_t\):
+        <ol>
+          <li>\(U(S_{t+1}, \omega) = \big(1 - \beta_\omega(S_{t+1})\big)\, Q(S_{t+1}, \omega) + \beta_\omega(S_{t+1}) \max_{\omega'} Q(S_{t+1}, \omega')\) <span class="step">(value on arrival: keep running, or stop and choose again)</span></li>
+          <li>\(Q(S_t, \omega) \leftarrow Q(S_t, \omega) + \alpha\big[R_{t+1} + \gamma\, U(S_{t+1}, \omega) - Q(S_t, \omega)\big]\)</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>\(U\) is the <em>option value upon arrival</em>: with probability \(1 - \beta\) the option keeps running and its own value applies, and with probability \(\beta\) it stops and the best next option takes over. Sutton, Precup &amp; Singh prove this converges to \(q^*_\Omega\) for Markov options with deterministic policies; with stochastic \(\pi_\omega\), weight each update by the importance ratio \(\pi_\omega(A_t \mid S_t) / b(A_t \mid S_t)\) as on Day 39. The same trick learns the option models \(r(s, \omega)\) and \(p(s' \mid s, \omega)\) from every step. It cannot work for the step-counted options in the snippet: “would this option have taken that action here?” has no answer without knowing how long it had been running.</p>
+  <p>The same paper also shows that <em>interrupting</em> never hurts. Call-and-return only re-decides when \(\beta\) fires, but if at some state \(Q(s, \omega) &lt; \max_{\omega'} Q(s, \omega')\), switching immediately gives a policy at least as good. Keep this in mind for the termination gradient below, which learns a soft version of exactly that rule.</p>
+
+  <h3>Option-critic: discovering options end to end</h3>
+  <p>Everything so far assumes someone designed the options. Bacon, Harb &amp; Precup (2017) parameterize them and learn everything by gradient ascent on return, with the number of options as the only design choice: intra-option policies \(\pi_{\omega,\theta}(a \mid s)\), termination functions \(\beta_{\omega,\vartheta}(s)\), and a policy over options that is \(\varepsilon\)-greedy in \(Q_\Omega(s, \omega)\). Initiation sets are dropped (every option is available everywhere).</p>
+  <div class="box def"><span class="tag">Definition · option-critic value functions</span>
+    $$Q_\Omega(s, \omega) = \sum_a \pi_{\omega,\theta}(a \mid s)\, Q_U(s, \omega, a), \qquad Q_U(s, \omega, a) = r(s, a) + \gamma \sum_{s'} p(s' \mid s, a)\, U(\omega, s'),$$
+    $$U(\omega, s') = \big(1 - \beta_{\omega,\vartheta}(s')\big)\, Q_\Omega(s', \omega) + \beta_{\omega,\vartheta}(s')\, V_\Omega(s') = Q_\Omega(s', \omega) - \beta_{\omega,\vartheta}(s')\, A_\Omega(s', \omega),$$
+    <p>with \(V_\Omega(s) = \sum_\omega \mu(\omega \mid s)\, Q_\Omega(s, \omega)\) and the option advantage \(A_\Omega(s, \omega) = Q_\Omega(s, \omega) - V_\Omega(s)\).</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · intra-option policy gradient and termination gradient (Bacon et al. 2017)</span>
+    <p>Let \(d_\Omega(s, \omega \mid s_0, \omega_0) =\sum_{t \ge 0} \gamma^t \Pr(S_t = s, \omega_t = \omega \mid s_0, \omega_0)\) be the discounted occupancy of state–option pairs. Then</p>
+    $$\frac{\partial Q_\Omega(s_0, \omega_0)}{\partial \theta} = \sum_{s, \omega} d_\Omega(s, \omega \mid s_0, \omega_0) \sum_a \frac{\partial \pi_{\omega,\theta}(a \mid s)}{\partial \theta}\, Q_U(s, \omega, a),$$
+    $$\frac{\partial U(\omega_0, s_1)}{\partial \vartheta} = -\sum_{s', \omega} d_\Omega(s', \omega \mid s_1, \omega_0)\, \frac{\partial \beta_{\omega,\vartheta}(s')}{\partial \vartheta}\, A_\Omega(s', \omega).$$
+  </div>
+  <div class="box deriv"><span class="tag">Proof sketch · termination gradient</span>
+    <p>Differentiate \(U(\omega, s') = \big(1 - \beta_{\omega,\vartheta}(s')\big) Q_\Omega(s', \omega) + \beta_{\omega,\vartheta}(s')\, V_\Omega(s')\) with the product rule. The terms where \(\beta\) is differentiated combine into \(-\partial_\vartheta \beta \cdot (Q_\Omega - V_\Omega)\):</p>
+    $$\frac{\partial U(\omega, s')}{\partial \vartheta} = -\frac{\partial \beta_{\omega,\vartheta}(s')}{\partial \vartheta}\, A_\Omega(s', \omega) + \Big[\big(1 - \beta_{\omega,\vartheta}(s')\big)\frac{\partial Q_\Omega(s', \omega)}{\partial \vartheta} + \beta_{\omega,\vartheta}(s') \sum_{\omega'} \mu(\omega' \mid s') \frac{\partial Q_\Omega(s', \omega')}{\partial \vartheta}\Big].$$
+    <p>The bracket is the expected derivative of \(Q_\Omega(s', \omega_{\text{next}})\), where \(\omega_{\text{next}}\) is whichever option is in force after the termination decision. And \(\vartheta\) enters \(Q_\Omega\) only through \(U\) one step later: \(\partial Q_\Omega(s', \omega)/\partial\vartheta = \gamma \sum_a \pi_{\omega,\theta}(a \mid s') \sum_{s''} p(s'' \mid s', a)\, \partial U(\omega, s'')/\partial\vartheta\). So the gradient obeys a Bellman equation: immediate term \(-\partial_\vartheta \beta \cdot A_\Omega\), plus \(\gamma\) times the expected gradient at the next state–option pair. Unrolling it sums the immediate term over the discounted occupancy, which is the theorem. The policy-gradient half is the same argument with immediate term \(\sum_a \partial_\theta \pi\, Q_U\), the option-level version of Day 83's proof.</p>
+  </div>
+  <p>Read the termination gradient as a rule. Where the running option is worse than the alternative (\(A_\Omega(s', \omega) &lt; 0\)), gradient ascent raises \(\beta\) and the option stops; where it is better than average, \(\beta\) falls and the option keeps going. It is the interruption result above, turned into a learning rule.</p>
+  <div class="box algo"><span class="tag">Algorithm · option-critic (tabular critic, one step at a time)</span>
+    <ol>
+      <li>\(s \leftarrow s_0\); choose \(\omega\) \(\varepsilon\)-greedily from \(Q_\Omega(s, \cdot)\).</li>
+      <li>Repeat until the episode ends:
+        <ol>
+          <li>Sample \(a \sim \pi_{\omega,\theta}(\cdot \mid s)\); take it, observe \(r, s'\).</li>
+          <li><b>Critic.</b> \(\delta \leftarrow r - Q_U(s, \omega, a)\); if \(s'\) is not terminal, \(\delta \leftarrow \delta + \gamma\big(1 - \beta_{\omega,\vartheta}(s')\big) Q_\Omega(s', \omega) + \gamma\, \beta_{\omega,\vartheta}(s') \max_{\omega'} Q_\Omega(s', \omega')\). Then \(Q_U(s, \omega, a) \leftarrow Q_U(s, \omega, a) + \alpha\,\delta\).</li>
+          <li><b>Intra-option policy.</b> \(\theta \leftarrow \theta + \alpha_\theta\, \nabla_\theta \log \pi_{\omega,\theta}(a \mid s)\, Q_U(s, \omega, a)\) <span class="step">(subtract \(Q_\Omega(s, \omega)\) as a baseline in practice)</span></li>
+          <li><b>Termination.</b> \(\vartheta \leftarrow \vartheta - \alpha_\vartheta\, \nabla_\vartheta \beta_{\omega,\vartheta}(s')\, \big(A_\Omega(s', \omega) + \xi\big)\) <span class="step">(\(\xi \ge 0\): a small termination penalty)</span></li>
+          <li>If \(\beta_{\omega,\vartheta}(s')\) fires, choose a new \(\omega\) \(\varepsilon\)-greedily. \(s \leftarrow s'\).</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <div class="box note"><span class="tag">Deep option-critic</span>
+    <p>For Atari, Bacon et al. share a convolutional trunk between a \(Q_\Omega\) head, one softmax policy head per option and one sigmoid termination head per option, and add a small \(\xi\) to the advantage plus an entropy bonus on the intra-option policies. Harb et al. (2018) reinterpret \(\xi\) as a <em>deliberation cost</em>, a price paid every time the agent switches option. That formalizes the intuition that committing to a plan is cheaper than re-deciding at every step, and in their asynchronous version (A2OC) it is what makes options last.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks · option collapse</span>
+    <ul>
+      <li><b>Options shrink to one step.</b> \(\beta \to 1\) everywhere, and the hierarchy becomes a reparameterized flat policy with extra variance. The return objective doesn't pay for temporal extension: any decomposition that earns the same return is equally optimal, and switching is free, so nothing pushes options to last.</li>
+      <li><b>One option does everything.</b> \(\beta \to 0\); an option that is slightly better early on wins the \(\varepsilon\)-greedy choice, gets all the data and improves further, and the others never train.</li>
+      <li><b>Duplicates.</b> Several options learn the same behaviour, so the extra capacity is wasted.</li>
+    </ul>
+    <p>Remedies in use: the termination penalty or deliberation cost \(\xi\); entropy regularization on \(\pi_\omega\); minimum durations; and objectives that make options specialize, such as interest functions that restrict where an option applies (Khetarpal et al. 2020) or the diversity objectives of Day 115. Always plot option usage and the termination maps \(\beta_\omega(s)\). Return alone will not show you that the options have collapsed.</p>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the corridor snippet for \(N \in \{25, 50, 100\}\). How does the first-episode length grow with \(N\) with and without options? Compare with the random-walk estimate: about \((N-1)^2\) steps for primitives, and about \((N-1)^2 / \sigma^2\) decisions for options, where \(\sigma^2\) is the variance of the displacement per decision.</li>
+      <li>Build four-rooms with the eight hallway options (hand-code each option's policy as the shortest path to its doorway within the room). Run value iteration with the option models and with primitive actions, and count sweeps until \(\|V_k - V_{k-1}\|_\infty &lt; 10^{-6}\).</li>
+      <li>Replace the step-counted options with Markov ones (“walk right until the cell index is a multiple of 8”) and implement intra-option Q-learning. On the same stream of experience, does it learn faster than SMDP Q-learning?</li>
+      <li>Implement tabular option-critic on four-rooms with 4 options. Plot each \(\beta_\omega\) as a heatmap and the fraction of time each option is active, for \(\xi \in \{0, 0.01, 0.05\}\). Which settings collapse, and in which of the three ways?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §17.2 · Sutton, Precup &amp; Singh 1999, “Between MDPs and semi-MDPs: A Framework for Temporal Abstraction in Reinforcement Learning” · Bacon, Harb &amp; Precup 2017, “The Option-Critic Architecture” · Harb et al. 2018, “When Waiting Is Not an Option: Learning Options with a Deliberation Cost”</p>
+</article>
+
+<!-- ================================================================ DAY 114 -->
+<article class="day" id="d114">
+  <header class="day-head">
+    <span class="day-no">DAY 114</span>
+    <h2>Goal-Conditioned RL &amp; HER</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">If the value function takes the goal as an input, every trajectory is a successful demonstration of reaching the states it actually visited. Hindsight Experience Replay stores each transition again with those achieved states as goals, which turns a binary reward that almost never fires into a dense stream of learning signal.</p>
+
+  <h3>Goal-conditioned MDPs</h3>
+  <div class="box def"><span class="tag">Definition · goal-conditioned MDP</span>
+    <p>Add to an MDP a goal space \(\mathcal G\), a goal distribution \(p(g)\), a map \(m: \mathcal S \to \mathcal G\) from a state to the goal it achieves, and a goal-dependent reward, usually sparse:</p>
+    $$r(s, a, s', g) = -\mathbb 1\big[\, \|m(s') - g\| &gt; \epsilon \,\big].$$
+    <p>The agent learns \(\pi(a \mid s, g)\) and \(Q(s, a, g)\). Every goal defines a different MDP, and all of them share the same dynamics \(p(s' \mid s, a)\).</p>
+  </div>
+  <p>In the Fetch robotics tasks the state is the full arm and object configuration, \(m(s)\) is the object's \(xyz\) position, and the reward is \(-1\) on every step the object is more than 5 cm from the target and 0 otherwise. The environments return a dictionary observation with keys <code>observation</code>, <code>achieved_goal</code> and <code>desired_goal</code>, and expose <code>compute_reward(achieved_goal, desired_goal, info)</code>, which is exactly the hook that relabelling needs.</p>
+
+  <h3>Universal value function approximators</h3>
+  <p>Schaul et al. (2015) asked what it takes for one network to represent the values of many goals at once, \(V(s, g; \theta) \approx V_g(s)\), and called such a network a <em>universal value function approximator</em> (UVFA). They compared two architectures: concatenation, where \([s, g]\) goes into a single network, and a two-stream factorization \(V(s, g) \approx \phi(s)^\top \chi(g)\) with separate state and goal embeddings. When values vary smoothly with the goal, a UVFA trained on some goals generalizes to goals it never trained on; in their gridworld experiments the low-rank factorized form recovered values for held-out goals well. UVFAs extend the general value functions of Horde (Sutton et al. 2011) from a fixed list of predictions to a continuum of them. Every goal-conditioned method in this module, HER, HIRO's low level and the skill policies of Day 115, is a UVFA trained some particular way.</p>
+
+  <h3>Why sparse goal rewards defeat ordinary RL</h3>
+  <p>The bit-flipping environment from the HER paper makes the problem stark. The state is an \(n\)-bit vector, the goal is another \(n\)-bit vector, action \(i\) flips bit \(i\), the reward is \(-1\) on every step until \(s = g\), and episodes last \(n\) steps. A random policy visits at most \(n\) of the \(2^n\) states per episode, so it reaches a random goal with probability at most about \(n / 2^n\): roughly 1 in 2,000 for \(n = 15\), and essentially never for \(n = 40\). Until the first success every reward is \(-1\), every Q-value regresses towards the same number, and nothing points in any direction. Andrychowicz et al. report plain DQN failing beyond about 13 bits, while DQN with HER solved up to 50.</p>
+  <p>Shaping the reward with \(-\|s - g\|_1\) would fix bit-flipping, but in general shaping needs domain knowledge, can create local optima and can change the optimal policy (Day 26). The count-based and curiosity bonuses of Module 11 would help too, but they ignore the structure that makes this problem easy in hindsight: the agent always achieves <em>something</em>.</p>
+
+  <h3>The hindsight insight</h3>
+  <p>After a failed episode \(s_0, \dots, s_T\) aimed at \(g\), the transitions are useless for learning about \(g\) but ideal for learning about \(g' = m(s_T)\), because the agent did reach \(m(s_T)\). So store each transition twice: once as \((s_t, a_t, s_{t+1}, g)\) and once as \((s_t, a_t, s_{t+1}, g')\), with the reward recomputed for \(g'\).</p>
+  <div class="box deriv"><span class="tag">Derivation · why relabelled transitions are valid</span>
+    <p>Q-learning needs samples \((s, a, r, s')\) from the MDP it is learning about, collected by any behaviour policy that covers the data (Day 45). Consider the MDP indexed by \(g'\):</p>
+    <ul>
+      <li>\(s' \sim p(\cdot \mid s, a)\) whatever \(g'\) is, because the dynamics don't depend on the goal;</li>
+      <li>\(r = r(s, a, s', g')\) is a known function, so it can be recomputed exactly.</li>
+    </ul>
+    <p>So \((s_t, a_t, r(s_t, a_t, s_{t+1}, g'), s_{t+1}, g')\) is a genuine transition of the \(g'\)-MDP, collected by a behaviour policy \(\pi(\cdot \mid \cdot, g)\) that happened to be aiming somewhere else. That is off-policy data. It is why HER is paired with off-policy learners (DQN, DDPG, TD3, SAC) and not with PPO, whose gradient assumes the data came from \(\pi(\cdot \mid \cdot, g')\).</p>
+    <p>One caveat. The choice of \(g'\) depends on where the trajectory went, so in a stochastic environment the relabelled data over-represent lucky transitions that happened to lead to \(g'\). This <em>hindsight bias</em> makes values optimistic. It vanishes when the dynamics are deterministic, as in bit-flipping, and several later papers correct for it.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 244" role="img" aria-label="A trajectory that misses its goal is relabelled with goals it did achieve">
+      <polyline points="50,180 110,150 170,165 230,120 290,135 350,95" class="s-ln-mod"/>
+      <g class="s-acc">
+        <circle cx="50" cy="180" r="6"/><circle cx="110" cy="150" r="6"/><circle cx="170" cy="165" r="6"/>
+        <circle cx="230" cy="120" r="6"/><circle cx="290" cy="135" r="6"/><circle cx="350" cy="95" r="6"/>
+      </g>
+      <text x="50" y="202" class="s-ink2 s-mid s-sm">s₀</text>
+      <text x="110" y="172" class="s-ink2 s-mid s-sm">s₁</text>
+      <text x="170" y="187" class="s-ink2 s-mid s-sm">s₂</text>
+      <text x="230" y="142" class="s-ink2 s-mid s-sm">s₃</text>
+      <text x="290" y="157" class="s-ink2 s-mid s-sm">s₄</text>
+      <text x="350" y="117" class="s-ink2 s-mid s-sm">s₅</text>
+      <polygon points="420,20 430,30 420,40 410,30" class="s-bad"/>
+      <text x="438" y="34" class="s-bad s-sm">g: desired, never reached</text>
+      <line x1="356" y1="89" x2="412" y2="36" class="s-ln-bad s-dash"/>
+      <circle cx="350" cy="95" r="13" class="s-ln-acc"/>
+      <text x="370" y="108" class="s-acc s-sm">g′ = s₅ (“final”)</text>
+      <line x1="170" y1="212" x2="350" y2="212" class="s-ln-info"/>
+      <line x1="170" y1="206" x2="170" y2="218" class="s-ln-info"/>
+      <line x1="350" y1="206" x2="350" y2="218" class="s-ln-info"/>
+      <text x="260" y="234" class="s-info s-mid s-sm">“future” goals for the transition (s₁, a₁, s₂)</text>
+      <text x="460" y="140" class="s-ink2 s-sm">rewards with goal g</text>
+      <text x="460" y="158" class="s-bad">−1 −1 −1 −1 −1</text>
+      <text x="460" y="186" class="s-ink2 s-sm">rewards with goal g′ = s₅</text>
+      <text x="460" y="204" class="s-acc">−1 −1 −1 −1  0</text>
+    </svg>
+    <figcaption><b>One failed episode, many goals.</b> Aimed at \(g\), the episode earns nothing but \(-1\)s. Relabelled with the state it ended in, the same transitions contain a success, and the value of every earlier state can be bootstrapped from it. The “future” strategy draws relabelled goals for each transition from the states visited after it in the same episode.</figcaption>
+  </figure>
+
+  <h3>Relabelling strategies</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Strategy</th><th>Hindsight goals for transition \(t\)</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><b>final</b></td><td>\(m(s_T)\), the last state of the episode</td><td>one extra goal per transition; the simplest version</td></tr>
+      <tr><td><b>future</b></td><td>\(k\) states \(m(s_j)\), \(j &gt; t\), drawn from the same episode</td><td>best in the paper's ablations; \(k = 4\) is the common default</td></tr>
+      <tr><td><b>episode</b></td><td>\(k\) states drawn from anywhere in the same episode</td><td>goals may lie in the transition's past</td></tr>
+      <tr><td><b>random</b></td><td>\(k\) achieved goals drawn from the whole buffer</td><td>weakest: most of them are irrelevant to the transition</td></tr>
+    </tbody>
+  </table></div>
+  <p>With \(k\) hindsight goals per real one, a fraction \(k/(k+1)\) of the replayed goals are relabelled: 80% at \(k = 4\). Very large \(k\) starves the learner of the real goal distribution. Under “future”, the next state \(s_{t+1}\) is itself a candidate, which gives that one-step transition a reward of 0 and a terminal target, and anchors the value function at the goal. Implementations usually relabel at <em>sampling</em> time rather than storing copies (OpenAI Baselines, SB3's <code>HerReplayBuffer</code>), which keeps the buffer small and lets you change \(k\) without recollecting data.</p>
+  <div class="box algo"><span class="tag">Algorithm · HER with an off-policy learner</span>
+    <ol>
+      <li>For each episode: sample \(g \sim p(g)\) and \(s_0\); run \(\pi(\cdot \mid s, g)\) plus exploration noise for \(T\) steps.</li>
+      <li>For \(t = 0, \dots, T-1\):
+        <ol>
+          <li>store \((s_t, a_t, r(s_t, a_t, s_{t+1}, g), s_{t+1}, g)\);</li>
+          <li>sample hindsight goals \(G'\) (for example \(k\) future achieved goals) and, for each \(g' \in G'\), store \((s_t, a_t, r(s_t, a_t, s_{t+1}, g'), s_{t+1}, g')\).</li>
+        </ol>
+      </li>
+      <li>Do \(N\) optimization steps of DQN / DDPG / SAC on minibatches from the buffer.</li>
+    </ol>
+  </div>
+
+  <h3>Bit-flipping with HER, in code</h3>
+  <pre><code>import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+n, GAMMA, K, HER = 15, 0.98, 4, True                   # n bits; K relabelled goals per transition
+rng = np.random.default_rng(0); torch.manual_seed(0)
+make_q = lambda: nn.Sequential(nn.Linear(2 * n, 256), nn.ReLU(), nn.Linear(256, n))
+q, q_targ = make_q(), make_q()
+q_targ.load_state_dict(q.state_dict())
+opt = torch.optim.Adam(q.parameters(), lr=1e-3)
+buffer = []                                            # (s, a, r, s2, g, terminated); unbounded for brevity
+
+def act(s, g, eps):
+    if rng.random() &lt; eps:
+        return int(rng.integers(n))
+    with torch.no_grad():
+        return int(q(torch.as_tensor(np.r_[s, g], dtype=torch.float32)).argmax())
+
+def run_episode(eps=0.2):
+    s, g, traj = rng.integers(0, 2, n), rng.integers(0, 2, n), []
+    for t in range(n):                                 # n steps is enough to reach any goal
+        a = act(s, g, eps)
+        s2 = s.copy(); s2[a] ^= 1                      # action a flips bit a
+        traj.append((s, a, s2)); s = s2
+        if (s == g).all():
+            break
+    for t, (s0, a, s1) in enumerate(traj):
+        goals = [g]
+        if HER:                                        # 'future': states achieved later in this episode
+            goals += [traj[j][2] for j in rng.integers(t, len(traj), size=K)]
+        for goal in goals:
+            hit = bool((s1 == goal).all())             # reward is recomputed for the substituted goal
+            buffer.append((s0, a, 0.0 if hit else -1.0, s1, goal, hit))
+    return bool((s == g).all())
+
+def train_step(batch=128):
+    s, a, r, s2, g, d = map(np.array, zip(*(buffer[i] for i in rng.integers(len(buffer), size=batch))))
+    x, x2 = (torch.as_tensor(np.c_[u, g], dtype=torch.float32) for u in (s, s2))
+    r, d = (torch.as_tensor(u, dtype=torch.float32) for u in (r, d))
+    with torch.no_grad():                              # bootstrap unless the goal was reached
+        y = r + GAMMA * (1 - d) * q_targ(x2).max(1).values
+    loss = F.mse_loss(q(x).gather(1, torch.as_tensor(a).unsqueeze(1)).squeeze(1), y)
+    opt.zero_grad(); loss.backward(); opt.step()
+
+for cycle in range(1, 201):
+    wins = [run_episode() for _ in range(16)]
+    for _ in range(40):
+        train_step()
+    q_targ.load_state_dict(q.state_dict())             # hard target update once per cycle
+    if cycle % 20 == 0:
+        print(cycle, np.mean(wins))</code></pre>
+  <p class="code-cap">The cycle structure (16 episodes, then 40 updates) follows the HER paper. With <code>HER = True</code>, the success rate of the exploratory episodes on 15 bits passes 90% within about 40 cycles; with <code>HER = False</code> it stays at 0 for all 200 cycles. Hitting the time limit is a truncation, so those transitions still bootstrap (Day 8); only reaching the (possibly relabelled) goal is terminal. Each run takes several minutes on a CPU.</p>
+
+  <h3>Sparse-reward robotics: the Fetch tasks</h3>
+  <p>The Fetch environments (Plappert et al. 2018) are a 7-DoF arm with a two-finger gripper: <b>Reach</b> (move the gripper to a point), <b>Push</b> (push a block to a target on the table), <b>Slide</b> (strike a puck so it slides to a target out of reach) and <b>PickAndPlace</b> (grasp the block and carry it to a target, possibly in mid-air). Actions are 4-D, gripper displacement plus finger opening, and episodes are 50 steps. In the HER paper, DDPG alone learned close to nothing on Push, Slide and PickAndPlace, while DDPG with HER solved Push and PickAndPlace and made good progress on Slide; a pick-and-place policy trained in simulation was also run on a physical Fetch robot. Reach is easy enough that plain off-policy methods learn it too, more slowly.</p>
+  <pre><code>import gymnasium as gym
+import gymnasium_robotics
+from stable_baselines3 import SAC, HerReplayBuffer
+
+gym.register_envs(gymnasium_robotics)
+env_id = max(e for e in gym.registry if e.startswith("FetchReach-v"))  # newest registered version
+env = gym.make(env_id)
+model = SAC("MultiInputPolicy", env,                 # Dict obs: observation, achieved_goal, desired_goal
+            replay_buffer_class=HerReplayBuffer,
+            replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy="future"),
+            verbose=1)
+model.learn(total_timesteps=20_000)</code></pre>
+  <p class="code-cap">SB3 relabels at sampling time through the environment's <code>compute_reward</code>. Swap in <code>FetchPush</code> for the dramatic difference between HER and no HER; budget hours, not minutes.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>On-policy learners.</b> Relabelled data is off-policy. Feeding it to PPO without correction biases the gradient.</li>
+      <li><b>Rewards you can't recompute.</b> Relabelling needs \(m(s)\) and a reward that is a known function of \((s', g')\). If the reward depends on something not stored in the transition, HER doesn't apply.</li>
+      <li><b>Hindsight bias</b> in stochastic environments, as derived above: optimistic values for risky actions.</li>
+      <li><b>Uninformative achieved goals.</b> Early in Push the arm rarely touches the block, so almost every achieved goal is the block's starting position, and relabelling mostly teaches “leave the block alone”. Progress waits until exploration moves the block.</li>
+      <li><b>Termination conventions.</b> Fetch does not end an episode on success, while the bit-flipping code above does. Either is fine, but your targets must match your environment, and the 50-step limit is always a truncation.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Run bit-flipping for \(n \in \{5, 10, 15, 20, 30, 40\}\), with and without HER, 3 seeds each, and add a greedy evaluation (\(\varepsilon = 0\)). Plot final success rate against \(n\). Where does plain DQN stop working?</li>
+      <li>Implement the final, episode and random strategies alongside future, and compare them at \(n = 20\) for \(k \in \{1, 4, 8\}\).</li>
+      <li>Train SAC + HER on FetchReach with SB3, and then without HER (use <code>DictReplayBuffer</code>). Plot success rate against environment steps for both.</li>
+      <li>Make bit-flipping stochastic: each flip fails with probability 0.2. Compare HER's learned \(Q(s, a, g)\) with Monte Carlo returns of the greedy policy from the same states. Is there an optimistic bias, and does it grow with the failure probability?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Schaul et al. 2015, “Universal Value Function Approximators” · Andrychowicz et al. 2017, “Hindsight Experience Replay” · Plappert et al. 2018, “Multi-Goal Reinforcement Learning: Challenging Robotics Environments and Request for Research” · Stable-Baselines3 documentation, “HER”</p>
+</article>
+
+<!-- ================================================================ DAY 115 -->
+<article class="day" id="d115">
+  <header class="day-head">
+    <span class="day-no">DAY 115</span>
+    <h2>FeUdal Networks, HIRO &amp; Skill Discovery</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">A goal-conditioned policy is a clean interface between the levels of a hierarchy: the high level proposes a goal every \(c\) steps and the low level is rewarded for reaching it. The hard parts are choosing the goal space, training the high level off-policy while the low level underneath it keeps changing, and finding useful low-level skills when there is no task reward at all.</p>
+
+  <h3>Manager–worker architectures</h3>
+  <p>Feudal RL (Dayan &amp; Hinton 1993) set out the principle. Managers give orders to sub-managers and reward them for obeying, whether or not obeying helped the manager's own goal (“reward hiding”), and sub-managers never see the manager's task (“information hiding”). In modern form, a high-level policy \(\mu^{hi}\) picks a goal \(g_t\) every \(c\) steps, and a low-level policy \(\mu^{lo}(a \mid s, g)\) acts every step and is trained on an intrinsic reward for achieving \(g\). Only the high level sees the environment's reward. The two levels run at different time scales and can use different discounts. Compared with options, the interface is a goal rather than a choice from a fixed menu, so the low level is a single UVFA (Day 114) rather than a set of separate sub-policies.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 252" role="img" aria-label="Manager sets goals for a worker every c steps; HIRO relabels the manager's stored goals">
+      <defs>
+        <marker id="ah-d115" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d115m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="30" y="24" width="230" height="56" rx="8" class="s-node-mod"/>
+      <text x="145" y="47" class="s-ttl s-mid">Manager μʰⁱ(g | s)</text>
+      <text x="145" y="67" class="s-ink2 s-mid s-sm">new goal every c steps</text>
+      <rect x="30" y="164" width="230" height="56" rx="8" class="s-node-mod"/>
+      <text x="145" y="187" class="s-ttl s-mid">Worker μˡᵒ(a | s, g)</text>
+      <text x="145" y="207" class="s-ink2 s-mid s-sm">acts every step</text>
+      <rect x="420" y="164" width="230" height="56" rx="8" class="s-node"/>
+      <text x="535" y="187" class="s-ttl s-mid">Environment</text>
+      <text x="535" y="207" class="s-ink2 s-mid s-sm">p(s′ | s, a), reward R</text>
+      <rect x="420" y="24" width="230" height="56" rx="8" class="s-node"/>
+      <text x="535" y="47" class="s-ttl s-mid">High-level replay</text>
+      <text x="535" y="67" class="s-ink2 s-mid s-sm">(sₜ, gₜ, ΣR, sₜ₊c)</text>
+      <line x1="145" y1="80" x2="145" y2="162" class="s-ln-mod" marker-end="url(#ah-d115m)"/>
+      <text x="155" y="114" class="s-mod s-sm">goal gₜ</text>
+      <text x="155" y="130" class="s-ink2 s-sm">then gₜ₊₁ = sₜ + gₜ − sₜ₊₁</text>
+      <line x1="260" y1="182" x2="418" y2="182" class="s-ln" marker-end="url(#ah-d115)"/>
+      <text x="340" y="175" class="s-ink2 s-mid s-sm">action aₜ</text>
+      <line x1="420" y1="204" x2="262" y2="204" class="s-ln" marker-end="url(#ah-d115)"/>
+      <text x="340" y="242" class="s-ink2 s-mid s-sm">sₜ₊₁ and intrinsic rˡᵒ = −‖sₜ + gₜ − sₜ₊₁‖</text>
+      <line x1="535" y1="164" x2="535" y2="82" class="s-ln" marker-end="url(#ah-d115)"/>
+      <text x="545" y="126" class="s-ink2 s-sm">ΣR over c steps</text>
+      <line x1="420" y1="52" x2="262" y2="52" class="s-ln-acc s-dash" marker-end="url(#ah-d115)"/>
+      <text x="340" y="44" class="s-acc s-mid s-sm">relabel gₜ → g̃ₜ</text>
+    </svg>
+    <figcaption><b>Two levels, two time scales (HIRO's version).</b> The manager's goal is a desired change of state; while the worker pursues it, the goal is shifted each step so the absolute target stays put. The worker is paid for closing the distance, the manager for the environment reward collected over the \(c\) steps. Before the manager trains on an old transition, HIRO replaces the stored goal with the one that best explains the worker's actions under the worker's <em>current</em> policy.</figcaption>
+  </figure>
+
+  <h3>FeUdal Networks: goals as directions</h3>
+  <p>FeUdal Networks (FuN; Vezhnevets et al. 2017) make both levels neural and learn the goal space too. A shared perception module produces \(z_t\). The Manager maps it to a latent state \(s_t\) and, with a dilated LSTM that runs at a coarse time scale, emits a goal \(\hat g_t\) that is normalized to a unit vector \(g_t\): a <em>direction</em> in latent space (“move this way over the next \(c\) steps”) rather than a target point. The Worker, an LSTM over \(z_t\), outputs an action-embedding matrix \(U_t\) with one row per action; the last \(c\) goals are summed and projected linearly, without a bias, to a vector \(w_t\), and the policy is \(\pi_t = \operatorname{softmax}(U_t w_t)\).</p>
+  <div class="box def"><span class="tag">Definition · FuN's learning signals</span>
+    <p>With \(d_{\cos}(\alpha, \beta) = \alpha^\top \beta / (\|\alpha\|\,\|\beta\|)\):</p>
+    <ul>
+      <li><b>Manager, transition policy gradient:</b> \(\nabla g_t = A^M_t\, \nabla_\theta\, d_{\cos}\big(s_{t+c} - s_t,\ g_t(\theta)\big)\), with \(A^M_t = R_t - V^M(x_t)\).</li>
+      <li><b>Worker, intrinsic reward:</b> \(r^I_t = \frac1c \sum_{i=1}^{c} d_{\cos}\big(s_t - s_{t-i},\ g_{t-i}\big)\), how well recent movement in latent space followed recent goals.</li>
+      <li><b>Worker update:</b> advantage actor–critic on \(R_t + \alpha R^I_t\), the environment return plus \(\alpha\) times the intrinsic return.</li>
+    </ul>
+  </div>
+  <p>Three design choices carry the method. First, no gradient flows from the Worker into the Manager's goals, so the goal space can't be bent to make the Worker's job trivial; the Manager is trained as if it chose the latent transition directly, which is justified by modelling the Worker's \(c\)-step transitions as a von Mises–Fisher distribution centred on the goal direction. Second, directions generalize better than absolute targets, since “up and to the right” means something from any state. Third, the Manager uses a larger discount than the Worker, which makes it responsible for the long horizon. FuN improved markedly over an LSTM A3C baseline on Montezuma's Revenge and on memory-heavy DeepMind Lab tasks.</p>
+
+  <h3>HIRO: off-policy correction for a changing low level</h3>
+  <p>HIRO (Nachum et al. 2018) takes the opposite view of the goal space: goals are raw desired changes in (some coordinates of) the state, such as an ant robot's position and joint angles. The high level emits \(g_t\) every \(c = 10\) steps; between decisions the goal follows the transition \(g_{t+1} = h(s_t, g_t, s_{t+1}) = s_t + g_t - s_{t+1}\), so the absolute target stays fixed; the low-level reward is \(r^{lo} = -\|s_t + g_t - s_{t+1}\|_2\). Both levels are trained with TD3 (Day 94). Being off-policy at both levels made HIRO far more sample-efficient than the on-policy hierarchies of the time, on ant navigation tasks such as Ant Maze, Ant Push and Ant Fall.</p>
+  <p>Off-policy training creates the problem. The high level's replay holds tuples \((s_t, g_t, \sum_{i=t}^{t+c-1} R_{i+1}, s_{t+c})\), and its “action” \(g_t\) produced the outcome \(s_{t+c}\) only through the low-level policy that was running at the time. That low level has since changed, so the same goal would now produce different actions and a different outcome. Replaying the old tuple teaches the high level a stale map from actions to outcomes: from its point of view the environment is non-stationary.</p>
+  <div class="box deriv"><span class="tag">Derivation · HIRO's goal relabelling</span>
+    <p>Replace the stored goal with the one under which the <em>current</em> low level was most likely to produce the stored actions:</p>
+    $$\tilde g_t = \argmax_{\tilde g}\ \log \mu^{lo}\big(A_{t:t+c-1} \mid S_{t:t+c-1}, \tilde g_{t:t+c-1}\big) \;\approx\; \argmax_{\tilde g}\ -\tfrac12 \sum_{i=t}^{t+c-1} \big\|A_i - \mu^{lo}(S_i, \tilde g_i)\big\|_2^2,$$
+    <p>where \(\tilde g_{i+1} = h(S_i, \tilde g_i, S_{i+1})\), and the approximation treats the deterministic TD3 actor plus Gaussian exploration noise as a Gaussian policy. The maximization is over a small candidate set: the original \(g_t\), the achieved change \(S_{t+c} - S_t\), and 8 samples from a Gaussian centred on \(S_{t+c} - S_t\).</p>
+  </div>
+  <p>This is hindsight relabelling again, applied to something different. HER relabels the goal that a goal-conditioned policy was pursuing; HIRO relabels the <em>action</em> the high level took, so that each replayed transition is approximately one the current hierarchy could have produced.</p>
+  <pre><code>import numpy as np
+
+def hiro_relabel(states, actions, g_orig, mu_lo, rng, n_random=8, scale=0.5):
+    """Pick the goal that best explains a stored low-level segment under the CURRENT low-level policy.
+    states: [c+1, d] (s_t .. s_{t+c}); actions: [c, d]; mu_lo(s, g) -&gt; deterministic low-level action."""
+    achieved = states[-1] - states[0]                               # the change that actually happened
+    candidates = [g_orig, achieved] + list(rng.normal(achieved, scale, (n_random, achieved.size)))
+
+    def log_likelihood(g):                                          # Gaussian policy: -1/2 sum ||a - mu(s, g)||^2
+        ll = 0.0
+        for t in range(len(actions)):
+            ll -= 0.5 * np.sum((actions[t] - mu_lo(states[t], g)) ** 2)
+            g = states[t] + g - states[t + 1]                       # goal transition h: absolute target stays fixed
+        return ll
+
+    return max(candidates, key=log_likelihood)
+
+# Toy check: point mass s' = s + a. The OLD low level moved 30% of the way to its goal each step;
+# the CURRENT one moves 50% of the way. The stored goal no longer explains the stored actions.
+rng = np.random.default_rng(0)
+old_mu = lambda s, g: 0.3 * g
+new_mu = lambda s, g: 0.5 * g
+s, g, states, actions = np.zeros(2), np.array([4.0, -2.0]), [np.zeros(2)], []
+for t in range(10):
+    a = old_mu(s, g); actions.append(a); s2 = s + a
+    g = s + g - s2; s = s2; states.append(s)
+states, actions = np.array(states), np.array(actions)
+g_new = hiro_relabel(states, actions, np.array([4.0, -2.0]), new_mu, rng)
+print("stored goal [4, -2]  achieved", np.round(states[-1] - states[0], 2), " relabelled", np.round(g_new, 2))</code></pre>
+  <p class="code-cap">The relabelled goal (about \([3.6, -1.8]\)) is smaller than the stored one: the current low level is more aggressive, so a nearer goal explains the same actions. In HIRO the candidate scale is tied to the range of the high-level action space.</p>
+
+  <h3>Unsupervised skill discovery: DIAYN</h3>
+  <p>Where do low-level skills come from if nobody specifies goals? DIAYN (“Diversity Is All You Need”; Eysenbach et al. 2019) learns skills with no reward at all. A latent skill \(z \sim p(z)\), uniform over \(K\) values and fixed for a whole episode, conditions a policy \(\pi(a \mid s, z)\), and the skills are required to be distinguishable from the states they visit.</p>
+  <div class="box deriv"><span class="tag">Derivation · the DIAYN objective and its pseudo-reward</span>
+    $$\mathcal F(\theta) = I(S; Z) + H(A \mid S) - I(A; Z \mid S).$$
+    <p>Expand with \(I(X; Y) = H(X) - H(X \mid Y)\). The first term is \(I(S; Z) = H(Z) - H(Z \mid S)\). The last two combine: \(H(A \mid S) - \big[H(A \mid S) - H(A \mid S, Z)\big] = H(A \mid S, Z)\). So</p>
+    $$\mathcal F(\theta) = H(Z) - H(Z \mid S) + H(A \mid S, Z).$$
+    <p>\(H(Z)\) is fixed by the uniform prior, and \(H(A \mid S, Z)\) is the policy entropy that SAC already maximizes (Day 95). The middle term, \(-H(Z \mid S) = \E[\log p(z \mid s)]\), needs the intractable posterior over skills. Replace it with a learned discriminator \(q_\phi(z \mid s)\): since \(\KL\big(p(z \mid s)\,\|\,q_\phi(z \mid s)\big) \ge 0\), we have \(\E[\log p(z \mid s)] \ge \E[\log q_\phi(z \mid s)]\), so</p>
+    $$\mathcal F(\theta) \ge H(A \mid S, Z) + \E_{z \sim p(z),\, s \sim \pi_z}\big[\log q_\phi(z \mid s) - \log p(z)\big].$$
+    <p>Run SAC with the pseudo-reward \(r_z(s, a, s') = \log q_\phi(z \mid s') - \log p(z)\), computed on the state reached, and train \(q_\phi\) by ordinary classification to predict \(z\) from visited states.</p>
+  </div>
+  <p>Each term has a job. \(I(S; Z)\): the skill should control which states the agent visits. \(-I(A; Z \mid S)\): skills must be told apart by states, not actions, since actions that leave no trace in the world are useless as behaviours. \(H(A \mid S)\): subject to that, act as randomly as possible, which pushes skills away from each other. The constant \(-\log p(z) = \log K\) makes the reward positive whenever the discriminator beats chance, which in environments with early termination quietly rewards staying alive. On MuJoCo locomotion, DIAYN finds running, flipping, backwards walking and jumping without ever seeing a task reward. The skills can then be chosen by a high-level controller every few steps, used as initializations for fine-tuning, or matched against a demonstration to imitate it.</p>
+  <pre><code>import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+K, obs_dim = 20, 17                                   # number of skills; e.g. HalfCheetah observations
+disc = nn.Sequential(nn.Linear(obs_dim, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, K))
+disc_opt = torch.optim.Adam(disc.parameters(), lr=3e-4)
+
+def sample_skill():                                   # z ~ p(z) = Uniform{0..K-1}, fixed for a whole episode
+    return torch.randint(K, ())
+
+def skill_input(obs, z):                              # the SAC actor and critics see [s, onehot(z)]
+    return torch.cat([obs, F.one_hot(z, K).float()], dim=-1)
+
+def diayn_reward(next_obs, z):
+    """Pseudo-reward r_z = log q_phi(z | s') - log p(z). Positive iff the discriminator beats chance."""
+    with torch.no_grad():
+        log_q = F.log_softmax(disc(next_obs), dim=-1).gather(-1, z.unsqueeze(-1)).squeeze(-1)
+    return log_q - math.log(1.0 / K)
+
+def update_discriminator(next_obs, z):               # maximise log q_phi(z | s'): plain classification
+    loss = F.cross_entropy(disc(next_obs), z)
+    disc_opt.zero_grad(); loss.backward(); disc_opt.step()
+    return loss.item()</code></pre>
+  <p class="code-cap">The DIAYN-specific pieces. Plug them into the SAC of Day 95: store \(z\) with every transition, replace the environment reward by <code>diayn_reward</code> when computing critic targets, and call <code>update_discriminator</code> on the same replay batches.</p>
+  <p>Other mutual-information objectives make different trade-offs. VIC (Gregor et al. 2016) maximizes information between the skill and the final state. DADS (Sharma et al. 2020) maximizes \(I(S'; Z \mid S)\), which favours skills whose transitions are predictable, so a planner can compose them. A known weakness of all of them is that mutual information is maximized by <em>any</em> partition of the state space into distinguishable regions, so skills tend to be static or barely move once the state space is large; distance-based objectives such as LSD (Park et al. 2022) push skills to cover ground instead.</p>
+
+  <h3>When hierarchy actually pays off</h3>
+  <p>Hierarchical RL has a reputation for impressive demos and fragile reproductions, and the honest picture is mixed. Nachum et al. (2019) ablated HIRO-style agents and found that most of the benefit came from better <em>exploration</em> (temporally extended, goal-directed exploration) rather than from easier credit assignment at the high level. Flat agents given similar exploration, for example by switching between exploratory behaviours every \(c\) steps, recovered much of the gap.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Hierarchy tends to pay when…</th><th>…and tends not to when</th></tr></thead>
+    <tbody>
+      <tr><td>horizons are long and rewards sparse</td><td>rewards are dense and horizons short</td></tr>
+      <tr><td>a good goal space is known (positions for navigation, object poses for manipulation)</td><td>the goal space must itself be learned from pixels, so it shifts under the high level</td></tr>
+      <tr><td>behaviour decomposes into reusable pieces shared across tasks</td><td>there is a single task with no shared structure</td></tr>
+      <tr><td>flat baselines with strong exploration have been tried and fail</td><td>the comparison is against an untuned flat baseline</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Unreachable or meaningless goals.</b> If the high level proposes goals the low level can't reach, the intrinsic reward is uninformative and both levels stall. Raw-state goals also need a distance that means something; joint angles and positions in one Euclidean norm rarely do.</li>
+      <li><b>Learned goal spaces drift or collapse.</b> In FuN the latent space is trained jointly, so the goals' meaning changes during training, and it can collapse until all directions look alike.</li>
+      <li><b>The approximate correction.</b> HIRO's relabelling is a likelihood heuristic over ten candidates, not an exact importance correction. When the low level changes fast, stale transitions still leak through.</li>
+      <li><b>The horizon \(c\).</b> Too small and there is no abstraction; too large and goals become unreachable. It is usually tuned per environment.</li>
+      <li><b>Distinguishable but useless skills.</b> DIAYN skills can differ only in posture, or be distinguishable by features irrelevant to any downstream task. Feeding the discriminator only the \(x\)–\(y\) position, as is common for navigation, is itself a strong prior that you should report.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Run the relabelling snippet, then search a fine grid of goals to find the true maximum-likelihood \(\tilde g\). How close do the ten candidates get? What happens with only the original and achieved goals?</li>
+      <li>Implement DIAYN on a bounded 2-D point environment using your SAC from Day 95, with \(K = 8\) skills and the discriminator on \((x, y)\). Plot the trajectories of each skill.</li>
+      <li>Add early termination when the point leaves the box, and train once with and once without the \(-\log p(z)\) term. Explain the difference in episode lengths.</li>
+      <li>Miniature version of Nachum et al. (2019): on the Day 113 corridor, compare the option agent with a flat agent whose ε-exploration commits to one random direction for 8 steps at a time. How much of the options' advantage survives?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Dayan &amp; Hinton 1993, “Feudal Reinforcement Learning” · Vezhnevets et al. 2017, “FeUdal Networks for Hierarchical Reinforcement Learning” · Nachum et al. 2018, “Data-Efficient Hierarchical Reinforcement Learning” · Eysenbach et al. 2019, “Diversity is All You Need: Learning Skills without a Reward Function” · Nachum et al. 2019, “Why Does Hierarchy (Sometimes) Work So Well in Reinforcement Learning?”</p>
+</article>
+
+<!-- ================================================================ DAY 116 -->
+<article class="day" id="d116">
+  <header class="day-head">
+    <span class="day-no">DAY 116</span>
+    <h2>Successor Features &amp; Transfer</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">A value function mixes two things: where the policy goes, and what it is paid when it gets there. Successor features keep them apart, \(Q^\pi(s, a) = \psi^\pi(s, a)^\top \mathbf w\), so any new reward that is linear in the same features is evaluated with a dot product, and generalized policy improvement combines a library of old policies into a new one that is at least as good as each of them, without further learning.</p>
+
+  <h3>The successor representation</h3>
+  <div class="box def"><span class="tag">Definition · successor representation (Dayan 1993)</span>
+    $$M^\pi(s, s') = \E_\pi\Big[\sum_{t=0}^{\infty} \gamma^t\, \mathbb 1\{S_t = s'\} \,\Big|\, S_0 = s\Big],$$
+    <p>the expected discounted number of future visits to \(s'\) when starting from \(s\) and following \(\pi\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · matrix form and Bellman equation</span>
+    <p>By Chapman–Kolmogorov (Day 6), \(\E[\mathbb 1\{S_t = s'\} \mid S_0 = s] = \big((P^\pi)^t\big)_{ss'}\). Summing the series,</p>
+    $$M^\pi = \sum_{t=0}^{\infty} (\gamma P^\pi)^t = (I - \gamma P^\pi)^{-1},$$
+    <p>which is exactly the Neumann series of <a href="m00.html#d4">Day 4</a>. Since \(v^\pi = (I - \gamma P^\pi)^{-1} r^\pi\) there, we get</p>
+    $$v^\pi = M^\pi r^\pi:\quad \text{value} = \text{discounted occupancy} \times \text{reward}.$$
+    <p>Multiplying out \((I - \gamma P^\pi) M^\pi = I\) gives \(M^\pi = I + \gamma P^\pi M^\pi\), a Bellman equation whose “reward” is the indicator vector \(\mathbf 1_s\). So \(M\) can be learned by TD from sampled transitions, one row at a time:</p>
+    $$M(S_t, \cdot) \leftarrow M(S_t, \cdot) + \alpha\big[\mathbf 1_{S_t} + \gamma\, M(S_{t+1}, \cdot) - M(S_t, \cdot)\big].$$
+  </div>
+  <p>Row \(M(s, \cdot)\) is a <em>predictive map</em>: two states have similar rows when they are close in time under \(\pi\), whatever their distance in space. Dayan introduced it to help TD generalize, since states that lead to the same places should have similar values.</p>
+
+  <h3>Decoupling dynamics from reward</h3>
+  <p>Because \(v^\pi = M^\pi r\), a change of reward with the dynamics and the policy held fixed is absorbed at once: \(v_{\text{new}} = M^\pi r_{\text{new}}\). A model-free agent with cached values has to relearn them from experience, and a model-based agent has to replan; an SR agent does one matrix–vector product. The weak spots are just as clear. If the transitions change (a new wall), \(M\) is wrong everywhere upstream of the change and has to be relearned. And \(M^\pi\) belongs to one policy: it evaluates the <em>old</em> policy on the new reward, which is not the same as acting well on it. Generalized policy improvement, below, is what closes that gap.</p>
+  <pre><code>import numpy as np
+
+n, gamma, alpha = 7, 0.9, 0.01
+P = np.zeros((n, n))                          # random walk on a ring of 7 states
+for s in range(n):
+    P[s, (s - 1) % n] = P[s, (s + 1) % n] = 0.5
+
+M = np.linalg.inv(np.eye(n) - gamma * P)      # closed form: M = sum_k (gamma P)^k
+r_a, r_b = np.eye(n)[3], np.eye(n)[0]         # two tasks: reward in state 3, or in state 0
+print(np.round(M @ r_a, 2))                   # v for task a ...
+print(np.round(M @ r_b, 2))                   # ... and task b, from the same M, no relearning
+
+rng, M_td, s = np.random.default_rng(0), np.zeros((n, n)), 0
+for t in range(200_000):                      # TD learning of M from one long trajectory
+    s2 = rng.choice(n, p=P[s])
+    M_td[s] += alpha * (np.eye(n)[s] + gamma * M_td[s2] - M_td[s])
+    s = s2
+print(np.abs(M_td - M).max() / M.max())       # a few per cent: a constant alpha leaves a noise floor</code></pre>
+
+  <h3>Successor features</h3>
+  <div class="box def"><span class="tag">Definition · successor features (Barreto et al. 2017)</span>
+    <p>Suppose rewards are linear in some features, \(r(s, a, s') = \phi(s, a, s')^\top \mathbf w\) with \(\phi \in \R^d\). Write \(\phi_{t+1} = \phi(S_t, A_t, S_{t+1})\). The successor features of \(\pi\) are</p>
+    $$\psi^\pi(s, a) = \E_\pi\Big[\sum_{i=0}^{\infty} \gamma^i\, \phi_{t+i+1} \,\Big|\, S_t = s, A_t = a\Big] \in \R^d.$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · \(Q = \psi^\top \mathbf w\), and how to learn \(\psi\)</span>
+    $$Q^\pi(s, a) = \E_\pi\Big[\sum_i \gamma^i R_{t+i+1} \,\Big|\, s, a\Big] = \E_\pi\Big[\sum_i \gamma^i \phi_{t+i+1}^\top \mathbf w \,\Big|\, s, a\Big] = \psi^\pi(s, a)^\top \mathbf w,$$
+    <p>by linearity of expectation, because \(\mathbf w\) is a constant. Splitting off the first term as for any return,</p>
+    $$\psi^\pi(s, a) = \E\big[\phi_{t+1} + \gamma\, \psi^\pi(S_{t+1}, A_{t+1}) \,\big|\, S_t = s, A_t = a\big], \qquad A_{t+1} \sim \pi(\cdot \mid S_{t+1}),$$
+    <p>so \(\psi\) is learned by vector-valued TD, one TD target per feature, exactly like a Q-function with \(d\) outputs per action. The weights come from regressing observed rewards on features, \(\min_{\mathbf w} \sum_t (R_{t+1} - \phi_{t+1}^\top \mathbf w)^2\). With \(\phi(s, a, s')\) the one-hot vector of \(s'\), \(\psi\) is the successor representation again.</p>
+  </div>
+  <p>In deep RL the features are learned as well, usually by making \(\phi\) good at predicting rewards across several training tasks (Kulkarni et al. 2016 trained a deep SR this way; Barreto et al. 2017 learned \(\phi\) from a set of tasks). The decomposition is exact for any \(\phi\); what transfers is limited by whether the new rewards really are linear, or nearly linear, in it.</p>
+
+  <h3>Generalized policy improvement across tasks</h3>
+  <div class="box thm"><span class="tag">Theorem · generalized policy improvement (Barreto et al. 2017)</span>
+    <p>Let \(\pi_1, \dots, \pi_n\) be policies and \(\tilde Q^{\pi_i}\) approximations of their action values with \(|Q^{\pi_i}(s, a) - \tilde Q^{\pi_i}(s, a)| \le \epsilon\) for all \(s, a, i\). Define the GPI policy</p>
+    $$\pi(s) \in \argmax_a \max_i \tilde Q^{\pi_i}(s, a).$$
+    <p>Then \(Q^\pi(s, a) \ge \max_i Q^{\pi_i}(s, a) - \dfrac{2\epsilon}{1 - \gamma}\) for all \(s, a\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof · exact case, \(\epsilon = 0\)</span>
+    <p>Let \(Q_{\max}(s, a) = \max_i Q^{\pi_i}(s, a)\), and let \(T^\pi Q(s, a) = r(s, a) + \gamma\, \E[Q(S', \pi(S')) \mid s, a]\). Since \(\pi\) is greedy with respect to \(Q_{\max}\), for every \(i\):</p>
+    $$T^\pi Q_{\max}(s, a) = r(s, a) + \gamma\, \E\big[\max_{a'} Q_{\max}(S', a')\big] \;\ge\; r(s, a) + \gamma\, \E\big[v_{\pi_i}(S')\big] = Q^{\pi_i}(s, a),$$
+    <p>using \(v_{\pi_i}(s') \le \max_{a'} Q^{\pi_i}(s', a') \le \max_{a'} Q_{\max}(s', a')\). Taking the max over \(i\) gives \(T^\pi Q_{\max} \ge Q_{\max}\). \(T^\pi\) is monotone (\(Q \ge Q'\) implies \(T^\pi Q \ge T^\pi Q'\)), so \((T^\pi)^k Q_{\max} \ge Q_{\max}\) for every \(k\), and \((T^\pi)^k Q_{\max} \to Q^\pi\) because \(T^\pi\) is a \(\gamma\)-contraction (Day 32). Hence \(Q^\pi \ge Q_{\max}\). With \(n = 1\) this is the policy improvement theorem of Day 29; GPI extends it from one policy to a set.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 226" role="img" aria-label="Successor features of old policies are combined with new reward weights, then maximized over policies and actions">
+      <defs>
+        <marker id="ah-d116" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <text x="95" y="18" class="s-ink3 s-mid s-sm">learned once, on old tasks</text>
+      <text x="326" y="18" class="s-ink3 s-mid s-sm">new task, no learning</text>
+      <rect x="20" y="30" width="150" height="40" rx="6" class="s-node-mod"/>
+      <text x="95" y="47" class="s-mid">ψ₁(s, a)</text><text x="95" y="62" class="s-ink2 s-mid s-sm">SFs of policy π₁</text>
+      <rect x="20" y="92" width="150" height="40" rx="6" class="s-node-mod"/>
+      <text x="95" y="109" class="s-mid">ψ₂(s, a)</text><text x="95" y="124" class="s-ink2 s-mid s-sm">SFs of policy π₂</text>
+      <rect x="20" y="154" width="150" height="40" rx="6" class="s-node-mod"/>
+      <text x="95" y="171" class="s-mid">ψ₃(s, a)</text><text x="95" y="186" class="s-ink2 s-mid s-sm">SFs of policy π₃</text>
+      <circle cx="215" cy="50" r="17" class="s-node"/><text x="215" y="54" class="s-mid">·w′</text>
+      <circle cx="215" cy="112" r="17" class="s-node"/><text x="215" y="116" class="s-mid">·w′</text>
+      <circle cx="215" cy="174" r="17" class="s-node"/><text x="215" y="178" class="s-mid">·w′</text>
+      <line x1="170" y1="50" x2="196" y2="50" class="s-ln" marker-end="url(#ah-d116)"/>
+      <line x1="170" y1="112" x2="196" y2="112" class="s-ln" marker-end="url(#ah-d116)"/>
+      <line x1="170" y1="174" x2="196" y2="174" class="s-ln" marker-end="url(#ah-d116)"/>
+      <line x1="232" y1="50" x2="260" y2="50" class="s-ln" marker-end="url(#ah-d116)"/>
+      <line x1="232" y1="112" x2="260" y2="112" class="s-ln" marker-end="url(#ah-d116)"/>
+      <line x1="232" y1="174" x2="260" y2="174" class="s-ln" marker-end="url(#ah-d116)"/>
+      <rect x="262" y="30" width="128" height="40" rx="6" class="s-node"/><text x="326" y="54" class="s-mid">Q₁ = ψ₁ᵀw′</text>
+      <rect x="262" y="92" width="128" height="40" rx="6" class="s-node"/><text x="326" y="116" class="s-mid">Q₂ = ψ₂ᵀw′</text>
+      <rect x="262" y="154" width="128" height="40" rx="6" class="s-node"/><text x="326" y="178" class="s-mid">Q₃ = ψ₃ᵀw′</text>
+      <line x1="390" y1="50" x2="428" y2="98" class="s-ln" marker-end="url(#ah-d116)"/>
+      <line x1="390" y1="112" x2="428" y2="112" class="s-ln" marker-end="url(#ah-d116)"/>
+      <line x1="390" y1="174" x2="428" y2="126" class="s-ln" marker-end="url(#ah-d116)"/>
+      <rect x="430" y="82" width="100" height="60" rx="6" class="s-node-mod"/>
+      <text x="480" y="107" class="s-mid">max over i</text><text x="480" y="127" class="s-ink2 s-mid s-sm">Qᵢ(s, a)</text>
+      <line x1="530" y1="112" x2="558" y2="112" class="s-ln" marker-end="url(#ah-d116)"/>
+      <rect x="560" y="82" width="100" height="60" rx="6" class="s-node-mod"/>
+      <text x="610" y="107" class="s-mid">argmax over a</text><text x="610" y="127" class="s-ink2 s-mid s-sm">→ action π(s)</text>
+      <text x="545" y="172" class="s-mod s-mid s-sm">guarantee: π ≥ every πᵢ</text>
+      <text x="215" y="216" class="s-ink2 s-mid s-sm">w′: fit r ≈ φᵀw′ on the new task</text>
+    </svg>
+    <figcaption><b>Transfer by successor features and GPI.</b> Each old policy's successor features turn the new task's reward weights into that policy's action values with one dot product. Taking the max over policies and then the argmax over actions gives a policy guaranteed to be at least as good as every policy in the library on the new task.</figcaption>
+  </figure>
+
+  <h3>Fast transfer to new reward functions</h3>
+  <div class="box algo"><span class="tag">Algorithm · transfer with SFs and GPI</span>
+    <ol>
+      <li>Train on tasks \(\mathbf w_1, \dots, \mathbf w_n\). For each, keep its policy \(\pi_i\) and successor features \(\psi^{\pi_i}\).</li>
+      <li>New task: estimate \(\mathbf w'\) by regressing a handful of observed rewards on \(\phi\), or receive it directly.</li>
+      <li>Act immediately with \(\pi(s) = \argmax_a \max_i \psi^{\pi_i}(s, a)^\top \mathbf w'\). Every old policy has been evaluated on the new task for free.</li>
+      <li>Optionally train a new policy for \(\mathbf w'\), starting from the GPI behaviour, and add its \(\psi\) to the library.</li>
+    </ol>
+  </div>
+  <p>Barreto et al. also bound how far the GPI policy can fall short of optimal on the new task: roughly, the loss grows with the distance from \(\mathbf w'\) to the nearest training task plus the approximation error. So the library helps most for tasks near ones already solved. Later work conditions the successor features on the task itself, \(\psi(s, a, \mathbf w)\), to generalize between library policies (universal successor features approximators, Borsa et al. 2019).</p>
+  <pre><code>import numpy as np
+
+n, gamma = 9, 0.9                       # chain 0..8; both ends are terminal; actions 0 = left, 1 = right
+def phi(s2):                            # features of the state reached: [hit left end, hit right end]
+    return np.array([s2 == 0, s2 == n - 1], dtype=float)
+
+def successor_features(policy, sweeps=100):
+    """psi[s, a] = E[sum_i gamma^i phi_{t+i+1} | S_t = s, A_t = a, then follow policy]."""
+    psi = np.zeros((n, 2, 2))
+    for _ in range(sweeps):             # iterate the SF Bellman equation (deterministic chain)
+        for s in range(1, n - 1):
+            for a in (0, 1):
+                s2 = s - 1 if a == 0 else s + 1
+                psi[s, a] = phi(s2) + (0 if s2 in (0, n - 1) else gamma * psi[s2, policy[s2]])
+    return psi
+
+left, right = np.zeros(n, int), np.ones(n, int)
+library = [successor_features(left), successor_features(right)]   # learned once, for tasks w=(1,0), (0,1)
+
+def gpi(w):
+    Q = np.stack([psi @ w for psi in library])   # Q^{pi_i}_w(s, a) = psi^{pi_i}(s, a) . w, for every old policy
+    return Q.max(axis=0).argmax(axis=1)[1:-1]    # max over policies, argmax over actions (interior states)
+
+for w in ([1.0, 0.0], [1.0, 1.0], [1.0, 2.0], [-1.0, -1.0]):
+    print(w, "".join("LR"[a] for a in gpi(np.array(w))))</code></pre>
+  <p class="code-cap">Output, for the interior states 1–7: <code>LLLLLLL</code>, <code>LLLLRRR</code> (head for the nearer end), <code>RRRRRRR</code> (the right end is worth the detour) and <code>RLLLRRL</code>. In the last task both ends are bad. The GPI policy goes right from state 1 and left from state 2, and similarly near the right end, so the agent bounces forever and earns 0, strictly better than either library policy, which each earn a negative return. The guarantee is “at least as good as every policy in the library”, and here it is better than all of them.</p>
+
+  <h3>Connection to neuroscience</h3>
+  <p>Stachenfeld, Botvinick &amp; Gershman (2017) proposed that hippocampal place cells encode something like the successor representation: the cell associated with location \(s'\), as the animal moves through \(s\), fires like \(M(s, s')\), a prediction of discounted future occupancy rather than a pure marker of current position. The hypothesis accounts for observations that a purely spatial code does not, such as place fields that skew backwards along a habitually travelled track, fields distorted near barriers, and the dependence of fields on the animal's behaviour. It also proposes that entorhinal grid cells resemble the low-frequency eigenvectors of the SR, a compressed basis for it. On the behavioural side, Momennejad et al. (2017) found that people adapt more readily to changes in reward than to changes in transition structure, the asymmetry an SR learner predicts, although their data were fit best by a hybrid of SR and model-based planning.</p>
+  <div class="box note"><span class="tag">Stated carefully</span>
+    <p>This is a computational hypothesis with supporting evidence, not established fact. Other accounts of place and grid cells exist, the mapping from \(M\) to firing rates is a modelling assumption, and the SR fits some datasets better than others. The lesson for RL does not depend on how the neuroscience settles: predictive representations sit between model-free and model-based learning, making reward changes cheap and transition changes expensive.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Rewards that aren't linear in \(\phi\).</b> \(Q = \psi^\top \mathbf w\) is exact only if \(r = \phi^\top \mathbf w\). Otherwise transfer is approximate, and with learned features you rarely know by how much.</li>
+      <li><b>Policy dependence.</b> \(M^\pi\) and \(\psi^\pi\) evaluate \(\pi\). Without GPI or further learning, “instant revaluation” only tells you how badly the old policy does on the new task.</li>
+      <li><b>Changed dynamics.</b> A new wall invalidates \(M\) for every state whose future passes through it. The SR handles reward revaluation well and transition revaluation badly.</li>
+      <li><b>Size.</b> Tabular SR stores \(|\mathcal S|^2\) numbers, and SFs are \(d\) coupled TD problems per state–action pair, each with its own variance.</li>
+      <li><b>Library coverage.</b> GPI can only stitch together what its policies already do. For tasks far from every \(\mathbf w_i\) the bound is loose and the behaviour can be poor.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Compute \(M\) for a random walk on a 7×7 grid with a wall segment in the middle. Plot several rows \(M(s, \cdot)\) as heatmaps and see the fields bend around the wall. Then make the policy “mostly right” and watch them skew.</li>
+      <li>Learn \(M\) by TD from one trajectory with \(\alpha = 0.1\), \(\alpha = 0.01\) and a decaying \(\alpha_k\). Plot the maximum relative error against steps.</li>
+      <li>In the GPI snippet, add a third policy, “go to the nearer end”, and try \(\mathbf w' \in \{(1, 1.2), (-1, 2), (-1, -1)\}\). Evaluate the GPI policy exactly (solve its Bellman equation) and verify \(Q^\pi \ge \max_i Q^{\pi_i}\) everywhere.</li>
+      <li>Compute the leading eigenvectors of \(M\) on the open 7×7 grid and plot them. Compare them with the grid-cell-like patterns in Stachenfeld et al. (2017).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Dayan 1993, “Improving Generalization for Temporal Difference Learning: The Successor Representation” · Barreto et al. 2017, “Successor Features for Transfer in Reinforcement Learning” · Barreto et al. 2020, “Fast Reinforcement Learning with Generalized Policy Updates” · Stachenfeld, Botvinick &amp; Gershman 2017, “The Hippocampus as a Predictive Map” · Momennejad et al. 2017, “The Successor Representation in Human Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 117 -->
+<article class="day" id="d117">
+  <header class="day-head">
+    <span class="day-no">DAY 117</span>
+    <h2>Meta-RL</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Meta-RL trains on a distribution of tasks so that the agent becomes a fast learner on a new task from that distribution. The learning algorithm that comes out can live in a recurrent network's hidden state (RL²), in an initialization that a few gradient steps specialize (MAML), or in a posterior over a latent task variable (PEARL).</p>
+
+  <h3>Learning to learn</h3>
+  <p>Ordinary RL produces a policy for one MDP. Meta-RL produces an <em>adaptation procedure</em>: given a small budget of experience in a new task, it returns a good policy for that task. The budget is the point. Given millions of steps, any RL algorithm adapts; meta-RL is about doing it in a few episodes.</p>
+  <div class="box def"><span class="tag">Definition · the meta-RL problem</span>
+    <p>Tasks \(\mathcal T \sim p(\mathcal T)\) are MDPs \((\mathcal S, \mathcal A, p_{\mathcal T}, r_{\mathcal T}, \gamma)\) that share state and action spaces. An adaptation procedure \(f_\theta\) maps experience \(\mathcal D_{\mathcal T}\) gathered in a task to a policy. Meta-RL solves</p>
+    $$\max_\theta\ \E_{\mathcal T \sim p(\mathcal T)}\Big[\E\big[G \,\big|\, \pi = f_\theta(\mathcal D_{\mathcal T}),\ \mathcal T\big]\Big],$$
+    <p>where \(\mathcal D_{\mathcal T}\) is collected by the agent itself, so the agent also has to learn how to explore in order to find out which task it is in.</p>
+  </div>
+  <p>The ideal is Bayes-optimal behaviour. Given the prior \(p(\mathcal T)\), the best possible agent keeps a posterior over tasks, explores exactly as much as the information is worth, and exploits the rest of the time. Planning in this Bayes-adaptive MDP is intractable in general, and meta-RL methods can be read as learned approximations to it, which VariBAD (Zintgraf et al. 2020) makes explicit. The simplest instance is a bandit whose arm means are drawn from a prior (Day 16): there, a good meta-learner should rediscover something like Thompson sampling.</p>
+
+  <h3>The meta-training / meta-testing protocol</h3>
+  <p>Tasks are split like a dataset, into meta-training tasks and held-out meta-test tasks from the same distribution. A <em>trial</em> is a fixed budget of experience, say \(K\) episodes, in one task. During meta-training the outer loop updates \(\theta\) from trials across many training tasks. At meta-test time \(\theta\) is frozen, the adaptation procedure runs on each new task, and you report return as a function of how much experience the agent has had in that task (after 0, 1, 2, … episodes or gradient steps).</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Benchmark</th><th>What varies between tasks</th><th>Kind of variation</th></tr></thead>
+    <tbody>
+      <tr><td>Bernoulli bandits, small random MDPs (RL²)</td><td>arm means; transition and reward tables</td><td>parametric, but the agent must explore</td></tr>
+      <tr><td>2-D point navigation</td><td>goal location (often sparse, on a semicircle)</td><td>parametric</td></tr>
+      <tr><td>HalfCheetah-Vel / -Dir, Ant-Dir</td><td>target velocity or direction in the reward</td><td>parametric, one or two numbers</td></tr>
+      <tr><td>Hopper / Walker random parameters (PEARL)</td><td>masses, damping, friction</td><td>parametric dynamics</td></tr>
+      <tr><td>Meta-World ML10 / ML45 (Yu et al. 2019)</td><td>the manipulation task itself, tested on held-out task types</td><td>non-parametric</td></tr>
+    </tbody>
+  </table></div>
+  <p>The last column matters. When tasks differ by one scalar, “learning to learn” reduces to identifying that scalar from a few transitions, which is system identification. Only non-parametric suites like ML10 and ML45 ask for adaptation to genuinely new behaviours, and current methods do much worse on them.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 238" role="img" aria-label="RL2 carries a hidden state across the episodes of a trial; MAML adapts parameters by a gradient step and differentiates through it">
+      <defs>
+        <marker id="ah-d117" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d117m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <line x1="336" y1="10" x2="336" y2="228" class="s-grid"/>
+      <text x="166" y="22" class="s-ttl s-mid">RL²: adaptation in the hidden state</text>
+      <text x="166" y="50" class="s-ink2 s-mid s-sm">input each step: (sₜ, aₜ₋₁, rₜ₋₁, dₜ₋₁)</text>
+      <rect x="20" y="66" width="84" height="48" rx="6" class="s-node-mod"/>
+      <text x="62" y="87" class="s-mid s-sm">episode 1</text><text x="62" y="104" class="s-ink2 s-mid s-sm">explore</text>
+      <rect x="124" y="66" width="84" height="48" rx="6" class="s-node-mod"/>
+      <text x="166" y="87" class="s-mid s-sm">episode 2</text><text x="166" y="104" class="s-ink2 s-mid s-sm">exploit</text>
+      <rect x="228" y="66" width="84" height="48" rx="6" class="s-node-mod"/>
+      <text x="270" y="87" class="s-mid s-sm">episode 3</text><text x="270" y="104" class="s-ink2 s-mid s-sm">exploit</text>
+      <line x1="104" y1="90" x2="122" y2="90" class="s-ln-mod" marker-end="url(#ah-d117m)"/>
+      <line x1="208" y1="90" x2="226" y2="90" class="s-ln-mod" marker-end="url(#ah-d117m)"/>
+      <text x="114" y="80" class="s-mod s-mid s-sm">h</text><text x="218" y="80" class="s-mod s-mid s-sm">h</text>
+      <line x1="20" y1="130" x2="312" y2="130" class="s-ln"/>
+      <line x1="20" y1="124" x2="20" y2="136" class="s-ln"/><line x1="312" y1="124" x2="312" y2="136" class="s-ln"/>
+      <text x="166" y="150" class="s-ink2 s-mid s-sm">one trial in task i: h is reset only here</text>
+      <text x="166" y="176" class="s-ink2 s-mid s-sm">outer RL maximizes the whole trial's return</text>
+      <text x="166" y="194" class="s-ink3 s-mid s-sm">weights: slow learner · activations: fast</text>
+      <text x="510" y="22" class="s-ttl s-mid">MAML: adaptation is a gradient step</text>
+      <circle cx="390" cy="118" r="18" class="s-node-mod"/><text x="390" y="122" class="s-mid">θ</text>
+      <circle cx="560" cy="58" r="18" class="s-node"/><text x="560" y="62" class="s-mid">θ′₁</text>
+      <circle cx="560" cy="118" r="18" class="s-node"/><text x="560" y="122" class="s-mid">θ′₂</text>
+      <circle cx="560" cy="178" r="18" class="s-node"/><text x="560" y="182" class="s-mid">θ′₃</text>
+      <line x1="408" y1="112" x2="542" y2="62" class="s-ln-mod" marker-end="url(#ah-d117m)"/>
+      <line x1="408" y1="118" x2="540" y2="118" class="s-ln-mod" marker-end="url(#ah-d117m)"/>
+      <line x1="408" y1="124" x2="542" y2="174" class="s-ln-mod" marker-end="url(#ah-d117m)"/>
+      <text x="438" y="80" class="s-mod s-mid s-sm">θ + α∇Ĵᵢ(θ)</text>
+      <text x="586" y="62" class="s-ink2 s-sm">Jᵢ(θ′ᵢ)</text>
+      <text x="586" y="122" class="s-ink2 s-sm">Jᵢ(θ′ᵢ)</text>
+      <text x="586" y="182" class="s-ink2 s-sm">Jᵢ(θ′ᵢ)</text>
+      <path d="M545,190 C500,222 420,214 396,140" class="s-ln-acc s-dash" marker-end="url(#ah-d117)"/>
+      <text x="480" y="230" class="s-acc s-mid s-sm">meta-gradient through the inner step</text>
+    </svg>
+    <figcaption><b>Two places to put the learning algorithm.</b> RL² feeds rewards and episode boundaries to a recurrent policy and never resets its memory within a trial, so whatever it learns about the task in episode 1 is available in episode 2. MAML keeps an ordinary policy but trains its initial parameters \(\theta\) so that one policy-gradient step on any task's data lands somewhere good, differentiating through that step.</figcaption>
+  </figure>
+
+  <h3>RL²: a recurrent policy as a learning algorithm</h3>
+  <p>RL² (Duan et al. 2016) and, concurrently, Wang et al. (2016) use the same recipe. A recurrent policy receives \((s_t, a_{t-1}, r_{t-1}, d_{t-1})\), where \(d\) flags the end of an episode. Its hidden state is reset at the start of each trial but <em>not</em> between the episodes of a trial, and the outer RL algorithm (TRPO in Duan et al., an advantage actor–critic in Wang et al.) maximizes the total return of the whole trial. Because return in episode 2 counts, information gathered in episode 1 is worth something, so the network learns to explore early and exploit late. After meta-training the weights are frozen, and “learning” in a new task is nothing but the hidden state evolving: slow RL, gradient descent on weights, has produced a fast RL algorithm that runs in the activations.</p>
+  <div class="box algo"><span class="tag">Algorithm · RL² meta-training</span>
+    <ol>
+      <li>Repeat:
+        <ol>
+          <li>Sample a batch of tasks \(\mathcal T_j \sim p(\mathcal T)\).</li>
+          <li>For each task: reset \(h\); run \(K\) episodes, feeding \((s_t, a_{t-1}, r_{t-1}, d_{t-1})\) at every step and carrying \(h\) across episode boundaries.</li>
+          <li>Treat each trial as one long episode whose return sums all \(K\) episodes, and update \(\theta\) with PPO, TRPO or A2C, backpropagating through time in the RNN.</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>On multi-armed bandits, RL² comes close to hand-designed near-optimal strategies such as Gittins indices and Thompson sampling, and it learns sensible behaviour on small random MDPs and on visual mazes, where it remembers the goal after finding it once. Its weaknesses are optimization and generalization. Trials are long, so the outer loop must assign credit across thousands of steps with a sample-hungry on-policy algorithm. And the learned algorithm has no built-in notion that it is doing RL at all, so on tasks outside the training distribution it can simply stop working.</p>
+
+  <h3>MAML: learning an initialization</h3>
+  <p>MAML (Finn, Abbeel &amp; Levine 2017) puts the adaptation into a few gradient steps. It looks for parameters \(\theta\) such that one or a few policy-gradient steps on a new task's data produce a good policy for that task.</p>
+  <div class="box deriv"><span class="tag">Derivation · the two-level gradient</span>
+    <p><b>Inner step</b> (adaptation to task \(i\)), with \(\hat J_i\) estimated from \(K\) trajectories sampled with \(\pi_\theta\) in task \(i\):</p>
+    $$\theta'_i = \theta + \alpha\, \nabla_\theta \hat J_i(\theta).$$
+    <p><b>Outer objective</b>, evaluated with fresh trajectories from \(\pi_{\theta'_i}\): \(\max_\theta \sum_i J_i(\theta'_i)\). By the chain rule through the inner step,</p>
+    $$\nabla_\theta J_i(\theta'_i) = \Big(\frac{\partial \theta'_i}{\partial \theta}\Big)^{\!\top} \nabla_{\theta'} J_i(\theta'_i) = \big(I + \alpha\, \nabla^2_\theta \hat J_i(\theta)\big)\, \nabla_{\theta'} J_i(\theta'_i),$$
+    <p>using the symmetry of the Hessian. The Hessian is never formed: automatic differentiation computes the Hessian-vector product for roughly the cost of one more backward pass. First-order MAML drops the second term (\(\partial\theta'/\partial\theta \approx I\)); Reptile (Nichol et al. 2018) is another first-order variant.</p>
+  </div>
+  <p>The original paper uses vanilla policy gradient for the inner step and TRPO for the outer one. RL adds a trap that supervised MAML does not have. \(\nabla_\theta \hat J\) is a score-function estimate built from samples drawn from \(\pi_\theta\), so its derivative with respect to \(\theta\) must include how the sampling distribution moves with \(\theta\). Autodiff of the usual surrogate <code>mean(log π · R)</code> misses that term, because the sampled actions are constants to it. The DiCE estimator (Foerster et al. 2018) and ProMP (Rothfuss et al. 2019) fix this. The snippet measures the error on a problem with a known answer.</p>
+  <pre><code>import torch
+
+torch.manual_seed(0)
+alpha, sigma, K, c = 0.1, 0.5, 256, 1.5        # inner step size, policy std, episodes per batch, task target
+theta = torch.zeros(1, requires_grad=True)     # mean of a Gaussian policy; one-step task with reward -(a - c)^2
+
+def surrogate(mean, dice):
+    dist = torch.distributions.Normal(mean, sigma)
+    a = dist.sample((K,))                      # sampling itself is not differentiable
+    r = -(a - c) ** 2
+    logp = dist.log_prob(a)
+    w = torch.exp(logp - logp.detach()) if dice else logp   # DiCE: equals 1, but every derivative sees logp
+    return (w * r).mean()                      # gradient = score-function estimate of dJ/dmean
+
+def meta_gradient(dice):
+    g = torch.autograd.grad(surrogate(theta, dice), theta, create_graph=True)[0]   # inner policy gradient
+    theta_i = theta + alpha * g                                                     # adapted parameters
+    return torch.autograd.grad(surrogate(theta_i, dice=True), theta)[0]             # d J(theta_i) / d theta
+
+exact = 2 * (1 - 2 * alpha) ** 2 * (c - theta.item())   # J(theta') = -(1-2a)^2 (theta-c)^2 - sigma^2
+for dice in (True, False):
+    est = torch.stack([meta_gradient(dice) for _ in range(4000)]).mean().item()
+    print(f"dice={dice!s:5}  meta-gradient {est:.2f}   exact {exact:.2f}")</code></pre>
+  <p class="code-cap">Output: 1.94 with DiCE against the exact 1.92 (the small remainder is a genuine \(\alpha^2\) effect of adapting with a noisy inner gradient), and 4.78 with the naive surrogate. Here \(J(\theta) = -(\theta - c)^2 - \sigma^2\), so the true inner-step Jacobian is \(1 - 2\alpha = 0.8\); the naive surrogate estimates it as \(1 + \alpha\,\E[-R]/\sigma^2 = 2.0\), more than double. The term \(\exp(\log\pi - \operatorname{stop\_grad}(\log\pi))\) is 1 in value, but its derivatives reproduce every score-function term.</p>
+  <p>A gradient step keeps doing something sensible on tasks outside the training distribution, if less well, which is MAML's main advantage over RL². Its costs are second-order meta-gradients with high variance, sensitivity to the inner step size \(\alpha\), and on-policy sampling in both loops.</p>
+
+  <h3>PEARL: probabilistic context variables</h3>
+  <p>RL² and MAML are on-policy in their outer loops and need many meta-training samples. PEARL (Rakelly et al. 2019) gets off-policy meta-training by separating task inference from control. An encoder \(q_\phi(z \mid c)\) infers a latent task variable \(z\) from a <em>context</em> \(c = \{(s_n, a_n, r_n, s'_n)\}\) of transitions collected in the current task, and the policy \(\pi_\theta(a \mid s, z)\) and critic \(Q_\theta(s, a, z)\) are ordinary SAC networks (Day 95) that take \(z\) as an extra input.</p>
+  <div class="box def"><span class="tag">Definition · PEARL's encoder and training</span>
+    <ul>
+      <li><b>Permutation-invariant posterior.</b> \(q_\phi(z \mid c_{1:N}) \propto \prod_{n=1}^{N} \Psi_\phi(z \mid c_n)\) with Gaussian factors \(\mathcal N(\mu_n, \sigma_n^2)\) from a network applied to each transition. The product is Gaussian, with precision \(1/\sigma^2 = \sum_n 1/\sigma_n^2\) and mean \(\mu = \sigma^2 \sum_n \mu_n / \sigma_n^2\), and the order of the transitions doesn't matter.</li>
+      <li><b>Losses.</b> \(z\) is sampled with the reparameterization trick, and the encoder is trained through the critic's Bellman error plus an information bottleneck \(\beta\, \KL\big(q_\phi(z \mid c)\,\|\,\mathcal N(0, I)\big)\).</li>
+      <li><b>Decoupled sampling.</b> Context is drawn from data recently collected in the task, while RL minibatches come from the whole replay buffer. The actor–critic is fully off-policy, and the encoder still sees contexts like the ones it will get at test time.</li>
+    </ul>
+  </div>
+  <p>At meta-test time PEARL explores by posterior sampling. It starts with \(z\) drawn from the prior, acts for a whole episode with that \(z\) fixed (a temporally consistent hypothesis about the task, as in Thompson sampling), adds the transitions to the context, resamples \(z\) from the now narrower posterior, and repeats. The paper reports 20–100× better meta-training sample efficiency than the on-policy methods on MuJoCo meta-RL benchmarks.</p>
+  <pre><code>import numpy as np
+
+def pearl_posterior(mus, sigmas2):
+    """Product of independent Gaussian factors N(mu_n, sigma_n^2), one per context transition.
+    Precisions add; the mean is the precision-weighted average. Order of transitions does not matter."""
+    precision = 1.0 / sigmas2
+    var = 1.0 / precision.sum(axis=0)
+    return var * (mus * precision).sum(axis=0), var
+
+rng = np.random.default_rng(0)
+z_true = np.array([0.8, -0.3])                        # the task's latent (unknown to the agent)
+for n in [1, 5, 50]:
+    mus = z_true + rng.normal(0, 1.0, (n, 2))         # stand-in for encoder outputs Psi_phi(z | c_n)
+    sig2 = np.full((n, 2), 1.0)
+    mean, var = pearl_posterior(mus, sig2)
+    print(n, np.round(mean, 2), np.round(np.sqrt(var), 2))   # posterior tightens as context grows</code></pre>
+
+  <h3>What fast adaptation looks like</h3>
+  <p>The standard demonstrations are worth reproducing because they show what the agent has learned to do. On 2-D navigation with a sparse goal somewhere on a semicircle, a meta-trained agent's first episode sweeps along the semicircle, an exploration strategy it learned was worthwhile, and its later episodes go straight to the goal it found. On HalfCheetah-Vel, the agent reaches the requested speed within an episode or two (PEARL, RL²) or after one gradient step (MAML), where a policy trained from scratch needs hundreds of episodes. Always plot return against adaptation episodes on meta-test tasks, alongside three baselines: a policy trained from scratch, multi-task pretraining followed by fine-tuning, and an oracle that is told the task.</p>
+
+  <div class="box trap"><span class="tag">What breaks · meta-overfitting</span>
+    <ul>
+      <li><b>Too few training tasks.</b> The agent learns to recognise which of its \(N\) training tasks it is in rather than to adapt, and tasks between them fail. With continuous task parameters, train on many sampled tasks and test on fresh samples.</li>
+      <li><b>Narrow distributions.</b> If tasks vary in one scalar, success says little about learning to learn; it shows that system identification of that scalar works.</li>
+      <li><b>Out-of-distribution tasks.</b> RL² and PEARL have no mechanism for improving beyond what their training distribution taught; MAML degrades more gracefully. Results on Meta-World's held-out task types are weak for all of them.</li>
+      <li><b>Wrong or noisy meta-gradients.</b> The naive surrogate above, high-variance second-order terms, and sensitivity to the inner step size.</li>
+      <li><b>Weak baselines.</b> Mandi et al. (2022) found multi-task pretraining plus fine-tuning competitive with meta-RL on several benchmarks. Include it.</li>
+      <li><b>Leaky evaluation.</b> Tuning hyperparameters on the meta-test tasks.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the MAML snippet for several values of \(K\) and \(\alpha\). Derive the expectation of the naive estimator by hand and check it against the printed number.</li>
+      <li>Implement RL² on two-armed Bernoulli bandits: arm means drawn uniformly per task, trials of 20 pulls, a GRU policy, and REINFORCE with a baseline over whole trials. Compare its cumulative regret with Thompson sampling and ε-greedy from Module 1.</li>
+      <li>Implement MAML on 2-D point navigation (goal drawn uniformly from a square, reward \(-\|x - g\|\)) with a small Gaussian MLP policy. Compare return after 0, 1 and 2 inner steps against a policy pretrained on all tasks jointly and then fine-tuned with the same steps.</li>
+      <li>Meta-overfitting: train the RL² bandit agent on only 4 fixed tasks, and again on the full distribution. Evaluate both on fresh tasks.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Duan et al. 2016, “RL²: Fast Reinforcement Learning via Slow Reinforcement Learning” · Wang et al. 2016, “Learning to Reinforcement Learn” · Finn, Abbeel &amp; Levine 2017, “Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks” · Rakelly et al. 2019, “Efficient Off-Policy Meta-Reinforcement Learning via Probabilistic Context Variables” · Rothfuss et al. 2019, “ProMP: Proximal Meta-Policy Search” · Beck et al. 2023, “A Survey of Meta-Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 118 -->
+<article class="day" id="d118">
+  <header class="day-head">
+    <span class="day-no">DAY 118</span>
+    <h2>Multi-Agent RL Foundations</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">With several learners, each agent's environment contains the other agents and their changing policies. “Optimal” gives way to “equilibrium”, the Markov property is lost from any single agent's point of view, and the standard workaround is to train with global information while acting only on local information.</p>
+
+  <h3>Stochastic games</h3>
+  <div class="box def"><span class="tag">Definition · Markov (stochastic) game</span>
+    <p>A Markov game (Shapley 1953; Littman 1994) is \(\langle \mathcal N, \mathcal S, \{\mathcal A^i\}, p, \{r^i\}, \gamma \rangle\): agents \(i \in \mathcal N = \{1, \dots, N\}\); a joint action \(\mathbf a = (a^1, \dots, a^N) \in \mathcal A = \mathcal A^1 \times \cdots \times \mathcal A^N\); transitions \(p(s' \mid s, \mathbf a)\); and one reward function \(r^i(s, \mathbf a, s')\) per agent. Each agent has a policy \(\pi^i(a^i \mid s)\), the joint policy is \(\boldsymbol\pi(\mathbf a \mid s) = \prod_i \pi^i(a^i \mid s)\), and agent \(i\)'s value</p>
+    $$v^i_{\boldsymbol\pi}(s) = \E_{\boldsymbol\pi}\Big[\sum_{t=0}^{\infty} \gamma^t R^i_{t+1} \,\Big|\, S_0 = s\Big]$$
+    <p>depends on everyone's policy. With partial observability each agent sees only \(o^i \sim O^i(\cdot \mid s)\) and conditions on its own history \(\tau^i\): a partially observable stochastic game, or a Dec-POMDP when all agents share one reward. With \(N = 1\) a Markov game is an MDP; with a single state it is a normal-form (matrix) game.</p>
+  </div>
+
+  <h3>Joint action spaces</h3>
+  <p>The joint action space is a product, so it grows exponentially: 10 agents with 5 actions each have \(5^{10} \approx 9.8\) million joint actions. A central controller that treats the team as one agent must learn values over that space and maximize over it at every step. Every practical method factorizes somewhere: independent learners, factored value functions (VDN, QMIX) or per-agent policies with a centralized critic (Day 119). When agents are interchangeable, <em>parameter sharing</em>, one network for all agents with an agent-ID input, is the other standard trick; it multiplies the data each network sees by \(N\).</p>
+
+  <h3>Cooperative, competitive and mixed settings</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Setting</th><th>Rewards</th><th>Examples</th><th>Solution concept</th></tr></thead>
+    <tbody>
+      <tr><td><b>Fully cooperative</b></td><td>\(r^1 = \cdots = r^N\)</td><td>StarCraft micromanagement (SMAC), Overcooked, warehouse robots</td><td>the team-optimal joint policy</td></tr>
+      <tr><td><b>Fully competitive</b></td><td>two-player zero-sum, \(r^1 = -r^2\)</td><td>Go, chess, heads-up poker</td><td>minimax value; Nash equilibrium</td></tr>
+      <tr><td><b>Mixed</b> (general-sum)</td><td>anything</td><td>traffic, negotiation, markets, social dilemmas</td><td>Nash and correlated equilibria, and others</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Nash and correlated equilibria</h3>
+  <div class="box def"><span class="tag">Definitions</span>
+    <p><b>Nash equilibrium.</b> A joint policy \(\boldsymbol\pi_*\) from which no agent gains by deviating alone: for every agent \(i\) and every policy \(\pi^i\),</p>
+    $$v^i_{(\pi^i,\, \boldsymbol\pi_*^{-i})}(s) \le v^i_{\boldsymbol\pi_*}(s) \quad \text{for all } s.$$
+    <p><b>Correlated equilibrium</b> (Aumann 1974). A distribution \(\sigma\) over joint actions, from which a mediator draws \(\mathbf a\) and privately tells each agent only its own \(a^i\), such that obeying is a best response: for every agent \(i\), every recommendation \(a^i\) that has positive probability, and every alternative \(\tilde a^i\),</p>
+    $$\sum_{\mathbf a^{-i}} \sigma(a^i, \mathbf a^{-i}) \big[r^i(a^i, \mathbf a^{-i}) - r^i(\tilde a^i, \mathbf a^{-i})\big] \ge 0.$$
+  </div>
+  <div class="box thm"><span class="tag">Results</span>
+    <p>Every finite game has a Nash equilibrium in mixed strategies (Nash 1950), and every finite discounted Markov game has one in stationary policies (Fink 1964). Two-player zero-sum games have a unique equilibrium value (von Neumann's minimax theorem), computable by linear programming, and minimax-Q learns it (Littman 1994). General-sum games can have many equilibria with different payoffs, and computing a Nash equilibrium is PPAD-complete even with two players (Chen &amp; Deng 2006). Correlated equilibria are cut out by linear inequalities, so linear programming finds them; every Nash equilibrium is one (take \(\sigma\) to be the product of the agents' mixed strategies); and when every agent runs a no-regret learner, the empirical distribution of play approaches the set of coarse correlated equilibria (with no-internal-regret learners, correlated equilibria; Hart &amp; Mas-Colell 2000).</p>
+  </div>
+  <p>A small example shows the difference. In the game of Chicken two drivers head towards each other and each either dares (D) or swerves (S):</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>row \ column</th><th>Dare</th><th>Swerve</th></tr></thead>
+    <tbody>
+      <tr><td><b>Dare</b></td><td class="num">(0, 0)</td><td class="num">(7, 2)</td></tr>
+      <tr><td><b>Swerve</b></td><td class="num">(2, 7)</td><td class="num">(6, 6)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box intuition"><span class="tag">Worked example · Chicken</span>
+    <ul>
+      <li><b>Pure Nash equilibria:</b> (D, S) and (S, D), with payoffs (7, 2) and (2, 7). Each is unfair, and the players need some way of agreeing which one to play.</li>
+      <li><b>Mixed Nash equilibrium:</b> each dares with the probability \(p\) that makes the other indifferent, \(0 \cdot p + 7(1-p) = 2p + 6(1-p)\), so \(p = 1/3\). Each expects \(14/3 \approx 4.67\), and they crash with probability \(1/9\).</li>
+      <li><b>A correlated equilibrium:</b> a traffic light draws uniformly from \(\{(D, S), (S, D), (S, S)\}\). Told “dare”, a driver knows the other was told “swerve”: \(7 &gt; 6\), so obey. Told “swerve”, the other is equally likely to have been told either: obeying gives \(\tfrac12 \cdot 2 + \tfrac12 \cdot 6 = 4\), deviating gives \(\tfrac12 \cdot 0 + \tfrac12 \cdot 7 = 3.5\), so obey. Each expects \((7 + 2 + 6)/3 = 5 &gt; 4.67\), and nobody ever crashes.</li>
+    </ul>
+  </div>
+  <pre><code>import numpy as np
+from itertools import product
+
+# Chicken: actions 0 = Dare, 1 = Swerve. R1[a1, a2] is the row player's payoff, R2 the column player's.
+R1 = np.array([[0, 7], [2, 6]])
+R2 = R1.T
+
+def pure_nash(R1, R2):
+    """Joint actions where each player's action is a best response to the other's."""
+    return [(i, j) for i, j in product(range(R1.shape[0]), range(R1.shape[1]))
+            if R1[i, j] == R1[:, j].max() and R2[i, j] == R2[i, :].max()]
+
+def is_correlated_eq(sigma, R1, R2, tol=1e-9):
+    """sigma[a1, a2]: a distribution over joint actions. Check every 'obey vs deviate' constraint."""
+    for a, dev in product(range(2), range(2)):
+        if (sigma[a, :] @ (R1[a, :] - R1[dev, :]) &lt; -tol or     # row player told a, considers dev
+                sigma[:, a] @ (R2[:, a] - R2[:, dev]) &lt; -tol):  # column player told a, considers dev
+            return False
+    return True
+
+print(pure_nash(R1, R2))                         # [(0, 1), (1, 0)]: one dares, the other swerves
+p = 1 / 3                                        # mixed NE: each dares w.p. 1/3 (makes the other indifferent)
+mixed = np.outer([p, 1 - p], [p, 1 - p])
+print(is_correlated_eq(mixed, R1, R2), (mixed * R1).sum())          # True 4.667: every NE is a CE
+ce = np.array([[0, 1/3], [1/3, 1/3]])            # mediator: uniform over (D,S), (S,D), (S,S)
+print(is_correlated_eq(ce, R1, R2), (ce * R1).sum())                # True 5.0: better for both, and fair</code></pre>
+
+  <h3>Non-stationarity from each agent's view</h3>
+  <div class="box deriv"><span class="tag">Derivation · the MDP that agent \(i\) actually faces</span>
+    <p>Fix the other agents' policies \(\boldsymbol\pi^{-i}\) and marginalize their actions out. Agent \(i\) then faces an ordinary MDP with</p>
+    $$p^i(s' \mid s, a^i) = \sum_{\mathbf a^{-i}} \boldsymbol\pi^{-i}(\mathbf a^{-i} \mid s)\; p(s' \mid s, a^i, \mathbf a^{-i}), \qquad r^i(s, a^i) = \sum_{\mathbf a^{-i}} \boldsymbol\pi^{-i}(\mathbf a^{-i} \mid s)\; r^i(s, a^i, \mathbf a^{-i}).$$
+    <p>Both depend on \(\boldsymbol\pi^{-i}\). When the other agents learn, \(\boldsymbol\pi^{-i}\) changes, so the MDP agent \(i\) faces changes with it. Q-learning's convergence proof assumes a fixed MDP, so it no longer applies: each agent's best response is a moving target, and each agent's learning moves everyone else's target.</p>
+  </div>
+  <p>The practical consequences:</p>
+  <ul>
+    <li><b>Independent learners</b> (Tan 1993) run single-agent RL and treat everyone else as part of the environment. There are no guarantees, yet independent Q-learning and independent PPO are often reasonable baselines.</li>
+    <li><b>Stale replay.</b> Transitions in a buffer were generated against old versions of the other agents. Foerster et al. (2017) add a “fingerprint”, the training iteration and exploration rate, to each agent's input so the Q-function can tell which era a sample came from.</li>
+    <li><b>Cycling.</b> Even exact gradients need not converge. In matching pennies, simultaneous gradient ascent spirals away from the unique equilibrium, as the snippet shows.</li>
+    <li><b>Miscoordination.</b> In cooperative coordination games, independent learners can settle on a poor equilibrium, because each agent's value for an action averages over its partner's exploratory mistakes (Claus &amp; Boutilier 1998; the effect is often called relative overgeneralization).</li>
+  </ul>
+  <pre><code>import numpy as np
+
+# Matching pennies: row wins +1 if the coins match, column wins +1 if they differ (zero-sum).
+# x = Pr(row plays heads), y = Pr(column plays heads). Row's payoff: (2x - 1)(2y - 1).
+x, y, lr = 0.6, 0.6, 0.05
+for t in range(2001):
+    gx = 2 * (2 * y - 1)                  # d/dx of row payoff, holding the opponent fixed
+    gy = -2 * (2 * x - 1)                 # d/dy of column payoff (= minus row payoff)
+    x, y = np.clip(x + lr * gx, 0, 1), np.clip(y + lr * gy, 0, 1)   # simultaneous, independent ascent
+    if t % 400 == 0:
+        print(t, round(x, 3), round(y, 3), "distance from NE", round(np.hypot(x - 0.5, y - 0.5), 3))</code></pre>
+  <p class="code-cap">The distance from the equilibrium \((0.5, 0.5)\) grows from 0.14 to about 0.5, and the strategies keep orbiting near the edge of the square. The <em>time-average</em> of the iterates does sit at \((0.5, 0.5)\); fictitious play (Day 120) is built on exactly that observation.</p>
+
+  <h3>Centralized training, decentralized execution</h3>
+  <p>In simulation you usually have access, during training, to the global state, every agent's observation and every agent's action. At execution each agent must act from its own observation history, often without communication. CTDE exploits the asymmetry. The parts needed only for learning (critics, mixing networks) get the global information; the parts used at execution (actors or per-agent Q-functions) see only local information.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 252" role="img" aria-label="Decentralized actors with local observations feed actions to a centralized critic used only in training">
+      <defs>
+        <marker id="ah-d118" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <text x="62" y="52" class="s-mid">o¹</text><text x="62" y="127" class="s-mid">o²</text><text x="62" y="202" class="s-mid">o³</text>
+      <line x1="76" y1="48" x2="108" y2="48" class="s-ln" marker-end="url(#ah-d118)"/>
+      <line x1="76" y1="123" x2="108" y2="123" class="s-ln" marker-end="url(#ah-d118)"/>
+      <line x1="76" y1="198" x2="108" y2="198" class="s-ln" marker-end="url(#ah-d118)"/>
+      <rect x="110" y="24" width="180" height="48" rx="6" class="s-node-mod"/>
+      <text x="200" y="44" class="s-mid">actor π¹(a¹ | τ¹)</text><text x="200" y="62" class="s-ink2 s-mid s-sm">agent 1: local only</text>
+      <rect x="110" y="99" width="180" height="48" rx="6" class="s-node-mod"/>
+      <text x="200" y="119" class="s-mid">actor π²(a² | τ²)</text><text x="200" y="137" class="s-ink2 s-mid s-sm">agent 2: local only</text>
+      <rect x="110" y="174" width="180" height="48" rx="6" class="s-node-mod"/>
+      <text x="200" y="194" class="s-mid">actor π³(a³ | τ³)</text><text x="200" y="212" class="s-ink2 s-mid s-sm">agent 3: local only</text>
+      <line x1="290" y1="48" x2="350" y2="48" class="s-ln"/><text x="320" y="42" class="s-ink2 s-mid s-sm">a¹</text>
+      <line x1="290" y1="123" x2="350" y2="123" class="s-ln"/><text x="320" y="117" class="s-ink2 s-mid s-sm">a²</text>
+      <line x1="290" y1="198" x2="350" y2="198" class="s-ln"/><text x="320" y="192" class="s-ink2 s-mid s-sm">a³</text>
+      <rect x="362" y="14" width="300" height="222" rx="10" class="s-grid s-dash"/>
+      <text x="512" y="36" class="s-ink3 s-mid s-sm">training only</text>
+      <line x1="350" y1="48" x2="418" y2="110" class="s-ln" marker-end="url(#ah-d118)"/>
+      <line x1="350" y1="123" x2="418" y2="124" class="s-ln" marker-end="url(#ah-d118)"/>
+      <line x1="350" y1="198" x2="418" y2="138" class="s-ln" marker-end="url(#ah-d118)"/>
+      <rect x="420" y="90" width="220" height="70" rx="8" class="s-node-mod"/>
+      <text x="530" y="117" class="s-ttl s-mid">centralized critic</text>
+      <text x="530" y="139" class="s-ink2 s-mid s-sm">Q(s, a¹, a², a³) or V(s)</text>
+      <line x1="530" y1="200" x2="530" y2="162" class="s-ln" marker-end="url(#ah-d118)"/>
+      <text x="530" y="214" class="s-ink2 s-mid s-sm">global state s</text>
+      <text x="200" y="246" class="s-ink3 s-mid s-sm">execution: local observations only</text>
+    </svg>
+    <figcaption><b>CTDE.</b> Each actor conditions only on its own observation history \(\tau^i\), so it can run alone at execution. The critic, which exists only during training, sees the global state and every agent's action, and its gradients or advantages are what train the actors.</figcaption>
+  </figure>
+  <p>Why it helps with non-stationarity: a critic \(Q(s, a^1, \dots, a^N)\) that conditions on every agent's action faces the joint dynamics \(p(s' \mid s, \mathbf a)\), and those do not change as policies change. Only the distribution of next actions in its bootstrap target moves. Each agent's learning signal also stops averaging over the others' exploratory actions, since those actions are inputs rather than noise. The alternatives are fully decentralized learning (independent learners), fully centralized control (one policy over joint actions, exponential and needing communication at execution) and learned communication between agents (CommNet, Sukhbaatar et al. 2016; DIAL, Foerster et al. 2016). Day 119 covers the main CTDE algorithms.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Non-stationarity.</b> Replay buffers and target networks both assume a fixed MDP, and in MARL there isn't one.</li>
+      <li><b>Equilibrium selection.</b> In a stag hunt, independent learners often settle on the safe, worse equilibrium. Nothing in the learning rule prefers the better one.</li>
+      <li><b>Equilibrium is not welfare.</b> The Nash equilibrium of the prisoner's dilemma is mutual defection. In general-sum games, “converged to Nash” can mean “converged to something bad for everyone”.</li>
+      <li><b>Evaluation depends on the opponents.</b> A policy's score depends on whom it plays. Report results against fixed held-out opponents, or exploitability where it can be computed (Day 120).</li>
+      <li><b>Information leaks into actors.</b> In CTDE only the critic may use global information. An actor that reads the global state at training time cannot be deployed.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Use <code>pure_nash</code> on the prisoner's dilemma, stag hunt, Chicken and matching pennies. Find each 2×2 game's mixed equilibrium by the indifference condition.</li>
+      <li>Find the welfare-maximizing correlated equilibrium of Chicken with <code>scipy.optimize.linprog</code>, using the constraints from <code>is_correlated_eq</code>. Is it the traffic light above, or something better?</li>
+      <li>Run the matching-pennies dynamics and also track the running average of \((x, y)\). Try smaller learning rates. Does the last iterate ever converge?</li>
+      <li>Independent Q-learning on the climbing game (Claus &amp; Boutilier 1998): two agents, three actions each, shared payoff \(\begin{pmatrix} 11 &amp; -30 &amp; 0 \\ -30 &amp; 7 &amp; 6 \\ 0 &amp; 0 &amp; 5 \end{pmatrix}\). With ε-greedy exploration, which joint action do they converge to, and why not the optimum (11)?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Albrecht, Christianos &amp; Schäfer 2024, <i>Multi-Agent Reinforcement Learning: Foundations and Modern Approaches</i>, Ch. 3–5 · Shapley 1953, “Stochastic Games” · Littman 1994, “Markov Games as a Framework for Multi-Agent Reinforcement Learning” · Claus &amp; Boutilier 1998, “The Dynamics of Reinforcement Learning in Cooperative Multiagent Systems” · Foerster et al. 2017, “Stabilising Experience Replay for Deep Multi-Agent Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 119 -->
+<article class="day" id="d119">
+  <header class="day-head">
+    <span class="day-no">DAY 119</span>
+    <h2>MADDPG, QMIX &amp; MAPPO</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Cooperative MARL has two linked problems: each agent's environment is non-stationary, and a shared team reward doesn't say which agent earned it. Centralized critics address the first; value decomposition and counterfactual baselines address the second; and plain PPO with a centralized value function turns out to be one of the strongest baselines of all.</p>
+
+  <h3>MADDPG: centralized critics, decentralized actors</h3>
+  <p>MADDPG (Lowe et al. 2017) is DDPG (Day 93) under CTDE, and it works for cooperative, competitive and mixed games alike. Each agent \(i\) has a deterministic actor \(\mu_i(o_i; \theta_i)\) that sees only its own observation, and its own centralized critic \(Q_i(\mathbf x, a_1, \dots, a_N)\), where \(\mathbf x\) is the global state or the concatenation of all observations. Each critic is trained on its own agent's reward, so agents may want opposite things.</p>
+  <div class="box algo"><span class="tag">Algorithm · MADDPG update for agent \(i\)</span>
+    <ol>
+      <li>Sample a minibatch \((\mathbf x, a_1, \dots, a_N, r_i, \mathbf x', \text{terminated})\) from the shared replay buffer.</li>
+      <li>Critic target, with every agent's <em>target</em> actor choosing the next actions: \(y = r_i + \gamma\,(1 - \text{terminated})\, Q'_i(\mathbf x', a'_1, \dots, a'_N)\), \(a'_j = \mu'_j(o'_j)\).</li>
+      <li>Critic loss: \(\big(Q_i(\mathbf x, a_1, \dots, a_N) - y\big)^2\).</li>
+      <li>Actor: ascend \(\nabla_{\theta_i} J = \E\big[\nabla_{\theta_i} \mu_i(o_i)\, \nabla_{a_i} Q_i(\mathbf x, a_1, \dots, a_N)\big|_{a_i = \mu_i(o_i)}\big]\), with the <em>other</em> agents' actions taken from the buffer. <span class="step">(only agent \(i\)'s action is re-computed and differentiated)</span></li>
+      <li>Soft-update all target networks.</li>
+    </ol>
+  </div>
+  <p>The paper adds two refinements: when other agents' policies are not available, each agent fits approximate models \(\hat\mu_j\) of them by maximum likelihood on observed actions; and to be robust to opponents that keep changing, each agent can train an ensemble of sub-policies and sample one per episode. The test bed was the multi-agent particle environments (MPE): cooperative navigation, predator–prey, physical deception and speaker–listener communication. MADDPG's limits are that each critic's input grows with the number of agents, a Q-function over joint actions gets harder to fit as \(N\) grows, and discrete actions need a relaxation such as Gumbel-softmax. On cooperative benchmarks like SMAC it is generally beaten by the methods below.</p>
+
+  <h3>The credit-assignment problem</h3>
+  <p>With a shared reward, agent \(i\)'s learning signal contains the effects of every other agent's actions. If agent 2 does something brilliant, agent 1's random action gets credit for it too. The variance of each agent's gradient grows with the number of teammates, and a “lazy agent” can emerge: once one agent has learned something useful, the other's actions barely move the team reward it sees, so it stops improving (Sunehag et al. 2018 observed exactly this). There are two families of fixes. Decompose the team value into per-agent pieces (VDN, QMIX), or give each agent a baseline that isolates its own contribution (COMA).</p>
+
+  <h3>Value decomposition: VDN's additivity</h3>
+  <div class="box def"><span class="tag">Definition · VDN (Sunehag et al. 2018) and IGM</span>
+    $$Q_{tot}(\boldsymbol\tau, \mathbf a) = \sum_{i=1}^{N} Q_i(\tau^i, a^i),$$
+    <p>where each \(Q_i\) is a per-agent network, usually recurrent and parameter-shared, on the agent's own action–observation history \(\tau^i\). The whole sum is trained end to end on the team reward with the ordinary DQN loss \(\big(r + \gamma \max_{\mathbf a'} Q^-_{tot}(\boldsymbol\tau', \mathbf a') - Q_{tot}(\boldsymbol\tau, \mathbf a)\big)^2\).</p>
+    <p>A decomposition satisfies <b>individual–global max</b> (IGM) if \(\argmax_{\mathbf a} Q_{tot}(\boldsymbol\tau, \mathbf a) = \big(\argmax_{a^1} Q_1(\tau^1, a^1), \dots, \argmax_{a^N} Q_N(\tau^N, a^N)\big)\). Then each agent acting greedily on its own \(Q_i\) produces exactly the centralized greedy joint action, and the max in the TD target costs \(O(N|\mathcal A|)\) instead of \(|\mathcal A|^N\). A sum satisfies IGM trivially.</p>
+  </div>
+  <p>The \(Q_i\) are not “the value of agent \(i\)” in any physical sense; they are whatever utilities make the sum fit the team's returns. VDN's limitation is representational: a sum cannot express interactions in which the value of one agent's action depends on what another agent does.</p>
+
+  <h3>QMIX: monotonic mixing</h3>
+  <div class="box def"><span class="tag">Definition · QMIX (Rashid et al. 2018)</span>
+    $$Q_{tot}(\boldsymbol\tau, \mathbf a, s) = f_{mix}\big(Q_1(\tau^1, a^1), \dots, Q_N(\tau^N, a^N);\ s\big), \qquad \frac{\partial Q_{tot}}{\partial Q_i} \ge 0 \ \text{ for all } i.$$
+  </div>
+  <div class="box deriv"><span class="tag">Proof · monotonicity implies IGM</span>
+    <p>Let \(a^i_* = \argmax_{a} Q_i(\tau^i, a)\). For any joint action \(\mathbf a\), \(Q_i(\tau^i, a^i) \le Q_i(\tau^i, a^i_*)\) for every \(i\). Because \(f_{mix}\) is non-decreasing in each argument, we can swap in the maximizers one argument at a time without ever decreasing \(Q_{tot}\):</p>
+    $$f_{mix}(Q_1(a^1), Q_2(a^2), \dots) \le f_{mix}(Q_1(a^1_*), Q_2(a^2), \dots) \le \cdots \le f_{mix}(Q_1(a^1_*), \dots, Q_N(a^N_*)).$$
+    <p>So the joint action made of individual maximizers maximizes \(Q_{tot}\). VDN is the special case \(f_{mix} = \text{sum}\). Monotonicity is sufficient for IGM but not necessary, which is where QMIX's limits come from.</p>
+  </div>
+  <p>The architecture has three parts. Each <b>agent network</b> is an MLP, a GRU and another MLP, shared across agents with an agent-ID input, taking the current observation and previous action and outputting \(Q_i(\tau^i, \cdot)\). The <b>mixing network</b> has two layers whose weights are produced by <b>hypernetworks</b> of the global state \(s\) and passed through an absolute value, so they are non-negative; its biases are unconstrained, and its hidden activation is ELU, which is monotone. Because the state enters only through the hypernetworks, \(Q_{tot}\) can depend on \(s\) in any way at all while staying monotone in each \(Q_i\). The mixer and hypernetworks are used only in training and are thrown away at execution.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 290" role="img" aria-label="QMIX: agent networks produce per-agent Q values that a monotonic mixing network combines, with weights generated from the global state by hypernetworks">
+      <defs>
+        <marker id="ah-d119" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d119m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="255" y="22" class="s-ttl s-mid">Q_tot(τ, a, s)</text>
+      <line x1="255" y1="60" x2="255" y2="32" class="s-ln-mod" marker-end="url(#ah-d119m)"/>
+      <rect x="40" y="60" width="430" height="72" rx="8" class="s-node-mod"/>
+      <text x="255" y="83" class="s-ttl s-mid">mixing network</text>
+      <text x="255" y="103" class="s-ink2 s-mid s-sm">Q_tot = w₂ᵀ elu(W₁ᵀ Q + b₁) + b₂</text>
+      <text x="255" y="121" class="s-mod s-mid s-sm">W₁, w₂ ≥ 0  ⇒  ∂Q_tot/∂Qᵢ ≥ 0</text>
+      <rect x="520" y="60" width="140" height="72" rx="8" class="s-node"/>
+      <text x="590" y="85" class="s-ttl s-mid">hypernetworks</text>
+      <text x="590" y="104" class="s-ink2 s-mid s-sm">functions of s</text>
+      <text x="590" y="121" class="s-ink2 s-mid s-sm">|·| on the weights</text>
+      <line x1="520" y1="96" x2="472" y2="96" class="s-ln" marker-end="url(#ah-d119)"/>
+      <text x="495" y="52" class="s-ink2 s-mid s-sm">W₁, b₁, w₂, b₂</text>
+      <line x1="590" y1="200" x2="590" y2="134" class="s-ln" marker-end="url(#ah-d119)"/>
+      <text x="590" y="216" class="s-ink2 s-mid s-sm">global state sₜ</text>
+      <text x="590" y="234" class="s-ink3 s-mid s-sm">(training only)</text>
+      <rect x="40" y="190" width="130" height="56" rx="6" class="s-node-mod"/>
+      <text x="105" y="212" class="s-mid">agent net 1</text><text x="105" y="232" class="s-ink2 s-mid s-sm">MLP → GRU → MLP</text>
+      <rect x="190" y="190" width="130" height="56" rx="6" class="s-node-mod"/>
+      <text x="255" y="212" class="s-mid">agent net 2</text><text x="255" y="232" class="s-ink2 s-mid s-sm">MLP → GRU → MLP</text>
+      <rect x="340" y="190" width="130" height="56" rx="6" class="s-node-mod"/>
+      <text x="405" y="212" class="s-mid">agent net 3</text><text x="405" y="232" class="s-ink2 s-mid s-sm">MLP → GRU → MLP</text>
+      <line x1="105" y1="190" x2="105" y2="134" class="s-ln-mod" marker-end="url(#ah-d119m)"/>
+      <line x1="255" y1="190" x2="255" y2="134" class="s-ln-mod" marker-end="url(#ah-d119m)"/>
+      <line x1="405" y1="190" x2="405" y2="134" class="s-ln-mod" marker-end="url(#ah-d119m)"/>
+      <text x="111" y="166" class="s-mod s-sm">Q₁(τ¹, a¹)</text>
+      <text x="261" y="166" class="s-mod s-sm">Q₂(τ², a²)</text>
+      <text x="411" y="166" class="s-mod s-sm">Q₃(τ³, a³)</text>
+      <line x1="105" y1="264" x2="105" y2="248" class="s-ln" marker-end="url(#ah-d119)"/>
+      <line x1="255" y1="264" x2="255" y2="248" class="s-ln" marker-end="url(#ah-d119)"/>
+      <line x1="405" y1="264" x2="405" y2="248" class="s-ln" marker-end="url(#ah-d119)"/>
+      <text x="105" y="280" class="s-ink2 s-mid s-sm">(o¹ₜ, a¹ₜ₋₁)</text>
+      <text x="255" y="280" class="s-ink2 s-mid s-sm">(o²ₜ, a²ₜ₋₁)</text>
+      <text x="405" y="280" class="s-ink2 s-mid s-sm">(o³ₜ, a³ₜ₋₁)</text>
+    </svg>
+    <figcaption><b>QMIX.</b> Agent networks see only local histories and output per-agent utilities; at execution each agent simply takes the argmax of its own. During training, a mixing network combines the chosen actions' utilities into \(Q_{tot}\) using non-negative weights generated from the global state, so \(Q_{tot}\) is monotone in every \(Q_i\) and the decentralized argmaxes are also the centralized one.</figcaption>
+  </figure>
+  <pre><code>import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class QMixer(nn.Module):
+    """Q_tot = f(Q_1..Q_n; s), monotone in every Q_i. Weights come from hypernetworks of the state."""
+    def __init__(self, n_agents, state_dim, embed=32):
+        super().__init__()
+        self.n, self.e = n_agents, embed
+        self.hyper_w1 = nn.Linear(state_dim, n_agents * embed)
+        self.hyper_b1 = nn.Linear(state_dim, embed)
+        self.hyper_w2 = nn.Linear(state_dim, embed)
+        self.hyper_b2 = nn.Sequential(nn.Linear(state_dim, embed), nn.ReLU(), nn.Linear(embed, 1))
+
+    def forward(self, agent_qs, state):                   # agent_qs: [B, n] chosen-action Q_i; state: [B, state_dim]
+        B = agent_qs.size(0)
+        w1 = self.hyper_w1(state).abs().view(B, self.n, self.e)   # |.|: non-negative mixing weights
+        b1 = self.hyper_b1(state).view(B, 1, self.e)              # biases are unconstrained
+        hidden = F.elu(torch.bmm(agent_qs.view(B, 1, self.n), w1) + b1)   # ELU is monotone increasing
+        w2 = self.hyper_w2(state).abs().view(B, self.e, 1)
+        b2 = self.hyper_b2(state).view(B, 1, 1)                   # state-dependent bias, any sign
+        return (torch.bmm(hidden, w2) + b2).view(B)               # Q_tot: [B]
+
+mixer = QMixer(n_agents=3, state_dim=10)
+qs, s = torch.randn(64, 3, requires_grad=True), torch.randn(64, 10)
+dq = torch.autograd.grad(mixer(qs, s).sum(), qs)[0]
+print(bool((dq &gt;= 0).all()))                                      # True: dQ_tot / dQ_i &gt;= 0 everywhere</code></pre>
+  <p class="code-cap">In training, <code>agent_qs</code> are the agents' Q-values for the actions they took; the target uses each agent's greedy next-action Q-value from the target agent networks, mixed by the target mixer with next state \(s'\).</p>
+  <p>Monotonic mixing cannot represent payoffs in which one agent's best action depends on the other's. The standard counterexample is the one-step game of Son et al. (2019), with shared payoff \(\begin{pmatrix} 8 &amp; -12 &amp; -12 \\ -12 &amp; 0 &amp; 0 \\ -12 &amp; 0 &amp; 0 \end{pmatrix}\): the optimum needs both agents to choose action 0, but under uniform exploration a monotonic factorization learns utilities that favour the safe actions and typically settles on a joint action worth 0. QTRAN (Son et al. 2019) and Weighted QMIX (Rashid et al. 2020) relax the constraint, and QPLEX (Wang et al. 2021) uses a dueling-style decomposition that can represent every IGM-consistent value function.</p>
+
+  <h3>COMA: a counterfactual baseline</h3>
+  <p>COMA (Foerster et al. 2018) keeps one centralized critic \(Q(s, \mathbf a)\) over the joint action and decentralized actors \(\pi^i(a^i \mid \tau^i)\) trained by policy gradient, and gives each agent a baseline that answers a counterfactual question: how much better was my action than what I would do on average, with everyone else's actions held fixed?</p>
+  <div class="box def"><span class="tag">Definition · COMA advantage</span>
+    $$A^i(s, \mathbf a) = Q(s, \mathbf a) - \sum_{\tilde a^i} \pi^i(\tilde a^i \mid \tau^i)\, Q\big(s, (\mathbf a^{-i}, \tilde a^i)\big), \qquad \nabla_{\theta_i} J = \E\big[\nabla_{\theta_i} \log \pi^i(a^i \mid \tau^i)\, A^i(s, \mathbf a)\big].$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · the baseline adds no bias</span>
+    <p>The baseline \(b^i(s, \mathbf a^{-i})\) depends on the other agents' actions but not on agent \(i\)'s own. So, conditioning on \(\mathbf a^{-i}\),</p>
+    $$\E_{a^i \sim \pi^i}\big[\nabla \log \pi^i(a^i \mid \tau^i)\, b^i(s, \mathbf a^{-i})\big] = b^i(s, \mathbf a^{-i}) \sum_{a^i} \nabla \pi^i(a^i \mid \tau^i) = b^i(s, \mathbf a^{-i})\, \nabla 1 = 0.$$
+    <p>This is Day 85's baseline argument, applied conditionally on the other agents' actions. COMA borrows the idea from difference rewards (Wolpert &amp; Tumer 2002), which compare the reward with what it would have been under a default action, but it needs neither a simulator nor a default action: the critic supplies the counterfactual. The critic takes \(\mathbf a^{-i}\) as input and outputs Q-values for all of agent \(i\)'s actions at once, so the baseline costs a single forward pass.</p>
+  </div>
+  <pre><code>import numpy as np
+
+# Two agents, three actions each, one team reward. Agent 2's choice moves the reward by up to 20;
+# agent 1's choice matters by only 2. The centralized critic here is the exact payoff table Q[a1, a2].
+Q = np.array([[1., 11., 21.],
+              [0., 10., 20.],
+              [2., 12., 22.]])
+pi1 = np.array([1/3, 1/3, 1/3])
+pi2 = np.array([1/3, 1/3, 1/3])
+rng = np.random.default_rng(0)
+a1 = rng.choice(3, size=10_000, p=pi1)
+a2 = rng.choice(3, size=10_000, p=pi2)
+
+adv_v = Q[a1, a2] - pi1 @ Q @ pi2              # baseline V(s): ignores who did what
+adv_coma = Q[a1, a2] - Q[:, a2].T @ pi1        # COMA: marginalise agent 1's action, keep a2 fixed
+
+score = np.eye(3)[a1] - pi1                    # grad of log softmax(pi1) w.r.t. agent 1's logits
+for name, adv in [("V baseline", adv_v), ("COMA", adv_coma)]:
+    g = score * adv[:, None]                   # per-sample policy-gradient estimates for agent 1
+    print(f"{name:10s} mean grad {np.round(g.mean(0), 2)}   total variance {g.var(0).sum():7.2f}")</code></pre>
+  <p class="code-cap">Both estimators agree in expectation (the exact gradient is \((0, -\tfrac13, \tfrac13)\): action 2 is best for agent 1), but the variance of the per-sample estimate drops from about 44 to 0.22. Agent 2's choice, which moves the team reward by up to 20, no longer leaks into agent 1's learning signal.</p>
+
+  <h3>MAPPO: why simple PPO is a strong baseline</h3>
+  <p>Yu et al. (2022) ran PPO with parameter-shared decentralized actors and a centralized value function \(V(s)\), and called it MAPPO. On MPE, SMAC, Google Research Football and Hanabi it matched or beat the strongest off-policy methods of the time, QMIX and its descendants, often with comparable sample efficiency despite being on-policy. Independent PPO, with only local value functions, was already strong on SMAC (de Witt et al. 2020).</p>
+  <div class="box note"><span class="tag">The implementation details Yu et al. found mattered</span>
+    <ul>
+      <li><b>Value normalization:</b> normalize value targets with running statistics (PopArt-style).</li>
+      <li><b>Value-function input:</b> the global state plus agent-specific features (an “agent-specific global state”), rather than only concatenated observations.</li>
+      <li><b>Data reuse:</b> few PPO epochs and few minibatches per batch; reusing data aggressively hurts more in MARL than in single-agent RL.</li>
+      <li><b>Clipping:</b> keep the PPO clip \(\epsilon\) at or below 0.2.</li>
+      <li><b>Batch size:</b> large batches help.</li>
+      <li><b>Death masking:</b> for agents that have died, feed the value function a zero state plus the agent ID.</li>
+    </ul>
+  </div>
+  <p>Why does something this simple work? On-policy data never goes stale, so the replay-induced non-stationarity of Day 118 disappears. The clipped objective limits how far each agent's policy moves per update, so from each agent's point of view its teammates are nearly stationary within an update. And parameter sharing pools every agent's experience into one network. The broader lesson is Day 92's: in deep RL, implementation details and tuning often matter as much as the algorithmic idea.</p>
+
+  <h3>The SMAC benchmark</h3>
+  <p>The StarCraft Multi-Agent Challenge (Samvelyan et al. 2019) is decentralized micromanagement in StarCraft II. Each unit is an agent with a limited sight range; actions are discrete (move in four directions, attack a specific enemy, stop, no-op); the shared reward comes from damage dealt and units killed, with a bonus for winning; and the opponents are the game's built-in AI. Scenarios are graded easy (for example 2s3z, 3s5z), hard (5m_vs_6m, 3s_vs_5z) and super-hard (MMM2, corridor, 6h_vs_8z, 27m_vs_30m), and the metric is test win rate across many seeds, usually with PyMARL or EPyMARL. It needs the StarCraft II game binary.</p>
+  <p>Read SMAC numbers with care. SMACv2 (Ellis et al. 2023) showed that in many original scenarios, open-loop policies that ignore observations entirely, conditioning only on agent ID and time step, reach high win rates: the scenarios are too deterministic to test coordination under uncertainty. SMACv2 randomizes unit types and start positions. Separately, Hu et al. (2021) found that a carefully tuned QMIX matched or beat many of its proposed successors on SMAC.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Method</th><th>Setting</th><th>Actions</th><th>What is centralized</th><th>Data</th></tr></thead>
+    <tbody>
+      <tr><td>MADDPG</td><td>any</td><td>continuous</td><td>one critic per agent over all actions</td><td>off-policy</td></tr>
+      <tr><td>VDN</td><td>cooperative</td><td>discrete</td><td>sum of per-agent Q's</td><td>off-policy</td></tr>
+      <tr><td>QMIX</td><td>cooperative</td><td>discrete</td><td>monotonic mixer conditioned on the state</td><td>off-policy</td></tr>
+      <tr><td>COMA</td><td>cooperative</td><td>discrete</td><td>one joint-action critic, counterfactual baselines</td><td>on-policy</td></tr>
+      <tr><td>MAPPO</td><td>cooperative (and beyond)</td><td>either</td><td>state-value function \(V(s)\)</td><td>on-policy</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Representational limits.</b> VDN and QMIX cannot express non-monotonic interactions, and they fail silently on them by converging to a safe, suboptimal joint action.</li>
+      <li><b>Lazy agents.</b> With a shared reward, one agent can freeload. Check per-agent behaviour, not just the team return.</li>
+      <li><b>Benchmark artifacts.</b> Open-loop policies doing well on SMAC means the benchmark is not testing what you think.</li>
+      <li><b>Unequal tuning.</b> A new method tuned for weeks against baselines run with defaults proves nothing; the MAPPO and QMIX re-evaluations both made this point.</li>
+      <li><b>Variable team sizes.</b> Agents die mid-episode. Mask them consistently in the critic, the mixer and the loss.</li>
+      <li><b>MADDPG scaling.</b> Critic inputs that grow linearly in \(N\), and one critic per agent, become expensive and hard to fit with many agents.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>One-step matrix games: train VDN and QMIX (tabular per-agent \(Q_i\), and the <code>QMixer</code> above with a constant state) under uniform exploration, on an additive payoff and on the Son et al. game. Report the greedy joint action each one finds.</li>
+      <li>Remove the <code>.abs()</code> calls from <code>QMixer</code> and retrain on the Son et al. game. Do the per-agent argmaxes still agree with the argmax of \(Q_{tot}\)?</li>
+      <li>MAPPO vs IPPO on MPE <code>simple_spread</code> (3 agents; newer PettingZoo releases ship MPE as a separate package): shared actor, with a centralized critic on concatenated observations vs a local critic. Use 3 seeds and report the final mean distance to the landmarks.</li>
+      <li>Extend the COMA snippet with a non-uniform \(\pi^1\) and verify numerically that the counterfactual baseline leaves the expected gradient unchanged.</li>
+      <li>If you have StarCraft II installed, run EPyMARL's QMIX and MAPPO on 3s5z for 2M steps with 3 seeds each, and report test win rates with bootstrap intervals (Day 7).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Lowe et al. 2017, “Multi-Agent Actor-Critic for Mixed Cooperative-Competitive Environments” · Sunehag et al. 2018, “Value-Decomposition Networks for Cooperative Multi-Agent Learning” · Rashid et al. 2018, “QMIX: Monotonic Value Function Factorisation for Deep Multi-Agent Reinforcement Learning” · Foerster et al. 2018, “Counterfactual Multi-Agent Policy Gradients” · Yu et al. 2022, “The Surprising Effectiveness of PPO in Cooperative Multi-Agent Games” · Samvelyan et al. 2019, “The StarCraft Multi-Agent Challenge” · Ellis et al. 2023, “SMACv2”</p>
+</article>
+
+<!-- ================================================================ DAY 120 -->
+<article class="day" id="d120">
+  <header class="day-head">
+    <span class="day-no">DAY 120</span>
+    <h2>Self-Play, Leagues &amp; Population-Based Training</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Training against yourself gives an automatic curriculum, but in games with non-transitive strategies the latest self is a poor opponent and the agent chases its own tail. Mixing in past selves (fictitious play), training dedicated exploiters (leagues) and evolving hyperparameters across a population are the three tools that made self-play work at the scale of StarCraft and Dota.</p>
+
+  <h3>Naive self-play and strategy cycling</h3>
+  <p>TD-Gammon (Tesauro 1995) and AlphaZero (Day 100) learned from games against the current version of themselves. That is an automatic curriculum, since the opponent is always about as strong as you are, and in games whose strategies are close to transitive (A beats B and B beats C implies A beats C) it is enough. Many games have strong cyclic structure, though. In rock–paper–scissors a policy that mostly plays rock is beaten by paper, which is beaten by scissors, which is beaten by rock. Best-responding to your latest self walks around the cycle forever, and each new policy forgets how to beat the policies two steps back. Czarnecki et al. (2020) argue that real games look like “spinning tops”: a transitive axis of skill with large cyclic structure at intermediate levels, which is exactly where naive self-play gets stuck.</p>
+  <div class="box def"><span class="tag">Definition · exploitability</span>
+    <p>In a two-player zero-sum game with payoff \(u(\pi, \pi')\) to the first player, the exploitability of a policy is what a best responder wins against it: \(\operatorname{expl}(\pi) = \max_{\pi'} u(\pi', \pi)\) in a symmetric game. It is zero exactly at a Nash equilibrium. It can be computed for small games (matrix games, poker variants) and is approximated in large ones by training an exploiter against a frozen policy.</p>
+  </div>
+  <pre><code>import numpy as np
+
+# Rock-paper-scissors payoff for the row player: R[i, j], actions 0 = R, 1 = P, 2 = S.
+R = np.array([[0, -1, 1], [1, 0, -1], [-1, 1, 0]])
+best_response = lambda opp: np.eye(3)[np.argmax(R @ opp)]    # pure best response to a mixed opponent
+exploitability = lambda p: (R @ p).max()                     # what a best responder wins against p (0 at NE)
+
+latest = np.array([1.0, 0.0, 0.0])                            # naive self-play: respond to the latest self
+history = [latest]
+for t in range(6):
+    latest = best_response(latest)
+    history.append(latest)
+print("self-play:", "".join("RPS"[np.argmax(h)] for h in history))   # R P S R P S R: cycles forever
+
+avg = np.array([1.0, 0.0, 0.0])                               # fictitious play: respond to the AVERAGE past self
+for t in range(1, 3001):
+    avg += (best_response(avg) - avg) / (t + 1)
+    if t in (10, 100, 1000, 3000):
+        print(f"FP t={t:5d} average {np.round(avg, 3)}  exploitability {exploitability(avg):.3f}")</code></pre>
+  <p class="code-cap">Self-play prints <code>RPSRPSR</code>: every policy is a pure strategy with exploitability 1. Fictitious play's average strategy approaches \((\tfrac13, \tfrac13, \tfrac13)\), and its exploitability falls from 0.18 at \(t = 10\) to 0.01 at \(t = 3000\).</p>
+
+  <h3>Fictitious play and fictitious self-play</h3>
+  <p>Fictitious play (Brown 1951) best-responds, at every iteration, to the empirical average of the opponent's past strategies. In two-player zero-sum games the average strategies converge to a Nash equilibrium (Robinson 1951); this is the time-averaging that rescued the matching-pennies dynamics on Day 118. Fictitious self-play (Heinrich, Lanctot &amp; Silver 2015) extends it to extensive-form games with sampled experience, and Neural Fictitious Self-Play (NFSP; Heinrich &amp; Silver 2016) to deep RL. Each NFSP agent keeps two networks: a best-response network trained by DQN against the opponents' behaviour, and an average-policy network trained by supervised learning on its own past best-response actions (held in a reservoir buffer so it is a uniform sample of history). It acts with the best response with a small probability \(\eta\), the anticipatory parameter (0.1 is typical), and with the average policy otherwise. NFSP approached a Nash equilibrium in Leduc poker and was competitive in Limit Texas Hold'em.</p>
+  <div class="box algo"><span class="tag">Algorithm · Policy-Space Response Oracles (PSRO; Lanctot et al. 2017)</span>
+    <ol>
+      <li>Start with a population \(\Pi = \{\pi_0\}\).</li>
+      <li>Repeat:
+        <ol>
+          <li>Play every pair of policies to estimate the empirical payoff matrix \(U_{jk} = u(\pi_j, \pi_k)\).</li>
+          <li>A <b>meta-solver</b> turns \(U\) into a mixture \(\sigma\) over \(\Pi\).</li>
+          <li>Train a new policy by RL as a best response to opponents sampled from \(\sigma\).</li>
+          <li>Add it to \(\Pi\).</li>
+        </ol>
+      </li>
+    </ol>
+    <p>The meta-solver is the design choice. “The latest policy only” gives naive self-play; “uniform over the population” gives fictitious play; “a Nash equilibrium of \(U\)” gives the double oracle algorithm. Leagues, below, are a population with a hand-designed meta-solver.</p>
+  </div>
+
+  <h3>AlphaStar's league</h3>
+  <p>AlphaStar (Vinyals et al. 2019) reached Grandmaster level in StarCraft II on the public ladder with all three races, rated above 99.8% of ranked human players. Its policies started from supervised learning on human replays and were then trained by RL, an off-policy actor–critic using V-trace (Day 121) and UPGO, with a KL penalty towards the supervised policy. Plain self-play cycled and forgot strategies; the league is what fixed it.</p>
+  <div class="box def"><span class="tag">Definition · the three kinds of league agent</span>
+    <ul>
+      <li><b>Main agents</b> (the ones deployed, one per race). Opponents: 35% self-play, 50% prioritized fictitious self-play (PFSP) against all past players in the league, and 15% PFSP against past main exploiters and against past main agents they can no longer beat. Their snapshots join the league periodically.</li>
+      <li><b>Main exploiters</b> play only the current main agents (falling back to their past versions when they can't win). Their job is to find the main agents' weaknesses. Each time one is added to the league as a snapshot, it is reset to the supervised initialization.</li>
+      <li><b>League exploiters</b> play PFSP against the entire league, looking for strategies that nobody in the league handles. Their snapshots also join the league, and they are occasionally reset (with probability 0.25 in the paper).</li>
+    </ul>
+    <p><b>PFSP</b> samples opponent \(B\) for agent \(A\) with probability proportional to \(f\big(\Pr[A \text{ beats } B]\big)\). With \(f_{hard}(x) = (1 - x)^p\) agents focus on opponents they struggle against; with \(f_{var}(x) = x(1 - x)\), on opponents of similar strength.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 272" role="img" aria-label="AlphaStar league: main agents, main exploiters and league exploiters, and which opponents each trains against">
+      <defs>
+        <marker id="ah-d120" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d120m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="250" y="100" width="180" height="80" rx="8" class="s-node"/>
+      <text x="340" y="128" class="s-ttl s-mid">league</text>
+      <text x="340" y="148" class="s-ink2 s-mid s-sm">frozen snapshots of</text>
+      <text x="340" y="164" class="s-ink2 s-mid s-sm">every past player</text>
+      <rect x="20" y="105" width="170" height="70" rx="8" class="s-node-mod"/>
+      <text x="105" y="134" class="s-ttl s-mid">main agents</text>
+      <text x="105" y="154" class="s-ink2 s-mid s-sm">deployed; one per race</text>
+      <rect x="490" y="20" width="170" height="60" rx="8" class="s-node-mod"/>
+      <text x="575" y="45" class="s-ttl s-mid">main exploiters</text>
+      <text x="575" y="64" class="s-ink2 s-mid s-sm">beat the current mains</text>
+      <rect x="490" y="200" width="170" height="60" rx="8" class="s-node-mod"/>
+      <text x="575" y="225" class="s-ttl s-mid">league exploiters</text>
+      <text x="575" y="244" class="s-ink2 s-mid s-sm">beat the whole league</text>
+      <path d="M60,105 C60,62 150,62 150,103" class="s-ln-mod" marker-end="url(#ah-d120m)"/>
+      <text x="105" y="56" class="s-mod s-mid s-sm">35% self-play</text>
+      <line x1="190" y1="140" x2="248" y2="140" class="s-ln-mod" marker-end="url(#ah-d120m)"/>
+      <text x="219" y="131" class="s-mod s-mid s-sm">50% + 15%</text>
+      <line x1="490" y1="42" x2="192" y2="106" class="s-ln" marker-end="url(#ah-d120)"/>
+      <text x="350" y="58" class="s-ink2 s-mid s-sm">vs current main agents</text>
+      <line x1="490" y1="222" x2="432" y2="176" class="s-ln" marker-end="url(#ah-d120)"/>
+      <text x="438" y="214" class="s-ink2 s-end s-sm">PFSP vs all</text>
+    </svg>
+    <figcaption><b>Who trains against whom.</b> Main agents mix self-play with prioritized fictitious self-play against the league (50%) and against forgotten opponents and past exploiters (15%). Main exploiters attack only the current main agents; league exploiters attack everyone. Every agent type periodically adds frozen snapshots to the league, so no strategy that once worked is ever lost from the pool.</figcaption>
+  </figure>
+  <p>The design logic: the main agents must be robust, not just strong, so they train against everything; exploiters are disposable specialists whose only job is to produce counter-strategies the main agents must then learn to beat; and frozen snapshots prevent forgetting. Their behaviour is shaped further by conditioning on a sampled build order from the human data and by pseudo-rewards for following it, which keeps strategic diversity in the league.</p>
+
+  <h3>Population-based training</h3>
+  <p>PBT (Jaderberg et al. 2017) treats hyperparameters as part of the training state rather than as fixed choices made before training.</p>
+  <div class="box algo"><span class="tag">Algorithm · PBT (truncation selection)</span>
+    <ol>
+      <li>Start \(N\) workers with hyperparameters \(h_k\) sampled from a prior and their own weights \(\theta_k\).</li>
+      <li>Each worker trains for a fixed interval, then reports its recent performance.</li>
+      <li><b>Exploit:</b> a worker in the bottom 20% of the population copies the weights <em>and</em> hyperparameters of a worker sampled from the top 20%.</li>
+      <li><b>Explore:</b> it then perturbs the copied hyperparameters, multiplying each by 0.8 or 1.2 (or resampling from the prior).</li>
+      <li>Training continues from the copied weights; repeat until the budget is spent.</li>
+    </ol>
+  </div>
+  <p>The result is a hyperparameter <em>schedule</em>, such as a learning rate and entropy cost that change over training, found for about the compute of \(N\) ordinary runs instead of a full grid. The paper reports gains for DeepMind Lab, Atari and StarCraft II agents, as well as for machine translation and GANs. In Capture the Flag (Jaderberg et al. 2019) PBT also evolved each agent's internal reward weights. Three caveats: selection is greedy, so it favours whatever helps over the next interval (large learning rates early, for instance) and can lose diversity; performance must be comparable across workers, which in self-play means measuring it against a fixed set of opponents or by Elo; and the schedule that comes out is hard to reproduce without rerunning PBT.</p>
+
+  <h3>OpenAI Five: scale and surgery</h3>
+  <p>OpenAI Five (Berner et al. 2019) played 5-v-5 Dota 2 and beat the world champion team OG in April 2019. The algorithm was PPO with GAE (Days 88 and 91) on a policy whose core is a single-layer LSTM with 4,096 units, one replica per hero. Training ran for about ten months on a large cluster of GPU optimizers and CPU rollout workers. Most games were played against the current policy (80%) and the rest against past versions sampled by a learned quality score (20%), to avoid strategy collapse. A “team spirit” coefficient blended each hero's reward with the team average and was annealed towards full sharing, a hand-made credit-assignment schedule.</p>
+  <p>Over ten months the game received patches, and the team changed the observation space, the action space and the network architecture many times. Restarting from scratch after each change would have cost months each time. <b>Surgery</b> transforms the trained parameters to fit the new architecture so that the new network initially computes the same function as the old one, and training simply continues. About twenty surgeries were performed. The authors also ran a control, “Rerun”, trained from scratch on the final environment and architecture; it eventually surpassed the surgically trained OpenAI Five using a fraction of the compute. Surgery bought continuity in a project whose environment kept changing, not efficiency.</p>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+d, h, o = 8, 16, 4
+W1, b1, W2 = rng.normal(size=(h, d)), rng.normal(size=h), rng.normal(size=(o, h))
+f = lambda x, W1, b1, W2: W2 @ np.maximum(W1 @ x + b1, 0)      # a one-hidden-layer policy head
+
+# Surgery 1: the game patch adds an observation feature -&gt; new input column with zero weights.
+W1_s = np.hstack([W1, np.zeros((h, 1))])
+# Surgery 2: widen the hidden layer by 8 units -&gt; random incoming weights, zero outgoing weights.
+W1_s = np.vstack([W1_s, rng.normal(size=(8, d + 1))])
+b1_s = np.r_[b1, np.zeros(8)]
+W2_s = np.hstack([W2, np.zeros((o, 8))])
+
+x = rng.normal(size=d)
+x_new = np.r_[x, rng.normal()]                                  # the old features plus the new one
+print(np.allclose(f(x, W1, b1, W2), f(x_new, W1_s, b1_s, W2_s)))   # True: same function, bigger network</code></pre>
+  <p class="code-cap">The two simplest function-preserving surgeries. The new units' outgoing weights start at zero, so they don't change the output, but those weights receive gradients immediately and the new capacity starts learning. The new input's weights also receive gradients, as long as the hidden units it feeds are active.</p>
+
+  <h3>Emergent complexity from competition</h3>
+  <p>Competition is an <em>autocurriculum</em>: each side's improvement poses a new problem for the other. Bansal et al. (2018), “Emergent Complexity via Multi-Agent Competition”, trained simulated humanoids and ants at sumo, kick-and-defend and you-shall-not-pass from a sparse win/lose reward (with a dense exploration reward annealed away early on). The agents learned tackling, fake-outs and blocking, and the paper found that opponents had to be sampled from a pool of past versions: training only against the latest opponent produced agents that beat that opponent and little else.</p>
+  <p>Baker et al. (2020) made the point vividly with hide-and-seek. Teams of hiders and seekers share team rewards (hiders are rewarded when every hider is hidden, seekers when any hider is seen), there is a preparation phase in which seekers are frozen, and the arena contains movable boxes and ramps that can be locked in place. Trained with large-scale PPO, the agents went through six distinct strategy phases: running and chasing; hiders building shelters out of boxes; seekers using ramps to climb in; hiders taking the ramps away or locking them; seekers “box surfing”, riding a box onto the shelter by exploiting the physics; and hiders locking every box before building. Each phase took tens to hundreds of millions of episodes to appear. In their transfer tests, pretrained hide-and-seek agents learned some downstream tasks faster than agents pretrained with intrinsic motivation, though not uniformly.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Cycling and forgetting.</b> Naive self-play on non-transitive games, as in the snippet. A rising win rate against your latest self says nothing about strength.</li>
+      <li><b>Exploitability left unmeasured.</b> Evaluate against held-out opponents, track Elo against a fixed pool, or train an exploiter against the frozen final policy.</li>
+      <li><b>Overfitting to the opponent pool.</b> Agents that only ever met a narrow set of opponents fail against new ones (Bansal et al.).</li>
+      <li><b>Physics exploits.</b> Box surfing is impressive emergent behaviour and also a simulator bug being exploited. In a real task, that is reward hacking (Day 26).</li>
+      <li><b>PBT's myopia.</b> Truncation selection over short intervals rewards short-term gains and collapses the population's diversity.</li>
+      <li><b>Compute.</b> AlphaStar and OpenAI Five each trained on large accelerator clusters for weeks to months. The ideas scale down well (PSRO on small games, leagues of a few agents), but the headline results are not something to reproduce at home.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Run the RPS snippet. Add a third variant, self-play that samples its opponent uniformly from all past selves, and plot exploitability over iterations for all three.</li>
+      <li>Implement PSRO with a Nash meta-solver (use <code>scipy.optimize.linprog</code> on the meta-game) on a random 20×20 skew-symmetric game plus a transitive component \(U_{jk} = s_j - s_k\). Compare the exploitability of PSRO-Nash, PSRO-uniform (fictitious play) and PSRO-latest (self-play) against the number of policies.</li>
+      <li>PBT in miniature: 8 tabular Q-learning workers on the Day 113 corridor with the learning rate and ε as hyperparameters; exploit and explore every 20 episodes. Plot the hyperparameter schedule that emerges and compare its final performance with the best fixed setting from a grid of the same total cost.</li>
+      <li>Read the “League” section of the Methods of Vinyals et al. (2019) and redraw the figure above, adding which snapshots each agent type contributes and when.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Heinrich &amp; Silver 2016, “Deep Reinforcement Learning from Self-Play in Imperfect-Information Games” · Lanctot et al. 2017, “A Unified Game-Theoretic Approach to Multiagent Reinforcement Learning” · Vinyals et al. 2019, “Grandmaster Level in StarCraft II Using Multi-Agent Reinforcement Learning” · Jaderberg et al. 2017, “Population Based Training of Neural Networks” · Berner et al. 2019, “Dota 2 with Large Scale Deep Reinforcement Learning” · Bansal et al. 2018, “Emergent Complexity via Multi-Agent Competition” · Baker et al. 2020, “Emergent Tool Use From Multi-Agent Autocurricula”</p>
+</article>
+
+<!-- ================================================================ DAY 121 -->
+<article class="day" id="d121">
+  <header class="day-head">
+    <span class="day-no">DAY 121</span>
+    <h2>Distributed RL &amp; Partial Observability</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">At scale, acting and learning are split: many actors generate experience with slightly stale copies of the policy, and a central learner consumes it. That makes even on-policy methods off-policy, which V-trace corrects. Recurrent agents add a second staleness problem, the hidden state, which R2D2 handles with stored states and burn-in.</p>
+
+  <h3>Why split actors from learners</h3>
+  <p>Environment steps are CPU-bound and sequential; gradient steps are accelerator-bound and want large batches. Doing both in one loop wastes both. Distributed architectures run many <em>actor</em> processes, each stepping environment copies and running inference, and feed one or a few <em>learners</em>. A3C (Day 87) shared gradients asynchronously; the systems below ship experience instead, which scales much further. The price is <b>policy lag</b>: by the time the learner uses a trajectory, the policy that generated it is several updates old.</p>
+
+  <h3>Ape-X: distributed prioritized replay</h3>
+  <p>Ape-X (Horgan et al. 2018) runs hundreds of actors (360 in its Atari experiments), each ε-greedy with its own exploration rate, \(\varepsilon_i = \varepsilon^{1 + \alpha\, i/(N-1)}\) with \(\varepsilon = 0.4\) and \(\alpha = 7\), so some actors explore a lot and others hardly at all. Actors compute initial priorities themselves, the absolute \(n\)-step TD errors under their local copy of the network, before sending transitions to a shared prioritized replay (Day 77); this replaces the “new transitions get maximal priority” heuristic, which breaks down when hundreds of actors are inserting at once. A single GPU learner samples by priority, updates the network (double Q-learning, dueling heads, 3-step returns) and writes priorities back, and actors pull fresh parameters periodically. Ape-X beat Rainbow on Atari in both wall-clock time and final score, at the cost of far more environment frames. It also has a deterministic-policy variant, Ape-X DPG, for continuous control.</p>
+
+  <h3>IMPALA and the V-trace correction</h3>
+  <p>IMPALA (Espeholt et al. 2018) is actor–critic at scale. Actors run the behaviour policy \(\mu\), a stale copy of the learner's policy, and send whole \(n\)-step trajectories together with the behaviour probabilities \(\mu(A_t \mid S_t)\). Learners batch many trajectories on GPUs and update the target policy \(\pi\) and value function \(V\); actors refresh their parameters at the start of each unroll. Because \(\pi \ne \mu\), the data are off-policy, and V-trace corrects for it.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 252" role="img" aria-label="IMPALA: many actors send trajectories with behaviour probabilities to a central learner, which periodically sends back parameters">
+      <defs>
+        <marker id="ah-d121" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d121m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="20" y="20" width="200" height="44" rx="6" class="s-node"/>
+      <text x="120" y="38" class="s-mid">actor 1</text><text x="120" y="55" class="s-ink2 s-mid s-sm">env steps · acts with μ</text>
+      <rect x="20" y="74" width="200" height="44" rx="6" class="s-node"/>
+      <text x="120" y="92" class="s-mid">actor 2</text><text x="120" y="109" class="s-ink2 s-mid s-sm">env steps · acts with μ</text>
+      <rect x="20" y="128" width="200" height="44" rx="6" class="s-node"/>
+      <text x="120" y="146" class="s-mid">actor 3</text><text x="120" y="163" class="s-ink2 s-mid s-sm">env steps · acts with μ</text>
+      <rect x="20" y="182" width="200" height="44" rx="6" class="s-node"/>
+      <text x="120" y="200" class="s-mid">actor N</text><text x="120" y="217" class="s-ink2 s-mid s-sm">env steps · acts with μ</text>
+      <rect x="420" y="66" width="240" height="114" rx="8" class="s-node-mod"/>
+      <text x="540" y="92" class="s-ttl s-mid">learner (GPU)</text>
+      <text x="540" y="114" class="s-ink2 s-mid s-sm">batch of trajectories</text>
+      <text x="540" y="132" class="s-ink2 s-mid s-sm">V-trace targets vₛ</text>
+      <text x="540" y="150" class="s-ink2 s-mid s-sm">gradient step on π and V</text>
+      <line x1="220" y1="42" x2="418" y2="98" class="s-ln-mod" marker-end="url(#ah-d121m)"/>
+      <line x1="220" y1="96" x2="418" y2="114" class="s-ln-mod" marker-end="url(#ah-d121m)"/>
+      <line x1="220" y1="150" x2="418" y2="130" class="s-ln-mod" marker-end="url(#ah-d121m)"/>
+      <line x1="220" y1="204" x2="418" y2="146" class="s-ln-mod" marker-end="url(#ah-d121m)"/>
+      <text x="336" y="24" class="s-mod s-mid s-sm">trajectories (s, a, r, μ(a|s)) × n</text>
+      <path d="M430,180 C400,232 300,236 224,222" class="s-ln s-dash" marker-end="url(#ah-d121)"/>
+      <text x="330" y="246" class="s-ink2 s-mid s-sm">parameters θ, pulled each unroll</text>
+      <text x="540" y="204" class="s-ink3 s-mid s-sm">SEED RL: inference moves here;</text>
+      <text x="540" y="220" class="s-ink3 s-mid s-sm">actors send obs, get actions</text>
+    </svg>
+    <figcaption><b>IMPALA's topology.</b> Actors never compute gradients; they simulate and act with whatever parameters they last pulled, so their policy \(\mu\) lags the learner's \(\pi\) by a few updates. Trajectories carry \(\mu(a \mid s)\) so the learner can correct for the lag. SEED RL moves inference to the learner as well, leaving actors as thin environment steppers.</figcaption>
+  </figure>
+  <div class="box def"><span class="tag">Definition · the V-trace target (in Sutton &amp; Barto indexing)</span>
+    <p>For a segment \(S_s, A_s, R_{s+1}, \dots, S_{s+n}\) generated by \(\mu\), define truncated importance weights</p>
+    $$\rho_t = \min\Big(\bar\rho,\ \frac{\pi(A_t \mid S_t)}{\mu(A_t \mid S_t)}\Big), \qquad c_i = \min\Big(\bar c,\ \frac{\pi(A_i \mid S_i)}{\mu(A_i \mid S_i)}\Big), \qquad \delta_t V = \rho_t\big(R_{t+1} + \gamma V(S_{t+1}) - V(S_t)\big).$$
+    <p>The V-trace target is</p>
+    $$v_s = V(S_s) + \sum_{t=s}^{s+n-1} \gamma^{t-s} \Big(\prod_{i=s}^{t-1} c_i\Big)\, \delta_t V, \qquad\text{equivalently}\qquad v_s = V(S_s) + \delta_s V + \gamma\, c_s\, \big(v_{s+1} - V(S_{s+1})\big).$$
+    <p>The learner minimizes \(\big(v_s - V_\theta(S_s)\big)^2\) for the critic and ascends \(\rho_s \nabla_\theta \log \pi_\theta(A_s \mid S_s)\, \big(R_{s+1} + \gamma\, v_{s+1} - V(S_s)\big)\) for the actor, plus an entropy bonus. The next state's V-trace target \(v_{s+1}\) plays the role of the Q-estimate.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · properties of V-trace</span>
+    <p><b>On-policy it is the \(n\)-step return.</b> If \(\pi = \mu\) and \(\bar\rho, \bar c \ge 1\), every \(\rho_t\) and \(c_i\) equals 1, and the sum telescopes:</p>
+    $$v_s = V(S_s) + \sum_{t=s}^{s+n-1} \gamma^{t-s}\big(R_{t+1} + \gamma V(S_{t+1}) - V(S_t)\big) = \sum_{t=s}^{s+n-1} \gamma^{t-s} R_{t+1} + \gamma^n V(S_{s+n}),$$
+    <p>because \(\sum_{t} \gamma^{t-s}\big(\gamma V(S_{t+1}) - V(S_t)\big) = \gamma^n V(S_{s+n}) - V(S_s)\).</p>
+    <p><b>\(\bar\rho\) decides the fixed point.</b> Espeholt et al. show the V-trace operator is a contraction whose fixed point is the value of</p>
+    $$\pi_{\bar\rho}(a \mid s) = \frac{\min\big(\bar\rho\, \mu(a \mid s),\ \pi(a \mid s)\big)}{\sum_b \min\big(\bar\rho\, \mu(b \mid s),\ \pi(b \mid s)\big)},$$
+    <p>which is \(\pi\) itself when \(\bar\rho = \infty\) and moves towards \(\mu\) as \(\bar\rho\) shrinks. <b>\(\bar c\) only affects speed and variance</b>, like the trace cutting in Retrace (Munos et al. 2016): with \(\bar c \le 1\) the products \(\prod c_i\) can never explode, which is the whole reason to truncate, since raw importance products over \(n\) steps have variance that can grow exponentially with \(n\) (Day 40). IMPALA uses \(\bar\rho = \bar c = 1\).</p>
+  </div>
+  <pre><code>import numpy as np
+
+def vtrace(rewards, values, bootstrap, log_pi, log_mu, discounts, rho_bar=1.0, c_bar=1.0):
+    """V-trace targets for one unroll of length T (Espeholt et al. 2018), computed backwards.
+    rewards[t] = R_{t+1}, values[t] = V(S_t), bootstrap = V(S_T),
+    discounts[t] = gamma * (1 - terminated_{t+1}), log_pi / log_mu = log-probs of the taken actions."""
+    ratio = np.exp(log_pi - log_mu)                        # pi(A_t | S_t) / mu(A_t | S_t)
+    rho, c = np.minimum(rho_bar, ratio), np.minimum(c_bar, ratio)
+    next_values = np.append(values[1:], bootstrap)
+    deltas = rho * (rewards + discounts * next_values - values)
+    acc, vs_minus_v = 0.0, np.zeros_like(values)
+    for t in reversed(range(len(rewards))):                # v_t - V(S_t) = delta_t + gamma_t c_t (v_{t+1} - V(S_{t+1}))
+        acc = deltas[t] + discounts[t] * c[t] * acc
+        vs_minus_v[t] = acc
+    vs = values + vs_minus_v
+    pg_adv = rho * (rewards + discounts * np.append(vs[1:], bootstrap) - values)   # actor's advantage
+    return vs, pg_adv
+
+rng = np.random.default_rng(0)
+T, gamma = 5, 0.99
+r, v, boot = rng.normal(size=T), rng.normal(size=T), 0.7
+disc = np.full(T, gamma)
+logp = np.log(rng.uniform(0.1, 1.0, T))
+vs, _ = vtrace(r, v, boot, logp, logp, disc)                # on-policy: pi == mu
+n_step = sum(gamma ** k * r[k] for k in range(T)) + gamma ** T * boot
+print(np.isclose(vs[0], n_step))                           # True: V-trace reduces to the n-step return</code></pre>
+  <p class="code-cap">The per-step discount absorbs episode ends inside an unroll: after a termination, nothing bootstraps across the boundary. A truncation should keep the bootstrap, as always (Day 8).</p>
+
+  <h3>R2D2: recurrent replay and stored hidden states</h3>
+  <p>R2D2 (Kapturowski et al. 2019) is Ape-X with an LSTM agent. Replay stores fixed-length sequences, 80 steps with adjacent sequences overlapping by 40 and never crossing an episode boundary, with a priority that mixes the maximum and the mean absolute TD error over the sequence, \(p = \eta \max_i |\delta_i| + (1 - \eta)\, \bar\delta\) with \(\eta = 0.9\). It also uses 5-step double-Q targets, \(\gamma = 0.997\), and an invertible value rescaling \(h(x) = \operatorname{sign}(x)\big(\sqrt{|x| + 1} - 1\big) + \epsilon x\) in place of reward clipping. The new problem is the LSTM's hidden state at the start of a replayed sequence.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Strategy</th><th>How</th><th>Problem</th></tr></thead>
+    <tbody>
+      <tr><td><b>Zero start state</b></td><td>start every replayed sequence from \(h = 0\)</td><td>the network sees an atypical state and has to learn to recover from it; early-step values are poor</td></tr>
+      <tr><td><b>Stored state</b></td><td>store the actor's \(h\) at the sequence start and replay from it</td><td>stale: it was produced by older parameters (“representational drift”), so it doesn't match the current network</td></tr>
+      <tr><td><b>Burn-in</b></td><td>prepend \(l\) steps (40 in R2D2) that are unrolled only to produce \(h\), with no loss on them</td><td>extra compute per sequence; with a zero start it only partly repairs the state</td></tr>
+      <tr><td><b>Stored state + burn-in</b></td><td>both</td><td>best in R2D2's experiments</td></tr>
+    </tbody>
+  </table></div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 152" role="img" aria-label="An R2D2 replay sequence: stored state, a burn-in prefix with no loss, then the training steps; the next sequence overlaps it">
+      <circle cx="40" cy="45" r="6" class="s-acc"/>
+      <text x="40" y="24" class="s-acc s-mid s-sm">stored h</text>
+      <rect x="48" y="30" width="140" height="30" rx="4" class="s-node"/>
+      <text x="118" y="50" class="s-mid s-sm">burn-in · 40 steps</text>
+      <rect x="188" y="30" width="280" height="30" rx="4" class="s-node-mod"/>
+      <text x="328" y="50" class="s-mid s-sm">training · 80 steps · loss + priorities</text>
+      <text x="118" y="78" class="s-ink2 s-mid s-sm">unroll only, no loss</text>
+      <text x="328" y="78" class="s-ink2 s-mid s-sm">n-step double-Q targets</text>
+      <circle cx="182" cy="115" r="5" class="s-acc"/>
+      <rect x="188" y="100" width="140" height="30" rx="4" class="s-grid s-dash"/>
+      <text x="258" y="120" class="s-ink3 s-mid s-sm">burn-in</text>
+      <rect x="328" y="100" width="280" height="30" rx="4" class="s-grid s-dash"/>
+      <text x="468" y="120" class="s-ink3 s-mid s-sm">next sequence: starts 40 steps later</text>
+      <text x="40" y="146" class="s-ink3 s-sm">time →</text>
+    </svg>
+    <figcaption><b>Replaying a recurrent agent.</b> The stored state gives the right kind of hidden state; the burn-in prefix lets the current network refresh it before any loss is computed. Sequences overlap by half, so every step is trained on with some history behind it.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · sequence replay with stored state and burn-in</span>
+    <ol>
+      <li><b>Actor:</b> every 40 steps, emit the latest 40 + 80 steps of observations, actions and rewards, the LSTM state at the start of the 40-step prefix, and an initial priority computed locally.</li>
+      <li><b>Learner:</b> sample sequences by priority.
+        <ol>
+          <li>Set \(h\) to the stored state and unroll the online network over the burn-in prefix without gradients. Do the same for the target network.</li>
+          <li>Unroll both networks over the remaining 80 steps from the refreshed states and compute \(n\)-step double-Q targets.</li>
+          <li>Take the loss on those 80 steps only, update the network, and write back the sequence's new priority.</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>Kapturowski et al. measured the discrepancy between Q-values computed from replayed states and from states recomputed over the full history: it was smallest with stored state plus burn-in. R2D2 set a new state of the art on Atari-57 and DMLab-30 at the time, exceeding human-level scores on most Atari games.</p>
+
+  <h3>SEED RL: centralized inference</h3>
+  <p>In IMPALA, actors run inference on CPUs with parameter copies that must be shipped around. SEED RL (Espeholt et al. 2020) moves inference to the learner. Actors only step environments and stream observations to the learner over fast gRPC; the learner batches observations from many actors, runs the policy on its accelerators and sends actions back; recurrent states and trajectories never leave the learner. There is no parameter broadcast, acting always uses the newest parameters, CPU actors become cheap, and batched accelerator inference is far faster per step; the paper reports large reductions in cost per frame compared with IMPALA. The cost is a network round trip on every environment step, so latency matters, and the learner is a single point of failure. SEED implements both the V-trace and R2D2 agents.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>System</th><th>Actors send</th><th>Inference on</th><th>Off-policy handling</th><th>Memory</th></tr></thead>
+    <tbody>
+      <tr><td>Ape-X</td><td>transitions + priorities</td><td>actor CPUs</td><td>Q-learning from replay</td><td>none (feed-forward)</td></tr>
+      <tr><td>IMPALA</td><td>trajectories + \(\mu(a \mid s)\)</td><td>actor CPUs</td><td>V-trace</td><td>LSTM, no replay needed</td></tr>
+      <tr><td>R2D2</td><td>sequences + stored \(h\) + priorities</td><td>actor CPUs</td><td>Q-learning from replay</td><td>LSTM, stored state + burn-in</td></tr>
+      <tr><td>SEED RL</td><td>observations; receive actions</td><td>learner accelerators</td><td>V-trace or R2D2 losses</td><td>kept on the learner</td></tr>
+    </tbody>
+  </table></div>
+  <p>The current alternative removes the split altogether: environments written for accelerators (Brax, JAX-based suites, Isaac Gym) run thousands of copies on the same device as the learner, and fast CPU simulators (EnvPool, Sample Factory) push single-machine throughput to millions of frames per minute.</p>
+
+  <h3>Partial observability and DRQN</h3>
+  <p>In a POMDP (Day 27) the agent sees an observation \(O_t \sim O(\cdot \mid S_t)\) rather than the state. The optimal policy depends on the <em>belief</em> \(b_t(s) = \Pr(S_t = s \mid O_{0:t}, A_{0:t-1})\), a sufficient statistic of the history; with a known model it is computed by Bayesian filtering. Deep RL instead lets a recurrent network summarize the history, \(h_t = f(h_{t-1}, O_t, A_{t-1})\), and conditions the policy or Q-function on \(h_t\). Frame stacking (Day 74) is a fixed window of \(k\) frames: enough for velocities, useless for anything that happened a few seconds ago.</p>
+  <p>DRQN (Hausknecht &amp; Stone 2015) replaced DQN's first fully connected layer with an LSTM fed one frame per step. On “flickering” Atari, where each frame is blanked out with probability 0.5, DRQN degraded more gracefully than DQN with stacked frames, and a DRQN trained on normal frames coped better when tested on flickering ones. The paper compared two replay schemes, sequential updates (replay whole episodes from the start, carrying the hidden state) and random updates (random start points with a zeroed hidden state), and found them similar; random updates are simpler. R2D2's stored state and burn-in refine the random-update scheme.</p>
+
+  <h3>Transformers as memory</h3>
+  <p>Attention over a window of past observations is the alternative to recurrence: no vanishing gradient through time, and direct access to any step in the window, at a cost quadratic in the window length and with a hard memory horizon (Transformer-XL's segment-level recurrence extends it). Plain transformers turned out to be hard to train with RL. GTrXL (Parisotto et al. 2020) stabilized them with two changes:</p>
+  <ul>
+    <li><b>Identity-map reordering.</b> Layer normalization moves to the input of each sub-layer, leaving an un-normalized identity path from each block's input to its output.</li>
+    <li><b>Gating.</b> Residual connections are replaced with GRU-style gates. With the gate bias initialized so each block starts close to the identity, the agent initially behaves like a reactive, Markovian policy and learns to use its memory as training proceeds.</li>
+  </ul>
+  <p>Trained with V-trace in an IMPALA setup, GTrXL beat LSTM agents on memory-heavy DMLab-30 tasks. When do transformers actually help? Ni et al. (2023) separate memory length (how far back information must be recalled) from credit-assignment length (how far back the actions that caused a reward lie), and find that transformers help a great deal with the first and much less with the second. Well-tuned recurrent agents remain strong baselines on many POMDPs (Ni et al. 2022).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Ignoring policy lag.</b> On-policy losses applied to lagged data are biased, and with enough lag training diverges. V-trace fixes this, but with finite \(\bar\rho\) it converges to the value of \(\pi_{\bar\rho}\), not of \(\pi\).</li>
+      <li><b>Stale priorities and hidden states.</b> Both were computed by older networks. Recompute priorities when sequences are sampled, and use burn-in.</li>
+      <li><b>Throughput mismatch.</b> If actors produce faster than the learner consumes, each sample is used less (the replay ratio of Day 72 falls); if slower, the learner overfits old data. Monitor both rates.</li>
+      <li><b>Non-determinism.</b> Asynchronous systems are not reproducible from run to run. That means more seeds, not fewer.</li>
+      <li><b>Memory longer than the training window.</b> Dependencies longer than the replayed sequence plus burn-in cannot be learned, whatever the architecture.</li>
+      <li><b>Unstable transformers.</b> Without pre-normalization and gating, transformer agents often fail to learn at all.</li>
+      <li><b>Episode boundaries inside sequences.</b> Mask them in the loss and reset or mask the recurrent state; and keep the terminated/truncated distinction at sequence ends.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Test <code>vtrace</code> beyond the on-policy check. On a one-state problem with two actions, \(\mu = (0.5, 0.5)\), \(\pi = (0.9, 0.1)\), rewards \((1, 0)\) and \(\gamma = 0.9\), iterate the V-trace operator to its fixed point for \(\bar\rho \in \{0.5, 1, 10\}\), and compare it with the value of \(\pi_{\bar\rho}\) from the formula.</li>
+      <li>Partially observed CartPole: remove the two velocity components from the observation. Compare DQN with 1 frame, DQN with 4 stacked frames, and a DRQN with an LSTM, over 3 seeds.</li>
+      <li>In your DRQN, implement zero-state, stored-state, and stored-state-plus-burn-in (20 steps) replay. Measure the Q-value discrepancy between the replayed start state and a state recomputed over the whole episode so far, for each strategy.</li>
+      <li>Measure environment steps per second on your machine for CartPole with 1, 4 and 16 environments in synchronous and asynchronous Gymnasium vector envs. Where does the time go?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Horgan et al. 2018, “Distributed Prioritized Experience Replay” · Espeholt et al. 2018, “IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures” · Kapturowski et al. 2019, “Recurrent Experience Replay in Distributed Reinforcement Learning” · Espeholt et al. 2020, “SEED RL: Scalable and Efficient Deep-RL with Accelerated Central Inference” · Hausknecht &amp; Stone 2015, “Deep Recurrent Q-Learning for Partially Observable MDPs” · Parisotto et al. 2020, “Stabilizing Transformers for Reinforcement Learning” · Sutton &amp; Barto §17.3</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m12.html"><small>Previous · Days 106–112</small>◂ Module 12 — Imitation &amp; Offline RL</a>
+  <a class="next" href="m14.html"><small>Next · Days 122–128</small>Module 14 — Safety, LLMs &amp; Applications ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

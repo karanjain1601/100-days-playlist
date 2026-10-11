@@ -1,0 +1,1367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 3 — Dynamic Programming · 130 Days of RL</title>
+<meta name="description" content="Days 28–34: policy evaluation, policy improvement, policy iteration and value iteration with a known model, the contraction argument behind their convergence, asynchronous DP and generalized policy iteration, and a DP suite on four classic MDPs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m3">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 3 · Dynamic Programming · Days 28–34</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 3 · Dynamic Programming</h4>
+  <nav>
+    <a href="#d28"><span class="n">D28</span>Policy Evaluation</a>
+    <a href="#d29"><span class="n">D29</span>Policy Improvement</a>
+    <a href="#d30"><span class="n">D30</span>Policy Iteration</a>
+    <a href="#d31"><span class="n">D31</span>Value Iteration</a>
+    <a href="#d32"><span class="n">D32</span>Why DP Converges</a>
+    <a href="#d33"><span class="n">D33</span>Async DP &amp; GPI</a>
+    <a href="#d34"><span class="n">D34</span>Project 2: DP Suite</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="3"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m02.html">◂ Module 2</a><a href="m04.html">Module 4 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 3 · Days 28–34 · Weeks 6–7</p>
+<h1>Dynamic Programming</h1>
+<p class="dek">Module 2 defined what an optimal policy is; this module computes one. Given the model \(p(s', r \mid s, a)\), the Bellman equations turn into update rules, and three algorithms (policy evaluation, policy iteration, value iteration) solve any finite MDP exactly, with convergence proofs that all rest on a single contraction inequality. Module 4 throws the model away and replaces these expected updates with averages of sampled returns, but keeps the evaluate-then-improve structure built here, as does nearly every method after it.</p>
+<ul class="chips">
+  <li><b>7</b> lessons</li>
+  <li><b>4h 25m</b> video</li>
+  <li><b>11h 15m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto Ch. 4</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Turn either Bellman equation into an update and implement policy evaluation, policy iteration and value iteration for any finite MDP stored as arrays.</li>
+    <li>Prove the policy improvement theorem and use it to show that policy iteration stops, after finitely many steps, at an optimal policy.</li>
+    <li>Prove that the Bellman operators are \(\gamma\)-contractions in the sup norm, and derive the error bounds that tell you when to stop iterating.</li>
+    <li>Bound how much return a greedy policy can lose when the value function it was built from is off by \(\varepsilon\).</li>
+    <li>Solve Jack's Car Rental and the Gambler's Problem, and explain why their optimal policies look the way they do.</li>
+    <li>Choose between value iteration, policy iteration, modified policy iteration, prioritized sweeping and real-time DP for a given problem, and recognise when DP is not an option at all.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 28 -->
+<article class="day" id="d28">
+  <header class="day-head">
+    <span class="day-no">DAY 28</span>
+    <h2>Iterative Policy Evaluation</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">The Bellman expectation equation says that \(v_\pi\) is the one value function a full one-step lookahead leaves unchanged. Iterative policy evaluation turns that fixed-point condition into an assignment, applies it to every state, and repeats until nothing moves.</p>
+
+  <h3>From an equation to an update rule</h3>
+  <p>Day 23 characterised \(v_\pi\) as the solution of \(|\mathcal S|\) linear equations, one per state:</p>
+  $$v_\pi(s) = \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma\, v_\pi(s')\big].$$
+  <p>Day 25 solved that system directly, at \(O(|\mathcal S|^3)\) cost. Dynamic programming instead reads the right-hand side as an instruction: take any guess \(v_k\), plug it in on the right, and call the result \(v_{k+1}\).</p>
+  $$v_{k+1}(s) = \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma\, v_k(s')\big] \qquad \text{for all } s \in \mathcal S.$$
+  <p>In the operator notation of Day 4 this is \(v_{k+1} = T^\pi v_k\) with \(T^\pi v = r^\pi + \gamma P^\pi v\), and \(v_\pi\) is the fixed point: \(T^\pi v_\pi = v_\pi\). Nothing about the update is approximate. It is exact arithmetic on the model; what makes it iterative is only that we start from the wrong vector.</p>
+  <div class="box def"><span class="tag">Definition · expected update</span>
+    <p>An <b>expected update</b> (S&amp;B also say <em>full backup</em>) replaces the value of a state by the model's expectation of the one-step reward plus the discounted value of the successor. It touches every action and every possible successor, weighted by its probability, and therefore needs \(p(s', r \mid s, a)\). A <b>sweep</b> applies the update once to every state. Monte Carlo (Module 4) and TD (Module 5) methods replace the expectation with a single sampled successor; that is the only structural difference.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 700 232" role="img" aria-label="Backup diagram for policy evaluation: the state branches into actions weighted by the policy, each action branches into successor states weighted by the dynamics">
+      <circle cx="230" cy="34" r="13" class="s-node"/>
+      <text x="230" y="38" class="s-mid">s</text>
+      <text x="208" y="38" class="s-mod s-end">vₖ₊₁(s)</text>
+      <line x1="221" y1="44" x2="135" y2="100" class="s-ln"/>
+      <line x1="230" y1="47" x2="230" y2="99" class="s-ln"/>
+      <line x1="239" y1="44" x2="325" y2="100" class="s-ln"/>
+      <text x="168" y="66" class="s-ink2 s-end s-sm">π(a | s)</text>
+      <circle cx="130" cy="105" r="6" class="s-ink"/>
+      <circle cx="230" cy="105" r="6" class="s-ink"/>
+      <circle cx="330" cy="105" r="6" class="s-ink"/>
+      <text x="120" y="109" class="s-ink2 s-end s-sm">a</text>
+      <line x1="127" y1="111" x2="105" y2="174" class="s-ln"/>
+      <line x1="133" y1="111" x2="155" y2="174" class="s-ln"/>
+      <line x1="227" y1="111" x2="205" y2="174" class="s-ln"/>
+      <line x1="233" y1="111" x2="255" y2="174" class="s-ln"/>
+      <line x1="327" y1="111" x2="305" y2="174" class="s-ln"/>
+      <line x1="333" y1="111" x2="355" y2="174" class="s-ln"/>
+      <text x="108" y="145" class="s-ink2 s-end s-sm">p(s′, r | s, a)</text>
+      <text x="152" y="145" class="s-ink2 s-sm">r</text>
+      <circle cx="102" cy="185" r="11" class="s-node"/>
+      <circle cx="158" cy="185" r="11" class="s-node"/>
+      <circle cx="202" cy="185" r="11" class="s-node"/>
+      <circle cx="258" cy="185" r="11" class="s-node"/>
+      <circle cx="302" cy="185" r="11" class="s-node"/>
+      <circle cx="358" cy="185" r="11" class="s-node"/>
+      <text x="102" y="189" class="s-mid s-sm">s′</text>
+      <text x="230" y="220" class="s-ink2 s-mid s-sm">leaves read the old table vₖ(s′)</text>
+      <text x="420" y="40" class="s-ttl">One expected update</text>
+      <text x="420" y="70" class="s-sm">1  weight each action by π(a | s)</text>
+      <text x="420" y="92" class="s-sm">2  weight each (s′, r) by p(s′, r | s, a)</text>
+      <text x="420" y="114" class="s-sm">3  on every branch add r + γ·vₖ(s′)</text>
+      <text x="420" y="136" class="s-sm">4  write the total into vₖ₊₁(s)</text>
+      <text x="420" y="170" class="s-ink2 s-sm">cost: one term per (a, s′, r) branch</text>
+      <text x="420" y="190" class="s-ink2 s-sm">a sweep repeats this for every s</text>
+    </svg>
+    <figcaption><b>Backup diagram.</b> Open circles are states, filled circles are actions. Information flows up: the value at the root is rebuilt from the values at the leaves. Day 35 draws the Monte Carlo version, which follows one sampled branch all the way to the end of the episode instead of every branch for one step.</figcaption>
+  </figure>
+
+  <h3>Synchronous sweeps: two arrays or one</h3>
+  <p>There are two ways to run a sweep, and both converge.</p>
+  <ul>
+    <li><b>Two-array</b> (Jacobi style). Keep the old table frozen and compute every \(v_{k+1}(s)\) from it. This matches the maths exactly, \(v_{k+1} = T^\pi v_k\), the order of states is irrelevant, and the whole sweep is a single matrix–vector product, so it vectorizes and parallelizes trivially. It costs two copies of the table.</li>
+    <li><b>In-place</b> (Gauss–Seidel style). Overwrite \(V(s)\) as soon as it is computed, so states later in the sweep already see this sweep's new values. A sweep is no longer \(T^\pi\) applied once, but it still converges to \(v_\pi\) (Day 33 proves this for any update order), and it is usually faster because new information travels further within one sweep. The order now matters: sweeping outward from the terminal states can carry value along a whole path in one pass.</li>
+  </ul>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Stopping threshold θ</th><th>Two-array sweeps</th><th>In-place sweeps (row-major order)</th></tr></thead>
+    <tbody>
+      <tr><td class="num">10⁻²</td><td class="num">89</td><td class="num">62</td></tr>
+      <tr><td class="num">10⁻⁴</td><td class="num">173</td><td class="num">114</td></tr>
+      <tr><td class="num">10⁻⁶</td><td class="num">258</td><td class="num">167</td></tr>
+    </tbody>
+  </table></div>
+  <p class="code-cap">Sweeps to evaluate the random policy on the 4 × 4 gridworld below (γ = 1). Every factor of 100 in θ costs a roughly constant number of extra sweeps, the signature of geometric convergence.</p>
+
+  <div class="box algo"><span class="tag">Algorithm · Iterative policy evaluation (in-place)</span>
+    <ol>
+      <li>Input the policy \(\pi\) and a threshold \(\theta &gt; 0\). Initialise \(V(s)\) arbitrarily for non-terminal \(s\) (zeros are fine) and set \(V(\text{terminal}) = 0\).</li>
+      <li>Repeat:
+        <ol>
+          <li>\(\Delta \leftarrow 0\)</li>
+          <li>For each non-terminal \(s\):
+            <ol>
+              <li>\(v \leftarrow V(s)\)</li>
+              <li>\(V(s) \leftarrow \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a)\,[r + \gamma V(s')]\)</li>
+              <li>\(\Delta \leftarrow \max(\Delta, |v - V(s)|)\)</li>
+            </ol>
+          </li>
+        </ol>
+        until \(\Delta &lt; \theta\).</li>
+      <li>Return \(V \approx v_\pi\). <span class="step">(for the two-array version, read \(V(s')\) from a copy taken at the start of the sweep)</span></li>
+    </ol>
+  </div>
+
+  <h3>The stopping criterion and what it guarantees</h3>
+  <p>The loop stops when the largest change in a sweep, \(\Delta = \max_s |v_{k+1}(s) - v_k(s)|\), drops below \(\theta\). A small change is not the same thing as a small error, and the gap between them depends on \(\gamma\).</p>
+  <div class="box deriv"><span class="tag">Derivation · error at the stopping point (two-array, γ &lt; 1)</span>
+    $$\begin{aligned}
+    \|v_{k+1} - v_\pi\|_\infty &amp;= \|T^\pi v_k - T^\pi v_\pi\|_\infty \le \gamma\, \|v_k - v_\pi\|_\infty \\
+    &amp;\le \gamma\,\big(\|v_k - v_{k+1}\|_\infty + \|v_{k+1} - v_\pi\|_\infty\big),
+    \end{aligned}$$
+    <p>using the contraction lemma of Day 4 and then the triangle inequality. Collect the \(\|v_{k+1} - v_\pi\|_\infty\) terms:</p>
+    $$\|v_{k+1} - v_\pi\|_\infty \le \frac{\gamma}{1 - \gamma}\, \|v_{k+1} - v_k\|_\infty &lt; \frac{\gamma\,\theta}{1 - \gamma}.$$
+  </div>
+  <p>At \(\gamma = 0.9\) the true error can be nine times \(\theta\); at \(\gamma = 0.99\), ninety-nine times. If you need accuracy \(\varepsilon\), set \(\theta = \varepsilon(1 - \gamma)/\gamma\). Day 32 turns this into a full set of error bounds.</p>
+
+  <h3>Why the iteration converges to v<sub>π</sub></h3>
+  <p>For \(\gamma &lt; 1\), the same contraction inequality applied \(k\) times gives \(\|v_k - v_\pi\|_\infty \le \gamma^k \|v_0 - v_\pi\|_\infty\). The error shrinks geometrically from <em>any</em> starting table, and reducing it by a factor \(\varepsilon\) takes about \(\log(1/\varepsilon) / \log(1/\gamma) \approx \log(1/\varepsilon)/(1 - \gamma)\) sweeps. That is the \(1/(1-\gamma)\) "effective horizon" of Day 19 reappearing as a computational cost.</p>
+  <p>For \(\gamma = 1\), as in the gridworld below, \(T^\pi\) is not a contraction, and convergence needs something else: that \(\pi\) reaches a terminal state with probability 1 from every state. Then the block \(Q\) of \(P^\pi\) restricted to non-terminal states is substochastic with \(\rho(Q) &lt; 1\) (Day 6's absorbing chains), the error evolves as \(v_k - v_\pi = Q^k (v_0 - v_\pi)\), and \(Q^k \to 0\). S&amp;B state the condition as "either \(\gamma &lt; 1\) or eventual termination is guaranteed from all states under \(\pi\)".</p>
+  <div class="box intuition"><span class="tag">Intuition · what the intermediate tables mean</span>
+    <p>Start from \(v_0 = 0\) and unroll the two-array update: \(v_k = \sum_{t=0}^{k-1} (\gamma P^\pi)^t r^\pi\). So \(v_k(s)\) is exactly the expected return over the <em>first \(k\) steps</em> from \(s\). Sweep 1 has seen one reward, sweep 10 has seen ten. The iteration is not a blind numerical trick; each sweep extends the horizon by one step, and discounting (or termination) makes the far tail negligible.</p>
+  </div>
+
+  <h3>Full gridworld walkthrough</h3>
+  <p>Sutton &amp; Barto's Example 4.1: a 4 × 4 grid whose top-left and bottom-right corners are terminal (one terminal state drawn twice). The four actions move one cell deterministically, and a move off the grid leaves the agent in place. Every transition earns \(-1\), \(\gamma = 1\), and the policy is equiprobable random. Under these choices \(-v_\pi(s)\) is the expected number of steps a random walk from \(s\) takes to hit a corner.</p>
+  <pre><code>import numpy as np
+
+N, GAMMA = 4, 1.0
+TERMINAL = {0, N * N - 1}
+MOVES = [(-1, 0), (0, 1), (1, 0), (0, -1)]          # up, right, down, left
+
+def step(s, a):
+    """Deterministic gridworld of S&amp;B Example 4.1: reward -1 per move, walls bounce back."""
+    r, c = divmod(s, N)
+    r2, c2 = r + MOVES[a][0], c + MOVES[a][1]
+    if not (0 &lt;= r2 &lt; N and 0 &lt;= c2 &lt; N):
+        r2, c2 = r, c
+    return r2 * N + c2, -1.0
+
+def evaluate(pi, theta=1e-4, in_place=False, show=()):
+    """pi[s, a] = probability of action a in state s. Returns v_pi and the sweep count."""
+    V = np.zeros(N * N)
+    for k in range(1, 100_000):
+        old = V.copy()
+        src = V if in_place else old                  # in-place reads this sweep's new values
+        for s in range(N * N):
+            if s in TERMINAL:
+                continue                              # terminal value stays 0
+            V[s] = sum(pi[s, a] * (r + GAMMA * src[s2])
+                       for a in range(4) for s2, r in [step(s, a)])
+        if k in show:
+            print(f"sweep {k}\n{V.reshape(N, N).round(2)}")
+        if np.abs(V - old).max() &lt; theta:
+            return V, k
+
+random_pi = np.full((N * N, 4), 0.25)
+V, k = evaluate(random_pi, show=(1, 2, 3, 10))
+print(f"two-array: {k} sweeps\n{V.reshape(N, N).round(1)}")
+print("in-place :", evaluate(random_pi, in_place=True)[1], "sweeps")</code></pre>
+  <p class="code-cap">Pass <code>show=range(1, 200)</code> to print the table after every sweep; the output below keeps sweeps 1, 2, 3, 10 and the converged table. The same <code>step</code> and <code>evaluate</code> are reused on Day 29.</p>
+  <pre><code class="plain">sweep 1                       sweep 2                       sweep 3
+ 0.00 -1.00 -1.00 -1.00        0.00 -1.75 -2.00 -2.00        0.00 -2.44 -2.94 -3.00
+-1.00 -1.00 -1.00 -1.00       -1.75 -2.00 -2.00 -2.00       -2.44 -2.88 -3.00 -2.94
+-1.00 -1.00 -1.00 -1.00       -2.00 -2.00 -2.00 -1.75       -2.94 -3.00 -2.88 -2.44
+-1.00 -1.00 -1.00  0.00       -2.00 -2.00 -1.75  0.00       -3.00 -2.94 -2.44  0.00
+
+sweep 10                      converged: 173 sweeps (in-place: 114)
+ 0.00 -6.14 -8.35 -8.97         0   -14   -20   -22
+-6.14 -7.74 -8.43 -8.35       -14   -18   -20   -20
+-8.35 -8.43 -7.74 -6.14       -20   -20   -18   -14
+-8.97 -8.35 -6.14  0.00       -22   -20   -14     0</code></pre>
+  <p>Read the tables as the intuition box predicts. After sweep 1 every non-terminal cell has paid one step, \(-1\). In sweep 2 the cell next to the top-left corner averages four branches: going left reaches the terminal (\(-1 + 0\)), and the other three pay \(-1\) and land on a cell worth \(-1\), so \((-1 - 2 - 2 - 2)/4 = -1.75\). Cells far from both corners sit at exactly \(-k\) for small \(k\), because no random walk from them can finish within \(k\) steps. The converged \(-22\) says a random walk from the far corner takes 22 steps on average. S&amp;B's Figure 4.1 prints the same tables to one decimal (its −1.7 is this −1.75, truncated).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Improper policies with γ = 1.</b> Evaluate "always move left" on this grid and the cells in the left column bump into the wall forever. Their value is \(-\infty\), every sweep subtracts another 1, and \(\Delta = 1\) never drops below \(\theta\). Policy iteration can produce such a policy mid-run if ties are broken badly (Day 29). Use \(\gamma &lt; 1\), or cap the sweep count and check.</li>
+      <li><b>Updating terminal states.</b> If the terminal state is backed up like any other (say through a self-loop with reward), its value drifts away from 0 and drags every neighbour with it. Skip terminal states, or mask their successor values to zero.</li>
+      <li><b>Stopping early at large γ.</b> \(\Delta &lt; \theta\) only bounds the error by \(\gamma\theta/(1-\gamma)\). At \(\gamma = 0.999\) a "converged" table can be off by a thousand times \(\theta\).</li>
+      <li><b>Not matching published numbers.</b> Two-array and in-place runs pass through different intermediate tables. If your sweep-2 table differs from S&amp;B's, check which variant you wrote before hunting for a bug.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the snippet and reproduce the tables. Then check the intuition box by simulation: run 100,000 random walks of at most 3 steps from the cell next to the top-left corner and compare the average truncated return with \(v_3 = -2.44\).</li>
+      <li>Plot sweeps against \(\theta \in \{10^{-1}, \dots, 10^{-8}\}\) for the two-array version, the in-place version in row-major order, and the in-place version sweeping states in order of distance from the nearest corner.</li>
+      <li>S&amp;B Exercise 4.2: add a state 15 below state 13 whose actions left, up, right and down lead to 12, 13, 14 and 15. What is \(v_\pi(15)\) under the random policy? Then also make "down" from 13 lead to 15 and answer again. Solve each by hand with one line of algebra, then confirm numerically.</li>
+      <li>Rewrite <code>evaluate</code> as <code>V = r_pi + GAMMA * P_pi @ V</code> with \(P^\pi\) built once, time it against the loop, and compare the result with <code>np.linalg.solve</code> on \((I - \gamma P^\pi)\) restricted to the non-terminal states (Day 25).</li>
+      <li>Evaluate "always move left" with \(\gamma = 1\) and watch \(\Delta\). Repeat with \(\gamma = 0.9\) and explain why it now converges.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §4.1 · Bellman 1957, <i>Dynamic Programming</i> · Puterman 1994, <i>Markov Decision Processes</i>, Ch. 6</p>
+</article>
+
+<!-- ================================================================ DAY 29 -->
+<article class="day" id="d29">
+  <header class="day-head">
+    <span class="day-no">DAY 29</span>
+    <h2>Policy Improvement</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Knowing \(v_\pi\) tells you how to beat \(\pi\): in every state, look one step ahead and take the action with the largest \(q_\pi\). The policy improvement theorem guarantees the new policy is at least as good everywhere, and strictly better somewhere unless \(\pi\) was already optimal.</p>
+
+  <h3>Acting greedily with respect to v<sub>π</sub></h3>
+  <p>The action value of taking \(a\) once in \(s\) and following \(\pi\) afterwards is</p>
+  $$q_\pi(s, a) = \E\big[R_{t+1} + \gamma\, v_\pi(S_{t+1}) \mid S_t = s, A_t = a\big] = \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma\, v_\pi(s')\big].$$
+  <p>If \(q_\pi(s, a) &gt; v_\pi(s)\), then deviating to \(a\) for <em>one</em> step and reverting to \(\pi\) beats following \(\pi\) throughout. The greedy policy makes that deviation in every state at once:</p>
+  $$\pi'(s) = \argmax_a q_\pi(s, a) = \argmax_a \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma\, v_\pi(s')\big].$$
+  <p>It is not obvious that this is safe. The one-step comparison assumes \(\pi\) is followed afterwards, but \(\pi'\) changes what happens afterwards too: every later step is also a deviation. The theorem below says the deviations compound in your favour.</p>
+
+  <h3>The policy improvement theorem</h3>
+  <div class="box thm"><span class="tag">Theorem · Policy improvement</span>
+    <p>Let \(\pi\) and \(\pi'\) be deterministic policies with \(q_\pi(s, \pi'(s)) \ge v_\pi(s)\) for every state \(s\). Then \(v_{\pi'}(s) \ge v_\pi(s)\) for every \(s\). Moreover, if the hypothesis holds strictly at some state, the conclusion holds strictly at that state.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof · unrolling (S&amp;B §4.2)</span>
+    <p>Apply the hypothesis at \(S_t\), then again at \(S_{t+1}\), and so on:</p>
+    $$\begin{aligned}
+    v_\pi(s) &amp;\le q_\pi(s, \pi'(s)) = \E\big[R_{t+1} + \gamma v_\pi(S_{t+1}) \mid S_t = s, A_t = \pi'(s)\big] \\
+    &amp;= \E_{\pi'}\big[R_{t+1} + \gamma v_\pi(S_{t+1}) \mid S_t = s\big] \\
+    &amp;\le \E_{\pi'}\big[R_{t+1} + \gamma q_\pi(S_{t+1}, \pi'(S_{t+1})) \mid S_t = s\big] \\
+    &amp;= \E_{\pi'}\big[R_{t+1} + \gamma R_{t+2} + \gamma^2 v_\pi(S_{t+2}) \mid S_t = s\big] \\
+    &amp;\le \cdots \le \E_{\pi'}\big[R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \mid S_t = s\big] = v_{\pi'}(s).
+    \end{aligned}$$
+    <p>The second line holds because \(\pi'\) picks \(A_t = \pi'(s)\) anyway. The fourth expands \(q_\pi\) and folds the inner expectation into the outer one with the tower rule (Day 3). The limit needs \(\gamma^k\, \E_{\pi'}[v_\pi(S_{t+k})] \to 0\), true for \(\gamma &lt; 1\) with bounded values, and for \(\gamma = 1\) when the policies terminate with probability 1.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof · operator form, with the strict part</span>
+    <p>\(T^{\pi'}\) is <b>monotone</b>: if \(u \ge w\) componentwise then \(T^{\pi'}u - T^{\pi'}w = \gamma P^{\pi'}(u - w) \ge 0\), because \(P^{\pi'}\) has non-negative entries. The hypothesis says exactly \(T^{\pi'} v_\pi \ge v_\pi\), since \((T^{\pi'} v_\pi)(s) = q_\pi(s, \pi'(s))\). Apply \(T^{\pi'}\) to both sides again and again:</p>
+    $$v_\pi \le T^{\pi'} v_\pi \le (T^{\pi'})^2 v_\pi \le \cdots \longrightarrow v_{\pi'},$$
+    <p>where the limit is Day 28's convergence of policy evaluation from any start. For the strict part: \(v_{\pi'} = T^{\pi'} v_{\pi'} \ge T^{\pi'} v_\pi\) by monotonicity, and \((T^{\pi'} v_\pi)(s) = q_\pi(s, \pi'(s)) &gt; v_\pi(s)\) at the state where the hypothesis is strict.</p>
+  </div>
+
+  <h3>Strict improvement unless already optimal</h3>
+  <p>The greedy policy always satisfies the hypothesis: \(q_\pi(s, \pi'(s)) = \max_a q_\pi(s, a) \ge q_\pi(s, \pi(s)) = v_\pi(s)\). So greedy improvement never makes things worse. When does it fail to make things better? Suppose \(v_{\pi'} = v_\pi\). Then for every \(s\),</p>
+  $$v_\pi(s) = v_{\pi'}(s) = (T^{\pi'} v_{\pi'})(s) = (T^{\pi'} v_\pi)(s) = \max_a \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma\, v_\pi(s')\big],$$
+  <p>which is the Bellman optimality equation of Day 24. Its solution is unique (Day 32 proves it), so \(v_\pi = v_*\) and both \(\pi\) and \(\pi'\) are optimal. Read the contrapositive: <b>if \(\pi\) is not optimal, the greedy policy is strictly better in at least one state</b>. Day 30 turns this into a termination proof for policy iteration.</p>
+
+  <h3>Handling ties</h3>
+  <p>Ties are common: symmetric gridworlds, the Gambler's Problem (Day 31), any state where two moves reach equally good cells. They raise three separate issues.</p>
+  <ul>
+    <li><b>For improvement, ties don't matter.</b> The theorem needs only \(\ge\), so any tie-breaking rule gives a policy at least as good.</li>
+    <li><b>For termination, they matter a lot.</b> Policy iteration stops when the policy stops changing. If two actions are exactly tied and the argmax returns one or the other depending on the order of a floating-point sum, the policy flips between equally good versions forever and the loop never ends. S&amp;B's Exercise 4.4 points out that the book's own pseudocode has this bug. The fix: keep the current action whenever it is among the maximisers, or test convergence on values rather than actions.</li>
+    <li><b>Floating-point "ties".</b> Two mathematically equal action values can differ by \(10^{-16}\). Compare with a tolerance, as in <code>Q &gt;= Q.max() - 1e-9</code>.</li>
+  </ul>
+
+  <h3>Improvement for stochastic policies</h3>
+  <p>Nothing in the operator proof used determinism. For stochastic \(\pi'\), replace \(q_\pi(s, \pi'(s))\) by \(\sum_a \pi'(a \mid s)\, q_\pi(s, a)\), which is still \((T^{\pi'} v_\pi)(s)\), and the proof goes through word for word:</p>
+  <div class="box thm"><span class="tag">Theorem · stochastic version</span>
+    <p>If \(\sum_a \pi'(a \mid s)\, q_\pi(s, a) \ge v_\pi(s)\) for all \(s\), then \(v_{\pi'} \ge v_\pi\), strictly wherever the hypothesis is strict.</p>
+  </div>
+  <p>Two consequences. First, any distribution supported on the set of maximising actions is a greedy policy; splitting probability evenly among ties, as in the figure below, is as good as picking one. Second, the theorem does <em>not</em> require greediness. Any \(\pi'\) whose one-step average beats \(v_\pi\) improves on \(\pi\). Day 38 uses exactly this to show that \(\varepsilon\)-greedy improvement works within the class of \(\varepsilon\)-soft policies, and conservative policy updates such as TRPO and PPO (Days 90–91) are small, safe steps in the same direction.</p>
+
+  <h3>Visualizing an improved policy</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Left: values of the random policy on the 4 by 4 gridworld. Right: the greedy policy with respect to those values, with tied actions shown as two arrows">
+      <defs>
+        <marker id="ah-d29" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d29m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="132" y="20" class="s-ttl s-mid">v of the random policy</text>
+      <rect x="40" y="30" width="46" height="46" class="s-node-mod"/><rect x="86" y="30" width="46" height="46" class="s-node"/><rect x="132" y="30" width="46" height="46" class="s-node"/><rect x="178" y="30" width="46" height="46" class="s-node"/>
+      <rect x="40" y="76" width="46" height="46" class="s-node"/><rect x="86" y="76" width="46" height="46" class="s-node"/><rect x="132" y="76" width="46" height="46" class="s-node"/><rect x="178" y="76" width="46" height="46" class="s-node"/>
+      <rect x="40" y="122" width="46" height="46" class="s-node"/><rect x="86" y="122" width="46" height="46" class="s-node"/><rect x="132" y="122" width="46" height="46" class="s-node"/><rect x="178" y="122" width="46" height="46" class="s-node"/>
+      <rect x="40" y="168" width="46" height="46" class="s-node"/><rect x="86" y="168" width="46" height="46" class="s-node"/><rect x="132" y="168" width="46" height="46" class="s-node"/><rect x="178" y="168" width="46" height="46" class="s-node-mod"/>
+      <text x="492" y="20" class="s-ttl s-mid">greedy w.r.t. that v</text>
+      <rect x="400" y="30" width="46" height="46" class="s-node-mod"/><rect x="446" y="30" width="46" height="46" class="s-node"/><rect x="492" y="30" width="46" height="46" class="s-node"/><rect x="538" y="30" width="46" height="46" class="s-node"/>
+      <rect x="400" y="76" width="46" height="46" class="s-node"/><rect x="446" y="76" width="46" height="46" class="s-node"/><rect x="492" y="76" width="46" height="46" class="s-node"/><rect x="538" y="76" width="46" height="46" class="s-node"/>
+      <rect x="400" y="122" width="46" height="46" class="s-node"/><rect x="446" y="122" width="46" height="46" class="s-node"/><rect x="492" y="122" width="46" height="46" class="s-node"/><rect x="538" y="122" width="46" height="46" class="s-node"/>
+      <rect x="400" y="168" width="46" height="46" class="s-node"/><rect x="446" y="168" width="46" height="46" class="s-node"/><rect x="492" y="168" width="46" height="46" class="s-node"/><rect x="538" y="168" width="46" height="46" class="s-node-mod"/>
+      <text x="63" y="57" class="s-mid">0</text><text x="109" y="57" class="s-mid">−14</text><text x="155" y="57" class="s-mid">−20</text><text x="201" y="57" class="s-mid">−22</text>
+      <text x="63" y="103" class="s-mid">−14</text><text x="109" y="103" class="s-mid">−18</text><text x="155" y="103" class="s-mid">−20</text><text x="201" y="103" class="s-mid">−20</text>
+      <text x="63" y="149" class="s-mid">−20</text><text x="109" y="149" class="s-mid">−20</text><text x="155" y="149" class="s-mid">−18</text><text x="201" y="149" class="s-mid">−14</text>
+      <text x="63" y="195" class="s-mid">−22</text><text x="109" y="195" class="s-mid">−20</text><text x="155" y="195" class="s-mid">−14</text><text x="201" y="195" class="s-mid">0</text>
+      <line x1="465" y1="53" x2="452" y2="53" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="511" y1="53" x2="498" y2="53" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="561" y1="57" x2="561" y2="70" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="557" y1="53" x2="544" y2="53" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="423" y1="95" x2="423" y2="82" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="469" y1="95" x2="469" y2="82" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="465" y1="99" x2="452" y2="99" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="515" y1="103" x2="515" y2="116" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="511" y1="99" x2="498" y2="99" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="561" y1="103" x2="561" y2="116" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="423" y1="141" x2="423" y2="128" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="469" y1="141" x2="469" y2="128" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="473" y1="145" x2="486" y2="145" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="519" y1="145" x2="532" y2="145" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="515" y1="149" x2="515" y2="162" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="561" y1="149" x2="561" y2="162" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="423" y1="187" x2="423" y2="174" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="427" y1="191" x2="440" y2="191" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="473" y1="191" x2="486" y2="191" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <line x1="519" y1="191" x2="532" y2="191" class="s-ln-mod" marker-end="url(#ah-d29m)"/>
+      <path d="M238,122 L388,122" class="s-ln" marker-end="url(#ah-d29)"/>
+      <text x="313" y="112" class="s-ink2 s-mid s-sm">one step of lookahead</text>
+      <text x="313" y="140" class="s-ink2 s-mid s-sm">argmax over q(s, a)</text>
+    </svg>
+    <figcaption><b>One improvement step.</b> Each cell's greedy action points at the neighbour with the highest random-policy value, and cells with two arrows are exact ties, split evenly. The random policy is terrible (−22 from the far corner), yet the greedy policy built from its values is already optimal: every state now reaches a corner in the minimum number of moves. That is luck of the geometry, not a general rule. Jack's Car Rental (Day 30) needs four improvement steps.</figcaption>
+  </figure>
+  <pre><code># continues from the Day 28 snippet (N, TERMINAL, GAMMA, step, evaluate)
+def q_from_v(V):
+    Q = np.zeros((N * N, 4))
+    for s in range(N * N):
+        if s in TERMINAL:
+            continue
+        for a in range(4):
+            s2, r = step(s, a)
+            Q[s, a] = r + GAMMA * V[s2]
+    return Q
+
+def greedy(Q, tol=1e-9):
+    """Spread probability evenly over every action within tol of the best."""
+    best = Q &gt;= Q.max(axis=1, keepdims=True) - tol
+    return best / best.sum(axis=1, keepdims=True)
+
+V0, _ = evaluate(np.full((N * N, 4), 0.25))         # v of the random policy
+pi1 = greedy(q_from_v(V0))
+V1, _ = evaluate(pi1)
+print(V1.reshape(N, N))                              # already v*: minus the distance to a corner
+print("improved everywhere:", np.all(V1 &gt;= V0 - 1e-9))
+
+ARROWS = "↑→↓←"
+for r in range(N):
+    print(" ".join("·" if r * N + c in TERMINAL else
+                   "".join(ARROWS[a] for a in range(4) if pi1[r * N + c, a] &gt; 0).ljust(2)
+                   for c in range(N)))</code></pre>
+  <p class="code-cap">Prints \(v_{\pi'}\) = 0, −1, −2, −3 / −1, −2, −3, −2 / … and the arrow field of the figure. Terminal rows of <code>Q</code> stay all-zero, so <code>greedy</code> spreads them uniformly; they are never used.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Greedy with respect to the wrong values.</b> The theorem needs the exact \(v_\pi\). Greedy with respect to a noisy or half-converged estimate can be worse than \(\pi\). Day 32 bounds the damage by \(2\gamma\varepsilon/(1-\gamma)\), which is large when \(\gamma\) is near 1.</li>
+      <li><b>Oscillating ties.</b> An argmax with no tolerance and no "keep the old action" rule turns exact ties into an endless loop in policy iteration.</li>
+      <li><b>You need the model to improve from v.</b> Computing \(q_\pi\) from \(v_\pi\) uses \(p(s', r \mid s, a)\). Without a model, \(v\) alone cannot tell you which action is best. That is why Monte Carlo control estimates \(q\) directly (Day 36).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Run the snippet. Count the states with tied greedy actions and check numerically that \(v_{\pi'} \ge v_\pi\) everywhere.</li>
+      <li>Change the gridworld so that bumping into a wall costs −5 instead of −1. Starting from the random policy, alternate evaluation and greedy improvement by hand-written loop. How many improvement steps until the policy stops changing?</li>
+      <li>Add Gaussian noise of standard deviation \(\sigma\) to \(v_\pi\) before taking the greedy step. For \(\sigma \in \{0.5, 2, 5\}\), how often is the resulting policy worse than the random policy in some state?</li>
+      <li>Write out the operator proof of the stochastic version yourself, then use it to show: if \(\pi'\) mixes the greedy policy with \(\pi\), \(\pi' = (1-\beta)\pi + \beta\,\text{greedy}\), then \(v_{\pi'} \ge v_\pi\) for every \(\beta \in [0, 1]\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §4.2 · Howard 1960, <i>Dynamic Programming and Markov Processes</i></p>
+</article>
+
+<!-- ================================================================ DAY 30 -->
+<article class="day" id="d30">
+  <header class="day-head">
+    <span class="day-no">DAY 30</span>
+    <h2>Policy Iteration</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Evaluate, improve, repeat. Each round produces a strictly better policy until no better one exists, and because a finite MDP has finitely many deterministic policies, the loop must stop at an optimal one, in practice after a handful of rounds.</p>
+
+  <h3>Alternating evaluation and improvement</h3>
+  <p>Days 28 and 29 gave two operations: evaluation turns a policy into its value function, and improvement turns a value function into a better policy. Chain them:</p>
+  $$\pi_0 \xrightarrow{\;E\;} v_{\pi_0} \xrightarrow{\;I\;} \pi_1 \xrightarrow{\;E\;} v_{\pi_1} \xrightarrow{\;I\;} \pi_2 \xrightarrow{\;E\;} \cdots \xrightarrow{\;I\;} \pi_* \xrightarrow{\;E\;} v_*.$$
+  <p>This is Howard's (1960) policy iteration. Each improvement step is a best response to the current policy's long-run consequences, computed in every state at once, so the policy can change globally in one step rather than one state at a time.</p>
+
+  <h3>The full algorithm</h3>
+  <div class="box algo"><span class="tag">Algorithm · Policy iteration (with a terminating tie rule)</span>
+    <ol>
+      <li><b>Initialise</b> \(\pi(s) \in \mathcal A(s)\) and \(V(s)\) arbitrarily for every \(s\); \(V(\text{terminal}) = 0\).</li>
+      <li><b>Evaluate.</b> Repeat sweeps of \(V(s) \leftarrow \sum_{s', r} p(s', r \mid s, \pi(s))\,[r + \gamma V(s')]\) until \(\Delta &lt; \theta\). <span class="step">(start from the previous \(V\), not from zero)</span></li>
+      <li><b>Improve.</b> \(\text{stable} \leftarrow \text{true}\). For each \(s\):
+        <ol>
+          <li>\(q(a) \leftarrow \sum_{s', r} p(s', r \mid s, a)\,[r + \gamma V(s')]\) for every \(a\)</li>
+          <li>if \(q(\pi(s)) &lt; \max_a q(a) - \text{tol}\): set \(\pi(s) \leftarrow \argmax_a q(a)\) and \(\text{stable} \leftarrow \text{false}\) <span class="step">(otherwise keep the current action, even if tied)</span></li>
+        </ol>
+      </li>
+      <li>If stable, return \(V \approx v_*\) and \(\pi \approx \pi_*\); otherwise go to step 2.</li>
+    </ol>
+  </div>
+  <p>Warm-starting evaluation from the previous \(V\) matters. Consecutive policies are similar, so their values are too, and later evaluations need far fewer sweeps. On Jack's Car Rental below the five evaluations take 126, 91, 80, 45 and 14 sweeps.</p>
+
+  <h3>Finite convergence</h3>
+  <div class="box thm"><span class="tag">Theorem · Policy iteration terminates</span>
+    <p>For a finite MDP with \(\gamma &lt; 1\) and exact evaluation, policy iteration with the keep-the-current-action tie rule stops after at most \(|\mathcal A|^{|\mathcal S|}\) improvement steps, and the policy it returns is optimal.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Suppose \(\pi_{k+1} \ne \pi_k\). The tie rule only changes an action when the new one is strictly better, so at some state \(s\), \(q_{\pi_k}(s, \pi_{k+1}(s)) &gt; q_{\pi_k}(s, \pi_k(s)) = v_{\pi_k}(s)\), and at every state the hypothesis of the improvement theorem holds. By Day 29, \(v_{\pi_{k+1}} \ge v_{\pi_k}\) everywhere with strict inequality at \(s\). The value vectors therefore strictly increase in the componentwise order, so no policy can ever recur (a recurrence would need equal value vectors). There are \(|\mathcal A|^{|\mathcal S|}\) deterministic policies, so the loop stops. When it stops, \(\pi\) is greedy with respect to its own value function, \(v_\pi = T^* v_\pi\), and by Day 29 that means \(v_\pi = v_*\).</p>
+  </div>
+
+  <h3>Why it stops after so few iterations</h3>
+  <p>The bound \(|\mathcal A|^{|\mathcal S|}\) is absurdly pessimistic: Jack's Car Rental has \(11^{441}\) deterministic policies and policy iteration visits five of them. Two facts explain the gap.</p>
+  <div class="box deriv"><span class="tag">Derivation · policy iteration is Newton's method</span>
+    <p>Look for a root of \(F(v) = T^* v - v\). On the region of value space where \(\pi\) is the greedy policy, \(T^* v = r^\pi + \gamma P^\pi v\) is affine, so the Jacobian of \(F\) is \(J = \gamma P^\pi - I\). A Newton step from \(v\) is</p>
+    $$v_{\text{new}} = v - J^{-1} F(v) = v + (I - \gamma P^\pi)^{-1}\big(r^\pi - (I - \gamma P^\pi)\, v\big) = (I - \gamma P^\pi)^{-1} r^\pi = v_\pi.$$
+    <p>"Take the greedy policy of \(v\), then solve for its value" is precisely one Newton step on the Bellman optimality equation (Puterman &amp; Brumelle 1979). Newton's method converges quadratically near a root, which is why the last iterations change only a few states and then stop.</p>
+  </div>
+  <p>Worst-case theory is less rosy but still polynomial for fixed \(\gamma\). Ye (2011) proved that policy iteration is strongly polynomial for a fixed discount factor: the number of iterations is bounded by a polynomial in the numbers of states and actions, times \(1/(1-\gamma)\) and a logarithmic factor. Hansen, Miltersen &amp; Zwick (2013) tightened this to roughly (number of state–action pairs)\(/(1-\gamma)\) times a log factor. Without discounting the picture changes: Fearnley (2010) built total- and average-reward MDPs on which Howard's policy iteration needs exponentially many iterations. Those instances are carefully engineered; on natural problems the count barely grows with size.</p>
+
+  <h3>Worked example: Jack's Car Rental</h3>
+  <div class="box def"><span class="tag">Definition · Jack's Car Rental (S&amp;B Example 4.2)</span>
+    <ul>
+      <li><b>States</b> \((n_1, n_2)\) with \(0 \le n_i \le 20\): cars at each of two locations at the end of a day. \(21^2 = 441\) states.</li>
+      <li><b>Actions</b> \(a \in \{-5, \dots, 5\}\): the net number of cars moved overnight from location 1 to location 2 (negative means 2 to 1), at &#36;2 per car moved. Moving more cars than a location has is not allowed.</li>
+      <li><b>Dynamics</b>. The next morning location \(i\) has \(m_1 = \min(n_1 - a, 20)\) and \(m_2 = \min(n_2 + a, 20)\) cars. Rental requests are Poisson with means 3 and 4. Each request that finds a car earns &#36;10; the rest are lost. Returns are Poisson with means 3 and 2 and become available the next day. Any car beyond 20 at a location vanishes from the problem.</li>
+      <li><b>Discount</b> \(\gamma = 0.9\); a time step is one day, and the task is continuing.</li>
+    </ul>
+  </div>
+  <p>The two locations evolve independently once the move is chosen, so the model factorises. Build a \(21 \times 21\) matrix \(P_i[m, m']\) for each location (morning cars to evening cars) and its expected income \(R_i[m]\). Then the expected next value from morning state \((m_1, m_2)\) is \(\big(P_1 V P_2^\top\big)[m_1, m_2]\): two small matrix products instead of a \(441 \times 441\) one.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 350" role="img" aria-label="Optimal policy for Jack's Car Rental as a map over cars at each location, with regions labelled by the number of cars moved, and a table of the policy iteration trace">
+      <rect x="56" y="16" width="294" height="294" class="s-ln"/>
+      <path d="M168,296H182M196,296H224M238,296H294M308,296H350M182,282H210M224,282H280M294,282H350M210,268H266M280,268H336M266,254H322M336,254H350M56,240H98M322,240H350M56,226H84M98,226H112M56,212H70M84,212H98M112,212H126M70,198H84M98,198H112M126,198H140M56,184H70M84,184H98M112,184H126M70,170H84M98,170H112M56,156H70M84,156H98M140,156H154M70,142H84M126,142H140M112,128H126M98,114H112M84,100H98M154,86H168M140,72H154M168,72H182M126,58H140M154,58H168M182,58H224M112,44H126M140,44H154M168,44H210M224,44H280M98,30H112M126,30H140M154,30H196M210,30H266M280,30H308M168,44V58M168,72V86M168,296V310M196,16V30M196,296V310M238,296V310M308,16V30M308,296V310M182,58V72M182,282V296M224,44V58M224,282V296M294,282V296M210,30V44M210,268V282M280,30V44M280,268V282M266,16V30M266,254V268M336,254V268M322,240V254M98,30V100M98,114V156M98,170V184M98,198V212M98,226V240M84,100V142M84,156V170M84,184V198M84,212V226M112,16V30M112,44V114M112,128V170M112,184V198M112,212V226M70,142V156M70,170V184M70,198V212M126,30V44M126,58V128M126,142V184M126,198V212M140,16V30M140,44V58M140,72V142M140,156V198M154,30V44M154,58V72M154,86V156" class="s-ln-mod"/>
+      <text x="77" y="97" class="s-mid s-ttl">+5</text>
+      <text x="126" y="27" class="s-mid s-ttl">+4</text>
+      <text x="168" y="27" class="s-mid s-ttl">+3</text>
+      <text x="231" y="27" class="s-mid s-ttl">+2</text>
+      <text x="287" y="27" class="s-mid s-ttl">+1</text>
+      <text x="245" y="167" class="s-mid s-ttl">0</text>
+      <text x="245" y="279" class="s-mid s-ttl">−1</text>
+      <text x="259" y="293" class="s-mid s-ttl">−2</text>
+      <text x="273" y="307" class="s-mid s-ttl">−3</text>
+      <text x="329" y="307" class="s-mid s-ttl">−4</text>
+      <text x="63" y="324" class="s-ink3 s-mid s-sm">0</text><text x="50" y="307" class="s-ink3 s-end s-sm">0</text>
+      <text x="133" y="324" class="s-ink3 s-mid s-sm">5</text><text x="50" y="237" class="s-ink3 s-end s-sm">5</text>
+      <text x="203" y="324" class="s-ink3 s-mid s-sm">10</text><text x="50" y="167" class="s-ink3 s-end s-sm">10</text>
+      <text x="273" y="324" class="s-ink3 s-mid s-sm">15</text><text x="50" y="97" class="s-ink3 s-end s-sm">15</text>
+      <text x="343" y="324" class="s-ink3 s-mid s-sm">20</text><text x="50" y="27" class="s-ink3 s-end s-sm">20</text>
+      <text x="203" y="344" class="s-ink2 s-mid s-sm">cars at location 2</text>
+      <text transform="translate(18,163) rotate(-90)" class="s-ink2 s-mid s-sm">cars at location 1</text>
+      <text x="392" y="34" class="s-ttl">π₄ = π*, γ = 0.9</text>
+      <text x="392" y="56" class="s-ink2 s-sm">numbers: net cars moved overnight</text>
+      <text x="392" y="72" class="s-ink2 s-sm">from location 1 to location 2</text>
+      <text x="392" y="110" class="s-ttl">Policy iteration trace</text>
+      <text x="400" y="134" class="s-ink3 s-sm">policy</text><text x="540" y="134" class="s-ink3 s-end s-sm">eval sweeps</text><text x="660" y="134" class="s-ink3 s-end s-sm">changed</text>
+      <text x="400" y="154" class="s-sm">π₀</text><text x="540" y="154" class="s-end s-sm">126</text><text x="660" y="154" class="s-end s-sm">318</text>
+      <text x="400" y="172" class="s-sm">π₁</text><text x="540" y="172" class="s-end s-sm">91</text><text x="660" y="172" class="s-end s-sm">272</text>
+      <text x="400" y="190" class="s-sm">π₂</text><text x="540" y="190" class="s-end s-sm">80</text><text x="660" y="190" class="s-end s-sm">79</text>
+      <text x="400" y="208" class="s-sm">π₃</text><text x="540" y="208" class="s-end s-sm">45</text><text x="660" y="208" class="s-end s-sm">8</text>
+      <text x="400" y="226" class="s-mod s-sm">π₄</text><text x="540" y="226" class="s-mod s-end s-sm">14</text><text x="660" y="226" class="s-mod s-end s-sm">0 · stable</text>
+      <text x="392" y="262" class="s-ink2 s-sm">v* runs from 421 at (0, 0)</text>
+      <text x="392" y="278" class="s-ink2 s-sm">to 637 at (20, 20)</text>
+      <text x="392" y="294" class="s-ink2 s-sm">θ = 10⁻⁴, warm-started evaluation</text>
+    </svg>
+    <figcaption><b>The optimal policy and how policy iteration found it.</b> Region boundaries separate different move counts; the large unlabelled middle region moves nothing. Starting from "never move a car", four improvement steps change 318, 272, 79 and 8 states, and the fifth evaluation confirms the policy is stable. These are S&amp;B Figure 4.2's \(\pi_0, \dots, \pi_4\), recomputed.</figcaption>
+  </figure>
+  <p>Why does the optimal policy look like this? Location 2 rents 4 cars a day but gets only 2 back, so it drains; location 1 is roughly balanced at 3 in and 3 out. The policy therefore moves cars from 1 to 2 whenever location 1 has a surplus and location 2 is short, up to the 5-car limit when location 1 is full and location 2 nearly empty. The broad zero band is where an extra car is unlikely to meet a request that would otherwise be turned away, so the &#36;2 move doesn't pay. Moves in the other direction appear only when location 1 is nearly empty and location 2 nearly full, where location 2's surplus would anyway be lost to the 20-car cap. The optimal values run from about 421 with both lots empty to about 637 with both full; simulating the policy from (10, 10) for 4,000 runs gives 574 ± 1, against the DP value 574.9.</p>
+  <pre><code>import numpy as np
+from math import exp, factorial
+
+MAX_CARS, MAX_MOVE, GAMMA = 20, 5, 0.9
+n = MAX_CARS + 1
+ACTIONS = np.arange(-MAX_MOVE, MAX_MOVE + 1)              # net cars moved overnight, 1 -&gt; 2
+
+def poisson(lam, size=2 * n):
+    p = np.array([exp(-lam) * lam ** k / factorial(k) for k in range(size)])
+    p[-1] += 1 - p.sum()                                  # lump the tail so rows sum to 1
+    return p
+
+def location(lam_req, lam_ret):
+    """P[m, m']: m cars in the morning -&gt; m' at night.  R[m]: expected rental income."""
+    P, R = np.zeros((n, n)), np.zeros(n)
+    for m in range(n):
+        for req, pq in enumerate(poisson(lam_req)):
+            rented = min(req, m)
+            R[m] += pq * 10 * rented
+            for ret, pr in enumerate(poisson(lam_ret)):
+                P[m, min(m - rented + ret, MAX_CARS)] += pq * pr
+    return P, R
+
+P1, R1 = location(3, 3)
+P2, R2 = location(4, 2)
+s1, s2 = np.meshgrid(np.arange(n), np.arange(n), indexing="ij")
+M1 = np.clip(s1[..., None] - ACTIONS, 0, MAX_CARS)        # morning cars after the move
+M2 = np.clip(s2[..., None] + ACTIONS, 0, MAX_CARS)
+legal = (ACTIONS &lt;= s1[..., None]) &amp; (-ACTIONS &lt;= s2[..., None])
+
+def q_values(V):                                          # Q[s1, s2, action index]
+    EV = P1 @ V @ P2.T                                    # EV[m1, m2] = E[V(night) | morning]
+    Q = -2 * np.abs(ACTIONS) + R1[M1] + R2[M2] + GAMMA * EV[M1, M2]
+    return np.where(legal, Q, -np.inf)
+
+pi, V = np.full((n, n), MAX_MOVE), np.zeros((n, n))       # start: never move a car
+for it in range(1, 50):
+    while True:                                           # evaluation, warm-started from V
+        V_new = np.take_along_axis(q_values(V), pi[..., None], 2)[..., 0]
+        converged = np.abs(V_new - V).max() &lt; 1e-4
+        V = V_new
+        if converged:
+            break
+    Q = q_values(V)
+    keep = np.take_along_axis(Q, pi[..., None], 2)[..., 0] &gt;= Q.max(2) - 1e-9
+    new_pi = np.where(keep, pi, Q.argmax(2))              # switch only on strict improvement
+    print(f"iteration {it}: {(new_pi != pi).sum()} states changed")
+    if (new_pi == pi).all():
+        break
+    pi = new_pi
+print(ACTIONS[pi][::-1])                                  # top row = 20 cars at location 1</code></pre>
+  <p class="code-cap">Prints 318, 272, 79, 8, 0 states changed and the policy map above. The evaluation loop computes all eleven action values and keeps one, which wastes work but keeps the code short; it still runs in a few seconds.</p>
+
+  <h3>Computational profile</h3>
+  <ul>
+    <li><b>One evaluation sweep</b> costs one backup per state, each a sum over successors: \(O(|\mathcal S|^2)\) for dense dynamics. Exact evaluation by a linear solve costs \(O(|\mathcal S|^3)\) once.</li>
+    <li><b>One improvement</b> costs \(|\mathcal A|\) backups per state: \(O(|\mathcal S|^2 |\mathcal A|)\).</li>
+    <li><b>Memory</b> for a dense model is \(|\mathcal S|^2|\mathcal A|\) numbers. Jack's needs \(441 \cdot 441 \cdot 11 \approx 2.1\) million (17 MB), but at \(10^5\) states that becomes \(10^{11}\). Large DP is only feasible with sparse or factored models, like the per-location factorisation here.</li>
+    <li><b>Jack's in numbers</b>: 5 evaluations totalling 356 sweeps plus 5 improvement passes, about \(356 \cdot 441 + 5 \cdot 441 \cdot 11 \approx 181{,}000\) single-action backups. Day 31 compares this with value iteration.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Non-termination from ties.</b> Without the keep-the-current-action rule, two equally good actions can trade places forever. Jack's has near-ties along its region boundaries, where moving one more or one fewer car is worth almost the same.</li>
+      <li><b>Leaking probability.</b> Truncating the Poisson distribution at, say, 11 without putting the tail mass somewhere leaves transition rows summing to less than 1. Every value comes out biased low, and the policy boundaries shift.</li>
+      <li><b>Getting the story wrong.</b> Returns before rentals, forgetting the 20-car cap, allowing more cars to be moved than are present, or charging for the absolute move twice: each produces a plausible-looking but different policy. If your \(\pi_4\) doesn't match S&amp;B's, check these first.</li>
+      <li><b>Sloppy evaluation at the final check.</b> Loose evaluation in early iterations is harmless (that is modified policy iteration, Day 31), but if the last evaluation is too coarse relative to the gaps between action values, the "stable" test can pass at a policy that is not quite optimal.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Run the snippet and reproduce S&amp;B Figure 4.2: heatmaps of \(\pi_0, \dots, \pi_4\) and \(v_{\pi_4}\) as a surface or heatmap.</li>
+      <li>S&amp;B Exercise 4.7: one employee lives near location 2 and will shuttle one car from 1 to 2 for free each night, and keeping more than 10 cars at a location overnight costs an extra &#36;4 (for that location, regardless of how many more). Re-solve and explain how the policy changes.</li>
+      <li>Replace iterative evaluation with an exact linear solve (build \(P^\pi\) as a \(441 \times 441\) matrix). Do the iteration count and the final policy change? Compare wall-clock time.</li>
+      <li>Run policy iteration on random MDPs with \(|\mathcal S| \in \{10, 100, 1000\}\), \(|\mathcal A| = 4\), \(\gamma = 0.9\), 20 seeds each. Plot the number of improvement steps against \(|\mathcal S|\).</li>
+      <li>Remove the tie rule and use <code>np.argmax</code> on Q-values with tiny random noise added. Does the loop still terminate?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §4.3 · Howard 1960 · Puterman &amp; Brumelle 1979, “On the convergence of policy iteration in stationary dynamic programming” · Ye 2011, “The simplex and policy-iteration methods are strongly polynomial for the Markov decision problem with a fixed discount rate”</p>
+</article>
+
+<!-- ================================================================ DAY 31 -->
+<article class="day" id="d31">
+  <header class="day-head">
+    <span class="day-no">DAY 31</span>
+    <h2>Value Iteration</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Policy iteration evaluates every policy to convergence before improving it. Value iteration stops evaluating after a single sweep and folds the improvement into the update itself: one max-backup per state per sweep, repeated until the values stop moving.</p>
+
+  <h3>Collapsing evaluation to a single sweep</h3>
+  <p>In policy iteration, the first few evaluation sweeps usually settle which action is greedy; the remaining sweeps polish values that the next improvement step throws away. Take the idea to its limit: do one sweep of evaluation, improve immediately, and fuse the two steps into a single formula.</p>
+  $$v_{k+1}(s) = \max_a \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma\, v_k(s')\big] \qquad \text{for all } s.$$
+  <p>This is the Bellman optimality equation (Day 24) turned into an assignment, exactly as Day 28 did with the expectation equation: \(v_{k+1} = T^* v_k\). The policy has disappeared from the iteration; it only reappears at the end, read off greedily from the final values.</p>
+  <div class="box algo"><span class="tag">Algorithm · Value iteration</span>
+    <ol>
+      <li>Choose \(\theta &gt; 0\). Initialise \(V(s)\) arbitrarily for non-terminal \(s\); \(V(\text{terminal}) = 0\).</li>
+      <li>Repeat:
+        <ol>
+          <li>\(\Delta \leftarrow 0\)</li>
+          <li>For each non-terminal \(s\): \(v \leftarrow V(s)\); \(V(s) \leftarrow \max_a \sum_{s', r} p(s', r \mid s, a)\,[r + \gamma V(s')]\); \(\Delta \leftarrow \max(\Delta, |v - V(s)|)\)</li>
+        </ol>
+        until \(\Delta &lt; \theta\).</li>
+      <li>Output the deterministic policy \(\pi(s) = \argmax_a \sum_{s', r} p(s', r \mid s, a)\,[r + \gamma V(s')]\).</li>
+    </ol>
+  </div>
+
+  <h3>Watch it run</h3>
+  <p>The demo runs synchronous value iteration on a 6 × 5 grid. The top-right cell is a +1 terminal and the cell directly below it a −1 pit; S marks the start and hatched cells are walls. Each move goes the intended way with probability 1 − slip and slips to one of the two perpendicular directions otherwise, and every move earns the step reward. Colour shows \(V(s)\), arrows show the greedy policy, and the right panel plots the largest change per sweep on a log scale against the dashed line \(\gamma^{k-1}\Delta_1\).</p>
+  <div class="demo" data-demo="value-iteration"><p class="demo-loading">Loading demo…</p></div>
+  <p>Things to try, and what you should see:</p>
+  <ul>
+    <li><b>Defaults, one sweep at a time.</b> Value spreads outward from the goal one ring per sweep. The arrows settle long before the numbers do: the greedy policy stops changing at about sweep 8, while max |ΔV| first drops below 10⁻⁴ at sweep 23. The policy converges first, a fact Day 32 explains.</li>
+    <li><b>Solid versus dashed.</b> The dashed line is a guarantee: max |ΔV| can never rise above it. The measured curve falls faster, by roughly ×0.55 per sweep late in the run rather than ×0.9, because every path ends in a terminal cell within a few steps, so the effective contraction rate is \(\gamma\) times a continuation probability.</li>
+    <li><b>γ = 0.99.</b> The guarantee becomes nearly flat (it would take about 900 sweeps to certify 10⁻⁴), yet the run converges in about 28. The bound holds for every MDP with this \(\gamma\); it is not a forecast for this one.</li>
+    <li><b>slip = 0.</b> The problem becomes a deterministic shortest path, and value iteration finishes in exactly 10 sweeps: nine for value to travel the longest shortest path, one more to confirm nothing changes.</li>
+    <li><b>slip = 0.3.</b> The cell directly below the pit stops pointing left, since a sideways slip from that move would drop it into the pit, and points down, away from danger, accepting a longer route.</li>
+    <li><b>step reward = −0.2 with slip = 0.4.</b> The same cell now points straight up, into the pit. When steps are this expensive and this unreliable, ending the episode at −1 is cheaper than the expected cost of the walk round.</li>
+    <li><b>Click cells</b> to add or remove walls and watch the policy reroute.</li>
+  </ul>
+
+  <h3>Relationship to policy iteration</h3>
+  <p>One identity connects the two algorithms. If \(\pi_v\) denotes a greedy policy with respect to \(v\), then by definition of the max</p>
+  $$T^* v = T^{\pi_v} v.$$
+  <p>So a value-iteration sweep is "improve (take the greedy policy of \(v_k\)), then run one evaluation sweep of that policy". Policy iteration is "improve, then run evaluation sweeps until convergence". Both alternate the same two steps and differ only in how much evaluation they do in between. Value iteration also has a direct meaning of its own: started from \(v_0 = 0\), \(v_k(s)\) is the best expected return achievable in \(k\) steps from \(s\), so value iteration <em>is</em> Bellman's backward induction for finite-horizon problems, run until the horizon stops mattering.</p>
+
+  <h3>Modified policy iteration</h3>
+  <div class="box algo"><span class="tag">Algorithm · Modified policy iteration, MPI(m)</span>
+    <ol>
+      <li>Start from any \(v\).</li>
+      <li>Repeat until \(\|T^* v - v\|_\infty &lt; \theta\):
+        <ol>
+          <li>\(\pi \leftarrow\) greedy with respect to \(v\)</li>
+          <li>\(v \leftarrow (T^\pi)^m v\) <span class="step">(\(m\) evaluation sweeps of the current policy)</span></li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>\(m = 1\) is value iteration and \(m = \infty\) is policy iteration (Puterman &amp; Shin 1978). Intermediate \(m\) is usually best, for a reason the profile on Day 30 already showed: an evaluation sweep costs one backup per state, while an improvement sweep costs \(|\mathcal A|\). On Jack's Car Rental, with \(\theta = 10^{-4}\):</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Method</th><th>Improvement sweeps</th><th>Single-action backups</th></tr></thead>
+    <tbody>
+      <tr><td>Value iteration (MPI, m = 1)</td><td class="num">126</td><td class="num">611,000</td></tr>
+      <tr><td>MPI, m = 2</td><td class="num">64</td><td class="num">338,000</td></tr>
+      <tr><td>MPI, m = 5</td><td class="num">26</td><td class="num">170,000</td></tr>
+      <tr><td>MPI, m = 20</td><td class="num">8</td><td class="num">97,000</td></tr>
+      <tr><td>MPI, m = 50</td><td class="num">4</td><td class="num">84,000</td></tr>
+      <tr><td>Policy iteration (evaluate to θ, warm start)</td><td class="num">5</td><td class="num">181,000</td></tr>
+    </tbody>
+  </table></div>
+  <p>All six reach the same policy. Policy iteration does worse than MPI with large \(m\) because it keeps polishing \(v_{\pi_0}\) and \(v_{\pi_1}\), values of policies it is about to discard.</p>
+
+  <h3>The Gambler's Problem</h3>
+  <div class="box def"><span class="tag">Definition · The Gambler's Problem (S&amp;B Example 4.3)</span>
+    <ul>
+      <li>A gambler with capital \(s \in \{1, \dots, 99\}\) bets on flips of a biased coin. Heads, with probability \(p_h = 0.4\), wins as many dollars as were staked; tails loses the stake.</li>
+      <li><b>Actions</b>: stakes \(a \in \{1, \dots, \min(s, 100 - s)\}\). (S&amp;B also allow 0; see the trap box.)</li>
+      <li>The episode ends at \(s = 0\) (ruin) or \(s = 100\) (goal). Reward is +1 on reaching 100 and 0 otherwise, with \(\gamma = 1\).</li>
+      <li>So \(v_*(s)\) is the largest achievable probability of reaching &#36;100 from capital \(s\), and the update is \(v(s) \leftarrow \max_a \big[p_h\, v(s + a) + (1 - p_h)\, v(s - a)\big]\) with \(v(0) = 0\), \(v(100) = 1\).</li>
+    </ul>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 240" role="img" aria-label="Left: Gambler's Problem value estimates after synchronous sweeps 1, 2, 3 and at convergence. Right: the optimal stake for each capital, with spikes at 25, 50 and 75">
+      <text x="177" y="13" class="s-ttl s-mid">v after sweep k (synchronous)</text>
+      <text x="525" y="13" class="s-ttl s-mid">optimal stake (smallest optimal)</text>
+      <line x1="52" y1="192" x2="302" y2="192" class="s-ln"/><line x1="52" y1="22" x2="52" y2="192" class="s-ln"/>
+      <line x1="400" y1="192" x2="650" y2="192" class="s-ln"/><line x1="400" y1="22" x2="400" y2="192" class="s-ln"/>
+      <text x="52" y="207" class="s-ink3 s-mid s-sm">1</text><text x="400" y="207" class="s-ink3 s-mid s-sm">1</text>
+      <text x="113" y="207" class="s-ink3 s-mid s-sm">25</text><text x="461" y="207" class="s-ink3 s-mid s-sm">25</text>
+      <text x="177" y="207" class="s-ink3 s-mid s-sm">50</text><text x="525" y="207" class="s-ink3 s-mid s-sm">50</text>
+      <text x="241" y="207" class="s-ink3 s-mid s-sm">75</text><text x="589" y="207" class="s-ink3 s-mid s-sm">75</text>
+      <text x="302" y="207" class="s-ink3 s-mid s-sm">99</text><text x="650" y="207" class="s-ink3 s-mid s-sm">99</text>
+      <text x="46" y="196" class="s-ink3 s-end s-sm">0</text>
+      <text x="46" y="128" class="s-ink3 s-end s-sm">0.4</text>
+      <text x="46" y="26" class="s-ink3 s-end s-sm">1</text>
+      <text x="394" y="196" class="s-ink3 s-end s-sm">0</text>
+      <text x="394" y="111" class="s-ink3 s-end s-sm">25</text>
+      <text x="394" y="26" class="s-ink3 s-end s-sm">50</text>
+      <text x="177" y="228" class="s-ink2 s-mid s-sm">capital s</text>
+      <text x="525" y="228" class="s-ink2 s-mid s-sm">capital s</text>
+      <polyline points="52.0,192.0 54.6,192.0 57.1,192.0 59.7,192.0 62.2,192.0 64.8,192.0 67.3,192.0 69.9,192.0 72.4,192.0 75.0,192.0 77.5,192.0 80.1,192.0 82.6,192.0 85.2,192.0 87.7,192.0 90.3,192.0 92.8,192.0 95.4,192.0 97.9,192.0 100.5,192.0 103.0,192.0 105.6,192.0 108.1,192.0 110.7,192.0 113.2,192.0 115.8,192.0 118.3,192.0 120.9,192.0 123.4,192.0 126.0,192.0 128.5,192.0 131.1,192.0 133.6,192.0 136.2,192.0 138.7,192.0 141.3,192.0 143.8,192.0 146.4,192.0 148.9,192.0 151.5,192.0 154.0,192.0 156.6,192.0 159.1,192.0 161.7,192.0 164.2,192.0 166.8,192.0 169.3,192.0 171.9,192.0 174.4,192.0 177.0,124.0 179.6,124.0 182.1,124.0 184.7,124.0 187.2,124.0 189.8,124.0 192.3,124.0 194.9,124.0 197.4,124.0 200.0,124.0 202.5,124.0 205.1,124.0 207.6,124.0 210.2,124.0 212.7,124.0 215.3,124.0 217.8,124.0 220.4,124.0 222.9,124.0 225.5,124.0 228.0,124.0 230.6,124.0 233.1,124.0 235.7,124.0 238.2,124.0 240.8,124.0 243.3,124.0 245.9,124.0 248.4,124.0 251.0,124.0 253.5,124.0 256.1,124.0 258.6,124.0 261.2,124.0 263.7,124.0 266.3,124.0 268.8,124.0 271.4,124.0 273.9,124.0 276.5,124.0 279.0,124.0 281.6,124.0 284.1,124.0 286.7,124.0 289.2,124.0 291.8,124.0 294.3,124.0 296.9,124.0 299.4,124.0 302.0,124.0" class="s-ln-info s-dash"/>
+      <polyline points="52.0,192.0 54.6,192.0 57.1,192.0 59.7,192.0 62.2,192.0 64.8,192.0 67.3,192.0 69.9,192.0 72.4,192.0 75.0,192.0 77.5,192.0 80.1,192.0 82.6,192.0 85.2,192.0 87.7,192.0 90.3,192.0 92.8,192.0 95.4,192.0 97.9,192.0 100.5,192.0 103.0,192.0 105.6,192.0 108.1,192.0 110.7,192.0 113.2,164.8 115.8,164.8 118.3,164.8 120.9,164.8 123.4,164.8 126.0,164.8 128.5,164.8 131.1,164.8 133.6,164.8 136.2,164.8 138.7,164.8 141.3,164.8 143.8,164.8 146.4,164.8 148.9,164.8 151.5,164.8 154.0,164.8 156.6,164.8 159.1,164.8 161.7,164.8 164.2,164.8 166.8,164.8 169.3,164.8 171.9,164.8 174.4,164.8 177.0,124.0 179.6,124.0 182.1,124.0 184.7,124.0 187.2,124.0 189.8,124.0 192.3,124.0 194.9,124.0 197.4,124.0 200.0,124.0 202.5,124.0 205.1,124.0 207.6,124.0 210.2,124.0 212.7,124.0 215.3,124.0 217.8,124.0 220.4,124.0 222.9,124.0 225.5,124.0 228.0,124.0 230.6,124.0 233.1,124.0 235.7,124.0 238.2,124.0 240.8,83.2 243.3,83.2 245.9,83.2 248.4,83.2 251.0,83.2 253.5,83.2 256.1,83.2 258.6,83.2 261.2,83.2 263.7,83.2 266.3,83.2 268.8,83.2 271.4,83.2 273.9,83.2 276.5,83.2 279.0,83.2 281.6,83.2 284.1,83.2 286.7,83.2 289.2,83.2 291.8,83.2 294.3,83.2 296.9,83.2 299.4,83.2 302.0,83.2" class="s-ln-warn s-dash"/>
+      <polyline points="52.0,192.0 54.6,192.0 57.1,192.0 59.7,192.0 62.2,192.0 64.8,192.0 67.3,192.0 69.9,192.0 72.4,192.0 75.0,192.0 77.5,192.0 80.1,192.0 82.6,181.1 85.2,181.1 87.7,181.1 90.3,181.1 92.8,181.1 95.4,181.1 97.9,181.1 100.5,181.1 103.0,181.1 105.6,181.1 108.1,181.1 110.7,181.1 113.2,164.8 115.8,164.8 118.3,164.8 120.9,164.8 123.4,164.8 126.0,164.8 128.5,164.8 131.1,164.8 133.6,164.8 136.2,164.8 138.7,164.8 141.3,164.8 143.8,164.8 146.4,148.5 148.9,148.5 151.5,148.5 154.0,148.5 156.6,148.5 159.1,148.5 161.7,148.5 164.2,148.5 166.8,148.5 169.3,148.5 171.9,148.5 174.4,148.5 177.0,124.0 179.6,124.0 182.1,124.0 184.7,124.0 187.2,124.0 189.8,124.0 192.3,124.0 194.9,124.0 197.4,124.0 200.0,124.0 202.5,124.0 205.1,124.0 207.6,124.0 210.2,107.7 212.7,107.7 215.3,107.7 217.8,107.7 220.4,107.7 222.9,107.7 225.5,107.7 228.0,107.7 230.6,107.7 233.1,107.7 235.7,107.7 238.2,107.7 240.8,83.2 243.3,83.2 245.9,83.2 248.4,83.2 251.0,83.2 253.5,83.2 256.1,83.2 258.6,83.2 261.2,83.2 263.7,83.2 266.3,83.2 268.8,83.2 271.4,83.2 273.9,58.7 276.5,58.7 279.0,58.7 281.6,58.7 284.1,58.7 286.7,58.7 289.2,58.7 291.8,58.7 294.3,58.7 296.9,58.7 299.4,58.7 302.0,58.7" class="s-ln-acc s-dash"/>
+      <polyline points="52.0,191.6 54.6,191.1 57.1,190.4 59.7,189.8 62.2,189.0 64.8,188.1 67.3,187.3 69.9,186.5 72.4,185.6 75.0,184.6 77.5,183.4 80.1,182.2 82.6,180.9 85.2,180.2 87.7,179.3 90.3,178.3 92.8,177.3 95.4,176.0 97.9,174.5 100.5,173.5 103.0,172.3 105.6,170.6 108.1,169.3 110.7,167.5 113.2,164.8 115.8,164.3 118.3,163.5 120.9,162.4 123.4,161.5 126.0,160.4 128.5,158.9 131.1,157.7 133.6,156.6 136.2,155.2 138.7,153.7 141.3,152.0 143.8,150.1 146.4,148.2 148.9,147.1 151.5,145.8 154.0,144.2 156.6,142.7 159.1,140.8 161.7,138.5 164.2,137.1 166.8,135.2 169.3,132.7 171.9,130.7 174.4,128.0 177.0,124.0 179.6,123.5 182.1,122.7 184.7,121.6 187.2,120.7 189.8,119.6 192.3,118.1 194.9,116.9 197.4,115.8 200.0,114.4 202.5,112.9 205.1,111.2 207.6,109.3 210.2,107.4 212.7,106.3 215.3,105.0 217.8,103.4 220.4,101.9 222.9,100.0 225.5,97.7 228.0,96.3 230.6,94.4 233.1,91.9 235.7,89.9 238.2,87.2 240.8,83.2 243.3,82.4 245.9,81.2 248.4,79.7 251.0,78.3 253.5,76.6 256.1,74.4 258.6,72.6 261.2,70.9 263.7,68.8 266.3,66.6 268.8,63.9 271.4,61.1 273.9,58.2 276.5,56.6 279.0,54.7 281.6,52.3 284.1,50.1 286.7,47.2 289.2,43.7 291.8,41.6 294.3,38.8 296.9,35.0 299.4,32.1 302.0,28.1" class="s-ln-mod"/>
+      <g class="s-sm">
+        <line x1="62" y1="34" x2="80" y2="34" class="s-ln-info s-dash"/><text x="86" y="38">sweep 1</text>
+        <line x1="62" y1="50" x2="80" y2="50" class="s-ln-warn s-dash"/><text x="86" y="54">sweep 2</text>
+        <line x1="62" y1="66" x2="80" y2="66" class="s-ln-acc s-dash"/><text x="86" y="70">sweep 3</text>
+        <line x1="62" y1="82" x2="80" y2="82" class="s-ln-mod"/><text x="86" y="86">v* (converged)</text>
+      </g>
+      <path d="M400.0,192V188.6M402.6,192V185.2M405.1,192V181.8M407.7,192V178.4M410.2,192V175.0M412.8,192V171.6M415.3,192V168.2M417.9,192V164.8M420.4,192V161.4M423.0,192V158.0M425.5,192V154.6M428.1,192V151.2M430.6,192V151.2M433.2,192V154.6M435.7,192V158.0M438.3,192V161.4M440.8,192V164.8M443.4,192V168.2M445.9,192V171.6M448.5,192V175.0M451.0,192V178.4M453.6,192V181.8M456.1,192V185.2M458.7,192V188.6M461.2,192V107.0M463.8,192V188.6M466.3,192V185.2M468.9,192V181.8M471.4,192V178.4M474.0,192V175.0M476.5,192V171.6M479.1,192V168.2M481.6,192V164.8M484.2,192V161.4M486.7,192V158.0M489.3,192V154.6M491.8,192V151.2M494.4,192V151.2M496.9,192V154.6M499.5,192V158.0M502.0,192V161.4M504.6,192V164.8M507.1,192V168.2M509.7,192V171.6M512.2,192V175.0M514.8,192V178.4M517.3,192V181.8M519.9,192V185.2M522.4,192V188.6M525.0,192V22.0M527.6,192V188.6M530.1,192V185.2M532.7,192V181.8M535.2,192V178.4M537.8,192V175.0M540.3,192V171.6M542.9,192V168.2M545.4,192V164.8M548.0,192V161.4M550.5,192V158.0M553.1,192V154.6M555.6,192V151.2M558.2,192V151.2M560.7,192V154.6M563.3,192V158.0M565.8,192V161.4M568.4,192V164.8M570.9,192V168.2M573.5,192V171.6M576.0,192V175.0M578.6,192V178.4M581.1,192V181.8M583.7,192V185.2M586.2,192V188.6M588.8,192V107.0M591.3,192V188.6M593.9,192V185.2M596.4,192V181.8M599.0,192V178.4M601.5,192V175.0M604.1,192V171.6M606.6,192V168.2M609.2,192V164.8M611.7,192V161.4M614.3,192V158.0M616.8,192V154.6M619.4,192V151.2M621.9,192V151.2M624.5,192V154.6M627.0,192V158.0M629.6,192V161.4M632.1,192V164.8M634.7,192V168.2M637.2,192V171.6M639.8,192V175.0M642.3,192V178.4M644.9,192V181.8M647.4,192V185.2M650.0,192V188.6" class="s-ln-mod"/>
+      <text x="532" y="34" class="s-mod s-sm">50: all in</text>
+      <text x="461" y="100" class="s-mod s-mid s-sm">25</text>
+      <text x="589" y="100" class="s-mod s-mid s-sm">25</text>
+    </svg>
+    <figcaption><b>Gambler's Problem, p<sub>h</sub> = 0.4.</b> Left: synchronous value iteration from \(v_0 = 0\). After sweep \(k\), \(v_k(s)\) is the best chance of winning within \(k\) bets: 0.4 for \(s \ge 50\) after one sweep, then 0.16 = 0.4² appears on [25, 50) and [75, 100) rises to 0.64. Right: the policy that picks the smallest optimal stake, which reproduces S&amp;B Figure 4.3. In-place sweeps converge to \(10^{-12}\) in 22 sweeps.</figcaption>
+  </figure>
+  <p><b>Why bold play.</b> The coin is unfavourable: every bet loses \(0.2 \times\) stake in expectation. Many small bets let the law of large numbers grind the gambler down; a few large bets minimise the time spent exposed to the house edge. Dubins &amp; Savage (1965) proved that <em>bold play</em>, always staking \(\min(s, 100 - s)\), is optimal for subfair games like this one. At &#36;50 you bet everything and win with probability exactly 0.4; at &#36;75 you bet &#36;25, so \(v_*(75) = 0.4 + 0.6 \cdot v_*(50) = 0.64\); at &#36;25 you bet &#36;25 and need two wins, \(0.4^2 = 0.16\).</p>
+  <p><b>Why the plotted policy is spiky.</b> Bold play is not the only optimal policy: 72 of the 99 states have two or more optimal stakes, and the figure shows the smallest. Read its pattern. From 13 to 24 the stake is \(25 - s\): a win lands exactly on 25. From 26 to 37 it is \(s - 25\): a loss lands exactly on 25. The same pattern repeats around 50 and 75, and below 13 the gambler doubles up, \(a = s\). So every smallest optimal stake makes either a win or a loss land exactly on one of the "milestones" 0, 25, 50, 75, 100, from which continuing boldly is optimal. The stake grows linearly with the distance to the milestone it is aiming at, and the slope reverses halfway between milestones (between 12 and 13, 37 and 38, 62 and 63, 87 and 88): those are the triangles. The spikes are the milestones themselves, where the smallest optimal stake is the whole bold bet (25 at &#36;25 and &#36;75, 50 at &#36;50). The ties are exact, not approximate: bold play's value function is self-similar, \(v_*(s) = 0.4\, v_*(2s)\) for \(s \le 50\) and \(v_*(s) = 0.4 + 0.6\, v_*(2s - 100)\) for \(s \ge 50\), and solving its linear system in rational arithmetic confirms all 72 ties exactly.</p>
+  <p><b>A favourable coin.</b> At \(p_h = 0.55\) everything flips: the optimal policy bets &#36;1 in every state (timid play), because now each bet has positive expectation and many small bets let the law of large numbers work for you. Value iteration also slows down sharply, needing 2,256 in-place sweeps instead of 22, because optimal episodes are long and value must flow through a long chain of small bets.</p>
+  <pre><code>import numpy as np
+
+def gamblers_problem(p_heads=0.4, goal=100, theta=1e-12):
+    V = np.zeros(goal + 1)
+    V[goal] = 1.0                        # the only reward is reaching the goal, so V(s) = P(win)
+    sweeps = 0
+    while True:
+        delta = 0.0
+        for s in range(1, goal):
+            stakes = np.arange(1, min(s, goal - s) + 1)
+            best = np.max(p_heads * V[s + stakes] + (1 - p_heads) * V[s - stakes])
+            delta = max(delta, abs(best - V[s]))
+            V[s] = best                  # in-place sweep
+        sweeps += 1
+        if delta &lt; theta:
+            break
+    policy = np.zeros(goal + 1, dtype=int)
+    for s in range(1, goal):
+        stakes = np.arange(1, min(s, goal - s) + 1)
+        q = p_heads * V[s + stakes] + (1 - p_heads) * V[s - stakes]
+        policy[s] = stakes[np.argmax(np.round(q, 9))]     # smallest stake among the maximisers
+    return V, policy, sweeps
+
+V, policy, sweeps = gamblers_problem()
+print(sweeps, V[[25, 50, 75]])           # 22 sweeps; [0.16 0.4 0.64]
+print(policy[1:100])</code></pre>
+  <p class="code-cap">The rounding before <code>argmax</code> matters. Without it, exactly tied stakes differ in the 16th decimal and the printed policy looks like noise. In one run it bet 35 at &#36;35 and 47 at &#36;53: both optimal, but not the plot anyone expects, and which ties break which way can change between machines.</p>
+
+  <h3>Iteration counts and wall-clock against policy iteration</h3>
+  <p>Value iteration's sweeps are cheap and numerous; policy iteration's iterations are few and expensive. For a target error \(\varepsilon\), value iteration needs about \(\log(1/\varepsilon)/(1-\gamma)\) sweeps (Day 32 makes this precise) on a continuing task like Jack's, where nothing terminates: 34, 213, 436 and 2,222 sweeps to \(10^{-8}\) for \(\gamma\) = 0.5, 0.9, 0.95 and 0.99. Policy iteration on the same problem needs 3, 5, 5 and 6 improvement steps. In wall-clock terms the comparison depends as much on implementation as on algorithm. Vectorized with NumPy, every row of the MPI table above finishes in tens of milliseconds on a laptop. Written as Python loops over states, policy iteration took about 3 s and value iteration about 8 s. The algorithmic choice matters most when \(\gamma\) is close to 1 or \(|\mathcal A|\) is large; both favour policy iteration or MPI.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Mistaking Δ &lt; θ for accuracy.</b> The value error at stopping is up to \(\gamma\theta/(1-\gamma)\) (Day 28), and the greedy policy is only guaranteed near-optimal (Day 32). Usually it is exactly optimal much earlier, as the demo shows, but that is not a guarantee.</li>
+      <li><b>The zero stake.</b> If the Gambler's action set includes 0, then \(q(s, 0) = v(s)\) ties with the optimum at convergence. That is harmless inside the max, but a policy extracted with 0 allowed may "bet nothing" forever, never terminate, and win with probability 0.</li>
+      <li><b>Floating-point ties.</b> Exactly tied actions produce a noisy policy plot unless you round or use a tolerance before the argmax.</li>
+      <li><b>γ = 1.</b> \(T^*\) is not a contraction. The Gambler's Problem converges only because every policy that stakes at least &#36;1 ends with probability 1; in an undiscounted task with a cycle of zero-reward states, value iteration can wander without converging.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Write a generic <code>value_iteration(P, R, gamma, theta)</code> for arrays <code>P[s, a, s']</code> and <code>R[s, a]</code>, build the demo's 6 × 5 grid, and reproduce its numbers: 23 sweeps at the defaults, 10 with slip 0, and the policy flips at slip 0.3 and at step reward −0.2 with slip 0.4.</li>
+      <li>Reproduce S&amp;B Figure 4.3 for \(p_h = 0.4\), then solve \(p_h = 0.25\) and \(p_h = 0.55\) (Exercise 4.9). Plot the policy with and without the rounding step.</li>
+      <li>Implement MPI(m) for Jack's Car Rental and plot backups and wall-clock against \(m \in \{1, 2, 5, 10, 20, 50, \infty\}\).</li>
+      <li>On a 5-state random MDP, check that value iteration from \(v_0 = 0\) gives the optimal 3-step values by brute-force enumeration of all 3-step deterministic (time-dependent) policies.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §4.4 · Puterman &amp; Shin 1978, “Modified policy iteration algorithms for discounted Markov decision problems” · Dubins &amp; Savage 1965, <i>How to Gamble If You Must</i></p>
+</article>
+
+<!-- ================================================================ DAY 32 -->
+<article class="day" id="d32">
+  <header class="day-head">
+    <span class="day-no">DAY 32</span>
+    <h2>Why DP Converges</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Every algorithm in this module repeatedly applies a Bellman operator, and with \(\gamma &lt; 1\) every Bellman operator shrinks distances by a factor \(\gamma\) in the sup norm. The Banach fixed-point theorem turns that one inequality into existence, uniqueness, convergence from any starting point, and explicit bounds on how far you are from the answer.</p>
+
+  <h3>The Bellman operator as a mapping</h3>
+  <div class="box def"><span class="tag">Definition · Bellman operators</span>
+    <p>For a finite MDP, value functions are vectors in \(\R^{|\mathcal S|}\). Define two maps from \(\R^{|\mathcal S|}\) to itself:</p>
+    $$(T^\pi v)(s) = \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma v(s')\big], \qquad (T^* v)(s) = \max_a \sum_{s', r} p(s', r \mid s, a)\,\big[r + \gamma v(s')\big].$$
+  </div>
+  <p>\(T^\pi = r^\pi + \gamma P^\pi(\cdot)\) is affine. \(T^*\) is a pointwise maximum of affine maps, so it is convex, piecewise affine and nonlinear. Every DP algorithm is a way of finding their fixed points: policy evaluation iterates \(T^\pi\), value iteration iterates \(T^*\), and policy iteration alternates "greedy" with "solve \(v = T^\pi v\)". Two structural properties are used repeatedly:</p>
+  <ul>
+    <li><b>Monotonicity.</b> \(u \le w\) componentwise implies \(T u \le T w\), for \(T = T^\pi\) and \(T = T^*\).</li>
+    <li><b>Constant shift.</b> \(T(v + c\mathbf 1) = Tv + \gamma c\,\mathbf 1\): raising every value by \(c\) raises every backed-up value by exactly \(\gamma c\).</li>
+  </ul>
+
+  <h3>γ-contraction under the sup norm</h3>
+  <div class="box thm"><span class="tag">Lemma · max is 1-Lipschitz</span>
+    <p>For any functions \(f, g\) on a finite set, \(\big|\max_a f(a) - \max_a g(a)\big| \le \max_a |f(a) - g(a)|\).</p>
+    <p><i>Proof.</i> Let \(a^*\) maximise \(f\). Then \(\max f - \max g \le f(a^*) - g(a^*) \le \max_a |f(a) - g(a)|\). Swap the roles of \(f\) and \(g\) for the other direction.</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · contraction</span>
+    <p>For \(0 \le \gamma &lt; 1\) and all \(u, w \in \R^{|\mathcal S|}\): \(\|T^* u - T^* w\|_\infty \le \gamma \|u - w\|_\infty\) and \(\|T^\pi u - T^\pi w\|_\infty \le \gamma \|u - w\|_\infty\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Write \(q_u(s, a) = \sum_{s', r} p(s', r \mid s, a)\,[r + \gamma u(s')]\). For each state \(s\), using the lemma and then the fact that \(p(\cdot \mid s, a)\) is a probability distribution,</p>
+    $$\begin{aligned}
+    \big|(T^* u)(s) - (T^* w)(s)\big| &amp;= \big|\max_a q_u(s, a) - \max_a q_w(s, a)\big| \le \max_a \big|q_u(s, a) - q_w(s, a)\big| \\
+    &amp;= \gamma \max_a \Big|\sum_{s'} p(s' \mid s, a)\,\big(u(s') - w(s')\big)\Big| \le \gamma \max_a \sum_{s'} p(s' \mid s, a)\, \|u - w\|_\infty = \gamma\, \|u - w\|_\infty.
+    \end{aligned}$$
+    <p>Take the max over \(s\). The rewards cancel in the second line, so the contraction factor has nothing to do with \(r\). For \(T^\pi\) the argument is the same with an average over actions instead of a max (it is Day 4's lemma).</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 244" role="img" aria-label="Left: value-iteration iterates moving inside nested sup-norm boxes that shrink by a factor gamma around the fixed point. Right: log error against sweep number, with the actual error below a straight-line bound">
+      <defs>
+        <marker id="ah-d32m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="74" y="26" width="192" height="192" class="s-grid"/>
+      <rect x="103" y="55" width="134" height="134" class="s-grid"/>
+      <rect x="123" y="75" width="94" height="94" class="s-grid"/>
+      <rect x="137" y="89" width="66" height="66" class="s-grid"/>
+      <rect x="147" y="99" width="46" height="46" class="s-grid"/>
+      <line x1="90" y1="52" x2="225" y2="90" class="s-ln-mod" marker-end="url(#ah-d32m)"/>
+      <line x1="226" y1="93" x2="131" y2="103" class="s-ln-mod" marker-end="url(#ah-d32m)"/>
+      <line x1="127" y1="109" x2="147" y2="144" class="s-ln-mod" marker-end="url(#ah-d32m)"/>
+      <line x1="155" y1="147" x2="182" y2="135" class="s-ln-mod" marker-end="url(#ah-d32m)"/>
+      <circle cx="84" cy="50" r="3.5" class="s-mod"/><circle cx="232" cy="92" r="3.5" class="s-mod"/>
+      <circle cx="124" cy="104" r="3.5" class="s-mod"/><circle cx="150" cy="150" r="3.5" class="s-mod"/>
+      <circle cx="188" cy="132" r="3.5" class="s-mod"/>
+      <circle cx="170" cy="122" r="4.5" class="s-acc"/>
+      <text x="78" y="44" class="s-mod s-end">v₀</text>
+      <text x="240" y="96" class="s-mod">v₁</text>
+      <text x="116" y="100" class="s-mod s-end">v₂</text>
+      <text x="142" y="166" class="s-mod s-end">v₃</text>
+      <text x="196" y="144" class="s-mod">v₄</text>
+      <text x="166" y="114" class="s-acc s-end">v*</text>
+      <text x="170" y="238" class="s-ink2 s-mid s-sm">box k: ‖v − v*‖∞ ≤ γᵏ‖v₀ − v*‖∞</text>
+      <line x1="360" y1="200" x2="640" y2="200" class="s-ln"/><line x1="360" y1="30" x2="360" y2="200" class="s-ln"/>
+      <line x1="360" y1="40" x2="640" y2="190" class="s-ln s-dash"/>
+      <polyline points="360,52 390,70 420,92 450,108 480,121 510,133 540,146 570,160 600,178 630,192" class="s-ln-mod"/>
+      <line x1="470" y1="40" x2="490" y2="40" class="s-ln s-dash"/><text x="496" y="44" class="s-sm">bound γᵏ‖v₀ − v*‖∞</text>
+      <line x1="470" y1="58" x2="490" y2="58" class="s-ln-mod"/><text x="496" y="62" class="s-sm">actual ‖vₖ − v*‖∞</text>
+      <text x="500" y="218" class="s-ink2 s-mid s-sm">sweep k</text>
+      <text transform="translate(348,115) rotate(-90)" class="s-ink2 s-mid s-sm">log error</text>
+    </svg>
+    <figcaption><b>A contraction in pictures.</b> In the sup norm a ball is a box. Applying \(T^*\) maps the whole box of radius \(r\) around \(v_*\) into the box of radius \(\gamma r\), so the iterates are trapped in shrinking boxes no matter how they wander inside them. On a log scale the guarantee is a straight line of slope \(\log\gamma\); the real error sits below it, and often falls faster (the Day 31 demo shows exactly this).</figcaption>
+  </figure>
+  <p>The norm matters. A stochastic matrix need not shrink Euclidean length: with \(P = \begin{pmatrix}1 &amp; 0\\ 1 &amp; 0\end{pmatrix}\) and \(v = (1, 0)\), \(\|Pv\|_2 = \sqrt 2 &gt; \|v\|_2\), so \(T^\pi\) is not a contraction in \(L_2\) once \(\gamma &gt; 1/\sqrt 2\). Function approximation fits values in a weighted \(L_2\) norm, and Day 69's divergence examples live in exactly this gap.</p>
+
+  <h3>The Banach fixed-point theorem</h3>
+  <div class="box thm"><span class="tag">Theorem · Banach fixed point</span>
+    <p>Let \((X, d)\) be a complete metric space and \(T: X \to X\) satisfy \(d(Tx, Ty) \le \gamma\, d(x, y)\) with \(\gamma &lt; 1\). Then \(T\) has exactly one fixed point \(x^*\), and for every starting point \(x_0\) the iterates \(x_{k+1} = T x_k\) converge to it with \(d(x_k, x^*) \le \gamma^k d(x_0, x^*)\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p><b>Cauchy.</b> By induction \(d(x_{j+1}, x_j) \le \gamma^j d(x_1, x_0)\). For \(m &gt; k\), the triangle inequality and a geometric series give</p>
+    $$d(x_m, x_k) \le \sum_{j=k}^{m-1} \gamma^j\, d(x_1, x_0) \le \frac{\gamma^k}{1 - \gamma}\, d(x_1, x_0) \xrightarrow[k \to \infty]{} 0.$$
+    <p><b>Existence.</b> The space is complete, so the Cauchy sequence converges to some \(x^*\). \(T\) is Lipschitz, hence continuous, so \(x^* = \lim x_{k+1} = \lim T x_k = T x^*\).</p>
+    <p><b>Uniqueness.</b> If \(Tx = x\) and \(Ty = y\) then \(d(x, y) = d(Tx, Ty) \le \gamma\, d(x, y)\), which forces \(d(x, y) = 0\).</p>
+    <p><b>Rate.</b> \(d(x_k, x^*) = d(T x_{k-1}, T x^*) \le \gamma\, d(x_{k-1}, x^*) \le \cdots \le \gamma^k d(x_0, x^*)\).</p>
+  </div>
+  <p>\((\R^{|\mathcal S|}, \|\cdot\|_\infty)\) is complete (every finite-dimensional normed space is), so the theorem applies to \(T^\pi\) and \(T^*\) at once. That single application proves Day 28 (policy evaluation converges to the unique \(v_\pi\) from any start) and the convergence of value iteration (Day 31).</p>
+
+  <h3>Uniqueness of v<sub>*</sub>, and why the fixed point is optimal</h3>
+  <p>Banach says \(v = T^* v\) has exactly one solution \(\bar v\). That is not yet the statement we want, which is that \(\bar v\) equals \(v_* = \max_\pi v_\pi\) and that some policy achieves it.</p>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p><b>No policy beats \(\bar v\).</b> For any stationary policy \(\pi\), \(T^\pi \bar v \le T^* \bar v = \bar v\), since an average over actions is at most their max. Applying the monotone \(T^\pi\) repeatedly gives \((T^\pi)^k \bar v \le \bar v\) for all \(k\), and the left side converges to \(v_\pi\). So \(v_\pi \le \bar v\).</p>
+    <p><b>Some policy attains it.</b> Let \(\bar\pi\) be greedy with respect to \(\bar v\). Then \(T^{\bar\pi} \bar v = T^* \bar v = \bar v\), so \(\bar v\) is a fixed point of \(T^{\bar\pi}\), whose only fixed point is \(v_{\bar\pi}\). Hence \(\bar v = v_{\bar\pi}\).</p>
+    <p>Together: \(\bar v = \max_\pi v_\pi = v_*\), attained by a deterministic stationary policy. This is the rigorous version of Day 25's proof sketch. A standard extension of the same argument shows that history-dependent policies can't do better either (Puterman 1994, Ch. 6).</p>
+  </div>
+
+  <h3>Error bounds</h3>
+  <div class="box thm"><span class="tag">Theorem · value-iteration error bounds</span>
+    <p>Let \(v_k = (T^*)^k v_0\) and \(\gamma &lt; 1\). Then</p>
+    $$\text{(a)}\;\; \|v_k - v_*\|_\infty \le \gamma^k \|v_0 - v_*\|_\infty, \qquad \text{(b)}\;\; \|v_k - v_*\|_\infty \le \frac{\gamma^k}{1 - \gamma}\, \|v_1 - v_0\|_\infty, \qquad \text{(c)}\;\; \|v_k - v_*\|_\infty \le \frac{\gamma}{1 - \gamma}\, \|v_k - v_{k-1}\|_\infty.$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    <p>(a) is the Banach rate. For (b), bound the unknown starting error by something computable: \(\|v_0 - v_*\| \le \|v_0 - v_1\| + \|v_1 - v_*\| \le \|v_1 - v_0\| + \gamma \|v_0 - v_*\|\), so \(\|v_0 - v_*\| \le \|v_1 - v_0\|/(1 - \gamma)\); substitute into (a). (c) is the same argument started at \(v_{k-1}\) instead of \(v_0\): it is Day 28's stopping-rule bound, now for \(T^*\).</p>
+  </div>
+  <p>You will often see the bound quoted as</p>
+  $$\|v_k - v_*\|_\infty \le \frac{\gamma^k}{1 - \gamma}\, \|v_0 - v_*\|_\infty .$$
+  <p>It is true, since it is weaker than (a) (\(1/(1-\gamma) \ge 1\)), and the \(1/(1-\gamma)\) factor is exactly the price of replacing the unknown starting error with something you can compute. Either use the first change, as in (b), or start from \(v_0 = 0\) with rewards bounded by \(R_{\max}\): then \(\|v_0 - v_*\|_\infty = \|v_*\|_\infty \le R_{\max}/(1-\gamma)\) and \(\|v_k - v_*\|_\infty \le \gamma^k R_{\max}/(1 - \gamma)\). Solving for \(k\) gives the cost of accuracy:</p>
+  $$k \ge \frac{\log\big(R_{\max} / (\varepsilon (1 - \gamma))\big)}{\log(1/\gamma)} \quad\Longrightarrow\quad \|v_k - v_*\|_\infty \le \varepsilon.$$
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>γ</th><th>Sweeps guaranteeing ε = 10⁻³ (R<sub>max</sub> = 1, v₀ = 0)</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0.9</td><td class="num">88</td></tr>
+      <tr><td class="num">0.99</td><td class="num">1,146</td></tr>
+      <tr><td class="num">0.999</td><td class="num">13,809</td></tr>
+    </tbody>
+  </table></div>
+  <p>The dashed line in the <a href="#d31">Day 31 demo</a> is the per-sweep version of the same fact: \(\|v_{k+1} - v_k\| = \|T^* v_k - T^* v_{k-1}\| \le \gamma \|v_k - v_{k-1}\|\), so the largest change at sweep \(k\) is at most \(\gamma^{k-1}\Delta_1\).</p>
+
+  <h3>Policy loss bounds from value error</h3>
+  <p>We act with the greedy policy of an approximate value function, so the question that matters is how much <em>return</em> an error in \(v\) costs.</p>
+  <div class="box thm"><span class="tag">Theorem · greedy policy loss (Singh &amp; Yee 1994; Williams &amp; Baird 1993)</span>
+    <p>If \(\|v - v_*\|_\infty \le \varepsilon\) and \(\pi\) is greedy with respect to \(v\), then \(\|v_\pi - v_*\|_\infty \le \dfrac{2\gamma\varepsilon}{1 - \gamma}\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Greediness means \(T^\pi v = T^* v\). Insert \(\pm T^* v\):</p>
+    $$v_* - v_\pi = T^* v_* - T^\pi v_\pi = \big(T^* v_* - T^* v\big) + \big(T^\pi v - T^\pi v_\pi\big).$$
+    <p>The first bracket has sup norm at most \(\gamma\varepsilon\) by the contraction. The second is at most \(\gamma\|v - v_\pi\|_\infty \le \gamma\big(\|v - v_*\|_\infty + \|v_* - v_\pi\|_\infty\big) \le \gamma\varepsilon + \gamma\|v_* - v_\pi\|_\infty\). So \(\|v_* - v_\pi\|_\infty \le 2\gamma\varepsilon + \gamma\|v_* - v_\pi\|_\infty\); rearrange.</p>
+  </div>
+  <p>Combined with bound (c): stopping value iteration at \(\Delta &lt; \theta\) guarantees a greedy policy within \(2\gamma^2\theta/(1-\gamma)^2\) of optimal. The bound is worst-case and can be nearly attained (Williams &amp; Baird construct examples), but on a given finite MDP the greedy policy is usually exactly optimal much sooner, for a simple reason:</p>
+  <div class="box intuition"><span class="tag">Why the policy converges before the values</span>
+    <p>Let the <b>action gap</b> \(g = \min_s \min_{a \text{ not optimal in } s} \big[v_*(s) - q_*(s, a)\big] &gt; 0\), which is positive in any finite MDP. If \(\|v - v_*\|_\infty \le \varepsilon\), every one-step lookahead value is within \(\gamma\varepsilon\) of \(q_*\). A suboptimal action then scores at most \(v_*(s) - g + \gamma\varepsilon\) and an optimal one at least \(v_*(s) - \gamma\varepsilon\), so once \(2\gamma\varepsilon &lt; g\) the greedy policy is exactly optimal. That is why the demo's arrows freeze around sweep 8 of 23, and why in the snippet below the greedy loss hits zero at sweep 5 while the value error is still about 6.</p>
+  </div>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+S, A, gamma = 50, 4, 0.9
+P = rng.dirichlet(np.full(S, 0.1), size=(S, A))     # P[s, a, s'], random sparse-ish dynamics
+R = rng.normal(size=(S, A))                          # expected reward r(s, a)
+
+def T(V):                                            # Bellman optimality operator
+    return (R + gamma * P @ V).max(axis=1)
+
+def v_of(pi):                                        # exact evaluation of a deterministic policy
+    idx = np.arange(S)
+    return np.linalg.solve(np.eye(S) - gamma * P[idx, pi], R[idx, pi])
+
+V_star = np.zeros(S)
+for _ in range(1000):
+    V_star = T(V_star)                               # gamma^1000 ~ 1e-46: exact for our purposes
+
+V = rng.normal(scale=10.0, size=S)                   # arbitrary starting point
+e0, d1 = np.abs(V - V_star).max(), np.abs(T(V) - V).max()
+for k in range(1, 41):
+    V_prev, V = V, T(V)
+    err = np.abs(V - V_star).max()
+    assert err &lt;= gamma ** k * e0 + 1e-9                          # (a) contraction
+    assert err &lt;= gamma ** k * d1 / (1 - gamma) + 1e-9            # (b) a priori, from sweep 1
+    assert err &lt;= gamma / (1 - gamma) * np.abs(V - V_prev).max() + 1e-9  # (c) a posteriori
+    pi = (R + gamma * P @ V).argmax(axis=1)                       # greedy w.r.t. V
+    loss = np.abs(v_of(pi) - V_star).max()
+    assert loss &lt;= 2 * gamma * err / (1 - gamma) + 1e-9           # policy-loss bound
+    if k in (1, 2, 5, 10, 20, 40):
+        print(f"k={k:2d}  |V-V*|={err:9.2e}  bound={gamma**k*e0:9.2e}  "
+              f"greedy loss={loss:8.2e}  loss bound={2*gamma*err/(1-gamma):8.2e}")</code></pre>
+  <pre><code class="plain">k= 1  |V-V*|= 1.38e+01  bound= 2.67e+01  greedy loss=3.10e+00  loss bound=2.48e+02
+k= 2  |V-V*|= 9.79e+00  bound= 2.40e+01  greedy loss=1.54e+00  loss bound=1.76e+02
+k= 5  |V-V*|= 5.85e+00  bound= 1.75e+01  greedy loss=1.07e-14  loss bound=1.05e+02
+k=40  |V-V*|= 1.44e-01  bound= 4.39e-01  greedy loss=1.07e-14  loss bound=2.59e+00</code></pre>
+  <p class="code-cap">Every assertion holds, and the policy-loss bound is two orders of magnitude loose at every step shown (rows 10 and 20 omitted).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>γ = 1.</b> \(T^*\) is then only a non-expansion. Fixed points can fail to exist (values infinite) or fail to be unique (add a constant on a recurrent set of zero-reward states). Undiscounted episodic tasks need the stochastic-shortest-path assumptions: some policy terminates with probability 1, and every policy that doesn't has infinitely negative return (Bertsekas &amp; Tsitsiklis 1996). The gridworld and the Gambler's Problem satisfy them; a gridworld with zero step reward and an unreachable goal does not.</li>
+      <li><b>Approximate backups.</b> The proof needs the backup to be exact, or at least itself a sup-norm non-expansion. "Averagers" such as state aggregation and nearest-neighbour interpolation keep the guarantee (Gordon 1995); least-squares fitting in general does not, and fitted value iteration can diverge.</li>
+      <li><b>Treating the bound as a forecast.</b> \(2\gamma\varepsilon/(1-\gamma)\) is 198ε at γ = 0.99, and it describes the worst MDP, not yours. Measure the policy's actual return.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Without notes, prove the max-is-1-Lipschitz lemma and the contraction of \(T^*\).</li>
+      <li>Run the snippet for \(\gamma \in \{0.5, 0.9, 0.99\}\) and plot the true error and bounds (a), (b), (c) on a log scale against \(k\). Which bound is tightest late in the run?</li>
+      <li>Compute the action gap \(g\) of the random MDP from \(q_*\). Check that the greedy policy is optimal for every \(k\) with \(2\gamma\|v_k - v_*\|_\infty &lt; g\), and see how much earlier it actually becomes optimal.</li>
+      <li>Build a two-state, two-action MDP and a \(v\) with \(\|v - v_*\|_\infty = \varepsilon\) whose greedy policy is suboptimal. Compare the loss with \(2\gamma\varepsilon/(1-\gamma)\). How close can you get?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §4.4 · Puterman 1994, Ch. 6 · Bertsekas &amp; Tsitsiklis 1996, <i>Neuro-Dynamic Programming</i>, Ch. 2 · Singh &amp; Yee 1994, “An upper bound on the loss from approximate optimal-value functions” · Williams &amp; Baird 1993, “Tight performance bounds on greedy policies based on imperfect value functions”</p>
+</article>
+
+<!-- ================================================================ DAY 33 -->
+<article class="day" id="d33">
+  <header class="day-head">
+    <span class="day-no">DAY 33</span>
+    <h2>Asynchronous DP &amp; GPI</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">DP does not need orderly sweeps. Back up any state, in any order, and the values still converge as long as no state is starved. That freedom lets you spend computation where it matters, and the evaluate-and-improve loop, run at any granularity you like, is the shape of nearly every algorithm in the rest of the course.</p>
+
+  <h3>In-place and asynchronous updates</h3>
+  <p>An <b>asynchronous</b> DP method picks one state at a time, by any rule, and applies the backup to that state alone using whatever values are currently stored. In-place sweeps are the special case of a fixed cyclic order. Others: random order, states near recent changes first, only states the agent is currently visiting.</p>
+  <div class="box thm"><span class="tag">Theorem · asynchronous value iteration (Bertsekas &amp; Tsitsiklis 1989)</span>
+    <p>For \(\gamma &lt; 1\), asynchronous value iteration converges to \(v_*\) from any starting values provided every state is backed up infinitely often. The same holds for asynchronous policy evaluation and \(v_\pi\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof sketch</span>
+    <p>Call an interval of updates a <em>round</em> if every state is backed up at least once during it, and let \(e = \|v - v_*\|_\infty\) at the start of the round. Backing up a single state \(s\) gives \(|v(s) - v_*(s)| = |(T^* v)(s) - (T^* v_*)(s)| \le \gamma\|v - v_*\|_\infty\) and leaves every other state untouched. So no update ever raises the maximum error above \(e\), and every state, from the moment it is backed up in the round, has error at most \(\gamma e\) (later updates of other states can't push it back up, because they never raise the maximum). After the round, \(\|v - v_*\|_\infty \le \gamma e\). Infinitely many rounds drive the error to zero.</p>
+  </div>
+  <p>The theorem licenses three practical tricks: sweep in whatever order propagates information fastest, parallelise updates across workers without synchronising every sweep, and skip states that currently don't matter. On the maze below, in-place sweeps in row-major order (away from the goal) take 80 sweeps; the same sweeps in reverse order take 17.</p>
+
+  <h3>Prioritized sweeping</h3>
+  <p>Most states have nothing to learn most of the time: their Bellman error \(|(T^* v)(s) - v(s)|\) is zero until a neighbour's value changes. Prioritized sweeping (Moore &amp; Atkeson 1993) keeps a priority queue of states keyed by Bellman error, always backs up the worst one, and after changing \(v(s)\) recomputes the error only of the <em>predecessors</em> of \(s\), the only states whose backups read \(v(s)\).</p>
+  <div class="box algo"><span class="tag">Algorithm · Prioritized sweeping (planning with a known model)</span>
+    <ol>
+      <li>Build predecessor sets \(\text{pred}(s) = \{\bar s : p(s \mid \bar s, a) &gt; 0 \text{ for some } a\}\).</li>
+      <li>For every \(s\), push \(s\) with priority \(|(T^* v)(s) - v(s)|\) if it exceeds \(\theta\).</li>
+      <li>While the queue is non-empty:
+        <ol>
+          <li>Pop the state \(s\) with the largest priority; recompute its error and skip it if it is now below \(\theta\) <span class="step">(stale entry)</span></li>
+          <li>\(v(s) \leftarrow (T^* v)(s)\)</li>
+          <li>For each \(\bar s \in \text{pred}(s)\): \(e \leftarrow |(T^* v)(\bar s) - v(\bar s)|\); if \(e &gt; \theta\), push \(\bar s\) with priority \(e\)</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <pre><code>import heapq
+import numpy as np
+
+n, gamma, theta = 40, 0.95, 1e-6
+rng = np.random.default_rng(1)
+wall = rng.random((n, n)) &lt; 0.25
+wall[0, 0] = wall[-1, -1] = False
+GOAL = (n - 1, n - 1)
+cells = [(r, c) for r in range(n) for c in range(n) if not wall[r, c] and (r, c) != GOAL]
+
+def nxt(s, a):                                       # deterministic moves; walls block
+    r, c = s[0] + (-1, 0, 1, 0)[a], s[1] + (0, 1, 0, -1)[a]
+    return (r, c) if 0 &lt;= r &lt; n and 0 &lt;= c &lt; n and not wall[r, c] else s
+
+def backup(V, s):                                    # +1 for entering the (terminal) goal
+    return max(1.0 if nxt(s, a) == GOAL else gamma * V[nxt(s, a)] for a in range(4))
+
+# 1) in-place sweeps in row-major order
+V, sweeps = {s: 0.0 for s in cells} | {GOAL: 0.0}, 0
+while True:
+    delta = 0.0
+    for s in cells:
+        new = backup(V, s); delta = max(delta, abs(new - V[s])); V[s] = new
+    sweeps += 1
+    if delta &lt; theta:
+        break
+print(f"in-place sweeps: {sweeps} sweeps = {sweeps * len(cells)} backups")
+
+# 2) prioritized sweeping: always back up the state with the largest Bellman error
+preds = {s: set() for s in cells + [GOAL]}
+for s in cells:
+    for a in range(4):
+        preds[nxt(s, a)].add(s)
+W = {s: 0.0 for s in cells} | {GOAL: 0.0}
+heap = [(-abs(backup(W, s) - W[s]), s) for s in cells]
+heapq.heapify(heap)
+updates = 0
+while heap:
+    _, s = heapq.heappop(heap)
+    new = backup(W, s)
+    if abs(new - W[s]) &lt; theta:                      # stale entry: already fixed by a later update
+        continue
+    W[s], updates = new, updates + 1
+    for p in preds[s] - {GOAL}:                      # only predecessors can have changed error
+        err = abs(backup(W, p) - W[p])
+        if err &gt;= theta:
+            heapq.heappush(heap, (-err, p))
+print(f"prioritized: {updates} backups, max diff vs sweeps "
+      f"{max(abs(V[s] - W[s]) for s in cells):.1e}")</code></pre>
+  <p class="code-cap">On this 40 × 40 maze (1,209 open cells): 80 row-major sweeps = 96,720 backups, against 1,202 value updates plus about 5,600 priority evaluations for prioritized sweeping, roughly 14 times less work, with identical values. On a deterministic problem like this it behaves like Dijkstra's algorithm, fixing each state's value once in order of distance from the goal. Day 57 brings it into the learning setting with a learned model.</p>
+
+  <h3>Real-time dynamic programming</h3>
+  <p>Sweeps of any kind still touch every state. Real-time DP (Barto, Bradtke &amp; Singh 1995) touches only the states an agent actually visits: run the greedy policy from the start state, and back up each state as you pass through it.</p>
+  <div class="box algo"><span class="tag">Algorithm · Real-time DP (undiscounted episodic task)</span>
+    <ol>
+      <li>Initialise \(V\) optimistically: \(V(s) \ge v_*(s)\) for all \(s\) (for example \(V = 0\) when every step costs at least 1), and \(V(\text{goal}) = 0\).</li>
+      <li>For each episode: \(s \leftarrow\) a start state; while \(s\) is not a goal:
+        <ol>
+          <li>\(V(s) \leftarrow \max_a \sum_{s', r} p(s', r \mid s, a)\,[r + V(s')]\) and let \(a\) be a maximising action</li>
+          <li>sample \(s' \sim p(\cdot \mid s, a)\) from the model (or the real world); \(s \leftarrow s'\)</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>Its guarantee (S&amp;B §8.7, from Barto et al. 1995): if goal states have value 0, some policy reaches a goal with probability 1 from every start state, every reward from a non-goal state is strictly negative, and all initial values are at least the optimal ones, then RTDP converges with probability 1 to a policy that is optimal on all <b>relevant</b> states, those reachable from a start state under some optimal policy. It may never back up the rest at all. Optimism does the exploring: an overestimated action keeps being tried until its value is pulled down, and a state the optimal policy never visits can keep its silly optimistic value forever without harm. On S&amp;B's racetrack, RTDP reached an optimal policy with roughly half the computation of sweep-based value iteration.</p>
+
+  <h3>Generalized policy iteration</h3>
+  <p>Strip away the bookkeeping and every algorithm in this module runs two interacting processes. <b>Evaluation</b> makes \(v\) consistent with the current \(\pi\). <b>Improvement</b> makes \(\pi\) greedy with respect to the current \(v\). They compete, since making \(\pi\) greedy invalidates \(v\) and re-evaluating can make \(\pi\) no longer greedy, but they cooperate in the long run: the only point where neither wants to move is \(v = v_*\), \(\pi = \pi_*\), because a policy greedy with respect to its own value function satisfies the Bellman optimality equation. Sutton &amp; Barto call this pattern <b>generalized policy iteration</b> (GPI).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Generalized policy iteration: arrows alternate between the line where v equals v-pi and the line where pi is greedy in v, converging to the optimal value and policy at the top">
+      <defs>
+        <marker id="ah-d33" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d33m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <line x1="90" y1="220" x2="316" y2="34" class="s-ln-ink"/>
+      <line x1="550" y1="220" x2="324" y2="34" class="s-ln-ink"/>
+      <circle cx="320" cy="31" r="5" class="s-acc"/>
+      <text x="320" y="18" class="s-ttl s-mid">v*, π*</text>
+      <text x="186" y="122" class="s-end">v = v<tspan dy="3" class="s-sm">π</tspan></text>
+      <text x="456" y="122">π = greedy(v)</text>
+      <line x1="320" y1="232" x2="130.7" y2="186.5" class="s-ln-mod" marker-end="url(#ah-d33m)"/>
+      <line x1="130.7" y1="186.5" x2="473.2" y2="156.8" class="s-ln" marker-end="url(#ah-d33)"/>
+      <line x1="473.2" y1="156.8" x2="203" y2="127" class="s-ln-mod" marker-end="url(#ah-d33m)"/>
+      <line x1="203" y1="127" x2="407.6" y2="102.8" class="s-ln" marker-end="url(#ah-d33)"/>
+      <line x1="407.6" y1="102.8" x2="259.5" y2="80.5" class="s-ln-mod" marker-end="url(#ah-d33m)"/>
+      <line x1="259.5" y1="80.5" x2="360.2" y2="63.8" class="s-ln" marker-end="url(#ah-d33)"/>
+      <line x1="360.2" y1="63.8" x2="293.4" y2="52.6" class="s-ln-mod" marker-end="url(#ah-d33m)"/>
+      <line x1="293.4" y1="52.6" x2="335.3" y2="43.3" class="s-ln" marker-end="url(#ah-d33)"/>
+      <circle cx="320" cy="232" r="3.5" class="s-ink"/>
+      <text x="330" y="240" class="s-ink2 s-sm">v₀, π₀</text>
+      <text x="60" y="244" class="s-mod s-sm">evaluation: v → vπ</text>
+      <text x="600" y="244" class="s-ink2 s-end s-sm">improvement: π → greedy(v)</text>
+    </svg>
+    <figcaption><b>GPI.</b> Each line is the set of (v, π) pairs where one process is satisfied. Evaluation arrows go all the way to the left line in policy iteration and only part of the way in value iteration, Monte Carlo or TD; improvement can also be partial (\(\varepsilon\)-greedy, a gradient step). As long as both keep pushing, the pair climbs to the one point both lines share.</figcaption>
+  </figure>
+  <p>GPI is the frame for the whole course. Almost every algorithm you will meet is a choice of how to evaluate and how to improve:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Method</th><th>Evaluation step</th><th>Improvement step</th><th>Day</th></tr></thead>
+    <tbody>
+      <tr><td>Policy iteration</td><td>solve \(v = T^\pi v\)</td><td>greedy in every state</td><td class="num">30</td></tr>
+      <tr><td>Value iteration</td><td>one sweep</td><td>greedy, inside the max</td><td class="num">31</td></tr>
+      <tr><td>Monte Carlo control</td><td>average sampled returns into \(q\)</td><td>(\(\varepsilon\)-)greedy at visited states</td><td class="num">37–38</td></tr>
+      <tr><td>SARSA, Q-learning</td><td>one TD update</td><td>\(\varepsilon\)-greedy; the max in the target</td><td class="num">44–45</td></tr>
+      <tr><td>Dyna-Q</td><td>TD updates on real and simulated transitions</td><td>\(\varepsilon\)-greedy</td><td class="num">55</td></tr>
+      <tr><td>DQN</td><td>SGD steps on a TD loss</td><td>argmax of the network</td><td class="num">71</td></tr>
+      <tr><td>Actor–critic, PPO</td><td>critic regression</td><td>a policy-gradient step on the actor</td><td class="num">86, 91</td></tr>
+      <tr><td>AlphaZero</td><td>value-network regression</td><td>MCTS as an improvement operator</td><td class="num">100</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>The curse of dimensionality, quantified</h3>
+  <p>DP is efficient as a function of the number of states: a value-iteration sweep costs \(O(|\mathcal S|^2 |\mathcal A|)\) for dense dynamics, or \(O(|\mathcal S||\mathcal A| b)\) with \(b\) successors per state-action pair, and policy iteration needs few iterations. Compared with searching \(|\mathcal A|^{|\mathcal S|}\) policies directly, DP is exponentially faster. The trouble is \(|\mathcal S|\) itself. A state described by \(d\) variables with \(k\) values each has \(k^d\) states, which is what Bellman called the curse of dimensionality.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Problem</th><th>State description</th><th>|S|</th><th>One float64 value table</th></tr></thead>
+    <tbody>
+      <tr><td>Jack's Car Rental</td><td>2 counts, 21 values each</td><td class="num">441</td><td class="num">3.5 kB</td></tr>
+      <tr><td>FrozenLake 8 × 8</td><td>one position</td><td class="num">64</td><td class="num">0.5 kB</td></tr>
+      <tr><td>Robot arm, coarse grid</td><td>6 joint angles + 6 velocities, 20 bins each</td><td class="num">4.1 × 10¹⁵</td><td class="num">33 PB</td></tr>
+      <tr><td>Backgammon</td><td>board positions</td><td class="num">≈ 10²⁰</td><td>out of reach</td></tr>
+      <tr><td>Go, 19 × 19</td><td>legal positions</td><td class="num">≈ 2 × 10¹⁷⁰</td><td>out of reach</td></tr>
+    </tbody>
+  </table></div>
+  <p>And the value table is the small part: a dense transition model needs \(|\mathcal S|^2|\mathcal A|\) numbers.</p>
+
+  <h3>When DP is actually usable</h3>
+  <ul>
+    <li><b>You have the model</b>, or can build it from a specification, as for inventory control, queues, maintenance scheduling and small games.</li>
+    <li><b>|S| × |A| fits in memory</b> with sparse or factored transitions. S&amp;B note that DP handles problems with millions of states on ordinary hardware; with careful sparse code, a single machine can go further.</li>
+    <li><b>As ground truth.</b> Even when you plan to use RL, solving a small version exactly tells you what the right answer is. Project 2 builds exactly that toolkit, and Day 41 uses DP on Blackjack to score the Monte Carlo agents.</li>
+  </ul>
+  <p>When the model is unknown, replace expected updates with sampled ones (Modules 4–5). When \(|\mathcal S|\) is too large, approximate \(v\) with a parametric function (Module 7) or plan only from the current state (Module 6's tree search). Both keep GPI's structure.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Starved states.</b> The asynchronous theorem needs every state backed up infinitely often. A method that never revisits some state leaves its value wrong forever. RTDP gets away with it only because of optimism and the relevant-state argument; drop either and it can lock in a bad route.</li>
+      <li><b>Pessimistic RTDP.</b> Initialise below \(v_*\) and the greedy agent stops trying the action it underestimated, so the underestimate is never corrected.</li>
+      <li><b>Stale priorities.</b> Python's <code>heapq</code> has no decrease-key. Push duplicates and, as in the snippet, recheck the error when an entry is popped; otherwise you waste backups or, worse, stop early on an outdated priority.</li>
+      <li><b>Counting sweeps.</b> Comparing asynchronous methods by "sweeps" is meaningless. Count backups (and priority evaluations).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run the snippet. Add a reverse-order in-place sweep and a synchronous two-array sweep, and tabulate backups for all four methods.</li>
+      <li>Implement RTDP on the same maze with \(\gamma = 1\), reward −1 per step and \(V = 0\) initially. Count how many distinct states are ever backed up before the start state's value stops changing, and compare that value with value iteration's.</li>
+      <li>Repeat RTDP with \(V\) initialised to −1000 everywhere. What goes wrong?</li>
+      <li>Pick a problem you care about, write down its state variables and their ranges, and compute \(|\mathcal S|\) and the memory for a dense model. Is tabular DP feasible?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §4.5–4.8, §8.4, §8.7 · Bertsekas &amp; Tsitsiklis 1989, <i>Parallel and Distributed Computation</i> · Moore &amp; Atkeson 1993, “Prioritized sweeping: reinforcement learning with less data and less time” · Barto, Bradtke &amp; Singh 1995, “Learning to act using real-time dynamic programming”</p>
+</article>
+
+<!-- ================================================================ DAY 34 -->
+<article class="day project" id="d34">
+  <header class="day-head">
+    <span class="day-no">DAY 34</span>
+    <h2>Build a DP Suite</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">180m practice</span><span class="proj">Project 2</span></p>
+  </header>
+
+  <p class="thesis">One small library, three algorithms, four MDPs. When your policy evaluation, policy iteration and value iteration agree with each other, with an exact linear solve, and with the published figures on every problem, you own ground truth you can trust for checking every sample-based method in Modules 4 and 5.</p>
+
+  <h3>Goal</h3>
+  <p>Implement iterative policy evaluation, policy iteration and value iteration from scratch (NumPy only; Gymnasium is used only to read FrozenLake's model) and run them on four MDPs: the S&amp;B gridworld, FrozenLake in its deterministic and slippery versions, Jack's Car Rental, and the Gambler's Problem. Visualise value functions as heatmaps and policies as arrow fields, and measure how iteration counts grow with \(\gamma\).</p>
+
+  <h3>A common interface</h3>
+  <p>Write every algorithm against one representation: a dense transition tensor <code>P[s, a, s']</code>, an expected-reward matrix <code>R[s, a]</code>, a boolean <code>terminal</code> mask, and \(\gamma\). Gymnasium's toy-text environments expose their model as <code>env.unwrapped.P[s][a]</code>, a list of <code>(prob, next_state, reward, terminated)</code> tuples, which converts directly. Jack's Car Rental is better kept in factored form for speed (Day 30), but write a converter to the dense form as well so the tests can compare all algorithms on it.</p>
+  <pre><code>import numpy as np
+
+def tabular_model(env):
+    """Dense arrays from a Gymnasium toy-text env's env.unwrapped.P."""
+    S, A = env.observation_space.n, env.action_space.n
+    P, R = np.zeros((S, A, S)), np.zeros((S, A))
+    terminal = np.zeros(S, dtype=bool)
+    for s in range(S):
+        for a in range(A):
+            for prob, s2, reward, term in env.unwrapped.P[s][a]:   # list of 4-tuples
+                P[s, a, s2] += prob
+                R[s, a] += prob * reward
+                terminal[s2] |= bool(term)          # holes and the goal are absorbing
+    return P, R, terminal
+
+def value_iteration(P, R, terminal, gamma, theta=1e-8):
+    V, sweeps = np.zeros(len(R)), 0
+    while True:
+        Q = R + gamma * P @ np.where(terminal, 0.0, V)   # no bootstrap from terminal states
+        V_new, sweeps = Q.max(axis=1), sweeps + 1
+        if np.abs(V_new - V).max() &lt; theta:
+            return V_new, Q.argmax(axis=1), sweeps
+        V = V_new
+
+# usage:
+#   import gymnasium as gym
+#   env = gym.make("FrozenLake-v1", is_slippery=True)
+#   V, pi, sweeps = value_iteration(*tabular_model(env), gamma=0.99)
+#   -> 438 sweeps, V[0] = 0.542</code></pre>
+  <p class="code-cap"><code>+=</code> matters in the converter: in the slippery lake, two of the three slip directions can land in the same cell (against a wall), and an <code>=</code> would silently drop probability mass.</p>
+  <pre><code>import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_values_and_policy(V, Q, shape, blocked=None, ax=None, title=""):
+    """Heatmap of V plus one arrow per greedy action (ties get several arrows)."""
+    ax = ax or plt.gca()
+    blocked = np.zeros(len(V), bool) if blocked is None else blocked
+    im = ax.imshow(np.ma.masked_where(blocked, V).reshape(shape), cmap="viridis")
+    plt.colorbar(im, ax=ax, fraction=0.046)
+    moves = {0: (-1, 0), 1: (0, 1), 2: (1, 0), 3: (0, -1)}   # FrozenLake: left, down, right, up
+    best = Q &gt;= Q.max(axis=1, keepdims=True) - 1e-9
+    xs, ys, us, vs = [], [], [], []
+    for s in np.flatnonzero(~blocked):
+        r, c = divmod(s, shape[1])
+        for a in np.flatnonzero(best[s]):
+            xs.append(c); ys.append(r); us.append(moves[a][0]); vs.append(moves[a][1])
+    # angles="xy": arrows follow data coordinates, so +row points down, as imshow draws it
+    ax.quiver(xs, ys, us, vs, angles="xy", scale_units="xy", scale=2.5, color="white")
+    ax.set_title(title); ax.set_xticks([]); ax.set_yticks([])</code></pre>
+
+  <h3>Suggested repo layout</h3>
+  <pre><code class="plain">dp-suite/
+  dp/
+    mdp.py              # TabularMDP(P, R, terminal, gamma); from_gym(env); check(): rows sum to 1
+    algorithms.py       # evaluate, greedy (with tie rule), policy_iteration, value_iteration, mpi
+    envs/
+      gridworld.py      # S&amp;B Example 4.1, plus the 6x5 slip grid from the Day 31 demo
+      jacks.py          # factored model, dense export, Exercise 4.7 variant
+      gambler.py
+  experiments/
+    gridworld.py  frozenlake.py  jacks.py  gambler.py  benchmark_gamma.py
+  plots.py              # heatmaps + arrow fields, policy maps, convergence curves
+  tests/
+    test_agreement.py   # PI == VI == np.linalg.solve on every MDP, to 1e-6
+  README.md</code></pre>
+
+  <h3>Experiments, with exact settings</h3>
+  <ol>
+    <li><b>Gridworld</b> (S&amp;B Example 4.1). Evaluate the random policy with \(\gamma = 1\), \(\theta = 10^{-4}\), both two-array and in-place; print the tables for \(k = 0, 1, 2, 3, 10, \infty\). Then run policy iteration from the random policy.</li>
+    <li><b>FrozenLake</b>, <code>FrozenLake-v1</code> with <code>map_name</code> "4x4" and "8x8", <code>is_slippery</code> False and True. Policy iteration and value iteration with \(\gamma = 0.99\), \(\theta = 10^{-8}\). Plot \(V\) as a heatmap with the greedy arrow field. Evaluate each greedy policy for 10,000 episodes in the real environment (default time limit) and report the success rate with a 95% interval.</li>
+    <li><b>Jack's Car Rental</b>. Policy iteration from "never move", \(\theta = 10^{-4}\). Plot \(\pi_0, \dots, \pi_4\) and \(v_{\pi_4}\). Then solve the Exercise 4.7 variant and plot its policy.</li>
+    <li><b>Gambler's Problem</b>. Value iteration with \(\theta = 10^{-12}\) for \(p_h \in \{0.25, 0.4, 0.55\}\). Plot \(v\) after sweeps 1, 2, 3 and at convergence, and the smallest optimal stake.</li>
+    <li><b>Benchmark against γ</b>. For \(\gamma \in \{0.5, 0.9, 0.95, 0.99, 0.999\}\), on slippery FrozenLake 4 × 4 and 8 × 8 (episodic) and Jack's Car Rental (continuing): value-iteration sweeps to \(\theta = 10^{-8}\), policy-iteration iterations and total evaluation sweeps, MPI with \(m = 10\), and wall-clock (median of 5 runs). Plot sweeps against \(1/(1 - \gamma)\) on log–log axes with a slope-1 reference line.</li>
+  </ol>
+
+  <h3>What the plots should look like</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 650 262" role="img" aria-label="Optimal values and greedy actions on FrozenLake 4 by 4, slippery and deterministic, with gamma 0.99">
+      <defs>
+        <marker id="ah-d34m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="148" y="20" class="s-ttl s-mid">slippery, γ = 0.99</text>
+      <rect x="40" y="30" width="54" height="54" class="s-node"/><text x="67" y="77" class="s-ink2 s-mid s-sm">0.54</text><text x="46" y="43" class="s-ink3 s-sm">S</text>
+      <rect x="94" y="30" width="54" height="54" class="s-node"/><text x="121" y="77" class="s-ink2 s-mid s-sm">0.50</text>
+      <rect x="148" y="30" width="54" height="54" class="s-node"/><text x="175" y="77" class="s-ink2 s-mid s-sm">0.47</text>
+      <rect x="202" y="30" width="54" height="54" class="s-node"/><text x="229" y="77" class="s-ink2 s-mid s-sm">0.46</text>
+      <rect x="40" y="84" width="54" height="54" class="s-node"/><text x="67" y="131" class="s-ink2 s-mid s-sm">0.56</text>
+      <rect x="94" y="84" width="54" height="54" class="s-node"/><text x="121" y="116" class="s-mid s-bad">H</text>
+      <rect x="148" y="84" width="54" height="54" class="s-node"/><text x="175" y="131" class="s-ink2 s-mid s-sm">0.36</text>
+      <rect x="202" y="84" width="54" height="54" class="s-node"/><text x="229" y="116" class="s-mid s-bad">H</text>
+      <rect x="40" y="138" width="54" height="54" class="s-node"/><text x="67" y="185" class="s-ink2 s-mid s-sm">0.59</text>
+      <rect x="94" y="138" width="54" height="54" class="s-node"/><text x="121" y="185" class="s-ink2 s-mid s-sm">0.64</text>
+      <rect x="148" y="138" width="54" height="54" class="s-node"/><text x="175" y="185" class="s-ink2 s-mid s-sm">0.62</text>
+      <rect x="202" y="138" width="54" height="54" class="s-node"/><text x="229" y="170" class="s-mid s-bad">H</text>
+      <rect x="40" y="192" width="54" height="54" class="s-node"/><text x="67" y="224" class="s-mid s-bad">H</text>
+      <rect x="94" y="192" width="54" height="54" class="s-node"/><text x="121" y="239" class="s-ink2 s-mid s-sm">0.74</text>
+      <rect x="148" y="192" width="54" height="54" class="s-node"/><text x="175" y="239" class="s-ink2 s-mid s-sm">0.86</text>
+      <rect x="202" y="192" width="54" height="54" class="s-node-mod"/><text x="229" y="224" class="s-mid s-acc2">G</text>
+      <line x1="63" y1="52" x2="51" y2="52" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="121" y1="48" x2="121" y2="36" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="175" y1="48" x2="175" y2="36" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="229" y1="48" x2="229" y2="36" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="63" y1="106" x2="51" y2="106" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="171" y1="106" x2="159" y2="106" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="179" y1="106" x2="191" y2="106" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="67" y1="156" x2="67" y2="144" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="121" y1="164" x2="121" y2="176" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="171" y1="160" x2="159" y2="160" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="125" y1="214" x2="137" y2="214" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="175" y1="218" x2="175" y2="230" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <text x="498" y="20" class="s-ttl s-mid">deterministic, γ = 0.99</text>
+      <rect x="390" y="30" width="54" height="54" class="s-node"/><text x="417" y="77" class="s-ink2 s-mid s-sm">0.95</text><text x="396" y="43" class="s-ink3 s-sm">S</text>
+      <rect x="444" y="30" width="54" height="54" class="s-node"/><text x="471" y="77" class="s-ink2 s-mid s-sm">0.96</text>
+      <rect x="498" y="30" width="54" height="54" class="s-node"/><text x="525" y="77" class="s-ink2 s-mid s-sm">0.97</text>
+      <rect x="552" y="30" width="54" height="54" class="s-node"/><text x="579" y="77" class="s-ink2 s-mid s-sm">0.96</text>
+      <rect x="390" y="84" width="54" height="54" class="s-node"/><text x="417" y="131" class="s-ink2 s-mid s-sm">0.96</text>
+      <rect x="444" y="84" width="54" height="54" class="s-node"/><text x="471" y="116" class="s-mid s-bad">H</text>
+      <rect x="498" y="84" width="54" height="54" class="s-node"/><text x="525" y="131" class="s-ink2 s-mid s-sm">0.98</text>
+      <rect x="552" y="84" width="54" height="54" class="s-node"/><text x="579" y="116" class="s-mid s-bad">H</text>
+      <rect x="390" y="138" width="54" height="54" class="s-node"/><text x="417" y="185" class="s-ink2 s-mid s-sm">0.97</text>
+      <rect x="444" y="138" width="54" height="54" class="s-node"/><text x="471" y="185" class="s-ink2 s-mid s-sm">0.98</text>
+      <rect x="498" y="138" width="54" height="54" class="s-node"/><text x="525" y="185" class="s-ink2 s-mid s-sm">0.99</text>
+      <rect x="552" y="138" width="54" height="54" class="s-node"/><text x="579" y="170" class="s-mid s-bad">H</text>
+      <rect x="390" y="192" width="54" height="54" class="s-node"/><text x="417" y="224" class="s-mid s-bad">H</text>
+      <rect x="444" y="192" width="54" height="54" class="s-node"/><text x="471" y="239" class="s-ink2 s-mid s-sm">0.99</text>
+      <rect x="498" y="192" width="54" height="54" class="s-node"/><text x="525" y="239" class="s-ink2 s-mid s-sm">1.00</text>
+      <rect x="552" y="192" width="54" height="54" class="s-node-mod"/><text x="579" y="224" class="s-mid s-acc2">G</text>
+      <line x1="417" y1="56" x2="417" y2="68" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="421" y1="52" x2="433" y2="52" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="475" y1="52" x2="487" y2="52" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="525" y1="56" x2="525" y2="68" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="575" y1="52" x2="563" y2="52" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="417" y1="110" x2="417" y2="122" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="525" y1="110" x2="525" y2="122" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="421" y1="160" x2="433" y2="160" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="471" y1="164" x2="471" y2="176" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="475" y1="160" x2="487" y2="160" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="525" y1="164" x2="525" y2="176" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="475" y1="214" x2="487" y2="214" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+      <line x1="529" y1="214" x2="541" y2="214" class="s-ln-mod" marker-end="url(#ah-d34m)"/>
+    </svg>
+    <figcaption><b>Same map, two physics.</b> On the deterministic lake (right) the values are \(\gamma^{d-1}\) for a cell \(d\) moves from the goal, and ties are common. On the slippery lake (left), where the intended move happens only a third of the time, the optimal policy often points <em>away</em> from the goal or into a wall: from the start it presses left, so its slips go up (bounce) or down (safe), never towards a hole. Choose the direction whose slips are safe, not the direction you want to go.</figcaption>
+  </figure>
+  <ul>
+    <li><b>Heatmaps</b>: <code>imshow</code> of \(V\) reshaped to the grid, holes and walls masked, values annotated.</li>
+    <li><b>Arrow fields</b>: one arrow per greedy action, several where actions tie.</li>
+    <li><b>Jack's</b>: the policy as an integer-valued heatmap or contour plot (as on Day 30), \(v_*\) as a surface.</li>
+    <li><b>Gambler's</b>: value sweeps on one axis and the stake bar chart on another (as on Day 31).</li>
+    <li><b>Benchmark</b>: log–log sweeps against \(1/(1-\gamma)\), one line per method and MDP.</li>
+  </ul>
+
+  <h3>Expected results</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>MDP</th><th>Quantity</th><th>What you should get</th></tr></thead>
+    <tbody>
+      <tr><td>Gridworld, random π, γ = 1</td><td>values; sweeps at θ = 10⁻⁴</td><td>0, −14, −20, −22 in the top row; 173 two-array, 114 in-place</td></tr>
+      <tr><td>Gridworld</td><td>policy iteration from random π</td><td>one improvement already optimal; \(v_*\) = minus the distance to the nearest corner</td></tr>
+      <tr><td>FrozenLake 4 × 4, deterministic</td><td>\(V_*(\text{start})\); VI sweeps</td><td>\(\gamma^5 \approx 0.951\); 7 sweeps; 100% success</td></tr>
+      <tr><td>FrozenLake 4 × 4, slippery</td><td>\(V_*(\text{start})\); success</td><td>0.542; about 74% within the 100-step limit (82% with no limit)</td></tr>
+      <tr><td>FrozenLake 8 × 8, slippery</td><td>\(V_*(\text{start})\); success</td><td>0.415; about 86% within the 200-step limit</td></tr>
+      <tr><td>Jack's Car Rental</td><td>PI iterations; \(v_*\) range</td><td>4 policy changes, 5 evaluations; from about 421 to 637</td></tr>
+      <tr><td>Gambler's, \(p_h = 0.4\)</td><td>\(v_*(25), v_*(50), v_*(75)\)</td><td>0.16, 0.40, 0.64; 22 in-place sweeps to 10⁻¹²</td></tr>
+      <tr><td>Gambler's, \(p_h = 0.55\)</td><td>policy; sweeps</td><td>stake 1 everywhere; about 2,250 sweeps</td></tr>
+    </tbody>
+  </table></div>
+  <p>With 10,000 evaluation episodes, a success rate near 74% carries a 95% interval of about ±0.9 percentage points, so 73–75% is a match. The benchmark should look like this:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>γ</th><th>0.5</th><th>0.9</th><th>0.95</th><th>0.99</th><th>0.999</th></tr></thead>
+    <tbody>
+      <tr><td>FrozenLake 4 × 4 slippery: VI sweeps</td><td class="num">22</td><td class="num">112</td><td class="num">184</td><td class="num">438</td><td class="num">594</td></tr>
+      <tr><td>FrozenLake 4 × 4 slippery: PI iterations</td><td class="num">5</td><td class="num">6</td><td class="num">6</td><td class="num">7</td><td class="num">7</td></tr>
+      <tr><td>FrozenLake 8 × 8 slippery: VI sweeps</td><td class="num">22</td><td class="num">123</td><td class="num">208</td><td class="num">516</td><td class="num">1,036</td></tr>
+      <tr><td>FrozenLake 8 × 8 slippery: PI iterations</td><td class="num">9</td><td class="num">10</td><td class="num">10</td><td class="num">11</td><td class="num">13</td></tr>
+      <tr><td>Jack's: VI sweeps</td><td class="num">34</td><td class="num">213</td><td class="num">436</td><td class="num">2,222</td><td>(slow; optional)</td></tr>
+      <tr><td>Jack's: PI iterations</td><td class="num">3</td><td class="num">5</td><td class="num">5</td><td class="num">6</td><td>(optional)</td></tr>
+    </tbody>
+  </table></div>
+  <p class="code-cap">VI sweeps to θ = 10⁻⁸; PI iterations count evaluations, including the final one that confirms stability. Your exact counts will shift with θ and tie tolerance; the shapes should not.</p>
+  <p>Two things to notice and explain in the write-up. On the continuing task (Jack's), value-iteration sweeps grow like \(1/(1-\gamma)\), exactly as Day 32 predicts. On the episodic lakes they grow much more slowly as \(\gamma \to 1\), because termination, not discounting, does most of the contracting. And \(\gamma\) changes the <em>answer</em>, not just the cost: on the slippery 4 × 4 lake the \(\gamma = 0.9\) policy succeeds 78% of the time without a step limit, against 82% for \(\gamma = 0.99\), because heavier discounting buys speed with risk.</p>
+  <div class="box note"><span class="tag">A trap you will hit</span>
+    <p>Run value iteration on the deterministic lake with \(\gamma = 1\). Every safe cell gets value exactly 1, every non-fatal action ties, and <code>argmax</code> picks action 0 (left) from the start, which bumps into the wall forever: 0% success from an "optimal" value function. Undiscounted values carry no preference for getting there sooner. Either use \(\gamma &lt; 1\) or break ties by a secondary criterion such as expected steps.</p>
+  </div>
+
+  <ul class="deliverables">
+    <li><code>dp/</code> library with policy evaluation (two-array and in-place), policy iteration with a terminating tie rule, value iteration and MPI, all on the common interface.</li>
+    <li><code>tests/test_agreement.py</code> passing: PI, VI and an exact linear solve agree to 10⁻⁶ on every MDP, and every transition row sums to 1.</li>
+    <li>Gridworld tables for \(k = 0, 1, 2, 3, 10, \infty\) matching S&amp;B Figure 4.1, plus the sweep counts for both variants.</li>
+    <li>Four FrozenLake heatmap-plus-arrow figures (4 × 4 and 8 × 8, deterministic and slippery) and a success-rate table from 10,000 Gymnasium episodes each, with 95% intervals.</li>
+    <li>Jack's Car Rental: \(\pi_0, \dots, \pi_4\) and \(v_*\), plus the Exercise 4.7 policy with a paragraph on what changed and why.</li>
+    <li>Gambler's Problem: the Figure 4.3 reproduction for \(p_h = 0.4\) and the \(p_h = 0.25, 0.55\) variants.</li>
+    <li>The γ benchmark plot for VI, PI and MPI on at least one episodic and one continuing MDP, with wall-clock.</li>
+    <li>A README with one paragraph per MDP explaining the shape of its optimal policy.</li>
+  </ul>
+
+  <div class="practice">
+    <h4>Practice · 180 min</h4>
+    <ol>
+      <li><b>45 min</b>: the <code>dp/</code> library, the Gymnasium converter and the agreement tests.</li>
+      <li><b>40 min</b>: gridworld and all four FrozenLake variants, with plots and Gymnasium evaluation.</li>
+      <li><b>40 min</b>: Jack's Car Rental (factored model, PI, Exercise 4.7).</li>
+      <li><b>20 min</b>: the Gambler's Problem for three coin biases.</li>
+      <li><b>35 min</b>: the γ benchmark and the README.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto Ch. 4 (Examples 4.1–4.3, Exercises 4.7 and 4.9) · Gymnasium documentation, FrozenLake (Toy Text)</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m02.html"><small>Previous · Days 18–27</small>◂ Module 2 — Markov Decision Processes</a>
+  <a class="next" href="m04.html"><small>Next · Days 35–41</small>Module 4 — Monte Carlo Methods ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

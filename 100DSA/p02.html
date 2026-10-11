@@ -1,0 +1,1978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 2 — Linear Data Structures · 100 Days of DSA &amp; Competitive Programming</title>
+<meta name="description" content="100 Days of DSA &amp; Competitive Programming, phase 2: Linear Data Structures (lessons 26–35).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m2" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of DSA</a>
+  <span class="meta">Phase 2 · Linear Data Structures · Days 18–24</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 2 · Linear Data Structures</h4>
+  <nav>
+    <a href="#l26"><span class="n">L26</span>Hashing &amp; Hash Maps: Internals an…</a>
+    <a href="#l27"><span class="n">L27</span>Stacks: Implementation and Core A…</a>
+    <a href="#l28"><span class="n">L28</span>Monotonic Stack: Next Greater Ele…</a>
+    <a href="#l29"><span class="n">L29</span>Queues, Deques, Circular Buffers</a>
+    <a href="#l30"><span class="n">L30</span>Linked Lists I: Structure and Cor…</a>
+    <a href="#l31"><span class="n">L31</span>Linked Lists II: Cycles, Reversal…</a>
+    <a href="#l32"><span class="n">L32</span>Heaps I: Binary Heap From Scratch</a>
+    <a href="#l33"><span class="n">L33</span>Heaps II: k-Way Merge, Top-K, Str…</a>
+    <a href="#l34"><span class="n">L34</span>Intervals &amp; Sweep Line With Data…</a>
+    <a href="#l35"><span class="n">L35</span>Contest Day 2 + Editorial</a>
+  </nav>
+  <h4>All 142 lessons</h4>
+  <div class="spine" data-spine data-module="2" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p01.html">◂ Phase 1</a><a href="p03.html">Phase 3 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 2 · Days 18–24 · Lessons 26–35</p>
+<h1>Linear Data Structures</h1>
+<p class="dek">Phase 2 builds the linear data structures that turn Phase 1's quadratic loops into linear and n log n ones: hash maps you can defend against anti-hash tests, stacks and monotonic stacks, queues and deques, linked lists in pointer and array form, binary heaps, and the sweep line. Each structure is built from scratch, proved correct with an invariant, and then used through its fast Python form. Phase 3 reuses hashing, tries and these invariants on strings, and every graph lesson in Phase 5 runs on the queues and heaps built here.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Explain why a Python <code>dict</code> of integers can be made quadratic on purpose, and defend a contest solution with compression, bytes keys or a salted mixer.</li>
+    <li>Write the four nearest-greater/smaller variants with one monotonic stack, and solve the largest-rectangle and sum-of-subarray-minimums problems with the correct tie rule.</li>
+    <li>Convert infix expressions with unary minus and right-associative powers to postfix by shunting-yard, derived from precedence rules rather than memorised.</li>
+    <li>Prove Floyd's cycle-finding algorithm (both phases) and implement an O(1) LRU cache from a hash map and a hand-built doubly linked list.</li>
+    <li>Implement a binary heap from scratch, prove that heapify is O(n), and choose correctly between a size-k heap, sorting and quickselect.</li>
+    <li>Maintain a sliding-window median with two lazy-deletion heaps, and solve the skyline problem with a sweep and a max-heap.</li>
+    <li>Pick the right structure for an unseen problem from a one-page flowchart, and switch structures cleanly when the first choice is wrong.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>10</b> lessons</li><li><b>8h 45m</b> video</li><li>Days <b>18–24</b></li>
+</ul>
+
+<!-- ================================================================ L26 -->
+<article class="day" id="l26">
+  <header class="day-head">
+    <span class="day-no">L26 · DAY 18</span>
+    <h2>Hashing &amp; Hash Maps: Internals and Anti-Hash Attacks</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">A hash map is an array plus a function that scatters keys across it. It is O(1) on average only because the keys look random to that function, and in Python the function for integers is public and deterministic, so anyone who writes the tests can make your <code>dict</code> quadratic on purpose.</p>
+
+  <h3>Buckets, collisions, and what CPython actually does</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A <b>hash table</b> stores key \(k\) near slot \(h(k) \bmod m\) of an array of size \(m\). Two keys with the same slot <b>collide</b>. <b>Separate chaining</b> keeps a list per slot. <b>Open addressing</b> keeps one entry per slot and, on a collision, follows a deterministic <b>probe sequence</b> to the next candidate slot. The <b>load factor</b> is \(\alpha = n/m\).</p>
+  </div>
+  <p>CPython's <code>dict</code> uses open addressing. Since 3.6 it is "compact": a power-of-two index table pointing into a dense entries array kept in insertion order. On a collision it probes with <code>perturb &gt;&gt;= 5; i = (5*i + perturb + 1) &amp; mask</code> from <code>perturb = hash</code>: the high hash bits are mixed in for about a dozen steps, then the path is \(i \mapsto 5i+1 \bmod 2^k\), which visits every slot. Deletions leave tombstones; the table is rebuilt larger when about two-thirds full.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Separate chaining with linked buckets versus open addressing with a probe sequence">
+      <defs><marker id="ah-l26" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="150" y="22" class="s-ttl s-mid">separate chaining</text>
+      <rect x="40" y="38" width="44" height="24" rx="3" class="s-node"/><text x="62" y="54" class="s-ink3 s-mid s-sm">0</text>
+      <rect x="40" y="68" width="44" height="24" rx="3" class="s-node"/><text x="62" y="84" class="s-ink3 s-mid s-sm">1</text>
+      <rect x="40" y="98" width="44" height="24" rx="3" class="s-node"/><text x="62" y="114" class="s-ink3 s-mid s-sm">2</text>
+      <rect x="40" y="128" width="44" height="24" rx="3" class="s-node"/><text x="62" y="144" class="s-ink3 s-mid s-sm">3</text>
+      <rect x="40" y="158" width="44" height="24" rx="3" class="s-node"/><text x="62" y="174" class="s-ink3 s-mid s-sm">4</text>
+      <rect x="40" y="188" width="44" height="24" rx="3" class="s-node"/><text x="62" y="204" class="s-ink3 s-mid s-sm">5</text>
+      <rect x="110" y="68" width="46" height="24" rx="3" class="s-node-mod"/><text x="133" y="84" class="s-mid">13</text>
+      <rect x="180" y="68" width="46" height="24" rx="3" class="s-node-mod"/><text x="203" y="84" class="s-mid">25</text>
+      <rect x="110" y="128" width="46" height="24" rx="3" class="s-node-mod"/><text x="133" y="144" class="s-mid">9</text>
+      <rect x="110" y="158" width="46" height="24" rx="3" class="s-node-mod"/><text x="133" y="174" class="s-mid">4</text>
+      <rect x="180" y="158" width="46" height="24" rx="3" class="s-node-mod"/><text x="203" y="174" class="s-mid">16</text>
+      <rect x="250" y="158" width="46" height="24" rx="3" class="s-node-mod"/><text x="273" y="174" class="s-mid">28</text>
+      <line x1="84" y1="80" x2="108" y2="80" class="s-ln" marker-end="url(#ah-l26)"/>
+      <line x1="156" y1="80" x2="178" y2="80" class="s-ln" marker-end="url(#ah-l26)"/>
+      <line x1="84" y1="140" x2="108" y2="140" class="s-ln" marker-end="url(#ah-l26)"/>
+      <line x1="84" y1="170" x2="108" y2="170" class="s-ln" marker-end="url(#ah-l26)"/>
+      <line x1="156" y1="170" x2="178" y2="170" class="s-ln" marker-end="url(#ah-l26)"/>
+      <line x1="226" y1="170" x2="248" y2="170" class="s-ln" marker-end="url(#ah-l26)"/>
+      <text x="170" y="222" class="s-ink2 s-mid s-sm">key mod 6 → bucket; lookup walks one chain</text>
+      <text x="490" y="22" class="s-ttl s-mid">open addressing (CPython)</text>
+      <rect x="340" y="90" width="34" height="30" rx="3" class="s-node-mod"/><text x="357" y="110" class="s-mid">A</text>
+      <rect x="378" y="90" width="34" height="30" rx="3" class="s-node"/>
+      <rect x="416" y="90" width="34" height="30" rx="3" class="s-node-mod"/><text x="433" y="110" class="s-mid">B</text>
+      <rect x="454" y="90" width="34" height="30" rx="3" class="s-node-mod"/><text x="471" y="110" class="s-mid">C</text>
+      <rect x="492" y="90" width="34" height="30" rx="3" class="s-node"/>
+      <rect x="530" y="90" width="34" height="30" rx="3" class="s-node"/>
+      <rect x="568" y="90" width="34" height="30" rx="3" class="s-node"/>
+      <rect x="606" y="90" width="34" height="30" rx="3" class="s-node"/>
+      <text x="357" y="136" class="s-ink3 s-mid s-sm">0</text><text x="395" y="136" class="s-ink3 s-mid s-sm">1</text><text x="433" y="136" class="s-ink3 s-mid s-sm">2</text><text x="471" y="136" class="s-ink3 s-mid s-sm">3</text>
+      <text x="509" y="136" class="s-ink3 s-mid s-sm">4</text><text x="547" y="136" class="s-ink3 s-mid s-sm">5</text><text x="585" y="136" class="s-ink3 s-mid s-sm">6</text><text x="623" y="136" class="s-ink3 s-mid s-sm">7</text>
+      <path d="M433,88 Q452,62 469,88" class="s-ln-acc" marker-end="url(#ah-l26)"/>
+      <path d="M471,88 Q414,30 359,88" class="s-ln-acc" marker-end="url(#ah-l26)"/>
+      <path d="M357,88 Q376,62 393,88" class="s-ln-acc" marker-end="url(#ah-l26)"/>
+      <text x="395" y="109" class="s-acc s-mid s-sm">new</text>
+      <text x="490" y="166" class="s-ink2 s-mid s-sm">hash 2, mask 7: 2 → 3 → 0 → 1 → 6 → 7 → 4 → 5</text>
+      <text x="490" y="186" class="s-ink2 s-mid s-sm">i ← (5i + 1 + perturb) mod 8</text>
+    </svg>
+    <figcaption><b>Two collision strategies.</b> Chaining pays one step per key in the chain. Open addressing pays one probe per occupied slot on the probe path; for a small hash the perturbation is already zero and the path is the full cycle of \(i \mapsto 5i+1\). Either way, an adversary who can force many keys onto one path makes every operation linear.</figcaption>
+  </figure>
+
+  <div class="box thm"><span class="tag">Theorem · cost of a hash table</span>
+    <p>If keys behave like independent uniform hashes, a lookup costs \(O(1+\alpha)\) expected under chaining, and \(O(1/(1-\alpha))\) expected probes under open addressing. Resizing by a constant factor when \(\alpha\) passes a threshold keeps \(\alpha = O(1)\), and the rehash work telescopes: growing to \(n\) rebuilds tables of sizes \(\le n, n/2, n/4, \dots\), total \(O(n)\), so inserts are amortised \(O(1)\). If \(n\) keys share one chain or probe path, the \(j\)-th insert scans \(j-1\) entries and \(n\) inserts cost \(\sum_j (j-1) = \Theta(n^2)\).</p>
+  </div>
+
+  <h3>Hashable keys, and why <code>hash(int)</code> is the weak point</h3>
+  <p>A key needs <code>__hash__</code> and <code>__eq__</code> with the contract <code>a == b ⇒ hash(a) == hash(b)</code>. Mutable built-ins (<code>list</code>, <code>dict</code>, <code>set</code>) are unhashable; convert to <code>tuple</code> or <code>frozenset</code>. On 64-bit CPython, <code>hash(x)</code> for an integer is \(x \bmod (2^{61}-1)\) with the sign kept (and <code>hash(-1) == -2</code>), so every value below \(2.3\cdot10^{18}\) hashes to itself. Strings and bytes are hashed with SipHash under a per-process random seed (<code>PYTHONHASHSEED</code>); integers never are. That asymmetry is the whole anti-hash story.</p>
+
+  <h3>Implementation: a chaining map from scratch</h3>
+  <pre><code>class HashMap:
+    """Separate chaining, power-of-two buckets, doubles when load factor exceeds 1."""
+    def __init__(self, cap=8):
+        self.b = [[] for _ in range(cap)]
+        self.size = 0
+
+    def _chain(self, key):
+        return self.b[hash(key) &amp; (len(self.b) - 1)]
+
+    def get(self, key, default=None):
+        for k, v in self._chain(key):
+            if k == key:
+                return v
+        return default
+
+    def put(self, key, value):
+        ch = self._chain(key)
+        for i, (k, _) in enumerate(ch):
+            if k == key:
+                ch[i] = (key, value)
+                return
+        ch.append((key, value))
+        self.size += 1
+        if self.size &gt; len(self.b):                 # rehash into twice as many buckets
+            old, self.b = self.b, [[] for _ in range(2 * len(self.b))]
+            for chain in old:
+                for k, v in chain:
+                    self._chain(k).append((k, v))
+
+    def remove(self, key):
+        ch = self._chain(key)
+        for i, (k, _) in enumerate(ch):
+            if k == key:
+                ch[i] = ch[-1]; ch.pop(); self.size -= 1
+                return True
+        return False</code></pre>
+  <p class="code-cap">Test it against <code>dict</code> on random put/get/remove sequences. It is a teaching tool: the built-in is roughly two orders of magnitude faster.</p>
+
+  <h3>Anti-hash tests: passing in practice, failing on a hack</h3>
+  <p>Setters' tests are random, so your <code>dict</code> sees well-spread keys and passes. On Codeforces anyone may add a test during a hacking phase (Educational and Div. 3 rounds have a 12-hour open one), and the hacker knows your hash function: the identity, plus the probe recurrence published in <code>dictobject.c</code>. Hack generators simulate that recurrence to find in-range values whose probe paths pile up. The demo uses a cruder family where every key hashes to 0.</p>
+  <pre><code>import random, time
+
+P = (1 &lt;&lt; 61) - 1                       # sys.hash_info.modulus on 64-bit CPython
+M64 = (1 &lt;&lt; 64) - 1
+SALT = random.getrandbits(64)
+
+def mix(x):                             # salted splitmix64 finaliser: a random bijection of 64-bit keys
+    x = (x + SALT) &amp; M64
+    x = (x ^ (x &gt;&gt; 30)) * 0xBF58476D1CE4E5B9 &amp; M64
+    x = (x ^ (x &gt;&gt; 27)) * 0x94D049BB133111EB &amp; M64
+    return x ^ (x &gt;&gt; 31)
+
+def build(keys, f=lambda x: x):
+    t = time.perf_counter()
+    d = {}
+    for k in keys:
+        k = f(k)
+        d[k] = d.get(k, 0) + 1
+    return round(time.perf_counter() - t, 3)
+
+bad = [i * P for i in range(1, 10_001)]  # hash(i * P) == 0 for every i
+print("plain", build(bad))
+print("xor  ", build(bad, lambda x: x ^ SALT))
+print("mix  ", build(bad, mix))</code></pre>
+  <p>Measured on CPython 3.12: the plain dict took 0.78 s, 3.8 s and 16.9 s for 5,000, 10,000 and 20,000 keys (×4.5 per doubling: \(\Theta(n^2)\)); mixed keys took 0.29 s for 100,000. XOR with a constant preserves which bits two keys share, and on this family it left 10 to about 1,000 distinct slots, some runs as slow as plain. XOR salting is in many templates and breaks tests built for exact values, but it does not destroy structure. Defences, strongest first:</p>
+  <ol>
+    <li><b>Don't hash.</b> Compress values to <code>0..k-1</code> (<a href="p01.html#l24">L24</a>) and index a <code>list</code>. Hack-proof and usually fastest.</li>
+    <li><b>Hash something randomised.</b> Count the raw <code>bytes</code> tokens from <code>sys.stdin.buffer.read().split()</code>: seeded SipHash, and no <code>int()</code> (0.08 s vs 0.13 s for \(2\cdot10^5\) tokens). Valid when equal numbers are written identically, as in judge input. Check your judge's PyPy seeds hashes too.</li>
+    <li><b>Mix integer keys</b> with the salted <code>mix</code>, about 2–3 µs per key in CPython.</li>
+  </ol>
+
+  <h3>Counter, defaultdict, canonical forms, sets</h3>
+  <p><code>Counter(it)</code> counts in C; <code>defaultdict(list)</code> groups. The recurring technique is <b>grouping by an invariant</b>: map each object to a canonical form that is equal exactly when the objects are equivalent. Anagrams share <code>''.join(sorted(w))</code> (\(O(k\log k)\)) or the 26-count tuple (\(O(k)\)); <a href="p03.html#l37">L37</a> turns this into polynomial hashes. Sets give dedup, \(O(1)\) membership, and <code>a - b</code>, <code>a &amp; b</code>, <code>a ^ b</code> in linear time. Memory: a dict's tables cost about 50 bytes per entry (<code>sys.getsizeof</code>, \(10^5\) int keys), a list 8 bytes per slot.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Distinct Numbers.</b> <code>len(set(tokens))</code> on the bytes tokens; or sort and count changes, which needs no hashing at all. \(O(n)\) expected / \(O(n\log n)\).</li>
+    <li><b>CSES — Sum of Two Values.</b> One pass: before storing \(a_i\), look up \(x-a_i\) among earlier values. Storing after the lookup is what stops a value pairing with itself.</li>
+  </ul>
+  <pre><code>import sys
+def main():
+    data = sys.stdin.buffer.read().split()
+    n, x = int(data[0]), int(data[1])
+    seen = {}
+    for i in range(n):
+        v = int(data[2 + i])
+        j = seen.get(x - v)
+        if j is not None:
+            print(j + 1, i + 1)
+            return
+        seen[v] = i
+    print("IMPOSSIBLE")
+main()</code></pre>
+  <ul>
+    <li><b>LeetCode 1 — Two Sum.</b> The same loop. <b>LeetCode 49 — Group Anagrams.</b> <code>defaultdict(list)</code> keyed by the count tuple.</li>
+    <li><b>LeetCode 128 — Longest Consecutive Sequence.</b> Put everything in a set and start walking only from \(x\) with \(x-1\) absent; each element is walked once, so \(O(n)\).</li>
+    <li><b>LeetCode 560 — Subarray Sum Equals K.</b> Count prefix sums seen so far; a subarray ending here sums to \(k\) once per earlier prefix equal to <code>pre - k</code>. Seed <code>{0: 1}</code> for subarrays starting at index 0.</li>
+    <li><b>LeetCode 895 — Maximum Frequency Stack.</b> <code>freq[x]</code> plus one stack per frequency level; push <code>x</code> onto level <code>freq[x]</code>; pop from the highest non-empty level. Every operation \(O(1)\).</li>
+  </ul>
+  <pre><code>def longest_consecutive(nums):
+    s, best = set(nums), 0
+    for x in s:
+        if x - 1 not in s:
+            y = x
+            while y + 1 in s:
+                y += 1
+            best = max(best, y - x + 1)
+    return best
+
+class FreqStack:
+    def __init__(self):
+        self.freq, self.level = {}, [[]]
+    def push(self, x):
+        f = self.freq.get(x, 0) + 1
+        self.freq[x] = f
+        if f == len(self.level):
+            self.level.append([])
+        self.level[f].append(x)
+    def pop(self):
+        x = self.level[-1].pop()
+        self.freq[x] -= 1
+        if not self.level[-1]:
+            self.level.pop()
+        return x</code></pre>
+  <p><b>A Codeforces anti-hash problem.</b> Pick a recent Educational-round problem whose natural solution is a frequency dict over values up to \(10^9\), and read its hacked submissions: uphacks with anti-hash tests against unsalted Python and C++ maps are common there. Resubmit with compression or bytes keys and confirm it survives those tests.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Hacked <code>dict</code>/<code>set</code> of ints</b>: passes pretests, TLE on the hack. Use a defence on any problem with a hacking phase.</li>
+      <li><b><code>x in some_list</code></b> in a loop: \(O(n^2)\) total. Build the set once.</li>
+      <li><b>Lists as keys</b>: <code>TypeError: unhashable type</code>; use <code>tuple</code>. Mutating a key object after insertion makes its entry unreachable.</li>
+      <li><b>Floats as keys</b>: <code>0.1 + 0.2 != 0.3</code>, so "equal" values split. Key by integers.</li>
+      <li><b><code>c1 - c2</code> on Counters</b> drops non-positive counts; <code>c1.subtract(c2)</code> keeps them.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Distinct Numbers; CSES — Sum of Two Values.</li>
+      <li>LeetCode 1, 49, 128, 560, 895.</li>
+      <li>Run the demo; then rerun the "plain" line with 20,000 keys and time it against <code>mix</code>.</li>
+      <li>One Codeforces problem with a known anti-hash hack, solved three ways (compression, bytes keys, mixed keys).</li>
+      <li><b>Goal:</b> you use dicts confidently and can defend them in contests.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> CLRS ch. 11 (Hash Tables) · CPython source, <code>Objects/dictobject.c</code> (header comment on probing) · Python reference, Data model, <code>object.__hash__</code> · neal, “Blowing up unordered_map, and how to stop getting hacked on it” (Codeforces blog) · Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 4</p>
+</article>
+<!-- ================================================================ L27 -->
+<article class="day" id="l27">
+  <header class="day-head">
+    <span class="day-no">L27 · DAY 19</span>
+    <h2>Stacks: Implementation and Core Applications</h2>
+    <p class="day-meta"><span class="vid">40m video</span></p>
+  </header>
+
+  <p class="thesis">A stack is the data structure of "the most recent unfinished thing". Whenever a problem nests (brackets, sub-expressions, function calls, undo history), the item you must deal with next is the last one opened, and a Python <code>list</code> used only at its end gives you that in O(1).</p>
+
+  <h3>LIFO, and the <code>list</code> you already have</h3>
+  <p><code>st.append(x)</code> is push (amortised \(O(1)\), <a href="p00.html#l3">L3</a>), <code>st.pop()</code> is pop, <code>st[-1]</code> is peek, <code>if st:</code> tests emptiness. Never use <code>insert(0, x)</code> or <code>pop(0)</code>: those shift the whole list. <b>The <code>IndexError</code> discipline:</b> every <code>pop()</code> and <code>st[-1]</code> is either guarded by <code>if st</code> or provably safe because of a sentinel pushed at the start (the <code>-1</code> base index below is one). An unguarded pop on malformed input is the usual runtime error on bracket problems.</p>
+  <div class="box def"><span class="tag">Definition · stack invariant</span>
+    <p>Write down, before coding, what the stack contains after processing a prefix of the input. For brackets: <em>the unmatched opening brackets of the prefix, in order</em>. For the longest valid substring: <em>the index just before the current valid run, then the indices of unmatched <code>(</code></em>. Every push and pop must preserve the sentence; correctness then follows by induction over the input.</p>
+  </div>
+
+  <h3>Brackets: matching, and the longest valid substring</h3>
+  <p>With several bracket types, a closer is valid iff the stack's top is its opener; the string is balanced iff the stack ends empty. For <b>longest valid parentheses</b>, keep indices and seed the stack with \(-1\). On <code>(</code> push \(i\). On <code>)</code> pop; if the stack is now empty, this <code>)</code> is unmatched and becomes the new base (push \(i\)); otherwise the run ending at \(i\) starts just after <code>st[-1]</code> and has length \(i - \text{st}[-1]\).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Stack of indices after each character of the string close-paren open close open open close close">
+      <text x="20" y="34" class="s-ink2 s-sm">char</text>
+      <text x="20" y="58" class="s-ink2 s-sm">i</text>
+      <text x="20" y="214" class="s-ink2 s-sm">len</text>
+      <text x="100" y="34" class="s-ttl s-mid">)</text><text x="100" y="58" class="s-ink3 s-mid s-sm">0</text>
+      <text x="180" y="34" class="s-ttl s-mid">(</text><text x="180" y="58" class="s-ink3 s-mid s-sm">1</text>
+      <text x="260" y="34" class="s-ttl s-mid">)</text><text x="260" y="58" class="s-ink3 s-mid s-sm">2</text>
+      <text x="340" y="34" class="s-ttl s-mid">(</text><text x="340" y="58" class="s-ink3 s-mid s-sm">3</text>
+      <text x="420" y="34" class="s-ttl s-mid">(</text><text x="420" y="58" class="s-ink3 s-mid s-sm">4</text>
+      <text x="500" y="34" class="s-ttl s-mid">)</text><text x="500" y="58" class="s-ink3 s-mid s-sm">5</text>
+      <text x="580" y="34" class="s-ttl s-mid">)</text><text x="580" y="58" class="s-ink3 s-mid s-sm">6</text>
+      <line x1="60" y1="188" x2="620" y2="188" class="s-ln s-grid"/>
+      <rect x="80" y="162" width="40" height="24" rx="3" class="s-node-mod"/><text x="100" y="178" class="s-mid">0</text>
+      <rect x="160" y="162" width="40" height="24" rx="3" class="s-node-mod"/><text x="180" y="178" class="s-mid">0</text>
+      <rect x="160" y="136" width="40" height="24" rx="3" class="s-node"/><text x="180" y="152" class="s-mid">1</text>
+      <rect x="240" y="162" width="40" height="24" rx="3" class="s-node-mod"/><text x="260" y="178" class="s-mid">0</text>
+      <rect x="320" y="162" width="40" height="24" rx="3" class="s-node-mod"/><text x="340" y="178" class="s-mid">0</text>
+      <rect x="320" y="136" width="40" height="24" rx="3" class="s-node"/><text x="340" y="152" class="s-mid">3</text>
+      <rect x="400" y="162" width="40" height="24" rx="3" class="s-node-mod"/><text x="420" y="178" class="s-mid">0</text>
+      <rect x="400" y="136" width="40" height="24" rx="3" class="s-node"/><text x="420" y="152" class="s-mid">3</text>
+      <rect x="400" y="110" width="40" height="24" rx="3" class="s-node"/><text x="420" y="126" class="s-mid">4</text>
+      <rect x="480" y="162" width="40" height="24" rx="3" class="s-node-mod"/><text x="500" y="178" class="s-mid">0</text>
+      <rect x="480" y="136" width="40" height="24" rx="3" class="s-node"/><text x="500" y="152" class="s-mid">3</text>
+      <rect x="560" y="162" width="40" height="24" rx="3" class="s-node-mod"/><text x="580" y="178" class="s-mid">0</text>
+      <text x="100" y="214" class="s-ink3 s-mid s-sm">base</text>
+      <text x="260" y="214" class="s-acc s-mid">2</text>
+      <text x="500" y="214" class="s-acc s-mid">2</text>
+      <text x="580" y="214" class="s-acc s-mid">6</text>
+    </svg>
+    <figcaption><b>Stack after each character of <code>)()(())</code>.</b> The initial base \(-1\) is popped by the unmatched <code>)</code> at index 0, which becomes the new base (shaded). Each <code>)</code> that leaves a non-empty stack measures a run from the top: \(6 - 0 = 6\) at the end.</figcaption>
+  </figure>
+
+  <h3>Shunting-yard, derived</h3>
+  <p>Postfix (reverse Polish) needs no brackets: <code>2 3 4 * +</code> is \(2 + 3\cdot4\), evaluated with one operand stack. To convert infix, read tokens left to right; numbers go straight to the output. An operator cannot be emitted when read, because its right operand has not arrived. It waits on an operator stack until we know nothing to its right binds tighter. When a new operator \(o\) arrives, the operator \(t\) on top of the stack has both operands complete if \(t\) binds at least as tightly as \(o\): <code>prec(t) &gt; prec(o)</code>, or equal precedence and \(o\) left-associative (\(a-b-c = (a-b)-c\)). Then emit \(t\) and repeat. For a right-associative \(o\) such as <code>^</code> (\(a^{b^c} = a^{(b^c)}\)), equal precedence does not pop. A <code>(</code> is a barrier that nothing pops past; <code>)</code> pops down to its <code>(</code>.</p>
+  <div class="box algo"><span class="tag">Algorithm · Shunting-yard with unary minus</span>
+    <ol>
+      <li>Precedence: <code>+ -</code> 1 (left), <code>* /</code> 2 (left), unary minus 3 (right), <code>^</code> 4 (right). So \(-2^2 = -4\) and \(-2\cdot3 = (-2)\cdot3\).</li>
+      <li>A <code>-</code> is <b>unary</b> if it starts the expression or follows an operator or <code>(</code>. A prefix operator has no left operand to wait for, so it is pushed without popping anything.</li>
+      <li>Binary operator \(o\): while the top is an operator that binds at least as tightly (rule above), pop it to the output; then push \(o\).</li>
+      <li>At the end pop everything. Each token is pushed and popped at most once: \(O(n)\).</li>
+    </ol>
+  </div>
+  <div class="box intuition"><span class="tag">Worked example · <code>-2 ^ 2 * (3 - 1)</code></span>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>token</th><th>action</th><th>op stack</th><th>output</th></tr></thead>
+      <tbody>
+        <tr><td><code>-</code></td><td>unary: push <code>u</code></td><td>u</td><td></td></tr>
+        <tr><td><code>2</code></td><td>output</td><td>u</td><td>2</td></tr>
+        <tr><td><code>^</code></td><td><code>u</code> (3) &lt; <code>^</code> (4): push</td><td>u ^</td><td>2</td></tr>
+        <tr><td><code>2</code></td><td>output</td><td>u ^</td><td>2 2</td></tr>
+        <tr><td><code>*</code></td><td>pop <code>^</code>, pop <code>u</code>, push</td><td>*</td><td>2 2 ^ u</td></tr>
+        <tr><td><code>( 3 - 1</code></td><td>barrier; <code>-</code> stops at <code>(</code></td><td>* ( -</td><td>2 2 ^ u 3 1</td></tr>
+        <tr><td><code>)</code></td><td>pop to <code>(</code></td><td>*</td><td>2 2 ^ u 3 1 -</td></tr>
+        <tr><td>end</td><td>pop all</td><td></td><td>2 2 ^ u 3 1 - *</td></tr>
+      </tbody>
+    </table></div>
+    <p>Evaluating: \(2^2=4\), negate to \(-4\), \(3-1=2\), product \(-8\).</p>
+  </div>
+
+  <h3>Implementation: calculator and min-stack</h3>
+  <pre><code>import re
+from fractions import Fraction
+
+PREC = {'+': (1, 'L'), '-': (1, 'L'), '*': (2, 'L'), '/': (2, 'L'), 'u': (3, 'R'), '^': (4, 'R')}
+
+def to_postfix(expr):
+    out, ops, prev = [], [], None
+    for t in re.findall(r"\d+|[-+*/^()]", expr):
+        if t.isdigit():
+            out.append(Fraction(int(t)))
+        elif t == '(':
+            ops.append(t)
+        elif t == ')':
+            while ops[-1] != '(':
+                out.append(ops.pop())
+            ops.pop()
+        else:
+            if t == '-' and (prev is None or prev in PREC or prev == '('):
+                t = 'u'                                   # prefix: pops nothing
+            else:
+                p = PREC[t][0]
+                while ops and ops[-1] != '(':
+                    q, assoc = PREC[ops[-1]]
+                    if q &lt; p or (q == p and assoc == 'R'):
+                        break
+                    out.append(ops.pop())
+            ops.append(t)
+        prev = t
+    return out + ops[::-1]
+
+def eval_postfix(post):
+    st = []
+    for t in post:
+        if isinstance(t, Fraction):
+            st.append(t)
+        elif t == 'u':
+            st.append(-st.pop())
+        else:
+            b, a = st.pop(), st.pop()
+            st.append(a + b if t == '+' else a - b if t == '-' else
+                      a * b if t == '*' else a / b if t == '/' else a ** b)
+    return st[0]
+
+print(eval_postfix(to_postfix("-2 ^ 2 * (3 - 1)")))   # -8
+print(eval_postfix(to_postfix("2 ^ 3 ^ 2 - 7 / 2")))  # 1017/2</code></pre>
+  <p class="code-cap"><code>Fraction</code> keeps <code>/</code> exact. Stress it against Python's <code>eval</code> on random expressions with <code>^</code> replaced by <code>**</code>: Python uses the same precedence table, including <code>-2**2 == -4</code>.</p>
+  <p><b>Min-stack.</b> Pairs <code>(x, min so far)</code> give <code>getMin</code> in \(O(1)\) at two words per item. The encoded trick stores one value: when \(x\) is a new minimum, push \(2x - m\) (where \(m\) is the old minimum) and set \(m = x\). Since \(x &lt; m\), \(2x - m &lt; x\), so a stored value below the current minimum flags an encoded entry, and popping it restores \(m \leftarrow 2m - y\). In Python it saves little; in Java or C++ interviews it is the expected answer, with <code>long</code> to avoid overflow.</p>
+  <pre><code>class MinStack:
+    def __init__(self):
+        self.st, self.mn = [], None
+    def push(self, x):
+        if not self.st:
+            self.st.append(x); self.mn = x
+        elif x &lt; self.mn:
+            self.st.append(2 * x - self.mn); self.mn = x
+        else:
+            self.st.append(x)
+    def pop(self):
+        y = self.st.pop()
+        if y &lt; self.mn:                       # encoded: the value was the minimum itself
+            y, self.mn = self.mn, 2 * self.mn - y
+        return y
+    def top(self):
+        y = self.st[-1]
+        return self.mn if y &lt; self.mn else y
+    def get_min(self):
+        return self.mn</code></pre>
+
+  <h3>Recursion is a stack you don't control</h3>
+  <p>Every recursive call pushes a frame; CPython raises <code>RecursionError</code> at depth 1000 by default, and raising the limit risks crashing the interpreter on deep inputs (<a href="p00.html#l6">L6</a>). Any recursion converts to a loop over an explicit list of frames: push <code>(node, state)</code>, pop, do the next piece of work, push the continuation. DFS on a \(2\cdot10^5\)-node path is the case where you must (<a href="p05.html#l64">L64</a>). Undo stacks and backtracking state are the same pattern: push the change, pop to revert.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>LeetCode 20 — Valid Parentheses.</b> <code>pair = {')': '(', ']': '[', '}': '{'}</code>; a closer must meet its opener on top.</li>
+    <li><b>LeetCode 32 — Longest Valid Parentheses.</b> The index stack with base \(-1\) (figure). \(O(n)\).</li>
+    <li><b>LeetCode 155 — Min Stack.</b> Either class above.</li>
+    <li><b>LeetCode 150 — Evaluate Reverse Polish Notation.</b> The evaluator, but division truncates toward zero: <code>int(a / b)</code> is safe at 32-bit sizes; exactly, <code>q = abs(a) // abs(b)</code>, negated if the signs differ. Python's <code>//</code> floors, so <code>-7 // 2 == -4</code>, not \(-3\).</li>
+    <li><b>LeetCode 224 — Basic Calculator</b> (<code>+ -</code>, brackets, unary minus) and <b>227 — Basic Calculator II</b> (<code>+ - * /</code>, no brackets). The calculator handles both once division truncates. The one-pass 227 idiom: keep a stack of signed terms; <code>*</code> and <code>/</code> modify the top term, <code>+</code>/<code>-</code> push a new one; answer = sum.</li>
+    <li><b>LeetCode 71 — Simplify Path.</b> Split on <code>/</code>; <code>..</code> pops if possible, empty and <code>.</code> are skipped, names are pushed.</li>
+    <li><b>LeetCode 394 — Decode String.</b> On <code>[</code> push <code>(string so far, repeat count)</code> and start fresh; on <code>]</code> pop and set <code>cur = prev + k * cur</code>.</li>
+  </ul>
+  <pre><code>def longest_valid(s):
+    st, best = [-1], 0
+    for i, c in enumerate(s):
+        if c == '(':
+            st.append(i)
+        else:
+            st.pop()
+            if st:
+                best = max(best, i - st[-1])
+            else:
+                st.append(i)                      # unmatched ')': new base
+    return best
+
+def decode(s):
+    st, cur, k = [], "", 0
+    for c in s:
+        if c.isdigit():
+            k = 10 * k + int(c)
+        elif c == '[':
+            st.append((cur, k)); cur, k = "", 0
+        elif c == ']':
+            prev, r = st.pop(); cur = prev + r * cur
+        else:
+            cur += c
+    return cur</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Popping an empty stack</b> on inputs like <code>"())"</code>: guard, or seed a sentinel.</li>
+      <li><b>Forgetting the final check</b>: <code>"(("</code> never fails a match; balanced means the stack ends empty.</li>
+      <li><b>Wrong associativity</b>: popping on equal precedence for <code>^</code> computes \((2^3)^2 = 64\) instead of \(2^9 = 512\).</li>
+      <li><b>Unary minus treated as binary</b>: <code>"-3"</code> or <code>"2*-3"</code> pops an empty operand stack.</li>
+      <li><b>Floor vs truncate</b>: Python's <code>//</code> and <code>%</code> floor; most statements want truncation toward zero.</li>
+      <li><b>Multi-digit numbers</b> read one character at a time: accumulate <code>k = 10*k + d</code> or tokenise with a regex.</li>
+      <li><b><code>cur += c</code> in a long loop</b> is fine in CPython for a uniquely referenced string but quadratic on PyPy; build a list and <code>join</code> when strings get long (<a href="p03.html#l36">L36</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 20, 32, 155, 150, 224, 227, 71, 394.</li>
+      <li>Stress-test <code>to_postfix</code>/<code>eval_postfix</code> against <code>eval</code> on 10,000 random expressions with small numbers and exponents (skip division by zero).</li>
+      <li>Rewrite a recursive tree traversal from L6 with an explicit stack and run it on a path of \(10^6\) nodes.</li>
+      <li><b>Goal:</b> you can build a working expression parser from the precedence rules, without a reference.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Dijkstra 1961, ALGOL 60 translation report, Mathematisch Centrum (the original shunting-yard) · Sedgewick &amp; Wayne, <i>Algorithms</i>, 4th ed., §1.3 · Halim &amp; Halim, <i>Competitive Programming 4</i>, ch. 2</p>
+</article>
+<!-- ================================================================ L28 -->
+<article class="day" id="l28">
+  <header class="day-head">
+    <span class="day-no">L28 · DAY 19</span>
+    <h2>Monotonic Stack: Next Greater Element and the Histogram Family</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">When the question is "for every element, the nearest element to one side that is bigger (or smaller)", keep a stack of the candidates that could still be an answer. Each new element pops the candidates it makes useless, the stack stays sorted, and the whole scan costs O(n) because every index is pushed and popped once.</p>
+
+  <h3>The invariant</h3>
+  <p>The brute force scans outward from each \(i\): \(O(n^2)\) on a decreasing array. Scan instead from the side where answers live (right to left for "next greater"). Index \(j\) on the stack is useless for \(i\) and for every index further left once some \(k\) between them has \(a_k \ge a_j\): \(k\) is closer and at least as large. So pop every \(j\) with \(a_j \le a_i\), read the answer off the top, push \(i\).</p>
+  <div class="box thm"><span class="tag">Theorem · monotonic stack</span>
+    <p><b>Invariant:</b> after processing \(i\) (scanning right to left), the stack holds, from top to bottom, \(i\) and then exactly the indices \(j &gt; i\) whose value is strictly greater than every value in \(a[i..j-1]\); their values strictly increase downward. The top after popping is therefore the nearest strictly greater element. <b>Cost:</b> each index is pushed once and popped at most once, so the total number of stack operations is at most \(2n\) even though one step may pop many: \(O(n)\) amortised.</p>
+  </div>
+
+  <h3>One function, four variants</h3>
+  <p>"Greater" vs "smaller" flips the comparison; "strict" vs "or equal" decides whether equal values block; "next" vs "previous" flips the scan direction. Missing answers default to the sentinels \(n\) (right) and \(-1\) (left), which is exactly what width formulas want: they behave like bars of height \(-\infty\) just outside the array.</p>
+  <pre><code>from operator import gt, ge, lt, le
+
+def nearest(a, side="right", cmp=gt):
+    """res[i] = nearest j on `side` of i with cmp(a[j], a[i]); n or -1 if none.
+    gt: greater, ge: greater-or-equal, lt: smaller, le: smaller-or-equal."""
+    n = len(a)
+    res = [n if side == "right" else -1] * n
+    order = range(n - 1, -1, -1) if side == "right" else range(n)
+    st = []
+    for i in order:
+        x = a[i]
+        while st and not cmp(a[st[-1]], x):   # useless for i and everything beyond
+            st.pop()
+        if st:
+            res[i] = st[-1]
+        st.append(i)
+    return res</code></pre>
+  <p class="code-cap">Daily temperatures: <code>nearest(t, "right", gt)[i] - i</code> (0 if none). Stock span: <code>i - nearest(p, "left", gt)[i]</code>. One call on \(2\cdot10^5\) elements takes about 0.14 s in CPython 3.12; inlining the comparison saved only about 10% when measured.</p>
+
+  <h3>Largest rectangle in a histogram</h3>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    <p>An optimal rectangle has the height of its lowest bar, say bar \(i\) (otherwise raise it). Given that height, it should be as wide as possible: extend left until the first bar strictly lower than \(h_i\), and right likewise. With \(L_i\) = previous strictly smaller and \(R_i\) = next strictly smaller, its area is \(h_i (R_i - L_i - 1)\). Taking the maximum over \(i\) is correct, because the optimum is one of these \(n\) candidates. Two monotonic scans: \(O(n)\).</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 240" role="img" aria-label="Histogram 2 1 5 6 2 3 with the maximal rectangle of area 10 over bars 2 and 3">
+      <line x1="60" y1="210" x2="500" y2="210" class="s-ln"/>
+      <rect x="80" y="160" width="60" height="50" class="s-node"/>
+      <rect x="150" y="185" width="60" height="25" class="s-node-mod"/>
+      <rect x="220" y="85" width="60" height="125" class="s-node"/>
+      <rect x="290" y="60" width="60" height="150" class="s-node"/>
+      <rect x="360" y="160" width="60" height="50" class="s-node-mod"/>
+      <rect x="430" y="135" width="60" height="75" class="s-node"/>
+      <rect x="220" y="85" width="130" height="125" class="s-acc" fill-opacity="0.22"/>
+      <text x="110" y="152" class="s-mid">2</text><text x="180" y="177" class="s-mid">1</text><text x="250" y="77" class="s-mid">5</text>
+      <text x="320" y="52" class="s-mid">6</text><text x="390" y="152" class="s-mid">2</text><text x="460" y="127" class="s-mid">3</text>
+      <text x="110" y="228" class="s-ink3 s-mid s-sm">0</text><text x="180" y="228" class="s-ink3 s-mid s-sm">1</text><text x="250" y="228" class="s-ink3 s-mid s-sm">2</text>
+      <text x="320" y="228" class="s-ink3 s-mid s-sm">3</text><text x="390" y="228" class="s-ink3 s-mid s-sm">4</text><text x="460" y="228" class="s-ink3 s-mid s-sm">5</text>
+      <text x="285" y="150" class="s-acc s-mid s-ttl">area 10</text>
+      <text x="520" y="70" class="s-ttl">bar i = 2</text>
+      <text x="520" y="94" class="s-ink2 s-sm">L = 1 (height 1 &lt; 5)</text>
+      <text x="520" y="114" class="s-ink2 s-sm">R = 4 (height 2 &lt; 5)</text>
+      <text x="520" y="134" class="s-ink2 s-sm">width = R − L − 1 = 2</text>
+      <text x="520" y="154" class="s-ink2 s-sm">area = 5 · 2 = 10</text>
+    </svg>
+    <figcaption><b>The boundary bars.</b> Bar 2's rectangle is stopped by the nearest strictly lower bars on each side (shaded). Bar 3 alone gives \(6\cdot1\); bar 4 gives \(2\cdot4 = 8\); the maximum over all bars is 10.</figcaption>
+  </figure>
+  <p>The <b>one-pass</b> version computes \(R_i\) at the moment bar \(i\) is popped: the bar that pops it is its next smaller-or-equal, and the new top is its previous smaller. A final sentinel bar of height 0 flushes the stack. Popping on <code>&gt;=</code> underestimates the width of the earlier of two equal bars, but the later one gets the full width, so the maximum is unaffected.</p>
+  <pre><code>def largest_rectangle(h):
+    h = h + [0]                       # sentinel flushes the stack at the end
+    st, best = [-1], 0                # -1: sentinel left boundary
+    for i, x in enumerate(h):
+        while st[-1] != -1 and h[st[-1]] &gt;= x:
+            top = st.pop()
+            best = max(best, h[top] * (i - st[-1] - 1))
+        st.append(i)
+    return best
+
+def maximal_rectangle(grid):          # LeetCode 85: rows of '0'/'1'
+    h, best = [0] * len(grid[0]), 0
+    for row in grid:
+        h = [x + 1 if c == '1' else 0 for x, c in zip(h, row)]
+        best = max(best, largest_rectangle(h))
+    return best</code></pre>
+  <p><b>Maximal rectangle in a binary matrix</b> reduces to one histogram per row: \(h_j\) is the number of consecutive 1s ending at this row in column \(j\). \(O(nm)\).</p>
+
+  <h3>The contribution technique: sum of subarray minimums</h3>
+  <p>Summing \(\min\) over all \(n(n+1)/2\) subarrays directly is \(O(n^2)\). Reverse the loop: for each element, count the subarrays in which it is <em>the</em> minimum, and add \(a_i \times \text{count}\). This "sum over elements of their contribution" reappears in combinatorics (<a href="p08.html#l121">L121</a>).</p>
+  <div class="box thm"><span class="tag">Theorem · counting with ties</span>
+    <p>Let \(L_i\) be the previous index with \(a_j &lt; a_i\) (strict) and \(R_i\) the next index with \(a_j \le a_i\) (non-strict). Then \(a_i\) is the minimum of exactly the subarrays \([l, r]\) with \(L_i &lt; l \le i \le r &lt; R_i\), and every subarray is counted for exactly one \(i\): the <b>rightmost</b> position of its minimum value. Hence
+    $$\sum_{\text{subarrays}} \min = \sum_i a_i\,(i - L_i)\,(R_i - i).$$
+    If both sides are strict, a subarray with two equal minima is counted twice; if both are non-strict, it is counted zero times. Mixed strictness is the dedup rule.</p>
+  </div>
+  <pre><code>def sum_subarray_mins(a, mod=10**9 + 7):
+    L = nearest(a, "left", lt)        # previous strictly smaller
+    R = nearest(a, "right", le)       # next smaller-or-equal
+    return sum(a[i] * (i - L[i]) * (R[i] - i) for i in range(len(a))) % mod
+
+def trap(h):                          # LeetCode 42 with a stack: fill layer by layer
+    st, water = [], 0
+    for i, x in enumerate(h):
+        while st and h[st[-1]] &lt; x:
+            bottom = st.pop()
+            if not st:
+                break
+            l = st[-1]
+            water += (min(h[l], x) - h[bottom]) * (i - l - 1)
+        st.append(i)
+    return water</code></pre>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>LeetCode 496 — Next Greater Element I.</b> Run <code>nearest</code> on <code>nums2</code>, map value → answer, look up each query. <b>503 — II (circular).</b> Scan indices \(2n-1, \dots, 0\) using <code>a[i % n]</code>; the second lap supplies wrap-around candidates.</li>
+    <li><b>LeetCode 739 — Daily Temperatures.</b> Next strictly greater, minus \(i\). Stock span is the mirror image (previous strictly greater).</li>
+    <li><b>LeetCode 84 / CSES — Advertisement.</b> <code>largest_rectangle</code>; heights up to \(10^9\) are no problem for Python ints. Read with <code>sys.stdin.buffer</code>.</li>
+    <li><b>LeetCode 85 — Maximal Rectangle.</b> Histogram per row.</li>
+    <li><b>LeetCode 907 — Sum of Subarray Minimums.</b> The contribution formula above.</li>
+    <li><b>LeetCode 42 — Trapping Rain Water.</b> When a bar \(x\) pops a lower <code>bottom</code>, the water above <code>bottom</code> between the new top and \(i\) is one horizontal layer. Two pointers (<a href="p01.html#l14">L14</a>) also give \(O(n)\), \(O(1)\) space.</li>
+    <li><b>LeetCode 1856 — Maximum Subarray Min-Product.</b> For each \(i\) as the minimum, extend to the strictly smaller neighbours and use prefix sums: \(\max_i a_i (P_{R_i} - P_{L_i+1})\). Take the max <em>before</em> reducing mod \(10^9+7\).</li>
+    <li><b>CSES — Nearest Smaller Values.</b> Print <code>nearest(a, "left", lt)[i] + 1</code> (0 when none) for each \(i\), all in one <code>join</code>.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Strict vs non-strict mixed up</b>: next greater with <code>&gt;=</code> lets an equal element answer; sum of minima with both sides strict double-counts ties. Decide the tie rule first, on <code>[2, 2]</code>.</li>
+      <li><b>Values on the stack instead of indices</b>: you lose the widths and distances. Push indices, read values through <code>a[j]</code>.</li>
+      <li><b>No flush at the end</b>: the one-pass histogram without the 0 sentinel never pops an increasing array and returns 0.</li>
+      <li><b>Taking the modulus too early</b> in 1856: \(\max\) of reduced values is not the reduced \(\max\).</li>
+      <li><b><code>min</code>/<code>max</code> over a generator per element</b> instead of the stack: an innocent-looking \(O(n^2)\).</li>
+      <li><b>Circular arrays</b>: one lap misses wrap-around answers; two laps with <code>i % n</code>, results stored only for \(i &lt; n\).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 496, 503, 739, 84, 85, 907, 42, 1856.</li>
+      <li>CSES — Advertisement; CSES — Nearest Smaller Values.</li>
+      <li>Stress <code>nearest</code> in all eight (side, comparator) combinations against an \(O(n^2)\) brute force on arrays with many duplicates.</li>
+      <li>Sum of subarray <em>maximums</em> minus sum of minimums (LeetCode 2104) with the same dedup rule.</li>
+      <li><b>Goal:</b> you recognise a monotonic-stack problem from the phrase "nearest greater/smaller".</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 8 (nearest smaller elements) · CP-Algorithms, “Minimum stack / Minimum queue” · Halim &amp; Halim, <i>Competitive Programming 4</i>, ch. 2</p>
+</article>
+<!-- ================================================================ L29 -->
+<article class="day" id="l29">
+  <header class="day-head">
+    <span class="day-no">L29 · DAY 20</span>
+    <h2>Queues, Deques, Circular Buffers</h2>
+    <p class="day-meta"><span class="vid">40m video</span></p>
+  </header>
+
+  <p class="thesis">A queue serves things in arrival order, and every graph lesson from here on runs on one. In Python that means <code>collections.deque</code>, never <code>list.pop(0)</code>, plus two classic constructions worth understanding: the fixed-array ring buffer (modular index arithmetic) and the two-stack queue (amortised analysis).</p>
+
+  <h3>FIFO, and why <code>list.pop(0)</code> is a trap</h3>
+  <p>A list stores its items contiguously from index 0, so removing the front shifts all \(n-1\) remaining pointers: \(O(n)\) per pop, \(O(n^2)\) to drain. Measured on CPython 3.12, draining 20,000 items with <code>pop(0)</code> took 1.7 s and 40,000 took 6.6 s (quadratic), while <code>deque.popleft()</code> drained 40,000 in 3 ms. A BFS written with <code>pop(0)</code> on a \(2\cdot10^5\)-vertex graph is a TLE you will not see on small tests.</p>
+
+  <h3><code>collections.deque</code> internals</h3>
+  <div class="box def"><span class="tag">Definition · CPython deque</span>
+    <p>A doubly linked list of fixed-size <b>blocks</b> (64 slots each in CPython), with indices of the first and last used slot. Appending or popping at either end touches one block, allocating or freeing a block only at a boundary: \(O(1)\) worst case, no amortisation needed. Indexing <code>d[i]</code> walks blocks from the nearer end: \(O(\min(i, n-i)/64)\), still linear, so a deque is not a random-access array. <code>rotate(k)</code> is \(O(|k|)\); <code>deque(maxlen=k)</code> silently discards from the opposite end when full.</p>
+  </div>
+
+  <h3>The circular buffer</h3>
+  <p>With a fixed capacity \(C\), store items in an array and let the front move: <code>head</code> is the front's index, and the slot after the back is <code>(head + size) % C</code>. Both ends wrap with modular arithmetic, so no item ever moves.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 200" role="img" aria-label="Ring buffer of capacity 8 with items in slots 5, 6, 7, 0, 1; head at 5 and the next free slot at 2">
+      <defs><marker id="ah-l29" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="60" y="80" width="56" height="40" rx="3" class="s-node-mod"/><text x="88" y="105" class="s-mid">d</text>
+      <rect x="120" y="80" width="56" height="40" rx="3" class="s-node-mod"/><text x="148" y="105" class="s-mid">e</text>
+      <rect x="180" y="80" width="56" height="40" rx="3" class="s-node"/>
+      <rect x="240" y="80" width="56" height="40" rx="3" class="s-node"/>
+      <rect x="300" y="80" width="56" height="40" rx="3" class="s-node"/>
+      <rect x="360" y="80" width="56" height="40" rx="3" class="s-node-mod"/><text x="388" y="105" class="s-mid">a</text>
+      <rect x="420" y="80" width="56" height="40" rx="3" class="s-node-mod"/><text x="448" y="105" class="s-mid">b</text>
+      <rect x="480" y="80" width="56" height="40" rx="3" class="s-node-mod"/><text x="508" y="105" class="s-mid">c</text>
+      <text x="88" y="138" class="s-ink3 s-mid s-sm">0</text><text x="148" y="138" class="s-ink3 s-mid s-sm">1</text><text x="208" y="138" class="s-ink3 s-mid s-sm">2</text><text x="268" y="138" class="s-ink3 s-mid s-sm">3</text>
+      <text x="328" y="138" class="s-ink3 s-mid s-sm">4</text><text x="388" y="138" class="s-ink3 s-mid s-sm">5</text><text x="448" y="138" class="s-ink3 s-mid s-sm">6</text><text x="508" y="138" class="s-ink3 s-mid s-sm">7</text>
+      <path d="M536,96 C600,96 600,30 320,30 C40,30 40,96 58,96" class="s-ln-mod s-dash" marker-end="url(#ah-l29)"/>
+      <text x="320" y="22" class="s-ink2 s-mid s-sm">wrap: index 7 + 1 → 0</text>
+      <line x1="388" y1="172" x2="388" y2="124" class="s-ln-acc" marker-end="url(#ah-l29)"/>
+      <text x="388" y="188" class="s-acc s-mid s-sm">head = 5 (front: a)</text>
+      <line x1="208" y1="172" x2="208" y2="124" class="s-ln" marker-end="url(#ah-l29)"/>
+      <text x="208" y="188" class="s-ink2 s-mid s-sm">(head + size) % 8 = 2</text>
+      <text x="590" y="150" class="s-ink2 s-mid s-sm">size = 5</text>
+    </svg>
+    <figcaption><b>Queue <code>a b c d e</code> in a ring of capacity 8.</b> The back has wrapped past the end of the array. Push writes slot 2; pop reads slot 5 and advances <code>head</code> to 6.</figcaption>
+  </figure>
+  <p><b>Full vs empty.</b> If you store only <code>head</code> and <code>tail</code>, the states "empty" and "full" both have <code>head == tail</code>. Either keep an explicit <code>size</code> (below), or sacrifice one slot and declare the buffer full when <code>(tail + 1) % C == head</code>.</p>
+  <pre><code>class CircularQueue:
+    """Fixed-capacity FIFO: head index + size, so full and empty never look alike."""
+    def __init__(self, cap):
+        self.a = [None] * cap
+        self.head = self.size = 0
+
+    def push(self, x):
+        assert self.size &lt; len(self.a), "full"
+        self.a[(self.head + self.size) % len(self.a)] = x
+        self.size += 1
+
+    def pop(self):
+        assert self.size, "empty"
+        x, self.a[self.head] = self.a[self.head], None      # drop the reference
+        self.head = (self.head + 1) % len(self.a)
+        self.size -= 1
+        return x
+
+    def front(self):
+        assert self.size, "empty"
+        return self.a[self.head]
+
+    def back(self):
+        assert self.size, "empty"
+        return self.a[(self.head + self.size - 1) % len(self.a)]</code></pre>
+
+  <h3>Queue from two stacks, stack from queues</h3>
+  <p>Push onto <code>inbox</code>. To pop, take from <code>outbox</code>; if it is empty, first pour all of <code>inbox</code> into it, which reverses the order so the oldest item ends on top. Pour <em>only</em> when <code>outbox</code> is empty, or newer items would jump ahead of older ones.</p>
+  <pre><code>class TwoStackQueue:
+    def __init__(self):
+        self.inbox, self.outbox = [], []
+    def push(self, x):
+        self.inbox.append(x)
+    def _pour(self):
+        if not self.outbox:
+            while self.inbox:
+                self.outbox.append(self.inbox.pop())
+    def pop(self):
+        self._pour()
+        return self.outbox.pop()
+    def peek(self):
+        self._pour()
+        return self.outbox[-1]
+    def __len__(self):
+        return len(self.inbox) + len(self.outbox)</code></pre>
+  <div class="box thm"><span class="tag">Theorem · amortised O(1)</span>
+    <p>Any sequence of \(m\) operations costs \(O(m)\) list operations, although a single pop can cost \(\Theta(n)\).</p>
+    <p><b>Proof (potential).</b> Let \(\Phi = 2\,|\text{inbox}| \ge 0\), with \(\Phi = 0\) initially. A push costs 1 and raises \(\Phi\) by 2: amortised 3. A pop that pours \(k\) items costs \(2k + 1\) (pop and push each item, then one pop) and lowers \(\Phi\) by \(2k\): amortised 1. Total actual cost \(\le\) total amortised cost \(\le 3m\). Equivalently: each item is moved from <code>inbox</code> to <code>outbox</code> at most once in its life.</p>
+  </div>
+  <p>The reverse construction has no such luck. A stack from one queue (LeetCode 225): push \(x\), then rotate the \(n-1\) older items from front to back so \(x\) is in front; pop is <code>popleft</code>. Push is \(\Theta(n)\) every time, because a FIFO cannot reverse order without touching everything.</p>
+
+  <h3>Deques later, and choosing by phrasing</h3>
+  <p>The monotonic deque of <a href="p01.html#l16">L16</a> (sliding-window maximum) is the same structure used at both ends. Breadth-first search is a queue of frontier vertices processed in order of distance (<a href="p05.html#l63">L63</a>); 0-1 BFS pushes 0-weight edges to the front and 1-weight edges to the back (<a href="p05.html#l65">L65</a>); and the deque optimisation of DP keeps a window of candidate transitions (<a href="p06.html#l98">L98</a>).</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>The statement says</th><th>Structure</th><th>Cost per op</th></tr></thead>
+    <tbody>
+      <tr><td>"in order of arrival", "first come first served", "fewest steps", "level by level"</td><td>queue (<code>deque</code>)</td><td>\(O(1)\)</td></tr>
+      <tr><td>"smallest/largest/cheapest/earliest deadline first", "\(k\)-th best so far"</td><td>priority queue (<code>heapq</code>, <a href="#l32">L32</a>)</td><td>\(O(\log n)\)</td></tr>
+      <tr><td>"last \(k\) items", "window min/max", "both ends"</td><td>deque, often monotonic</td><td>\(O(1)\) amortised</td></tr>
+      <tr><td>"most recent unfinished", nesting</td><td>stack (<a href="#l27">L27</a>)</td><td>\(O(1)\)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>LeetCode 622 — Design Circular Queue.</b> The class above, returning <code>False</code>/<code>-1</code> instead of asserting.</li>
+    <li><b>LeetCode 232 — Implement Queue using Stacks.</b> <code>TwoStackQueue</code>. <b>225 — Implement Stack using Queues.</b> The rotate-on-push construction.</li>
+    <li><b>LeetCode 933 — Number of Recent Calls.</b> Append \(t\); pop from the left while the front is below \(t - 3000\); answer <code>len</code>. Each call is popped once: amortised \(O(1)\).</li>
+    <li><b>LeetCode 862 — Shortest Subarray with Sum at Least K.</b> Negative numbers break the sliding window, so work on prefix sums \(P\). Keep a deque of indices with increasing \(P\). For each \(j\): while \(P_j - P_{\text{front}} \ge K\), record \(j - \text{front}\) and pop the front (a later \(j\) could only give a longer answer for it); then pop from the back every index with \(P \ge P_j\) (\(j\) is a later and lower start); push \(j\). \(O(n)\).</li>
+    <li><b>CSES — Josephus Problem I / II.</b> Simulate with a deque: rotate by \(k \bmod m\), then <code>popleft</code>. For I (\(k=1\)) this is \(O(n)\). For II with large \(k\) each rotation costs up to \(m/2\): measured 0.56 s at \(n = 5\cdot10^4\) and 2.3 s at \(10^5\), so roughly 9 s at the limit \(2\cdot10^5\). The fix is an order-statistics structure that finds "the \(j\)-th survivor" in \(O(\log n)\): the BIT of <a href="p07.html#l105">L105</a>.</li>
+  </ul>
+  <pre><code>from collections import deque
+
+def josephus(n, k):
+    d, out = deque(range(1, n + 1)), []
+    while d:
+        d.rotate(-(k % len(d)))
+        out.append(d.popleft())
+    return out
+
+def shortest_subarray(a, K):
+    P = [0]
+    for x in a:
+        P.append(P[-1] + x)
+    best, dq = len(a) + 1, deque()
+    for j, pj in enumerate(P):
+        while dq and pj - P[dq[0]] &gt;= K:
+            best = min(best, j - dq.popleft())
+        while dq and P[dq[-1]] &gt;= pj:
+            dq.pop()
+        dq.append(j)
+    return best if best &lt;= len(a) else -1
+
+print(josephus(7, 1), josephus(7, 2))   # [2, 4, 6, 1, 5, 3, 7] [3, 6, 2, 7, 5, 1, 4]</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b><code>list.pop(0)</code> or <code>list.insert(0, x)</code></b> in a BFS: quadratic, invisible on samples.</li>
+      <li><b>Indexing a deque in a loop</b> (<code>d[i]</code> for all \(i\)): \(O(n^2/64)\). Iterate it, or copy to a list once.</li>
+      <li><b>Ring buffer with only head and tail</b>: full and empty are indistinguishable. Keep <code>size</code>.</li>
+      <li><b>Pouring <code>inbox</code> into a non-empty <code>outbox</code></b>: order breaks silently and only some tests fail.</li>
+      <li><b><code>deque(maxlen=k)</code></b> drops items without telling you; fine for "last \(k\)", a bug anywhere else.</li>
+      <li><b>Negative modulus in other languages</b>: <code>(head - 1) % C</code> is non-negative in Python but not in C++/Java; when porting, write <code>(head - 1 + C) % C</code>.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 622, 232, 225, 933, 862.</li>
+      <li>CSES — Josephus Problem I with the deque; CSES — Josephus Problem II: note the TLE at large \(k\) and come back after <a href="p07.html#l105">L105</a>.</li>
+      <li>Stress <code>CircularQueue</code> and <code>TwoStackQueue</code> against <code>deque</code> on \(10^5\) random operations, including pops on empty (expect the assertion).</li>
+      <li><b>Goal:</b> correct \(O(1)\) queue behaviour in every future graph lesson.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> CLRS, 3rd ed., §10.1 (stacks and queues), ch. 17 (amortised analysis: the potential method) · CPython source, <code>Modules/_collectionsmodule.c</code> (deque block layout) · Sedgewick &amp; Wayne, <i>Algorithms</i>, 4th ed., §1.3</p>
+</article>
+<!-- ================================================================ L30 -->
+<article class="day" id="l30">
+  <header class="day-head">
+    <span class="day-no">L30 · DAY 21</span>
+    <h2>Linked Lists I: Structure and Core Operations</h2>
+    <p class="day-meta"><span class="vid">45m video</span></p>
+  </header>
+
+  <p class="thesis">A linked list trades random access for O(1) insertion and deletion at a node you already hold. Every bug in linked-list code is a pointer overwritten before it was read, or a special case at the head; save before you overwrite, and put a dummy node in front so the head is never special.</p>
+
+  <h3>When a linked list beats an array</h3>
+  <p>A Python <code>list</code> is a contiguous array of pointers: \(O(1)\) indexing, but inserting or deleting in the middle shifts everything after it. A linked list stores each item in its own node with a pointer to the next, so splicing a node in or out is a constant number of pointer writes, but reaching position \(i\) takes \(i\) steps. In CP the pointer version rarely pays: each node is a separate object (48 bytes for a two-field <code>__slots__</code> class in CPython 3.12, 56 with a <code>prev</code> field, versus 8 bytes per list slot), and chasing pointers is slow. Interviews ask for them constantly because pointer surgery tests care. The CP-idiomatic form, index arrays, comes at the end.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>operation</th><th>Python <code>list</code></th><th>singly linked</th><th>doubly linked + sentinel</th></tr></thead>
+    <tbody>
+      <tr><td>access position \(i\)</td><td>\(O(1)\)</td><td>\(O(i)\)</td><td>\(O(\min(i, n-i))\)</td></tr>
+      <tr><td>insert/delete at front</td><td>\(O(n)\)</td><td>\(O(1)\)</td><td>\(O(1)\)</td></tr>
+      <tr><td>insert/delete at back</td><td>\(O(1)\) amortised</td><td>insert \(O(1)\) with tail pointer; delete \(O(n)\)</td><td>\(O(1)\)</td></tr>
+      <tr><td>insert after a held node</td><td>\(O(n)\)</td><td>\(O(1)\)</td><td>\(O(1)\)</td></tr>
+      <tr><td>delete a held node</td><td>\(O(n)\)</td><td>\(O(n)\) (needs predecessor)</td><td>\(O(1)\)</td></tr>
+      <tr><td>search by value</td><td>\(O(n)\)</td><td>\(O(n)\)</td><td>\(O(n)\)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Singly linked list, with a dummy head</h3>
+  <div class="box def"><span class="tag">Definition · dummy head</span>
+    <p>A node that is always present and holds no data; the real head is <code>dummy.next</code>. Every real node now has a predecessor, so "insert at position 0", "delete the head" and "the list is empty" need no special branches. Return <code>dummy.next</code> at the end. It is the single biggest bug-remover in linked-list code.</p>
+  </div>
+  <pre><code>class Node:
+    __slots__ = ("val", "next")
+    def __init__(self, val, next=None):
+        self.val, self.next = val, next
+
+class SinglyLinkedList:
+    def __init__(self, items=()):
+        self.dummy, self.size = Node(None), 0
+        tail = self.dummy
+        for x in items:
+            tail.next = Node(x); tail = tail.next; self.size += 1
+
+    def _before(self, index):               # the node just before position `index`
+        cur = self.dummy
+        for _ in range(index):
+            cur = cur.next
+        return cur
+
+    def get(self, index):
+        if not 0 &lt;= index &lt; self.size:
+            raise IndexError(index)
+        return self._before(index).next.val
+
+    def insert(self, index, val):           # 0 = new head, size = new tail
+        if not 0 &lt;= index &lt;= self.size:
+            raise IndexError(index)
+        prev = self._before(index)
+        prev.next = Node(val, prev.next)    # the new node reads prev.next before it is overwritten
+        self.size += 1
+
+    def delete_at(self, index):
+        if not 0 &lt;= index &lt; self.size:
+            raise IndexError(index)
+        prev = self._before(index)
+        prev.next = prev.next.next
+        self.size -= 1
+
+    def delete_value(self, val):            # every occurrence (LeetCode 203)
+        cur = self.dummy
+        while cur.next:
+            if cur.next.val == val:
+                cur.next = cur.next.next; self.size -= 1
+            else:
+                cur = cur.next              # advance only when nothing was removed
+
+    def __iter__(self):
+        cur = self.dummy.next
+        while cur:
+            yield cur.val
+            cur = cur.next</code></pre>
+
+  <h3>Pointer-rewiring order</h3>
+  <div class="box thm"><span class="tag">Rule · save before you overwrite</span>
+    <p>A pointer field is the only path to the rest of the list. Before assigning to <code>p.next</code>, make sure its old value is either no longer needed or already stored somewhere (in the new node, or in a local <code>nxt</code>). For an insertion, wire the new node's fields first and overwrite the old nodes' fields last. Python's tuple assignment evaluates the whole right-hand side before assigning, which is why <code>a.next, b.next, prev.next = b.next, a, b</code> (swapping a pair) is safe.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Inserting node x between a and b in a doubly linked list with four numbered pointer updates">
+      <defs><marker id="ah-l30" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="80" y="40" width="90" height="44" rx="6" class="s-node"/><text x="125" y="67" class="s-ttl s-mid">a</text>
+      <rect x="470" y="40" width="90" height="44" rx="6" class="s-node"/><text x="515" y="67" class="s-ttl s-mid">b</text>
+      <rect x="275" y="150" width="90" height="44" rx="6" class="s-node-mod"/><text x="320" y="177" class="s-ttl s-mid">x</text>
+      <line x1="172" y1="52" x2="466" y2="52" class="s-ln-bad s-dash" marker-end="url(#ah-l30)"/>
+      <line x1="468" y1="74" x2="174" y2="74" class="s-ln-bad s-dash" marker-end="url(#ah-l30)"/>
+      <text x="320" y="44" class="s-bad s-mid s-sm">old a.next</text>
+      <text x="320" y="92" class="s-bad s-mid s-sm">old b.prev</text>
+      <path d="M280,152 L170,88" class="s-ln-mod" marker-end="url(#ah-l30)"/><text x="196" y="132" class="s-mod s-mid">1</text>
+      <path d="M360,152 L470,88" class="s-ln-mod" marker-end="url(#ah-l30)"/><text x="444" y="132" class="s-mod s-mid">2</text>
+      <path d="M500,86 C500,140 420,176 368,176" class="s-ln-acc" marker-end="url(#ah-l30)"/><text x="490" y="150" class="s-acc s-mid">3</text>
+      <path d="M140,86 C140,140 220,166 272,166" class="s-ln-acc" marker-end="url(#ah-l30)"/><text x="150" y="150" class="s-acc s-mid">4</text>
+      <text x="320" y="214" class="s-ink2 s-mid s-sm">1 x.prev = a   2 x.next = a.next   3 a.next.prev = x   4 a.next = x</text>
+    </svg>
+    <figcaption><b>Insert <code>x</code> after <code>a</code>.</b> Steps 1–2 only write the new node, so nothing is lost. Step 3 reaches <code>b</code> through <code>a.next</code>, so it must come before step 4 overwrites <code>a.next</code>; swap 3 and 4 and step 3 sets <code>x.prev = x</code>, leaving <code>b.prev</code> pointing at <code>a</code>.</figcaption>
+  </figure>
+
+  <h3>Doubly linked list with a sentinel</h3>
+  <p>Give each node a <code>prev</code> pointer and close the list into a ring through one sentinel node: <code>s.next</code> is the head, <code>s.prev</code> is the tail, and an empty list is the sentinel pointing at itself. There are no <code>None</code> checks left, and any node you hold can be deleted in \(O(1)\), which is what LRU caches need (<a href="#l31">L31</a>).</p>
+  <pre><code>class DNode:
+    __slots__ = ("val", "prev", "next")
+    def __init__(self, val=None):
+        self.val = val
+        self.prev = self.next = self
+
+class DoublyLinkedList:
+    def __init__(self):
+        self.s, self.size = DNode(), 0          # sentinel: s.next = head, s.prev = tail
+
+    def insert_after(self, node, val):
+        x = DNode(val)
+        x.prev, x.next = node, node.next        # 1, 2: only the new node is written
+        node.next.prev = x                      # 3: still reaches the old successor
+        node.next = x                           # 4: overwrite last
+        self.size += 1
+        return x
+
+    def push_front(self, val): return self.insert_after(self.s, val)
+    def push_back(self, val):  return self.insert_after(self.s.prev, val)
+
+    def remove(self, x):                        # O(1), no edge cases
+        x.prev.next, x.next.prev = x.next, x.prev
+        self.size -= 1
+        return x.val
+
+    def __iter__(self):
+        cur = self.s.next
+        while cur is not self.s:
+            yield cur.val
+            cur = cur.next</code></pre>
+
+  <h3>Array-based linked lists: the CP form</h3>
+  <p>When the items are positions \(0..n-1\) of an array, store the links as two integer lists: <code>nxt[i]</code> and <code>prv[i]</code>. Deleting \(i\) is <code>nxt[prv[i]] = nxt[i]; prv[nxt[i]] = prv[i]</code>. No objects, no attribute lookups, several times faster in Python, and the original indices still give \(O(1)\) access to any element. The typical problem: "elements are removed in a given order; after each removal report something about the current neighbours". Built over the values in sorted order, it also answers "nearest already-inserted value above and below" for a sequence of insertions: run them backwards as deletions.</p>
+  <pre><code>def delete_in_order(a, order):
+    """Remove positions of `a` in the given order; report (left, right) neighbour values at each removal."""
+    n = len(a)
+    prv = list(range(-1, n - 1))            # -1 means no left neighbour
+    nxt = list(range(1, n + 1))             # n means no right neighbour
+    out = []
+    for i in order:
+        l, r = prv[i], nxt[i]
+        out.append((a[l] if l &gt;= 0 else None, a[r] if r &lt; n else None))
+        if l &gt;= 0: nxt[l] = r
+        if r &lt; n: prv[r] = l
+    return out
+
+print(delete_in_order([10, 20, 30, 40], [1, 2, 0, 3]))
+# [(10, 30), (10, 40), (None, 40), (None, None)]</code></pre>
+  <p class="code-cap">Padding the array with sentinel positions 0 and \(n+1\) removes the two <code>if</code>s. A circular version (<code>nxt[n-1] = 0</code>) simulates Josephus Problem I in \(O(n)\).</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>LeetCode 707 — Design Linked List.</b> <code>SinglyLinkedList</code> with <code>get</code>, <code>insert</code> (head = 0, tail = size) and <code>delete_at</code>; out-of-range indices return \(-1\) or do nothing instead of raising.</li>
+    <li><b>LeetCode 203 — Remove Linked List Elements.</b> <code>delete_value</code>: with a dummy, removing a run of heads is not special.</li>
+    <li><b>LeetCode 83 — Remove Duplicates from Sorted List.</b> While <code>cur.next</code> has the same value, skip it; advance only on a new value.</li>
+    <li><b>LeetCode 21 — Merge Two Sorted Lists.</b> A dummy tail; splice the smaller head; attach the leftover list at the end. \(O(n+m)\), no new nodes.</li>
+    <li><b>LeetCode 2 — Add Two Numbers.</b> Digits are stored least significant first, so add position by position with a carry; continue while either list or the carry remains.</li>
+    <li><b>LeetCode 24 — Swap Nodes in Pairs.</b> <code>prev → a → b → rest</code> becomes <code>prev → b → a → rest</code>; then <code>prev = a</code>.</li>
+    <li><b>LeetCode 1472 — Design Browser History.</b> A doubly linked list of pages with a cursor, where <code>visit</code> cuts off the forward part. The array alternative: a list, a cursor and an <code>end</code> index, overwriting instead of truncating, all \(O(1)\).</li>
+  </ul>
+  <pre><code>def merge(l1, l2):
+    tail = dummy = Node(None)
+    while l1 and l2:
+        if l1.val &lt;= l2.val:
+            tail.next, l1 = l1, l1.next
+        else:
+            tail.next, l2 = l2, l2.next
+        tail = tail.next
+    tail.next = l1 or l2
+    return dummy.next
+
+def swap_pairs(head):
+    prev = dummy = Node(None, head)
+    while prev.next and prev.next.next:
+        a, b = prev.next, prev.next.next
+        a.next, b.next, prev.next = b.next, a, b
+        prev = a
+    return dummy.next</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b><code>AttributeError: 'NoneType' object has no attribute 'next'</code></b>: you dereferenced past the end. Loop conditions must check exactly the pointers the body touches (<code>prev.next and prev.next.next</code>).</li>
+      <li><b>Losing the rest of the list</b>: <code>cur.next = new</code> before <code>new.next = cur.next</code>.</li>
+      <li><b>Head special cases</b> without a dummy: the first test with the head deleted fails.</li>
+      <li><b>Advancing after a deletion</b> in <code>delete_value</code>: two adjacent targets and the second survives.</li>
+      <li><b>Cycles from a bad splice</b>: printing the list loops forever. In tests, cap traversal at <code>size + 1</code> steps and assert.</li>
+      <li><b>Object-based lists in CP</b>: \(10^6\) <code>Node</code> objects cost about 48 MB plus the values and are slow to chase; use <code>nxt</code>/<code>prv</code> arrays.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 707, 203, 83, 21, 2, 24, 1472.</li>
+      <li>Stress <code>SinglyLinkedList</code> and <code>DoublyLinkedList</code> against a Python <code>list</code> on random insert/delete sequences.</li>
+      <li>Solve Josephus Problem I (CSES) with a circular <code>nxt</code> array and compare with the deque version from <a href="#l29">L29</a>.</li>
+      <li><b>Goal:</b> no null-pointer bugs; comfort with pointer surgery.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> CLRS, 3rd ed., §10.2 (linked lists, sentinels) · Sedgewick &amp; Wayne, <i>Algorithms</i>, 4th ed., §1.3 · Skiena, <i>The Algorithm Design Manual</i>, §3.1</p>
+</article>
+<!-- ================================================================ L31 -->
+<article class="day" id="l31">
+  <header class="day-head">
+    <span class="day-no">L31 · DAY 21</span>
+    <h2>Linked Lists II: Cycles, Reversal, and LRU/LFU</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">Three ideas cover almost every hard linked-list question: reversing a segment in place by moving one node at a time, two pointers at different speeds (Floyd's cycle algorithm, whose proof is a two-line distance argument), and a hash map pointing into a doubly linked list, which is how an LRU cache gets O(1) everything.</p>
+
+  <h3>Reversal: whole list, sublist, k-groups</h3>
+  <p>Iteratively, walk once and point each node back at its predecessor, saving <code>next</code> first (<a href="#l30">L30</a>'s rule). Recursively, reverse the rest, then make the old successor point back; it is elegant but uses \(n\) stack frames, so in Python it hits <code>RecursionError</code> beyond about 1000 nodes. For a sublist, stop at the node <code>before</code> the block and repeatedly move the node after the block's first node to the block's front: \(r-l\) moves, one pass. Reversing in groups of \(k\) is the same move applied block by block, after checking that \(k\) nodes remain.</p>
+  <pre><code>class Node:                                  # as in L30
+    __slots__ = ("val", "next")
+    def __init__(self, val, next=None):
+        self.val, self.next = val, next
+
+def reverse(head):
+    prev = None
+    while head:
+        nxt = head.next                          # save before overwriting
+        head.next = prev
+        prev, head = head, nxt
+    return prev
+
+def reverse_rec(head):
+    if head is None or head.next is None:
+        return head
+    new_head = reverse_rec(head.next)
+    head.next.next = head                        # old successor points back
+    head.next = None
+    return new_head
+
+def _front_moves(before, cur, times):            # move cur's successor to the front, `times` times
+    for _ in range(times):
+        nxt = cur.next
+        cur.next, nxt.next, before.next = nxt.next, before.next, nxt
+
+def reverse_between(head, left, right):          # LeetCode 92, 1-indexed
+    before = dummy = Node(None, head)
+    for _ in range(left - 1):
+        before = before.next
+    _front_moves(before, before.next, right - left)
+    return dummy.next
+
+def reverse_k_group(head, k):                    # LeetCode 25
+    before = dummy = Node(None, head)
+    while True:
+        probe = before
+        for _ in range(k):
+            probe = probe.next
+            if probe is None:
+                return dummy.next                # fewer than k left: unchanged
+        cur = before.next                        # becomes the block's tail
+        _front_moves(before, cur, k - 1)
+        before = cur</code></pre>
+
+  <h3>Floyd's tortoise and hare</h3>
+  <p>Move <code>slow</code> one step and <code>fast</code> two steps at a time. If the list ends, there is no cycle. If they meet, there is one; then restart one pointer at the head, advance both one step at a time, and they meet exactly at the cycle's entry. \(O(n)\) time, \(O(1)\) space, no visited set.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 700 260" role="img" aria-label="Rho-shaped list: a tail of length a leads to the cycle entry; slow and fast meet b steps into the cycle; c steps remain back to the entry">
+      <defs><marker id="ah-l31" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <line x1="70" y1="130" x2="332" y2="130" class="s-ln-ink" marker-end="url(#ah-l31)"/>
+      <circle cx="70" cy="130" r="6" class="s-ink"/>
+      <text x="70" y="156" class="s-mid">head</text>
+      <text x="200" y="120" class="s-ttl s-mid">a</text>
+      <path d="M335,130 A95,95 0 1,1 497,197" class="s-ln-acc" marker-end="url(#ah-l31)"/>
+      <path d="M497,197 A95,95 0 0,1 336,136" class="s-ln-mod" marker-end="url(#ah-l31)"/>
+      <circle cx="335" cy="130" r="6" class="s-warn"/>
+      <text x="318" y="160" class="s-warn s-end">entry</text>
+      <circle cx="497" cy="197" r="6" class="s-acc"/>
+      <text x="512" y="218" class="s-acc">meet</text>
+      <text x="430" y="26" class="s-acc s-ttl s-mid">b</text>
+      <text x="410" y="246" class="s-mod s-ttl s-mid">c</text>
+      <text x="545" y="70" class="s-ink2 s-sm">cycle length L = b + c</text>
+      <text x="545" y="92" class="s-ink2 s-sm">slow: a + b</text>
+      <text x="545" y="114" class="s-ink2 s-sm">fast: a + b + kL</text>
+      <text x="545" y="136" class="s-ink2 s-sm">⇒ a = (k−1)L + c</text>
+    </svg>
+    <figcaption><b>The rho shape.</b> Any list whose nodes each have one successor is a tail followed by a cycle. From the meeting point, \(c\) more steps reach the entry, and so do \(a\) steps from the head, up to whole laps.</figcaption>
+  </figure>
+  <div class="box deriv"><span class="tag">Proof · why phase 2 meets at the entry</span>
+    <p>Let \(a\) be the distance from head to entry, \(L\) the cycle length. <b>Phase 1 ends within one lap of slow.</b> When slow reaches the entry (after \(a\) steps), fast is already on the cycle, some \(d &lt; L\) steps behind slow along the cycle; each step closes the gap by exactly 1, so they meet within \(L\) more steps. So slow has walked \(a + b\) with \(b \le L\), where \(b\) is the meeting point's distance past the entry, and \(c = L - b\).</p>
+    <p><b>Distances.</b> Fast walked twice as far and ends at the same node, so \(2(a+b) = a + b + kL\) for some \(k \ge 1\), i.e. \(a + b = kL\) and
+    $$a = kL - b = (k-1)L + c.$$
+    <b>Phase 2.</b> A pointer from the head reaches the entry after \(a\) steps. A pointer from the meeting point, after \(a = c + (k-1)L\) steps, has walked \(c\) to the entry and then \(k-1\) full laps: it is also at the entry. Before that, the head pointer is on the tail and the other on the cycle, so they cannot meet earlier (if \(a = 0\) both start at the entry).</p>
+  </div>
+  <pre><code>def cycle_entry(head):
+    """Return (entry node, cycle length), or (None, 0) if the list ends."""
+    slow = fast = head
+    while fast and fast.next:
+        slow, fast = slow.next, fast.next.next
+        if slow is fast:                         # phase 1: inside the cycle
+            length, p = 1, slow.next
+            while p is not slow:
+                p, length = p.next, length + 1
+            p = head                             # phase 2: same speed, a apart
+            while p is not slow:
+                p, slow = p.next, slow.next
+            return p, length
+    return None, 0</code></pre>
+  <p>The same rho shape describes iterating any function \(f\) on a finite set, so Floyd finds cycles in <b>functional graphs</b> (every node has one outgoing edge): CSES — Planets Cycles asks for each start's distance to a repeat, solved for all nodes at once in <a href="p05.html#l74">L74</a>; Pollard's rho factorisation (<a href="p08.html#l118">L118</a>) is Floyd on \(x \mapsto x^2 + c \bmod n\).</p>
+
+  <h3>The two-pointer catalogue</h3>
+  <ul>
+    <li><b>Middle (876).</b> <code>while fast and fast.next</code>: slow ends at the second middle of an even list; start <code>fast = head.next</code> for the first middle.</li>
+    <li><b>Palindrome (234).</b> Find the middle, reverse the second half, compare, then reverse it back if the caller owns the list. \(O(1)\) space.</li>
+    <li><b>Intersection (160).</b> Walk <code>p</code> over A then B, <code>q</code> over B then A. Both have walked \(m + n\) steps when they reach the end, so they meet at the first shared node, or at <code>None</code> together.</li>
+    <li><b>Remove \(n\)-th from end (19).</b> From a dummy, move <code>lead</code> \(n\) steps, then both until <code>lead.next</code> is <code>None</code>; <code>lag.next</code> is the target. The dummy covers deleting the head.</li>
+  </ul>
+
+  <h3>Merge sort is the list sort</h3>
+  <p>Quicksort and heapsort lean on random access. Merge sort needs only sequential access, its merge splices existing nodes (no buffer, unlike arrays), and it is stable. Top-down: split with slow/fast, sort halves, merge (<a href="#l30">L30</a>); recursion depth \(\log_2 n\) is harmless. For \(O(1)\) extra space go bottom-up: for widths \(1, 2, 4, \dots\) cut off pairs of runs of that width and merge each pair onto a growing tail. Both \(O(n \log n)\).</p>
+  <pre><code>def sort_list(head):                             # LeetCode 148, top-down; merge() from L30
+    if head is None or head.next is None:
+        return head
+    slow, fast = head, head.next                 # slow ends on the first half's last node
+    while fast and fast.next:
+        slow, fast = slow.next, fast.next.next
+    second, slow.next = slow.next, None
+    return merge(sort_list(head), sort_list(second))</code></pre>
+
+  <h3>LRU and LFU caches</h3>
+  <p><b>LRU</b> evicts the least recently used key. A dict maps key → node; a doubly linked list with a sentinel keeps nodes in recency order. <code>get</code> moves the node to the front; <code>put</code> inserts at the front and, when full, unlinks <code>sentinel.prev</code> and deletes its key from the dict, which is why the node stores its key. Every operation is \(O(1)\). Python's <code>OrderedDict</code> is this structure (<code>move_to_end</code>, <code>popitem(last=False)</code>); interviewers want the hand-built one.</p>
+  <pre><code>class LRUCache:                                  # LeetCode 146
+    class _N:
+        __slots__ = ("key", "val", "prev", "next")
+
+    def __init__(self, capacity):
+        self.cap, self.map = capacity, {}
+        self.s = s = LRUCache._N()               # s.next = most recent, s.prev = least recent
+        s.prev = s.next = s
+
+    def _unlink(self, x):
+        x.prev.next, x.next.prev = x.next, x.prev
+
+    def _push_front(self, x):
+        x.prev, x.next = self.s, self.s.next
+        self.s.next.prev = x
+        self.s.next = x
+
+    def get(self, key):
+        x = self.map.get(key)
+        if x is None:
+            return -1
+        self._unlink(x); self._push_front(x)
+        return x.val
+
+    def put(self, key, val):
+        x = self.map.get(key)
+        if x is not None:
+            x.val = val; self._unlink(x)
+        else:
+            if len(self.map) == self.cap:
+                old = self.s.prev
+                self._unlink(old); del self.map[old.key]
+            x = LRUCache._N(); x.key, x.val = key, val
+            self.map[key] = x
+        self._push_front(x)</code></pre>
+  <p><b>LFU</b> evicts the least frequently used key, ties broken by least recent. Keep <code>freq[key]</code>, one recency-ordered bucket per frequency (an <code>OrderedDict</code> used as an ordered set), and <code>minf</code>, the smallest non-empty frequency. A touch moves the key from bucket \(f\) to \(f+1\), and bumps <code>minf</code> if bucket \(f\) was the minimum and is now empty. A new key always has frequency 1, so after an insertion <code>minf = 1</code>; that is the observation that makes <code>minf</code> maintainable in \(O(1)\).</p>
+  <pre><code>from collections import defaultdict, OrderedDict
+
+class LFUCache:                                  # LeetCode 460
+    def __init__(self, capacity):
+        self.cap, self.minf, self.val, self.freq = capacity, 0, {}, {}
+        self.bucket = defaultdict(OrderedDict)   # freq -&gt; keys, least recent first
+
+    def _touch(self, key):
+        f = self.freq[key]
+        del self.bucket[f][key]
+        if not self.bucket[f]:
+            del self.bucket[f]
+            if self.minf == f:
+                self.minf = f + 1
+        self.freq[key] = f + 1
+        self.bucket[f + 1][key] = None
+
+    def get(self, key):
+        if key not in self.val:
+            return -1
+        self._touch(key)
+        return self.val[key]
+
+    def put(self, key, value):
+        if self.cap == 0:
+            return
+        if key in self.val:
+            self.val[key] = value; self._touch(key)
+            return
+        if len(self.val) == self.cap:
+            old, _ = self.bucket[self.minf].popitem(last=False)
+            if not self.bucket[self.minf]:
+                del self.bucket[self.minf]
+            del self.val[old], self.freq[old]
+        self.val[key], self.freq[key], self.minf = value, 1, 1
+        self.bucket[1][key] = None</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b><code>reverse_rec</code> on \(10^5\) nodes</b>: <code>RecursionError</code>. Iterate.</li>
+      <li><b>Floyd's loop condition</b>: <code>while fast.next and fast</code> dereferences <code>None</code>; test <code>fast</code> first. Compare nodes with <code>is</code>, never values (values repeat).</li>
+      <li><b>Phase 2 from the wrong place</b>: restarting <em>both</em> pointers, or moving fast two steps in phase 2.</li>
+      <li><b>k-group with fewer than \(k\) left</b> reversed anyway; probe \(k\) nodes first.</li>
+      <li><b>LRU node without its key</b>: on eviction you cannot delete the dict entry, and the dict grows forever.</li>
+      <li><b>LFU <code>minf</code> stale</b> after a touch empties the minimum bucket, or not reset to 1 on insert: evicts the wrong key on a later test.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 206, 25, 92, 141, 142, 876, 234, 160, 19, 148, 146, 460.</li>
+      <li>CSES — Planets Cycles: write the per-start Floyd version and time it on a long path into a cycle; keep it for <a href="p05.html#l74">L74</a>.</li>
+      <li>Implement the bottom-up merge sort and stress all sorts against <code>sorted</code>.</li>
+      <li><b>Goal:</b> you can derive Floyd's algorithm, both phases, on a whiteboard.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Knuth, <i>TAOCP</i> Vol. 2, §3.1, exercise 6 (Floyd's cycle-finding method) · Sedgewick &amp; Wayne, <i>Algorithms</i>, 4th ed., §1.3, §2.2 · CP-Algorithms, “Floyd's Linked List Cycle Finding Algorithm”</p>
+</article>
+<!-- ================================================================ L32 -->
+<article class="day" id="l32">
+  <header class="day-head">
+    <span class="day-no">L32 · DAY 22</span>
+    <h2>Heaps I: Binary Heap From Scratch</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">A binary heap answers one question fast, "what is the smallest item?", by keeping a deliberately weak order: every parent is no larger than its children. That weak order fits in a plain array with index arithmetic, costs O(log n) to repair after a push or pop, and can be built from scratch in O(n), which takes a short proof.</p>
+
+  <h3>The priority queue, and the heap property</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A <b>priority queue</b> supports <code>push(x)</code>, <code>peek()</code> (the minimum) and <code>pop()</code> (remove and return the minimum). A <b>binary min-heap</b> is a complete binary tree (every level full except the last, which fills from the left) satisfying the <b>heap property</b>: <code>key(parent) ≤ key(child)</code>. Compare the <b>BST property</b> (left subtree &lt; node &lt; right subtree, <a href="p04.html#l53">L53</a>): a BST orders siblings and supports search and in-order iteration; a heap orders only along root-to-leaf paths, which is too weak to search but enough to find the minimum (it is the root) and cheap to maintain.</p>
+  </div>
+  <p>Completeness lets the tree live in an array with no pointers, level by level. For 0-indexed position \(i\): children at \(2i+1\) and \(2i+2\), parent at \((i-1)//2\). The height is \(\lfloor \log_2 n \rfloor\).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 700 250" role="img" aria-label="Min-heap 1 3 2 7 4 5 9 drawn as a tree and as an array with parent and child index arithmetic">
+      <line x1="320" y1="40" x2="180" y2="100" class="s-ln"/><line x1="320" y1="40" x2="460" y2="100" class="s-ln"/>
+      <line x1="180" y1="100" x2="110" y2="160" class="s-ln"/><line x1="180" y1="100" x2="250" y2="160" class="s-ln"/>
+      <line x1="460" y1="100" x2="390" y2="160" class="s-ln"/><line x1="460" y1="100" x2="530" y2="160" class="s-ln"/>
+      <circle cx="320" cy="40" r="18" class="s-node-mod"/><text x="320" y="45" class="s-mid">1</text>
+      <circle cx="180" cy="100" r="18" class="s-node"/><text x="180" y="105" class="s-mid">3</text>
+      <circle cx="460" cy="100" r="18" class="s-node"/><text x="460" y="105" class="s-mid">2</text>
+      <circle cx="110" cy="160" r="18" class="s-node"/><text x="110" y="165" class="s-mid">7</text>
+      <circle cx="250" cy="160" r="18" class="s-node"/><text x="250" y="165" class="s-mid">4</text>
+      <circle cx="390" cy="160" r="18" class="s-node"/><text x="390" y="165" class="s-mid">5</text>
+      <circle cx="530" cy="160" r="18" class="s-node"/><text x="530" y="165" class="s-mid">9</text>
+      <text x="345" y="30" class="s-ink3 s-sm">0</text><text x="205" y="90" class="s-ink3 s-sm">1</text><text x="485" y="90" class="s-ink3 s-sm">2</text>
+      <text x="135" y="150" class="s-ink3 s-sm">3</text><text x="275" y="150" class="s-ink3 s-sm">4</text><text x="415" y="150" class="s-ink3 s-sm">5</text><text x="555" y="150" class="s-ink3 s-sm">6</text>
+      <rect x="145" y="200" width="50" height="30" class="s-node-mod"/><text x="170" y="220" class="s-mid">1</text>
+      <rect x="195" y="200" width="50" height="30" class="s-node"/><text x="220" y="220" class="s-mid">3</text>
+      <rect x="245" y="200" width="50" height="30" class="s-node"/><text x="270" y="220" class="s-mid">2</text>
+      <rect x="295" y="200" width="50" height="30" class="s-node"/><text x="320" y="220" class="s-mid">7</text>
+      <rect x="345" y="200" width="50" height="30" class="s-node"/><text x="370" y="220" class="s-mid">4</text>
+      <rect x="395" y="200" width="50" height="30" class="s-node"/><text x="420" y="220" class="s-mid">5</text>
+      <rect x="445" y="200" width="50" height="30" class="s-node"/><text x="470" y="220" class="s-mid">9</text>
+      <text x="170" y="246" class="s-ink3 s-mid s-sm">0</text><text x="220" y="246" class="s-ink3 s-mid s-sm">1</text><text x="270" y="246" class="s-ink3 s-mid s-sm">2</text>
+      <text x="320" y="246" class="s-ink3 s-mid s-sm">3</text><text x="370" y="246" class="s-ink3 s-mid s-sm">4</text><text x="420" y="246" class="s-ink3 s-mid s-sm">5</text><text x="470" y="246" class="s-ink3 s-mid s-sm">6</text>
+      <text x="520" y="214" class="s-ink2 s-sm">children of 1: 3, 4</text>
+      <text x="520" y="232" class="s-ink2 s-sm">parent of 6: (6−1)//2 = 2</text>
+    </svg>
+    <figcaption><b>One heap, two views.</b> Reading the tree level by level gives the array. Siblings are unordered (3 &gt; 2 is fine); only parent ≤ child is enforced.</figcaption>
+  </figure>
+
+  <h3>Sift-up and sift-down</h3>
+  <p><b>Push:</b> append \(x\) at the end (the only place that keeps the tree complete), then <em>sift up</em>: while \(x\) is smaller than its parent, move the parent down a level. Invariant: the heap property holds everywhere except possibly between \(x\)'s current slot and its parent. <b>Pop:</b> the root is the answer; move the last element to the root, then <em>sift down</em>: while it is larger than its smaller child, move that child up. Invariant: the property holds everywhere except between the moving element and its children. Choosing the <em>smaller</em> child is what makes the promoted child a valid parent of its sibling. Both walk one root-to-leaf path: \(O(\log n)\).</p>
+
+  <h3>Heapify in O(n)</h3>
+  <p>Inserting \(n\) items one by one costs \(\Theta(n\log n)\) in the worst case: each item of a descending sequence is a new minimum and climbs to the root. Bottom-up heapify instead sifts down every internal node, from the last (\(n//2 - 1\)) to the root. When node \(i\) is processed both its subtrees are already heaps, so one sift-down makes the subtree at \(i\) a heap.</p>
+  <div class="box deriv"><span class="tag">Proof · heapify is linear</span>
+    <p>A heap of \(n\) nodes has at most \(\lceil n/2^{h+1}\rceil\) nodes of height \(h\) (leaves have height 0), and sift-down from height \(h\) costs at most \(h\) swaps and \(2h\) comparisons. So the total work is at most</p>
+    $$\sum_{h=0}^{\lfloor \log_2 n\rfloor} \left\lceil \frac{n}{2^{h+1}} \right\rceil h \;\le\; \frac{n}{2}\sum_{h \ge 0} \frac{h}{2^{h}} + \sum_{h=0}^{\log_2 n} h \;=\; n + O(\log^2 n) = O(n),$$
+    <p>using \(\sum_{h\ge0} h x^h = x/(1-x)^2 = 2\) at \(x = \tfrac12\). Intuition: half the nodes are leaves and do nothing, a quarter move at most one level, an eighth at most two; the expensive nodes are rare. Measured on descending input of size \(2^{16}\): <code>heapq.heapify</code> used 1.5 comparisons per item, pushing one by one used 14.0 per item (about \(\log_2 n\)). On random input one-by-one pushes average about 2.3 comparisons each, so the worst case is the one that bites.</p>
+  </div>
+
+  <h3>Implementation: <code>MinHeap</code> and heapsort</h3>
+  <pre><code>class MinHeap:
+    def __init__(self, items=()):
+        self.a = list(items)
+        for i in range(len(self.a) // 2 - 1, -1, -1):   # heapify, O(n)
+            self._down(i)
+
+    def __len__(self):
+        return len(self.a)
+
+    def peek(self):
+        return self.a[0]
+
+    def push(self, x):
+        a = self.a
+        a.append(x)
+        i = len(a) - 1
+        while i &gt; 0:
+            p = (i - 1) // 2
+            if a[p] &lt;= x:
+                break
+            a[i] = a[p]                 # move the parent down; write x once at the end
+            i = p
+        a[i] = x
+
+    def pop(self):
+        a = self.a
+        last = a.pop()                  # IndexError on empty, like heapq
+        if not a:
+            return last
+        top, a[0] = a[0], last
+        self._down(0)
+        return top
+
+    def _down(self, i):
+        a, n = self.a, len(self.a)
+        x = a[i]
+        while True:
+            c = 2 * i + 1
+            if c &gt;= n:
+                break
+            if c + 1 &lt; n and a[c + 1] &lt; a[c]:
+                c += 1                  # the smaller child
+            if x &lt;= a[c]:
+                break
+            a[i] = a[c]
+            i = c
+        a[i] = x</code></pre>
+  <p class="code-cap">Moving items into the hole and writing \(x\) once halves the writes compared with swapping. Test it against <code>heapq</code> on \(10^5\) random push/pop sequences, including duplicates.</p>
+  <p><b>Heapsort</b> builds a <em>max</em>-heap in place, then repeatedly swaps the root (the maximum) into the last unsorted slot and sifts the new root down within the shrunken heap: \(O(n \log n)\) worst case, \(O(1)\) extra space. It is <b>unstable</b>: on two equal keys \(1_a, 1_b\) the first swap sends \(1_a\) to the end, giving \(1_b, 1_a\). Long jumps between root and end ignore the original order of equal keys.</p>
+  <pre><code>def heapsort(a):
+    def down(i, n):                     # max-heap sift-down within a[:n]
+        x = a[i]
+        while 2 * i + 1 &lt; n:
+            c = 2 * i + 1
+            if c + 1 &lt; n and a[c + 1] &gt; a[c]:
+                c += 1
+            if x &gt;= a[c]:
+                break
+            a[i] = a[c]
+            i = c
+        a[i] = x
+    n = len(a)
+    for i in range(n // 2 - 1, -1, -1):
+        down(i, n)
+    for end in range(n - 1, 0, -1):
+        a[0], a[end] = a[end], a[0]     # the maximum reaches its final slot
+        down(0, end)
+    return a</code></pre>
+
+  <h3><code>heapq</code>, mapped to the above</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><code>heapq</code></th><th>from-scratch equivalent</th><th>cost</th></tr></thead>
+    <tbody>
+      <tr><td><code>heapify(a)</code></td><td>bottom-up loop in <code>__init__</code></td><td>\(O(n)\)</td></tr>
+      <tr><td><code>heappush(h, x)</code> / <code>heappop(h)</code></td><td><code>push</code> / <code>pop</code></td><td>\(O(\log n)\)</td></tr>
+      <tr><td><code>h[0]</code></td><td><code>peek</code></td><td>\(O(1)\)</td></tr>
+      <tr><td><code>heappushpop(h, x)</code></td><td>push then pop, skipping the work if \(x \le\) root</td><td>\(O(\log n)\)</td></tr>
+      <tr><td><code>heapreplace(h, x)</code></td><td>pop then push: write \(x\) at the root, sift down</td><td>\(O(\log n)\)</td></tr>
+      <tr><td><code>nsmallest(k, it)</code>, <code>nlargest</code>, <code>merge(*sorted_its)</code></td><td>size-\(k\) heap; k-way merge (<a href="#l33">L33</a>)</td><td>\(O(n \log k)\)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Two quirks. <code>heapq</code> is min-only: for a max-heap push <code>-x</code> and negate on the way out. And its private helpers are named the opposite way round: <code>_siftdown</code> moves an item toward the root. With tuples, <code>(priority, item)</code> compares <code>item</code> when priorities tie, which raises <code>TypeError</code> for dicts or custom objects and silently changes order for others. Insert a counter: <code>(priority, next(tie), item)</code> with <code>tie = itertools.count()</code>.</p>
+  <p><b>No decrease-key.</b> <code>heapq</code> cannot find an item inside the heap. Workaround 1, <b>lazy deletion</b>: push the new <code>(key, item)</code> and, when popping, discard entries that are stale (their key no longer matches the item's current best). The heap grows by one entry per update, so \(O(m \log m)\) for \(m\) updates, which is what Dijkstra does in Python (<a href="p05.html#l67">L67</a>). Workaround 2, an <b>indexed heap</b>: maintain <code>pos[item]</code> on every move so you can sift a specific item; \(O(\log n)\) decrease-key, fiddly to get right.</p>
+
+  <h3>When a heap is the wrong tool</h3>
+  <p>A heap only knows its minimum. If you need to delete arbitrary keys often, ask for the \(k\)-th smallest, count items below \(x\), or iterate in order, reach for a Fenwick tree over compressed values (<a href="p07.html#l105">L105</a>), a treap (<a href="p07.html#l112">L112</a>) or a sorted-list structure. Two heaps with lazy deletion cover the special case "median of a changing multiset" (<a href="#l33">L33</a>).</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Sliding Window Cost.</b> For each window of size \(k\), the cheapest common value is the window's median \(m\) (moving \(c\) toward the side holding more points lowers \(\sum|x-c|\)), and the cost is \(m\,|lo| - \sum lo + \sum hi - m\,|hi|\) where \(lo\)/\(hi\) are the lower and upper halves. Maintain the halves as two heaps with lazy deletion and running sums: \(O(n \log k)\). The full solution is in <a href="#l33">L33</a>, built on the sliding-median class.</li>
+    <li><b>LeetCode 703 — Kth Largest Element in a Stream.</b> A min-heap holding the \(k\) largest so far; its root is the answer. Use <code>heappushpop</code> once the heap is full.</li>
+    <li><b>LeetCode 1046 — Last Stone Weight.</b> Max-heap by negation: pop two, push the difference if non-zero.</li>
+    <li><b>LeetCode 912 — Sort an Array.</b> <code>heapsort</code>: \(O(n\log n)\) worst case and no recursion, which matters because adversarial tests break naive quicksort.</li>
+    <li><b>LeetCode 215 — Kth Largest Element.</b> Size-\(k\) min-heap, \(O(n \log k)\); or <code>heapify</code> plus \(k\) pops, \(O(n + k\log n)\); or quickselect, \(O(n)\) expected (<a href="p01.html#l18">L18</a>). The decision table is in <a href="#l33">L33</a>.</li>
+  </ul>
+  <pre><code>import heapq
+
+class KthLargest:                       # LeetCode 703
+    def __init__(self, k, nums):
+        self.k, self.h = k, []
+        for x in nums:
+            self.add(x)
+    def add(self, x):
+        if len(self.h) &lt; self.k:
+            heapq.heappush(self.h, x)
+        elif x &gt; self.h[0]:
+            heapq.heapreplace(self.h, x)
+        return self.h[0]
+
+def last_stone(stones):                 # LeetCode 1046
+    h = [-s for s in stones]
+    heapq.heapify(h)
+    while len(h) &gt; 1:
+        y, x = -heapq.heappop(h), -heapq.heappop(h)
+        if y != x:
+            heapq.heappush(h, x - y)    # -(y - x)
+    return -h[0] if h else 0</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Tie on the first tuple field</b> with an unorderable second field: <code>TypeError</code> in the middle of a test. Add the counter.</li>
+      <li><b>Forgetting to negate back</b> in a max-heap, or negating only on push.</li>
+      <li><b>Assuming <code>h</code> is sorted</b>: only <code>h[0]</code> is meaningful; <code>h[1]</code> is not the second smallest (it may be <code>h[2]</code>).</li>
+      <li><b>Mutating an item's priority in place</b>: the heap property silently breaks. Push a new entry and skip stale ones.</li>
+      <li><b>Building with \(n\) pushes</b> when all items are known: <code>heapify</code> is about ten times fewer comparisons on bad input.</li>
+      <li><b><code>heappop</code> on an empty heap</b>: <code>IndexError</code>; check <code>if h</code> in loops that drain.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>Write <code>MinHeap</code> from memory and stress it against <code>heapq</code>; then <code>heapsort</code> against <code>sorted</code>.</li>
+      <li>LeetCode 703, 1046, 912 (heapsort), 215.</li>
+      <li>CSES — Sliding Window Cost (after reading <a href="#l33">L33</a>'s lazy-deletion section).</li>
+      <li>Count comparisons of <code>heapify</code> vs \(n\) pushes on descending input with a wrapper class that counts <code>__lt__</code> calls.</li>
+      <li><b>Goal:</b> you can implement a heap and explain why heapify is \(O(n)\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> CLRS, 3rd ed., ch. 6 (Heapsort; §6.3 building a heap) · Python docs, <code>heapq</code> (including “Priority Queue Implementation Notes”) · Williams 1964, “Algorithm 232: Heapsort” · Floyd 1964, “Algorithm 245: Treesort 3”</p>
+</article>
+<!-- ================================================================ L33 -->
+<article class="day" id="l33">
+  <header class="day-head">
+    <span class="day-no">L33 · DAY 22</span>
+    <h2>Heaps II: k-Way Merge, Top-K, Streaming Median, Lazy Deletion</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">Most heap problems are one of five patterns: one candidate per source (k-way merge), a bounded heap of the best k (top-k), two heaps facing each other across the median, deletions postponed until they reach the top, and a heap of past choices you can regret. Recognise the pattern and the code is short.</p>
+
+  <h3>The catalogue</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Pattern</th><th>Heap holds</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr><td>k-way merge</td><td>next unmerged item of each source</td><td>\(O(N \log k)\)</td></tr>
+      <tr><td>top-k</td><td>the \(k\) largest so far (min-heap)</td><td>\(O(n \log k)\)</td></tr>
+      <tr><td>two-heap median</td><td>lower half (max), upper half (min)</td><td>\(O(\log n)\) per op</td></tr>
+      <tr><td>lazy deletion</td><td>live items plus pending dead ones</td><td>amortised \(O(\log n)\)</td></tr>
+      <tr><td>greedy with regret</td><td>choices made, cheapest to undo on top</td><td>\(O(n \log n)\)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>k-way merge</h3>
+  <p>To merge \(k\) sorted sequences of total length \(N\), keep a heap with the first unmerged item of each. The smallest unmerged item overall is the first unmerged item of <em>some</em> sequence, so it is in the heap: pop it, output it, push its successor. The heap never exceeds \(k\) entries. Entries are <code>(value, source, position)</code>; the source index breaks ties, so linked-list nodes or other unorderable payloads are never compared (LeetCode 23). <code>heapq.merge(*iterables)</code> does the same lazily.</p>
+  <pre><code>import heapq
+
+def merge_k(lists):
+    h = [(l[0], i, 0) for i, l in enumerate(lists) if l]
+    heapq.heapify(h)
+    out = []
+    while h:
+        v, i, j = heapq.heappop(h)
+        out.append(v)
+        if j + 1 &lt; len(lists[i]):
+            heapq.heappush(h, (lists[i][j + 1], i, j + 1))
+    return out</code></pre>
+
+  <h3>Top-k: heap, sort, or quickselect</h3>
+  <div class="box thm"><span class="tag">Theorem · size-k heap</span>
+    <p>Scan the items, keeping a min-heap \(H\) of at most \(k\). When full, replace the root by \(x\) if \(x\) is larger. <b>Invariant:</b> after each step \(H\) holds the \(k\) largest items seen. A discarded item is smaller than \(k\) items that are kept, so it can never be among the \(k\) largest; the root is therefore the \(k\)-th largest so far. Memory \(O(k)\), time \(O(n \log k)\), and it works on a stream.</p>
+  </div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>method (\(n = 10^6\) ints)</th><th>\(k = 10\)</th><th>\(k = 10^3\)</th><th>\(k = 10^5\)</th><th>notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>sorted(a)[-k:]</code></td><td class="num">0.60 s</td><td class="num">0.82 s</td><td class="num">0.65 s</td><td>all in order</td></tr>
+      <tr><td><code>heapq.nlargest(k, a)</code></td><td class="num">0.07 s</td><td class="num">0.12 s</td><td class="num">1.71 s</td><td>small \(k\) only</td></tr>
+      <tr><td>size-\(k\) heap loop</td><td class="num">0.10 s</td><td class="num">0.14 s</td><td class="num">0.54 s</td><td>streams, \(O(k)\) memory</td></tr>
+      <tr><td>quickselect (list comprehensions)</td><td class="num">0.34 s</td><td class="num">0.45 s</td><td class="num">0.53 s</td><td>one value, in memory</td></tr>
+    </tbody>
+  </table></div>
+  <p class="code-cap">Single runs on CPython 3.12, random values below \(10^9\). Decision: small \(k\) or a stream → heap / <code>nlargest</code>; \(k\) a large fraction of \(n\) → sort; just the \(k\)-th value of an in-memory array → quickselect (<a href="p01.html#l18">L18</a>) or simply sort.</p>
+
+  <h3>Two-heap median of a stream</h3>
+  <p>Split the items into a lower half <code>lo</code> (a max-heap, stored negated) and an upper half <code>hi</code> (a min-heap) with two invariants: every item of <code>lo</code> is \(\le\) every item of <code>hi</code>, and \(|lo| - |hi| \in \{0, 1\}\). Then the median is <code>max(lo)</code> for odd counts and the mean of <code>max(lo)</code> and <code>min(hi)</code> for even counts. To insert \(x\), send it through <code>lo</code> (push, then move <code>lo</code>'s maximum to <code>hi</code>): the moved item is \(\ge\) everything left in <code>lo</code>, so order holds. If <code>hi</code> is now larger, move its minimum back. Each step is \(O(\log n)\).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Seven values split into a lower half max-heap and an upper half min-heap whose tops are adjacent to the median">
+      <text x="320" y="36" class="s-ink2 s-mid s-sm">sorted view of the multiset; only the two tops are ever read</text>
+      <rect x="80" y="70" width="50" height="36" rx="4" class="s-node"/><text x="105" y="93" class="s-mid">1</text>
+      <rect x="146" y="70" width="50" height="36" rx="4" class="s-node"/><text x="171" y="93" class="s-mid">3</text>
+      <rect x="212" y="70" width="50" height="36" rx="4" class="s-node"/><text x="237" y="93" class="s-mid">4</text>
+      <rect x="278" y="70" width="50" height="36" rx="4" class="s-node-mod"/><text x="303" y="93" class="s-ttl s-mid">6</text>
+      <line x1="351" y1="54" x2="351" y2="122" class="s-ln-warn s-dash"/>
+      <rect x="374" y="70" width="50" height="36" rx="4" class="s-node-mod"/><text x="399" y="93" class="s-ttl s-mid">7</text>
+      <rect x="440" y="70" width="50" height="36" rx="4" class="s-node"/><text x="465" y="93" class="s-mid">8</text>
+      <rect x="506" y="70" width="50" height="36" rx="4" class="s-node"/><text x="531" y="93" class="s-mid">10</text>
+      <text x="204" y="140" class="s-mid">lo: max-heap, top = 6</text>
+      <text x="465" y="140" class="s-mid">hi: min-heap, top = 7</text>
+      <text x="320" y="176" class="s-acc s-mid s-ttl">7 items (odd): median = max(lo) = 6</text>
+      <text x="320" y="200" class="s-ink2 s-mid s-sm">every lo ≤ every hi · |lo| − |hi| ∈ {0, 1}</text>
+    </svg>
+    <figcaption><b>Two heaps facing each other.</b> The halves are unordered inside; the heaps only guarantee access to the values next to the split. Inserting 5 sends it through <code>lo</code>, which hands its maximum (6) to <code>hi</code>; both halves now hold four items and the median is \((5+6)/2\), the mean of the two tops.</figcaption>
+  </figure>  <pre><code>class MedianFinder:                     # LeetCode 295
+    def __init__(self):
+        self.lo, self.hi = [], []       # lo stores negatives
+    def addNum(self, x):
+        heapq.heappush(self.hi, -heapq.heappushpop(self.lo, -x))
+        if len(self.hi) &gt; len(self.lo):
+            heapq.heappush(self.lo, -heapq.heappop(self.hi))
+    def findMedian(self):
+        if len(self.lo) &gt; len(self.hi):
+            return -self.lo[0]
+        return (self.hi[0] - self.lo[0]) / 2</code></pre>
+
+  <h3>Lazy deletion: faking <code>remove()</code></h3>
+  <p>A sliding window must also <em>delete</em> the item leaving the window, and a heap cannot find it. Record the deletion in a counter instead, and keep a separate live size. Only the top matters, so before every <code>top</code> or <code>pop</code>, discard top items whose counter is positive. <b>Cost:</b> every item is pushed once and leaves the heap once (popped live, or discarded dead), so \(m\) operations do \(O(m)\) heap pops in total, \(O(m \log m)\) time. The heap may hold up to \(m\) dead items, so memory is \(O(m)\), not \(O(\text{window})\).</p>
+  <pre><code>class LazyHeap:
+    """Min-heap with remove(x) for an x known to be present."""
+    def __init__(self):
+        self.h, self.dead, self.size = [], {}, 0
+    def push(self, x):
+        heapq.heappush(self.h, x); self.size += 1
+    def remove(self, x):
+        self.dead[x] = self.dead.get(x, 0) + 1; self.size -= 1
+    def _prune(self):
+        h, dead = self.h, self.dead
+        while h and dead.get(h[0], 0):
+            dead[heapq.heappop(h)] -= 1
+    def top(self):
+        self._prune(); return self.h[0]
+    def pop(self):
+        self._prune(); self.size -= 1; return heapq.heappop(self.h)
+    def __len__(self):
+        return self.size
+
+class SlidingMedian:
+    """Multiset with add, remove, lower median, and sum of |x - median|."""
+    def __init__(self):
+        self.lo, self.hi, self.slo, self.shi = LazyHeap(), LazyHeap(), 0, 0  # lo negated
+    def _balance(self):
+        if len(self.lo) &gt; len(self.hi) + 1:
+            x = -self.lo.pop(); self.slo -= x; self.hi.push(x); self.shi += x
+        elif len(self.lo) &lt; len(self.hi):
+            x = self.hi.pop(); self.shi -= x; self.lo.push(-x); self.slo += x
+    def add(self, x):
+        if len(self.lo) and x &gt; -self.lo.top():
+            self.hi.push(x); self.shi += x
+        else:
+            self.lo.push(-x); self.slo += x
+        self._balance()
+    def remove(self, x):
+        if x &lt;= -self.lo.top():          # x &lt; max(lo) can only be in lo; ties may come from either
+            self.lo.remove(-x); self.slo -= x
+        else:
+            self.hi.remove(x); self.shi -= x
+        self._balance()
+    def median(self):
+        return -self.lo.top()
+    def cost(self):
+        m = self.median()
+        return m * len(self.lo) - self.slo + self.shi - m * len(self.hi)
+
+def window_costs(a, k):                 # CSES Sliding Window Cost
+    sm, out = SlidingMedian(), []
+    for i, x in enumerate(a):
+        sm.add(x)
+        if i &gt;= k:
+            sm.remove(a[i - k])
+        if i &gt;= k - 1:
+            out.append(sm.cost())
+    return out</code></pre>
+  <p class="code-cap">LeetCode 480 is the same loop returning the median (the mean of both tops when \(k\) is even); CSES — Sliding Window Median prints the lower median. A <code>LazyHeap</code> alone answers "minimum of a multiset with arbitrary removals". At \(n = 2\cdot10^5\) it took about 2 s in CPython 3.12 (measured), over a 1 s limit, so submit with PyPy where offered.</p>
+
+  <h3>Min and max at once, regret, and Dijkstra</h3>
+  <p><b>Both extremes:</b> a min-heap and a max-heap over the same items, entries tagged with an id, and one shared set of dead ids; popping from one kills the id in the other. <b>Greedy with regret</b> (<a href="p01.html#l23">L23</a>): commit greedily, keep past commitments in a heap, and undo the cheapest when a constraint is violated. LeetCode 1642 uses ladders for every climb, keeping laddered climbs in a min-heap; with more climbs than ladders, the smallest laddered climb is paid in bricks instead. <b>Dijkstra</b> (<a href="p05.html#l67">L67</a>) pushes <code>(dist, node)</code> on every improvement and skips popped entries with <code>d &gt; dist[node]</code>: lazy deletion again, with the stale test replacing the counter.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>LeetCode 23 — Merge k Sorted Lists.</b> <code>merge_k</code> with nodes: <code>(node.val, i, node)</code>.</li>
+    <li><b>LeetCode 295 — Find Median from Data Stream.</b> <code>MedianFinder</code>.</li>
+    <li><b>LeetCode 480 — Sliding Window Median</b> and <b>CSES — Sliding Window Cost.</b> <code>SlidingMedian</code>.</li>
+    <li><b>LeetCode 373 — Find K Pairs with Smallest Sums.</b> A frontier heap: start with \((a_i + b_0, i, 0)\) for \(i &lt; k\) (already sorted, hence already a heap); after popping \((i, j)\), push \((i, j+1)\). \(O(k \log k)\).</li>
+    <li><b>LeetCode 632 — Smallest Range Covering Elements from K Lists.</b> k-way merge that also tracks the current maximum: the heap's min and that max form a covering range; advance the list owning the min; stop when one list runs out.</li>
+    <li><b>LeetCode 767 — Reorganize String.</b> Impossible iff some count exceeds \(\lceil n/2 \rceil\). Otherwise repeatedly take the most frequent character other than the one just placed, holding the just-used one out of the heap for a round.</li>
+    <li><b>LeetCode 1642 — Furthest Building You Can Reach.</b> Regret heap of laddered climbs.</li>
+  </ul>
+  <pre><code>def smallest_range(lists):
+    h = [(l[0], i, 0) for i, l in enumerate(lists)]
+    heapq.heapify(h)
+    mx = max(l[0] for l in lists)
+    best = (h[0][0], mx)
+    while True:
+        v, i, j = heapq.heappop(h)
+        if mx - v &lt; best[1] - best[0]:
+            best = (v, mx)
+        if j + 1 == len(lists[i]):
+            return list(best)
+        nxt = lists[i][j + 1]
+        mx = max(mx, nxt)
+        heapq.heappush(h, (nxt, i, j + 1))
+
+
+def furthest_building(heights, bricks, ladders):
+    h = []
+    for i in range(len(heights) - 1):
+        d = heights[i + 1] - heights[i]
+        if d &gt; 0:
+            heapq.heappush(h, d)
+            if len(h) &gt; ladders:
+                bricks -= heapq.heappop(h)  # pay bricks for the smallest laddered climb
+                if bricks &lt; 0:
+                    return i
+    return len(heights) - 1</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Lazy deletion with the wrong sizes</b>: <code>len(self.h)</code> counts dead entries, so rebalancing on it is wrong. Track live sizes.</li>
+      <li><b>Removing a value that is not present</b>: the counter goes positive forever and later deletes a live copy.</li>
+      <li><b>Comparing payloads</b>: <code>(val, node)</code> crashes when values tie; put an index before the payload.</li>
+      <li><b>Median of an even window in integers</b>: LeetCode 480 wants a float mean; values near \(2^{31}\) overflow in other languages but not in Python.</li>
+      <li><b><code>nlargest</code> with \(k\) near \(n\)</b>: slower than sorting (table above).</li>
+      <li><b>Memory blow-up</b> on long streams: dead entries accumulate; rebuild from live items when the heap exceeds twice the live size.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 23, 295, 480, 373, 632, 767, 1642.</li>
+      <li>CSES — Sliding Window Median and CSES — Sliding Window Cost with <code>SlidingMedian</code>; stress both against sorting each window.</li>
+      <li>Rerun the top-\(k\) timing table on your machine for \(k \in \{1, 10^2, 10^4, 5\cdot10^5\}\).</li>
+      <li><b>Goal:</b> you choose correctly between heap, sort and quickselect.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Python docs, <code>heapq</code> (<code>merge</code>, <code>nlargest</code>) · CLRS, 3rd ed., §6.5 (priority queues), ch. 9 (selection) · Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 4 (priority queues)</p>
+</article>
+<!-- ================================================================ L34 -->
+<article class="day" id="l34">
+  <header class="day-head">
+    <span class="day-no">L34 · DAY 23</span>
+    <h2>Intervals &amp; Sweep Line With Data Structures</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">Interval problems become one template: turn each interval into events, sort the events, walk them left to right, and maintain a structure describing "what is active right now" (a counter, a heap, a set). The only real decisions are the sort key and what happens when two events share a coordinate.</p>
+
+  <h3>The taxonomy, and the half-open convention</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Question</th><th>Sort by</th><th>Maintain</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>merge overlapping</td><td>start</td><td>the current merged block</td><td>LC 56, 57, 759</td></tr>
+      <tr><td>intersect two lists</td><td>already sorted</td><td>two pointers</td><td>LC 986, 1229</td></tr>
+      <tr><td>stab all with fewest points</td><td>end</td><td>last point placed</td><td>LC 452</td></tr>
+      <tr><td>cover a range with fewest intervals</td><td>start</td><td>furthest reach</td><td>LC 1024</td></tr>
+      <tr><td>count / max overlap</td><td>events</td><td>counter or heap of ends</td><td>LC 253, CSES</td></tr>
+      <tr><td>max height over time</td><td>events</td><td>max-heap of active heights</td><td>LC 218</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box def"><span class="tag">Definition · half-open intervals</span>
+    <p>Write intervals as \([l, r)\): \(l\) included, \(r\) excluded. Then the length is \(r - l\), \([a, b)\) and \([b, c)\) touch without overlapping, and splitting \([l, r)\) at \(m\) gives \([l, m) \cup [m, r)\) with no off-by-one. Convert a closed integer interval \([l, r]\) to \([l, r+1)\) on input and every boundary question disappears. <b>Tie rule:</b> with half-open intervals, at equal coordinates process <em>ends before starts</em>. If the statement's intervals are closed and touching counts as overlapping, starts come first (or convert to \(r+1\)). The rule depends on the question, so decide it before sorting.</p>
+  </div>
+  <p>A neat consequence for counting: encode a start as <code>(l, +1)</code> and an end as <code>(r, -1)</code>; plain tuple sorting puts \(-1\) before \(+1\) at equal \(x\), which is exactly the half-open rule.</p>
+
+  <h3>Merge, insert, intersect</h3>
+  <p>Sorted by start, an interval overlaps the current merged block iff its start is at most the block's end, because every later interval starts even later. LeetCode's lists are closed, so <code>[1,4]</code> and <code>[4,5]</code> merge. To insert into a sorted disjoint list, copy everything ending before the new start, absorb everything starting at or before the new end, copy the rest: \(O(n)\). To intersect two sorted disjoint lists, the overlap of the current pair is <code>[max of starts, min of ends]</code> when non-empty, then advance whichever interval ends first: it cannot meet anything further in the other list.</p>
+  <pre><code>import heapq
+
+def merge(iv):                                   # LeetCode 56
+    out = []
+    for l, r in sorted(iv):
+        if out and l &lt;= out[-1][1]:
+            out[-1][1] = max(out[-1][1], r)
+        else:
+            out.append([l, r])
+    return out
+
+def insert(iv, new):                             # LeetCode 57
+    (l, r), out, i = new, [], 0
+    while i &lt; len(iv) and iv[i][1] &lt; l:
+        out.append(iv[i]); i += 1
+    while i &lt; len(iv) and iv[i][0] &lt;= r:
+        l, r = min(l, iv[i][0]), max(r, iv[i][1]); i += 1
+    return out + [[l, r]] + iv[i:]
+
+def intersect(A, B):                             # LeetCode 986
+    i = j = 0
+    out = []
+    while i &lt; len(A) and j &lt; len(B):
+        lo, hi = max(A[i][0], B[j][0]), min(A[i][1], B[j][1])
+        if lo &lt;= hi:
+            out.append([lo, hi])
+        if A[i][1] &lt; B[j][1]:
+            i += 1
+        else:
+            j += 1
+    return out</code></pre>
+
+  <h3>Stabbing and covering: two greedy proofs</h3>
+  <div class="box thm"><span class="tag">Theorem · fewest stabbing points</span>
+    <p>Sort by right end. Place a point at the first interval's right end; skip every interval containing it; repeat. <b>Exchange argument:</b> some optimal solution has a point in the interval \(I\) with the smallest right end \(r\); moving that point right to \(r\) keeps \(I\) stabbed, and every other interval it stabbed has right end \(\ge r\) and contains the old point, so it still contains \(r\). Remove the stabbed intervals and induct. \(O(n\log n)\) (LeetCode 452, "minimum arrows").</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · fewest intervals covering \([0, T]\)</span>
+    <p>Sort by start. With everything up to <code>reach</code> covered, among intervals starting at or before <code>reach</code> take the one ending furthest; if none extends <code>reach</code>, it is impossible. <b>Greedy stays ahead:</b> by induction, after \(j\) choices the greedy reach is at least the reach of any valid choice of \(j\) intervals, since any \(j\)-th interval of another solution starts within that solution's (shorter) reach and so was a candidate for greedy. One pointer over the sorted list: \(O(n\log n)\).</p>
+  </div>
+  <pre><code>def min_arrows(iv):                              # closed intervals
+    arrows, last = 0, None
+    for l, r in sorted(iv, key=lambda p: p[1]):
+        if last is None or l &gt; last:
+            arrows, last = arrows + 1, r
+    return arrows
+
+def min_cover(iv, T):                            # -1 if [0, T] cannot be covered
+    iv, i, cnt, reach = sorted(iv), 0, 0, 0
+    while reach &lt; T:
+        best = reach
+        while i &lt; len(iv) and iv[i][0] &lt;= reach:
+            best = max(best, iv[i][1]); i += 1
+        if best == reach:
+            return -1
+        reach, cnt = best, cnt + 1
+    return cnt</code></pre>
+
+  <h3>The sweep template, with a counter or a heap</h3>
+  <div class="box algo"><span class="tag">Algorithm · sweep line</span>
+    <ol>
+      <li>Turn each object into events at coordinates (start, end, query point).</li>
+      <li>Sort events by coordinate, ties by the rule chosen above.</li>
+      <li>Process in order, updating a structure that summarises the active set: a counter for "how many", a heap for "which ends first" or "tallest", a sorted structure for "which neighbours".</li>
+      <li>Read the answer from the structure between events.</li>
+    </ol>
+  </div>
+  <p><b>Max overlap / meeting rooms (LeetCode 253):</b> sort meetings by start and keep a min-heap of end times of rooms in use. If the earliest-ending room is free by this start (<code>h[0] &lt;= start</code> for half-open meetings), reuse it with <code>heapreplace</code>, else open a room. The heap size at the end is the maximum overlap. <b>Employee free time (759):</b> merge everyone's intervals; the gaps between consecutive merged blocks are the common free time. When coordinates are small integers, a difference array (<a href="p01.html#l13">L13</a>) replaces the sort: add 1 at \(l\), subtract 1 at \(r\), prefix-sum. The same template returns in <a href="#l35">L35</a> and in geometry (<a href="p09.html#l133">L133</a>).</p>
+  <pre><code>def sweep(intervals, on_add, on_remove, closed=False):
+    """intervals: (l, r, data). Half-open: removals first at equal x; closed=True: additions first."""
+    ev = []
+    for l, r, data in intervals:
+        ev.append((l, 1, data))
+        ev.append((r, 0, data))
+    first = 1 if closed else 0
+    ev.sort(key=lambda e: (e[0], e[1] != first))      # payloads are never compared
+    for x, kind, data in ev:
+        (on_add if kind else on_remove)(x, data)
+
+def min_rooms(meetings):                         # LeetCode 253, [start, end)
+    h = []
+    for s, e in sorted(meetings):
+        if h and h[0] &lt;= s:
+            heapq.heapreplace(h, e)
+        else:
+            heapq.heappush(h, e)
+    return len(h)</code></pre>
+
+  <h3>The skyline problem</h3>
+  <p>Buildings \((l, r, h)\) on a line; output the outline as key points where the height changes. The outline's height at \(x\) is the largest \(h\) over buildings with \(l \le x &lt; r\), so it can change only at edges. Sweep the edges left to right with a max-heap of active <code>(-height, right end)</code>. At each edge, first discard heap tops whose right end is \(\le x\) (lazy deletion keyed by the end coordinate: an expired building only matters once it reaches the top), then push the buildings starting here, and record \((x, \text{top height})\) if it differs from the last recorded height. Sorting starts as \((l, -h)\) before ends \((r, 0)\) processes the tallest start first at a shared \(x\), so no duplicate \(x\) is emitted. \(O(n \log n)\).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Five buildings and their skyline with key points at 2, 3, 7, 12, 15, 20 and 24">
+      <line x1="40" y1="210" x2="600" y2="210" class="s-ln"/>
+      <rect x="84" y="110" width="154" height="100" class="s-node" fill-opacity="0.5"/>
+      <rect x="106" y="60" width="88" height="150" class="s-node" fill-opacity="0.5"/>
+      <rect x="150" y="90" width="154" height="120" class="s-node" fill-opacity="0.5"/>
+      <rect x="370" y="110" width="110" height="100" class="s-node" fill-opacity="0.5"/>
+      <rect x="458" y="130" width="110" height="80" class="s-node" fill-opacity="0.5"/>
+      <polyline points="84,210 84,110 106,110 106,60 194,60 194,90 304,90 304,210 370,210 370,110 480,110 480,130 568,130 568,210" class="s-ln-acc"/>
+      <circle cx="84" cy="110" r="4" class="s-acc"/><circle cx="106" cy="60" r="4" class="s-acc"/><circle cx="194" cy="90" r="4" class="s-acc"/>
+      <circle cx="304" cy="210" r="4" class="s-acc"/><circle cx="370" cy="110" r="4" class="s-acc"/><circle cx="480" cy="130" r="4" class="s-acc"/><circle cx="568" cy="210" r="4" class="s-acc"/>
+      <text x="76" y="102" class="s-acc s-sm s-end">(2,10)</text><text x="106" y="50" class="s-acc s-sm s-mid">(3,15)</text>
+      <text x="202" y="82" class="s-acc s-sm">(7,12)</text><text x="304" y="228" class="s-acc s-sm s-mid">(12,0)</text>
+      <text x="370" y="102" class="s-acc s-sm s-mid">(15,10)</text><text x="488" y="122" class="s-acc s-sm">(20,8)</text><text x="568" y="228" class="s-acc s-sm s-mid">(24,0)</text>
+    </svg>
+    <figcaption><b>LeetCode 218's example.</b> Buildings (2,9,10), (3,7,15), (5,12,12), (15,20,10), (19,24,8). At \(x = 7\) the 15-high building expires when it reaches the top and 12 takes over; at \(x = 9\) the 10-high building ends below the top, so nothing is emitted.</figcaption>
+  </figure>
+  <pre><code>def skyline(buildings):                          # LeetCode 218
+    ev = sorted([(l, -h, r) for l, r, h in buildings] + [(r, 0, 0) for _, r, _ in buildings])
+    heap, out = [(0, float("inf"))], []          # (-height, right end); ground never expires
+    for x, negh, r in ev:
+        while heap[0][1] &lt;= x:
+            heapq.heappop(heap)
+        if negh:
+            heapq.heappush(heap, (negh, r))
+        top = -heap[0][0]
+        if not out or out[-1][1] != top:
+            out.append([x, top])
+    return out</code></pre>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>LeetCode 56, 57, 986</b>: the three functions above. <b>452</b>: <code>min_arrows</code>. <b>253</b>: <code>min_rooms</code>. <b>218</b>: <code>skyline</code>.</li>
+    <li><b>LeetCode 759 — Employee Free Time.</b> Flatten, sort by start, merge, and report gaps of positive length.</li>
+    <li><b>LeetCode 1229 — Meeting Scheduler.</b> Sort both slot lists, two pointers as in <code>intersect</code>; return the first overlap of length \(\ge\) duration as <code>[lo, lo + duration]</code>.</li>
+    <li><b>CSES — Restaurant Customers.</b> Events <code>(a, +1)</code>, <code>(b, -1)</code>, sort, running sum, maximum. Times are distinct, so the tie rule never fires.</li>
+    <li><b>CSES — Room Allocation.</b> Days are inclusive, so a room freed on day \(b\) can be reused only from day \(b+1\): sort customers by arrival, keep a min-heap of <code>(departure, room)</code>; reuse the top room iff its departure is \(&lt;\) the arrival, else open room <code>len + 1</code>. Store answers by original index.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Touching intervals</b> handled with the wrong tie rule: an answer off by one on exactly the tests where an end equals a start. Write the rule in a comment before coding.</li>
+      <li><b>Sorting tuples with payloads</b>: <code>(x, kind, dict)</code> crashes on ties; use a <code>key</code> that stops before the payload.</li>
+      <li><b>Merging without sorting first</b>, or sorting by end when the merge needs starts.</li>
+      <li><b>Mutating input lists</b> in <code>merge</code> (<code>out[-1][1] = …</code> on a list you appended by reference) changes the caller's data; copy if it matters.</li>
+      <li><b>Difference array on coordinates up to \(10^9\)</b>: MemoryError. Sort events or compress (<a href="p01.html#l24">L24</a>).</li>
+      <li><b>Skyline duplicates</b>: emitting two points at one \(x\), or two consecutive equal heights, when the tie order or the "height changed" check is wrong.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 56, 57, 986, 253, 759, 218, 1229, 452.</li>
+      <li>CSES — Restaurant Customers; CSES — Room Allocation.</li>
+      <li>Stress <code>skyline</code> against a brute force that evaluates the height at every integer and half-integer point on small random inputs.</li>
+      <li><b>Goal:</b> you can solve the skyline problem unaided.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 6 (greedy: scheduling) and ch. 30 (sweep line) · de Berg et al., <i>Computational Geometry</i>, ch. 2 (the sweep paradigm) · Kleinberg &amp; Tardos, <i>Algorithm Design</i>, §4.1 (greedy stays ahead, exchange arguments)</p>
+</article>
+<!-- ================================================================ L35 -->
+<article class="day project" id="l35">
+  <header class="day-head">
+    <span class="day-no">L35 · DAY 24</span>
+    <h2>Contest Day 2 + Editorial (Linear Data Structures)</h2>
+    <p class="day-meta"><span class="vid">90m video</span><span class="tagx">contest day</span></p>
+  </header>
+
+  <p class="thesis">Phase 2's skill is choosing the structure: the same problem is O(n) with the right one and a TLE with the wrong one. Five problems in two hours, one per structure family, then an editorial that shows each choice and the flowchart behind it.</p>
+
+  <h3>Contest setup</h3>
+  <p>Two hours, five problems, Python 3 (PyPy allowed), no notes except your own <code>cplib/</code>. Limits for every problem: \(n \le 2\cdot10^5\), values up to \(10^9\), 1 s per test. The problems below are written for this course; each lists the closest judge problem so you can also submit something. Read all five statements in the first ten minutes, solve in the order you are confident about, and stress-test each solution against an \(O(n^2)\) brute force (<a href="p00.html#l10">L10</a>) before moving on. Targets are rough difficulty estimates, from about 1100 to 1600 Codeforces rating (P5 is the stretch problem).</p>
+  <ol>
+    <li><b>P1 · Taller neighbours.</b> Heights \(a_1..a_n\). For each tower print the distance to the nearest strictly taller tower on either side, or \(-1\). Sample: <code>3 1 4 1 5</code> → <code>2 1 2 1 -1</code>. Closest: CSES — Nearest Smaller Values.</li>
+    <li><b>P2 · Deadlines.</b> \(n\) jobs, each takes one time unit and pays \(p_i\) if finished by time \(d_i\); one job per unit, starting at time 0. Maximise total pay. Sample: (d, p) = (1,5), (1,7), (2,3), (2,4) → <code>11</code>. Closest heap-greedy: LeetCode 630 — Course Schedule III.</li>
+    <li><b>P3 · Exactly k kinds.</b> Count subarrays containing exactly \(k\) distinct values. Sample: \(k = 2\), <code>1 2 1 2 3</code> → <code>7</code>. Closest: LeetCode 992 — Subarrays with K Different Integers.</li>
+    <li><b>P4 · Busiest point.</b> \(n\) closed integer intervals \([l_i, r_i]\). Print the largest number of intervals sharing a common point and the smallest such point. Sample: [1,3], [2,5], [4,6], [5,5] → <code>3 5</code>. Closest: CSES — Restaurant Customers.</li>
+    <li><b>P5 · Purge.</b> A row of strengths. Every second, each soldier whose current left neighbour is strictly stronger is removed, all at once. How many seconds until nothing changes? Sample: <code>10 9 7 8 6 5 3 4 2 1</code> → <code>2</code>. Closest: Codeforces — Psychos in a Line.</li>
+  </ol>
+
+  <h3>The "which structure?" flowchart</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 300" role="img" aria-label="Flowchart from the question a problem asks to the data structure that answers it">
+      <defs><marker id="ah-l35" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="210" y="18" class="s-ttl s-mid">the statement asks…</text>
+      <text x="550" y="18" class="s-ttl s-mid">reach for</text>
+      <rect x="20" y="28" width="380" height="24" rx="4" class="s-node"/><text x="30" y="44" class="s-sm">nearest greater / smaller to one side?</text>
+      <rect x="20" y="58" width="380" height="24" rx="4" class="s-node"/><text x="30" y="74" class="s-sm">min or max of a set that keeps changing?</text>
+      <rect x="20" y="88" width="380" height="24" rx="4" class="s-node"/><text x="30" y="104" class="s-sm">median or k-th of a moving window?</text>
+      <rect x="20" y="118" width="380" height="24" rx="4" class="s-node"/><text x="30" y="134" class="s-sm">contiguous window, counts inside it?</text>
+      <rect x="20" y="148" width="380" height="24" rx="4" class="s-node"/><text x="30" y="164" class="s-sm">intervals, events over time, overlaps?</text>
+      <rect x="20" y="178" width="380" height="24" rx="4" class="s-node"/><text x="30" y="194" class="s-sm">process in arrival order, level by level?</text>
+      <rect x="20" y="208" width="380" height="24" rx="4" class="s-node"/><text x="30" y="224" class="s-sm">removals in the middle, neighbours change?</text>
+      <rect x="20" y="238" width="380" height="24" rx="4" class="s-node"/><text x="30" y="254" class="s-sm">look things up by value or key?</text>
+      <rect x="20" y="268" width="380" height="24" rx="4" class="s-node"/><text x="30" y="284" class="s-sm">range sum / min with point updates?</text>
+      <line x1="400" y1="40" x2="436" y2="40" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="28" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="44" class="s-sm">monotonic stack (L28)</text>
+      <line x1="400" y1="70" x2="436" y2="70" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="58" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="74" class="s-sm">heap, lazy deletion (L32–33)</text>
+      <line x1="400" y1="100" x2="436" y2="100" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="88" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="104" class="s-sm">two lazy heaps (L33)</text>
+      <line x1="400" y1="130" x2="436" y2="130" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="118" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="134" class="s-sm">two pointers + counts (L15)</text>
+      <line x1="400" y1="160" x2="436" y2="160" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="148" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="164" class="s-sm">sort events, sweep (L34)</text>
+      <line x1="400" y1="190" x2="436" y2="190" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="178" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="194" class="s-sm">deque (L29)</text>
+      <line x1="400" y1="220" x2="436" y2="220" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="208" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="224" class="s-sm">nxt / prv arrays (L30)</text>
+      <line x1="400" y1="250" x2="436" y2="250" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="238" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="254" class="s-sm">dict / set, defended (L26)</text>
+      <line x1="400" y1="280" x2="436" y2="280" class="s-ln" marker-end="url(#ah-l35)"/><rect x="440" y="268" width="220" height="24" rx="4" class="s-node-mod"/><text x="450" y="284" class="s-sm">BIT / segment tree (Phase 7)</text>
+    </svg>
+    <figcaption><b>Ask what operation the inner loop needs, then pick the cheapest structure that supports it.</b> Print this. The last row is a preview: when the questions are about arbitrary ranges with updates, nothing in Phase 2 is enough.</figcaption>
+  </figure>
+
+  <h3>Editorial</h3>
+  <p><b>P1 (monotonic stack).</b> Previous strictly taller and next strictly taller are two scans of <a href="#l28">L28</a>'s helper; answer the nearer one. Popping on <code>&lt;=</code> makes equal towers block nothing, as required. \(O(n)\).</p>
+  <pre><code>import sys
+
+def p1(a):
+    n = len(a)
+    left, right, st = [-1] * n, [n] * n, []
+    for i in range(n):
+        while st and a[st[-1]] &lt;= a[i]:
+            st.pop()
+        if st:
+            left[i] = st[-1]
+        st.append(i)
+    st = []
+    for i in range(n - 1, -1, -1):
+        while st and a[st[-1]] &lt;= a[i]:
+            st.pop()
+        if st:
+            right[i] = st[-1]
+        st.append(i)
+    out = []
+    for i in range(n):
+        d = min(i - left[i] if left[i] &gt;= 0 else n, right[i] - i if right[i] &lt; n else n)
+        out.append(d if d &lt; n else -1)
+    return out</code></pre>
+  <p><b>P2 (heap-greedy).</b> Process jobs by deadline, pushing each profit into a min-heap of chosen jobs; whenever the heap holds more jobs than the current deadline, drop the cheapest. \(O(n\log n)\).</p>
+  <div class="box thm"><span class="tag">Theorem · heap greedy (proof sketch)</span>
+    <p>A set of unit jobs is feasible iff for every \(t\) at most \(t\) of them have deadline \(\le t\); earliest-deadline-first then schedules them. These feasible sets form a matroid (CLRS, 3rd ed., §16.5), so a maximum-profit feasible set exists and every maximal feasible set has the same size. <b>Invariant:</b> after the jobs with deadline \(\le d\) are processed, the heap is a maximum-profit feasible subset of them. Adding a job with deadline \(d\) can violate only the constraint at \(t = d\), which counts every chosen job; so if it is violated, exactly one job must leave, and in a matroid the best way to restore independence after adding one element is to drop the cheapest element of the unique circuit it created, here the whole heap plus the new job (removing any one of them restores every constraint).</p>
+  </div>
+  <pre><code>import heapq
+
+def p2(jobs):                               # [(deadline, profit)]
+    h = []
+    for d, p in sorted(jobs):
+        heapq.heappush(h, p)
+        if len(h) &gt; d:
+            heapq.heappop(h)
+    return sum(h)</code></pre>
+  <p><b>P3 (sliding window + counts).</b> "Exactly \(k\)" is not monotone in the window, but "at most \(k\)" is: \(\text{exact}(k) = \text{atmost}(k) - \text{atmost}(k-1)\). For "at most", grow the right end, shrink the left while there are more than \(k\) kinds, and add the window length (the number of good subarrays ending here). A first draft with <code>Counter</code> is fine; the contest version compresses the raw byte tokens through a dict (randomised hashing, <a href="#l26">L26</a>) and counts in a list. \(O(n)\).</p>
+  <pre><code>def p3(tokens, k):                          # tokens: raw bytes from sys.stdin.buffer
+    rank = {v: i for i, v in enumerate(set(tokens))}
+    a = [rank[v] for v in tokens]
+    def at_most(k):
+        cnt, kinds, l, total = [0] * len(rank), 0, 0, 0
+        for r, x in enumerate(a):
+            kinds += cnt[x] == 0
+            cnt[x] += 1
+            while kinds &gt; k:
+                y = a[l]; cnt[y] -= 1; kinds -= cnt[y] == 0; l += 1
+            total += r - l + 1
+        return total
+    return at_most(k) - at_most(k - 1)</code></pre>
+  <p><b>P4 (sweep).</b> Convert each closed \([l, r]\) to half-open \([l, r+1)\), emit <code>(l, +1)</code> and <code>(r+1, -1)</code>, sort. At equal \(x\) the \(-1\)s come first, so the running count after each \(+1\) never exceeds the true coverage at \(x\), and the first time it beats the best we are at the smallest busiest point. A difference array would need \(10^9\) cells. \(O(n \log n)\).</p>
+  <pre><code>def p4(iv):
+    ev = sorted([(l, 1) for l, r in iv] + [(r + 1, -1) for l, r in iv])
+    cur = best = 0
+    where = None
+    for x, d in ev:
+        cur += d
+        if cur &gt; best:
+            best, where = cur, x
+    return best, where</code></pre>
+  <p><b>P5 (linked list + simulation).</b> Naive rounds rebuild the row each second: \(O(n)\) per round and up to \(n\) rounds. Observation: a soldier's fate depends only on its current left neighbour, which changes only when that neighbour is removed. So after the first round, the only soldiers worth re-checking are the survivors immediately right of a removed block. Keep the row as <code>prv</code>/<code>nxt</code> arrays (<a href="#l30">L30</a>), decide all victims of a round before unlinking any (removals are simultaneous), unlink, and collect the new candidates. Each removal creates at most one candidate, so the total work is \(O(n)\). (A monotonic-stack DP also solves it in \(O(n)\), the recovery route if the simulation gets messy.)</p>
+  <pre><code>def p5(a):
+    n = len(a)
+    prv, nxt, alive = list(range(-1, n - 1)), list(range(1, n + 1)), [True] * n
+    cand, rounds = list(range(1, n)), 0
+    while True:
+        victims = [j for j in cand if alive[j] and prv[j] &gt;= 0 and a[prv[j]] &gt; a[j]]
+        if not victims:
+            return rounds
+        rounds += 1
+        for j in victims:
+            alive[j] = False
+        cand = []
+        for j in victims:
+            p, q = prv[j], nxt[j]
+            if p &gt;= 0:
+                nxt[p] = q
+            if q &lt; n:
+                prv[q] = p
+                cand.append(q)              # dead ones are filtered next round
+
+def main():
+    data = sys.stdin.buffer.read().split()
+    n = int(data[0])
+    print(p5(list(map(int, data[1:n + 1]))))
+
+if __name__ == "__main__":
+    main()</code></pre>
+
+  <h3>Mistake review, and recovering from the wrong structure</h3>
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>P1 with <code>&lt;</code> instead of <code>&lt;=</code></b> lets an equal tower count as taller.</li>
+      <li><b>P2 without the heap</b>: taking jobs in deadline order while a slot is free keeps (1,5), rejects (1,7), and scores 8 instead of 11 on the sample. The heap is what lets a later, better job replace an earlier one.</li>
+      <li><b>P3 with exactly-\(k\) windows</b> directly: the left pointer is not monotone and the count is wrong. Use the subtraction.</li>
+      <li><b>P4 with starts before ends</b> on touching closed intervals that you converted to \(r+1\): double conversion. Convert once, then use the half-open rule.</li>
+      <li><b>P5 unlinking while scanning</b>: a soldier removed this second kills (or protects) its right neighbour in the same second. Decide first, then unlink.</li>
+      <li><b>Output</b>: \(2\cdot10^5\) <code>print</code> calls cost about as much as the algorithm. One <code>join</code>.</li>
+    </ul>
+  </div>
+  <p><b>Forty minutes in with the wrong structure.</b> Stop typing and write the one-sentence invariant the inner loop needs ("I need the nearest live element to the left"; "I need the minimum of the live set"). If your structure cannot do that operation in \(O(1)\) or \(O(\log n)\), no micro-optimisation will save it. Keep the parsing, output and brute force (they are still correct), put the new structure behind the same small function, and rerun the stress test. Rewriting 30 lines is faster than debugging 100.</p>
+
+  <h3>Upsolve plan</h3>
+  <ol>
+    <li>Same evening: for each unsolved problem, read only its editorial paragraph, close it, and implement from scratch.</li>
+    <li>Stress every solution against a brute force (P5's brute simulates the row with lists) on 1,000 random small cases.</li>
+    <li>Next day: submit the closest judge problem for each of the five.</li>
+    <li>Log every WA/TLE with its cause in one line: that log is what the flowchart is built from.</li>
+  </ol>
+  <ul class="deliverables">
+    <li>At least 3 of 5 solved within two hours.</li>
+    <li>All five upsolved, each passing a 1,000-case stress test.</li>
+    <li>The structure-selection flowchart printed and pinned.</li>
+    <li><code>nearest</code>, <code>LazyHeap</code>, <code>SlidingMedian</code> and <code>sweep</code> in <code>cplib/</code> with their tests.</li>
+    <li>A mistake log with one line per failed submission.</li>
+  </ul>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>The five contest problems above, then their closest judge problems: CSES — Nearest Smaller Values, LeetCode 630, LeetCode 992, CSES — Restaurant Customers, Codeforces — Psychos in a Line.</li>
+      <li>A virtual Codeforces Div. 3 round: label every problem with its flowchart row before reading anyone's solution.</li>
+      <li><b>Goal:</b> 3+/5, and a printed structure-selection flowchart.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 4 and ch. 8 · Halim &amp; Halim, <i>Competitive Programming 4</i>, ch. 2 (data structures and libraries) · USACO Guide, Silver: “Stacks”, “Sliding Window”, “Sweep Line”</p>
+</article>
+
+<nav class="modnav">
+  <a href="p01.html"><small>Previous · Days 8–17</small>◂ Phase 1 — Arrays, Sorting, Searching, Greedy</a>
+  <a class="next" href="p03.html"><small>Next · Days 25–32</small>Phase 3 — Strings: From Basics to Suffix Structures ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

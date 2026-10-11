@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 0 — Foundations &amp; Tooling · 130 Days of RL</title>
+<meta name="description" content="Days 1–9: the RL problem, the probability, linear algebra and optimization behind it, Markov chains, and the NumPy / Gymnasium / PyTorch tooling with sound experimental practice.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m0">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 0 · Foundations &amp; Tooling · Days 1–9</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 0 · Foundations</h4>
+  <nav>
+    <a href="#d1"><span class="n">D1</span>What RL Actually Is</a>
+    <a href="#d2"><span class="n">D2</span>RL vs Everything Else</a>
+    <a href="#d3"><span class="n">D3</span>Probability You Need</a>
+    <a href="#d4"><span class="n">D4</span>Linear Algebra &amp; Calculus</a>
+    <a href="#d5"><span class="n">D5</span>Optimization for RL</a>
+    <a href="#d6"><span class="n">D6</span>Markov Chains</a>
+    <a href="#d7"><span class="n">D7</span>NumPy &amp; Experiment Hygiene</a>
+    <a href="#d8"><span class="n">D8</span>Gymnasium Deep Dive</a>
+    <a href="#d9"><span class="n">D9</span>PyTorch for RL</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="0"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="index.html">◂ Syllabus</a><a href="m01.html">Module 1 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 0 · Days 1–9 · Weeks 1–2</p>
+<h1>Foundations &amp; Tooling</h1>
+<p class="dek">Nine lessons that front-load everything the rest of the course leans on: what the reinforcement learning problem actually is, the probability and linear algebra behind every Bellman equation and convergence proof, the optimizers you will tune for the next 120 days, and the tooling (NumPy, Gymnasium, PyTorch) together with the experimental hygiene that makes an RL result mean something.</p>
+<ul class="chips">
+  <li><b>9</b> lessons</li>
+  <li><b>6h 05m</b> video</li>
+  <li><b>11h 15m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto Ch. 1</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>State the agent–environment loop formally and say what makes a problem RL rather than supervised learning.</li>
+    <li>Derive a Bellman-style recursion from the definition of return using only the law of total expectation.</li>
+    <li>Explain why \(I - \gamma P\) is invertible and why the sup norm is the natural norm for value functions.</li>
+    <li>Write SGD, momentum and Adam from memory and state the Robbins–Monro step-size conditions.</li>
+    <li>Compute a Markov chain's stationary distribution and its expected time to absorption.</li>
+    <li>Run a seeded, multi-seed experiment with confidence bands in Gymnasium and PyTorch, without the terminated/truncated bug.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 1 -->
+<article class="day" id="d1">
+  <header class="day-head">
+    <span class="day-no">DAY 1</span>
+    <h2>What Reinforcement Learning Actually Is</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">30m practice</span></p>
+  </header>
+
+  <p class="thesis">Reinforcement learning is learning to act from evaluative, delayed feedback. An agent chooses actions, the world answers with a new situation and a single number, and the agent has to work out which of its earlier choices deserve the credit.</p>
+
+  <h3>The agent–environment loop</h3>
+  <p>Time moves in discrete steps \(t = 0, 1, 2, \dots\). At each step the agent observes a state \(S_t\), picks an action \(A_t\), and the environment responds with a reward \(R_{t+1}\) and a next state \(S_{t+1}\). Interaction produces a trajectory</p>
+  $$S_0,\ A_0,\ R_1,\ S_1,\ A_1,\ R_2,\ S_2,\ A_2,\ R_3,\ \dots$$
+  <p>Mind the indexing: the reward caused by \(A_t\) is \(R_{t+1}\), and it arrives together with \(S_{t+1}\). This is the Sutton &amp; Barto convention and the one used throughout the course.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 200" role="img" aria-label="Agent sends action to environment; environment returns next state and reward">
+      <defs>
+        <marker id="ah-d1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d1m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="30" y="55" width="170" height="90" rx="8" class="s-node-mod"/>
+      <text x="115" y="94" class="s-ttl s-mid">Agent</text>
+      <text x="115" y="118" class="s-ink2 s-mid">policy π(a | s)</text>
+      <rect x="440" y="55" width="170" height="90" rx="8" class="s-node"/>
+      <text x="525" y="94" class="s-ttl s-mid">Environment</text>
+      <text x="525" y="118" class="s-ink2 s-mid">p(s′, r | s, a)</text>
+      <path d="M200,78 C280,22 360,22 440,78" class="s-ln-mod" marker-end="url(#ah-d1m)"/>
+      <text x="320" y="22" class="s-mod s-mid">action Aₜ</text>
+      <path d="M440,122 C360,178 280,178 200,122" class="s-ln" marker-end="url(#ah-d1)"/>
+      <text x="320" y="192" class="s-ink2 s-mid">next state Sₜ₊₁ · reward Rₜ₊₁</text>
+      <text x="320" y="104" class="s-ink3 s-mid s-sm">t ← t + 1</text>
+    </svg>
+    <figcaption><b>The interface.</b> Everything the agent knows about the world arrives through the bottom arrow; everything it can do goes out through the top one. Where you draw the boundary is a modelling choice (Day 20): a robot's motors are usually part of the environment, not the agent.</figcaption>
+  </figure>
+
+  <div class="box def"><span class="tag">Definition</span>
+    <ul>
+      <li><b>State</b> \(S_t \in \mathcal S\): the information the agent's decision is allowed to depend on.</li>
+      <li><b>Action</b> \(A_t \in \mathcal A(S_t)\): what the agent does.</li>
+      <li><b>Reward</b> \(R_{t+1} \in \mathbb R\): a scalar chosen by whoever designed the problem.</li>
+      <li><b>Policy</b> \(\pi(a \mid s) = \Pr(A_t = a \mid S_t = s)\): the agent's behaviour, and the thing we learn.</li>
+      <li><b>Return</b> \(G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots\) with discount \(0 \le \gamma \le 1\). The goal is to maximise \(\E_\pi[G_t]\). Day 19 explains the discount properly.</li>
+    </ul>
+  </div>
+
+  <h3>The reward hypothesis</h3>
+  <div class="box note"><span class="tag">Hypothesis</span>
+    <p>“All of what we mean by goals and purposes can be well thought of as the maximization of the expected value of the cumulative sum of a received scalar signal (called reward).” (Sutton &amp; Barto, §3.2)</p>
+  </div>
+  <p>This is a modelling stance, not a theorem. Its strength is a single interface for chess, robot locomotion, data-centre cooling and chat assistants. Its weakness is that you get exactly what you reward. Day 26 (reward hacking) and Days 123–126 (RLHF) are about the gap between the reward you wrote and the behaviour you wanted. Some goals, such as hard safety constraints or risk aversion, don't fit naturally into a single expected sum; Day 122 handles those.</p>
+
+  <h3>Trial and error, and delayed credit</h3>
+  <p>Two features separate RL from other kinds of learning:</p>
+  <ul>
+    <li><b>Evaluative feedback.</b> The reward says how good the chosen action was, not what the best action would have been. You only learn by trying.</li>
+    <li><b>Delayed consequences.</b> A chess move is rewarded forty moves later, if at all. The agent must solve <em>temporal credit assignment</em>: which of the many actions before the reward caused it?</li>
+  </ul>
+  <div class="box intuition"><span class="tag">Intuition</span>
+    <p>You win a game of chess (+1) after 40 moves. Monte Carlo methods give every move the same credit, the final outcome (Day 35). Temporal-difference learning credits each move through the value of the position it produced (Day 42). Eligibility traces interpolate between the two (Day 50). Most of Modules 4–5 is different answers to this one question.</p>
+  </div>
+
+  <h3>Sequential decisions vs one-shot prediction</h3>
+  <p>In supervised learning, a prediction doesn't change the next input. In RL, actions change the data: the states you see tomorrow depend on what you did today. Three consequences follow you through the whole course:</p>
+  <ul>
+    <li>The data are not i.i.d. Consecutive states are correlated, and the distribution shifts whenever the policy changes.</li>
+    <li>The agent decides what it gets to learn about. A state it never visits is a state it never learns.</li>
+    <li>Evaluating a policy means running it, or correcting for having run a different one (importance sampling, Day 39).</li>
+  </ul>
+
+  <pre><code>import random
+
+class Corridor:
+    """Five cells, start in the middle, +1 for reaching the right end."""
+    def reset(self):
+        self.pos = 2
+        return self.pos
+
+    def step(self, action):                 # 0 = left, 1 = right
+        self.pos += 1 if action == 1 else -1
+        done = self.pos in (0, 4)
+        reward = 1.0 if self.pos == 4 else 0.0
+        return self.pos, reward, done
+
+env, returns = Corridor(), []
+for episode in range(1000):
+    state, done, G = env.reset(), False, 0.0
+    while not done:
+        action = random.choice([0, 1])      # the policy: uniformly random
+        state, reward, done = env.step(action)
+        G += reward
+    returns.append(G)
+print(sum(returns) / len(returns))          # about 0.5, the chance of exiting right</code></pre>
+  <p class="code-cap">Every algorithm in this course is a smarter replacement for the line <code>action = …</code>.</p>
+
+  <div class="box trap"><span class="tag">What breaks · three day-one mistakes</span>
+    <ul>
+      <li><b>Off-by-one rewards.</b> Storing the reward that came back from <code>step(A_t)</code> as \(R_t\) instead of \(R_{t+1}\) shifts every return by one step. It is invisible on this corridor and wrecks discounted returns later.</li>
+      <li><b>Observation ≠ state.</b> The corridor's position is a complete description of the situation. A single Atari frame or a pendulum angle is not, and an agent fed one is solving a different, harder problem (Day 27, Day 121).</li>
+      <li><b>Reward ≠ goal.</b> Reward the agent for “moving right” instead of “reaching the end” and it will learn to oscillate between cells if the environment lets it. The reward is the only specification the agent ever sees.</li>
+    </ul>
+  </div>
+
+  <h3>The road ahead</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Days</th><th>Modules</th><th>You will build</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1–17</td><td>Foundations, bandits</td><td>A 10-armed testbed comparing five algorithms (Project 1)</td></tr>
+      <tr><td class="num">18–41</td><td>MDPs, dynamic programming, Monte Carlo</td><td>A DP suite on four classic MDPs; a Blackjack agent (Projects 2–3)</td></tr>
+      <tr><td class="num">42–60</td><td>TD learning, planning and search</td><td>A tabular control zoo; an MCTS Connect Four engine (Projects 4–5)</td></tr>
+      <tr><td class="num">61–81</td><td>Function approximation, deep value-based RL</td><td>A DQN that plays an Atari game (Project 6)</td></tr>
+      <tr><td class="num">82–101</td><td>Policy gradients, model-based RL</td><td>PPO vs TD3 vs SAC on continuous control (Project 7)</td></tr>
+      <tr><td class="num">102–128</td><td>Exploration, offline, multi-agent, safety, RLHF</td><td>Paper-level understanding and small reproductions</td></tr>
+      <tr><td class="num">129–130</td><td>Capstone</td><td>A published, reproducible RL project</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="practice">
+    <h4>Practice · 30 min</h4>
+    <ol>
+      <li>Run the corridor loop. Change the policy to “right with probability \(p\)” and plot mean return against \(p \in \{0.1, 0.2, \dots, 0.9\}\).</li>
+      <li>Pick three problems you care about. For each, write down the state, the actions, the reward, and when an episode ends. Which has the most delayed reward?</li>
+      <li>Find one where RL is tempting but supervised learning would do. Day 2 gives a checklist to test it against.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §1.1–1.6 · David Silver, UCL RL Lecture 1</p>
+</article>
+
+<!-- ================================================================ DAY 2 -->
+<article class="day" id="d2">
+  <header class="day-head">
+    <span class="day-no">DAY 2</span>
+    <h2>RL vs Everything Else</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">30m practice</span></p>
+  </header>
+
+  <p class="thesis">Supervised learning is told the right answer. Unsupervised learning is told nothing. Reinforcement learning is told how well it did, and only for the actions it actually tried. That last clause is why exploration exists.</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Supervised</th><th>Unsupervised</th><th>Reinforcement</th></tr></thead>
+    <tbody>
+      <tr><td><b>Feedback</b></td><td>the correct label for every input</td><td>none</td><td>a scalar reward for the chosen action only</td></tr>
+      <tr><td><b>Data</b></td><td>fixed, i.i.d.</td><td>fixed, i.i.d.</td><td>generated by the learner's own policy</td></tr>
+      <tr><td><b>Objective</b></td><td>loss against labels</td><td>structure, density, compression</td><td>expected return</td></tr>
+      <tr><td><b>Time</b></td><td>one-shot</td><td>one-shot</td><td>sequential, with delayed consequences</td></tr>
+      <tr><td><b>Core difficulty</b></td><td>generalization</td><td>defining the objective</td><td>exploration and credit assignment</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Why there are no labels</h3>
+  <p>A label would be “the optimal action in this state”. If you had that, you would already have the optimal policy. Instead you see the reward for the action you took, and the counterfactual (“what if I had gone left?”) is never observed. This is the same missing-data structure as causal inference, and it is called <em>bandit feedback</em>.</p>
+  <div class="box def"><span class="tag">Definition · three feedback models</span>
+    <p>At round \(t\) the learner sees an input \(x_t\) and picks an action \(a_t\) from \(K\) options. What it observes next defines the problem:</p>
+    <ul>
+      <li><b>Supervised:</b> the correct action \(a_t^*\) (equivalently, the loss of every action).</li>
+      <li><b>Full-information online learning:</b> the loss \(\ell_t(a)\) of every action \(a\), but no “correct” label.</li>
+      <li><b>Bandit:</b> only \(\ell_t(a_t)\), the loss of the action actually taken.</li>
+    </ul>
+    <p>Full RL is bandit feedback plus state: \(a_t\) also changes the next input \(x_{t+1}\). Regret bounds make the cost of the missing information concrete. Against \(K\) actions, the best achievable worst-case regret over \(T\) rounds grows like \(\sqrt{T \log K}\) with full information but like \(\sqrt{TK}\) with bandit feedback. Module 1 develops regret for the bandit case.</p>
+  </div>
+
+  <h3>Exploration is the defining difficulty</h3>
+  <p>Because feedback only covers chosen actions, the learner controls its own training data. Act greedily on current estimates and you may never discover a better action, since the estimate for an action you never try never improves. Act randomly and you throw away reward. This exploration–exploitation dilemma has no counterpart in supervised learning. Module 1 isolates it in its simplest form; Module 11 confronts it at scale.</p>
+  <div class="box intuition"><span class="tag">Intuition</span>
+    <p>You have eaten at restaurant A ten times (average 7/10) and at B once (5/10). Is B worse, or did you catch it on a bad night? Only another meal at B tells you, at the cost of a probably worse dinner. Every exploration strategy in this course is a policy for deciding when that dinner is worth it.</p>
+  </div>
+
+  <h3>Where imitation learning sits</h3>
+  <p>Imitation learning is given demonstrations: (state, expert action) pairs. That is supervised learning applied to a sequential problem, and the sequential part bites. Small mistakes take the learner into states the expert never visited, where it has no data, so errors compound: the cost gap grows quadratically with the horizon (Day 106). Imitation gives a strong start; RL lets you improve past the demonstrator. AlphaGo and modern LLM post-training do both, in that order.</p>
+
+  <h3>When RL is the wrong tool</h3>
+  <div class="box trap"><span class="tag">Use something else when…</span>
+    <ul>
+      <li>Your actions don't affect future inputs: it's a contextual bandit (Day 17) or plain supervised learning.</li>
+      <li>You have labels for the right action: use supervised learning or imitation.</li>
+      <li>You know the dynamics and can afford to plan: use dynamic programming, search or optimal control (Module 3). RL is what you do when you can't.</li>
+      <li>You can't simulate and real trials are expensive or dangerous: offline RL at best (Module 12), and expect pain.</li>
+      <li>You can't write down a reward that captures what you want: fix that first (Day 26).</li>
+    </ul>
+  </div>
+  <p>RL is sample-hungry, high-variance and fiddly. Reach for it when the sequential, interactive structure genuinely is the problem.</p>
+
+  <h3>Landmark results</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 700 175" role="img" aria-label="Timeline of landmark RL results from 1992 to 2022">
+      <line x1="30" y1="62" x2="670" y2="62" class="s-ln"/>
+      <g class="s-sm">
+        <circle cx="70" cy="62" r="6" class="s-acc"/>
+        <text x="70" y="44" class="s-ttl s-mid">1992</text>
+        <text x="70" y="88" class="s-mid">TD-Gammon</text>
+        <text x="70" y="106" class="s-ink2 s-mid s-sm">TD(λ) + neural net</text>
+        <text x="70" y="121" class="s-ink2 s-mid s-sm">backgammon self-play</text>
+        <text x="70" y="146" class="s-mod s-mid s-sm">→ Day 50</text>
+
+        <circle cx="210" cy="62" r="6" class="s-acc"/>
+        <text x="210" y="44" class="s-ttl s-mid">2015</text>
+        <text x="210" y="88" class="s-mid">Atari DQN</text>
+        <text x="210" y="106" class="s-ink2 s-mid s-sm">Q-learning + CNN</text>
+        <text x="210" y="121" class="s-ink2 s-mid s-sm">49 games from pixels</text>
+        <text x="210" y="146" class="s-mod s-mid s-sm">→ Day 71</text>
+
+        <circle cx="350" cy="62" r="6" class="s-acc"/>
+        <text x="350" y="44" class="s-ttl s-mid">2016</text>
+        <text x="350" y="88" class="s-mid">AlphaGo</text>
+        <text x="350" y="106" class="s-ink2 s-mid s-sm">MCTS + value nets</text>
+        <text x="350" y="121" class="s-ink2 s-mid s-sm">beat Lee Sedol 4–1</text>
+        <text x="350" y="146" class="s-mod s-mid s-sm">→ Day 100</text>
+
+        <circle cx="490" cy="62" r="6" class="s-acc"/>
+        <text x="490" y="44" class="s-ttl s-mid">2019</text>
+        <text x="490" y="88" class="s-mid">OpenAI Five</text>
+        <text x="490" y="106" class="s-ink2 s-mid s-sm">PPO at huge scale</text>
+        <text x="490" y="121" class="s-ink2 s-mid s-sm">beat Dota 2 champions</text>
+        <text x="490" y="146" class="s-mod s-mid s-sm">→ Day 120</text>
+
+        <circle cx="630" cy="62" r="6" class="s-acc"/>
+        <text x="630" y="44" class="s-ttl s-mid">2022</text>
+        <text x="630" y="88" class="s-mid">InstructGPT</text>
+        <text x="630" y="106" class="s-ink2 s-mid s-sm">reward model from</text>
+        <text x="630" y="121" class="s-ink2 s-mid s-sm">human prefs + PPO</text>
+        <text x="630" y="146" class="s-mod s-mid s-sm">→ Day 123</text>
+      </g>
+    </svg>
+    <figcaption><b>Five results, five ideas.</b> TD-Gammon showed TD learning plus function approximation could reach expert level. DQN made it work from raw pixels with one set of hyperparameters (published 2013 as a workshop paper, 2015 in <i>Nature</i>). AlphaGo combined search with learned value functions. OpenAI Five showed plain PPO scales to long-horizon team games. InstructGPT turned human preferences into a reward signal for language models.</figcaption>
+  </figure>
+
+  <div class="practice">
+    <h4>Practice · 30 min</h4>
+    <ol>
+      <li>For each landmark above, write down the state, the action space, the reward, and whether training used a simulator.</li>
+      <li>Classify each as supervised, bandit or full RL, with a one-line reason: spam filtering; thermostat control; choosing which ad to show when ads don't affect future visits; ordering inventory across a season; playing Go; learning to drive from logged human driving.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §1.7 · Tesauro 1995, “Temporal Difference Learning and TD-Gammon” · Mnih et al. 2015 · Silver et al. 2016 · Ouyang et al. 2022</p>
+</article>
+
+<!-- ================================================================ DAY 3 -->
+<article class="day" id="d3">
+  <header class="day-head">
+    <span class="day-no">DAY 3</span>
+    <h2>Probability You Genuinely Need</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Every equation in this course is an expectation. Once you can manipulate conditional expectations, and the law of total expectation in particular, the Bellman equations stop being magic and become one-line consequences of the definitions.</p>
+
+  <h3>Random variables and distributions</h3>
+  <p>A discrete random variable has a probability mass function \(p(x) = \Pr(X = x)\). A continuous one has a density \(f\) with \(\Pr(a \le X \le b) = \int_a^b f(x)\,dx\). Tabular RL is mostly discrete: finite states and actions, often discrete rewards. Continuous control (Days 93–95) has continuous states and actions, and you will meet densities in policy gradients.</p>
+
+  <h3>Joint, marginal and conditional</h3>
+  $$p(x, y) = p(y \mid x)\, p(x), \qquad p(y) = \sum_x p(x, y), \qquad p(y \mid x) = \frac{p(x, y)}{p(x)}.$$
+  <p>The environment is a conditional distribution: \(p(s', r \mid s, a)\), the probability of landing in \(s'\) with reward \(r\) after taking \(a\) in \(s\) (Day 20). Every other quantity is a marginal of it. For example, \(p(s' \mid s, a) = \sum_r p(s', r \mid s, a)\) and \(r(s, a) = \sum_{s', r} r\, p(s', r \mid s, a)\).</p>
+
+  <h3>Expectation, linearity, variance</h3>
+  <div class="box def"><span class="tag">Definitions</span>
+    <p>\(\E[X] = \sum_x x\, p(x)\). <b>Linearity:</b> \(\E[aX + bY] = a\,\E[X] + b\,\E[Y]\), always, even when \(X\) and \(Y\) are dependent.</p>
+    <p>\(\Var[X] = \E\big[(X - \E X)^2\big] = \E[X^2] - (\E X)^2\), &nbsp; \(\operatorname{Cov}(X, Y) = \E[XY] - \E X\, \E Y\), &nbsp; \(\Var[X + Y] = \Var X + \Var Y + 2\operatorname{Cov}(X, Y)\).</p>
+  </div>
+  <p>Linearity is why the expected return splits into a sum of expected rewards. The covariance term is why baselines reduce variance in policy gradients (Day 85): subtracting something correlated with your estimate cancels part of its noise without changing its mean.</p>
+
+  <h3>Conditional expectation and the tower rule</h3>
+  <div class="box thm"><span class="tag">Theorem · Law of total expectation</span>
+    <p>\(\E[X] = \E\big[\E[X \mid Y]\big]\), and more generally \(\E[X \mid Z] = \E\big[\E[X \mid Y, Z] \mid Z\big]\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · discrete case</span>
+    $$\E\big[\E[X \mid Y]\big] = \sum_y p(y) \sum_x x\, p(x \mid y) = \sum_x x \sum_y p(x, y) = \sum_x x\, p(x) = \E[X].$$
+  </div>
+
+  <h3>Why this is the engine of every Bellman equation</h3>
+  <p>Define the value of a state as its expected return, \(v(s) = \E[G_t \mid S_t = s]\). The return obeys \(G_t = R_{t+1} + \gamma G_{t+1}\). Take expectations and condition on the next state:</p>
+  $$\begin{aligned}
+  v(s) &amp;= \E[R_{t+1} + \gamma G_{t+1} \mid S_t = s] \\
+       &amp;= \E[R_{t+1} \mid S_t = s] + \gamma\, \E\big[\, \E[G_{t+1} \mid S_{t+1}, S_t = s] \;\big|\; S_t = s \big] \\
+       &amp;= \E[R_{t+1} + \gamma\, v(S_{t+1}) \mid S_t = s].
+  \end{aligned}$$
+  <p>The last step uses the Markov property, \(\E[G_{t+1} \mid S_{t+1}, S_t] = v(S_{t+1})\), which Day 6 makes precise. That is the Bellman expectation equation of Day 23, obtained from nothing but linearity and the tower rule.</p>
+
+  <h3>Law of large numbers and Monte Carlo estimation</h3>
+  <div class="box thm"><span class="tag">Theorem · LLN and standard error</span>
+    <p>If \(X_1, \dots, X_n\) are i.i.d. with mean \(\mu\) and variance \(\sigma^2 &lt; \infty\), the sample mean \(\bar X_n = \tfrac1n \sum_i X_i\) converges to \(\mu\), and \(\Var[\bar X_n] = \sigma^2 / n\). The standard error is \(\sigma/\sqrt n\): halving the error costs four times the samples.</p>
+  </div>
+  <p>Monte Carlo methods (Module 4) estimate \(v(s)\) exactly this way, by averaging the returns observed after visiting \(s\). Their cost is this \(1/\sqrt n\) rate together with the variance of a whole episode's return.</p>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+
+def episode_return(rng, gamma=0.9):
+    """Reward 1 every step; the episode ends with probability 0.2 after each step."""
+    G, discount = 0.0, 1.0
+    while True:
+        G += discount * 1.0
+        if rng.random() &lt; 0.2:
+            return G
+        discount *= gamma
+
+for n in [10, 100, 1_000, 10_000]:
+    xs = np.array([episode_return(rng) for _ in range(n)])
+    half = 1.96 * xs.std(ddof=1) / np.sqrt(n)
+    print(f"n={n:&gt;6}  mean={xs.mean():.3f}  ±{half:.3f}")
+# exact: v = 1 + 0.9 * 0.8 * v, so v = 1 / (1 - 0.72) = 3.571...</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 600 235" role="img" aria-label="Confidence interval half-width falls as one over the square root of n on log-log axes">
+      <line x1="70" y1="200" x2="560" y2="200" class="s-ln"/><line x1="70" y1="25" x2="70" y2="200" class="s-ln"/>
+      <line x1="70" y1="30" x2="560" y2="30" class="s-grid s-dash"/><line x1="70" y1="115" x2="560" y2="115" class="s-grid s-dash"/>
+      <text x="62" y="34" class="s-ink3 s-end s-sm">1</text><text x="62" y="119" class="s-ink3 s-end s-sm">0.1</text><text x="62" y="204" class="s-ink3 s-end s-sm">0.01</text>
+      <text x="70" y="218" class="s-ink3 s-mid s-sm">10</text><text x="230" y="218" class="s-ink3 s-mid s-sm">100</text><text x="390" y="218" class="s-ink3 s-mid s-sm">1,000</text><text x="550" y="218" class="s-ink3 s-mid s-sm">10,000</text>
+      <text x="315" y="233" class="s-ink3 s-mid s-sm">number of episodes n (log scale)</text>
+      <polyline points="70,47.7 230,90.2 390,132.7 550,175.2" class="s-ln-mod"/>
+      <circle cx="70" cy="47.7" r="4.5" class="s-mod"/><circle cx="230" cy="90.2" r="4.5" class="s-mod"/><circle cx="390" cy="132.7" r="4.5" class="s-mod"/><circle cx="550" cy="175.2" r="4.5" class="s-mod"/>
+      <text x="300" y="72" class="s-ink2 s-sm">slope −½ on log–log axes:</text>
+      <text x="300" y="88" class="s-ink2 s-sm">100× the episodes buys a 10× tighter interval</text>
+      <text x="80" y="20" class="s-ink3 s-sm">95% half-width, 1.96 σ / √n  (σ = 1)</text>
+    </svg>
+    <figcaption><b>The Monte Carlo rate.</b> Standard error falls only as \(1/\sqrt n\). Monte Carlo RL pays this rate with \(\sigma\) equal to the spread of an entire episode's return, which is why it needs so many episodes, and why lowering variance (baselines, bootstrapping) matters as much as removing bias.</figcaption>
+  </figure>
+
+  <div class="box trap"><span class="tag">What breaks · E[max] ≠ max E</span>
+    <p>Give each of 10 arms an unbiased but noisy estimate. The largest estimate is biased upward: \(\E\big[\max_i \hat Q_i\big] \ge \max_i \E\big[\hat Q_i\big]\), by Jensen's inequality, since max is convex. Q-learning takes a max over noisy estimates at every update, so it inherits this bias. That is maximization bias, and Day 47 fixes it with Double Q-learning.</p>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Prove \(\Var[X] = \E[X^2] - (\E X)^2\) and \(\Var[\bar X_n] = \sigma^2 / n\).</li>
+      <li>Run the Monte Carlo snippet. Plot the 95% interval half-width against \(n\) on log–log axes and confirm the slope is \(-1/2\).</li>
+      <li>Simulate 10 arms whose true means are all 0, each estimated from 5 samples of \(\mathcal N(0, 1)\). Estimate \(\E[\max_i \hat Q_i]\) over many trials and compare it with 0. Repeat with 50 samples per arm.</li>
+      <li>Derive \(v = \E[G_0]\) for the episode in the snippet by hand, using the tower rule on whether the first step ends the episode.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.5 (expectation notation) · Bertsekas &amp; Tsitsiklis, <i>Introduction to Probability</i>, Ch. 1–4</p>
+</article>
+
+<!-- ================================================================ DAY 4 -->
+<article class="day" id="d4">
+  <header class="day-head">
+    <span class="day-no">DAY 4</span>
+    <h2>Linear Algebra &amp; Calculus Toolkit</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Value functions are vectors and dynamics are matrices. Every convergence proof in Modules 3 and 7 is an argument about how a matrix shrinks vectors, and the two tools that measure the shrinking are the sup norm and the spectral radius.</p>
+
+  <h3>Value functions are vectors, dynamics are matrices</h3>
+  <p>With \(n\) states, a value function is a vector \(v \in \R^n\). Fix a policy and its dynamics become a row-stochastic matrix \(P^\pi\) with \(P^\pi_{ij} = \Pr(S_{t+1} = j \mid S_t = i)\): non-negative entries, every row summing to 1. Then</p>
+  $$(P^\pi v)_i = \sum_j P^\pi_{ij}\, v_j = \E[v(S_{t+1}) \mid S_t = i],$$
+  <p>so a matrix–vector product is a one-step expectation. With \(r^\pi_i\) the expected immediate reward in state \(i\), the Bellman equation from Day 3 becomes a linear system:</p>
+  $$v^\pi = r^\pi + \gamma P^\pi v^\pi.$$
+
+  <h3>Eigenvalues and the spectral radius</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>\(\lambda\) is an eigenvalue of \(A\) if \(Av = \lambda v\) for some \(v \ne 0\). The spectral radius is \(\rho(A) = \max_i |\lambda_i|\). Key facts: \(A^k \to 0\) if and only if \(\rho(A) &lt; 1\), and in that case the Neumann series converges, \(\sum_{k \ge 0} A^k = (I - A)^{-1}\).</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem</span>
+    <p>For a row-stochastic \(P\), \(\rho(P) = 1\). Hence \(\rho(\gamma P) = \gamma &lt; 1\) for \(\gamma &lt; 1\), the matrix \(I - \gamma P^\pi\) is invertible, and</p>
+    $$v^\pi = (I - \gamma P^\pi)^{-1} r^\pi = \sum_{k=0}^{\infty} (\gamma P^\pi)^k\, r^\pi.$$
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Suppose \(Pv = \lambda v\) and pick \(i\) maximising \(|v_i|\). Then \(|\lambda|\,|v_i| = \big|\sum_j P_{ij} v_j\big| \le \sum_j P_{ij}\,|v_j| \le |v_i|\), so \(|\lambda| \le 1\). The value \(\lambda = 1\) is attained by \(v = \mathbf 1\), because every row sums to 1.</p>
+  </div>
+  <p>Read the series term by term: expected reward now, plus \(\gamma\) times the expected reward one step later, plus \(\gamma^2\) times two steps later, and so on. That is the definition of expected discounted return, recovered from linear algebra. Day 25 solves MDPs this way and shows why the \(O(n^3)\) solve stops scaling.</p>
+
+  <h3>Norms, and why the sup norm matters</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>\(\|v\|_1 = \sum_i |v_i|\), &nbsp; \(\|v\|_2 = \big(\sum_i v_i^2\big)^{1/2}\), &nbsp; \(\|v\|_\infty = \max_i |v_i|\).</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 600 205" role="img" aria-label="Unit balls of the L1, L2 and L-infinity norms">
+      <g>
+        <line x1="40" y1="100" x2="160" y2="100" class="s-grid"/><line x1="100" y1="40" x2="100" y2="160" class="s-grid"/>
+        <polygon points="100,45 155,100 100,155 45,100" class="s-ln-mod"/>
+        <text x="100" y="188" class="s-mid">‖v‖₁ ≤ 1</text>
+      </g>
+      <g>
+        <line x1="240" y1="100" x2="360" y2="100" class="s-grid"/><line x1="300" y1="40" x2="300" y2="160" class="s-grid"/>
+        <circle cx="300" cy="100" r="55" class="s-ln-info"/>
+        <text x="300" y="188" class="s-mid">‖v‖₂ ≤ 1</text>
+      </g>
+      <g>
+        <line x1="440" y1="100" x2="560" y2="100" class="s-grid"/><line x1="500" y1="40" x2="500" y2="160" class="s-grid"/>
+        <rect x="445" y="45" width="110" height="110" class="s-ln-acc"/>
+        <text x="500" y="188" class="s-mid">‖v‖∞ ≤ 1</text>
+      </g>
+    </svg>
+    <figcaption><b>Unit balls in two dimensions.</b> The sup-norm ball is a box: \(\|v - v^*\|_\infty \le \varepsilon\) says no state's value is off by more than \(\varepsilon\), which is exactly the guarantee you want from a value function.</figcaption>
+  </figure>
+  <div class="box thm"><span class="tag">Lemma · stochastic matrices don't expand the sup norm</span>
+    <p>\(\|Pv\|_\infty \le \|v\|_\infty\). Proof: \(|(Pv)_i| \le \sum_j P_{ij}\,|v_j| \le \max_j |v_j| \sum_j P_{ij} = \|v\|_\infty\).</p>
+  </div>
+  <p>The consequence is the most important inequality in tabular RL. The Bellman operator \(Tv = r + \gamma P v\) satisfies</p>
+  $$\|Tv - Tu\|_\infty = \gamma\,\|P(v - u)\|_\infty \le \gamma\,\|v - u\|_\infty,$$
+  <p>so \(T\) is a \(\gamma\)-contraction. That one line is the convergence proof for policy evaluation and value iteration (Day 32). The same statement is false in the \(L_2\) norm in general, which is part of why function approximation (Module 7) loses these guarantees.</p>
+
+  <h3>Derivatives, gradients, Jacobians, chain rule</h3>
+  <p>For \(f: \R^d \to \R\), the gradient \(\nabla f(\theta) = (\partial f/\partial\theta_1, \dots, \partial f/\partial\theta_d)\) points in the direction of steepest ascent. For \(g: \R^d \to \R^m\), the Jacobian \(J_g \in \R^{m \times d}\) has entries \(\partial g_i / \partial \theta_j\). The chain rule reads \(\nabla_\theta f(g(\theta)) = J_g(\theta)^\top\, \nabla f(g(\theta))\). Backpropagation (Day 9) is this rule applied mechanically, layer by layer.</p>
+
+  <h3>Taking a gradient through an expectation</h3>
+  <p>RL objectives look like \(J(\theta) = \E_{x \sim p_\theta}[f(x)]\): the parameters change the distribution of the data, not the function being averaged. There are two ways to differentiate this.</p>
+  <div class="box deriv"><span class="tag">Derivation · score function (log-derivative) trick</span>
+    $$\nabla_\theta\, \E_{x \sim p_\theta}[f(x)] = \sum_x f(x)\, \nabla_\theta p_\theta(x) = \sum_x f(x)\, p_\theta(x)\, \nabla_\theta \log p_\theta(x) = \E_{x \sim p_\theta}\big[f(x)\, \nabla_\theta \log p_\theta(x)\big].$$
+    <p>The middle step uses \(\nabla p = p\, \nabla \log p\). No derivative of \(f\) is needed, so \(f\) can be a black-box reward. This is the heart of REINFORCE and the policy gradient theorem (Days 83–84).</p>
+  </div>
+  <p>The alternative, the <em>reparameterization trick</em>, writes \(x = g_\theta(\varepsilon)\) with noise \(\varepsilon\) whose distribution doesn't depend on \(\theta\), then differentiates \(f(g_\theta(\varepsilon))\) directly. It usually has much lower variance but needs a differentiable \(f\). SAC uses it for its actor (Day 95).</p>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+mu, sigma, n = 0.5, 1.0, 200_000
+f = lambda x: x ** 2                  # E[f] = mu^2 + sigma^2, so d/dmu E[f] = 2*mu = 1.0
+
+x = rng.normal(mu, sigma, n)
+score = (x - mu) / sigma ** 2         # d/dmu of log N(x; mu, sigma^2)
+g_score = f(x) * score                # score-function samples
+
+eps = rng.normal(0.0, 1.0, n)
+g_reparam = 2 * (mu + sigma * eps)    # d/dmu of f(mu + sigma*eps)
+
+print(g_score.mean(), g_reparam.mean())   # both about 1.0
+print(g_score.var(), g_reparam.var())     # the score estimator is far noisier</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>γ close to 1 makes everything slow.</b> Repeated application of \(T\) shrinks the error by \(\gamma\) per step, so reaching tolerance \(\varepsilon\) takes about \(\ln(1/\varepsilon)/(1 - \gamma)\) iterations: roughly 140 for \(\gamma = 0.9\), but about 1,400 for \(\gamma = 0.99\) at \(\varepsilon = 10^{-6}\). The same factor \(1/(1-\gamma)\) reappears in every error bound in Module 3.</li>
+      <li><b>Never form the inverse.</b> Solve \((I - \gamma P)v = r\) with <code>np.linalg.solve</code>; <code>np.linalg.inv</code> is slower and less accurate, and \(I - \gamma P\) becomes badly conditioned as \(\gamma \to 1\).</li>
+      <li><b>The sup-norm argument doesn't transfer.</b> “\(T\) is a contraction” is a statement about \(\|\cdot\|_\infty\). Combine \(T\) with a least-squares projection, which is non-expansive only in a weighted \(L_2\) norm, and the composition can expand. That is the mechanism behind the divergence examples of Day 69.</li>
+      <li><b>Score-function gradients are noisy by default.</b> The estimator is unbiased, but its variance scales with \(f^2\). Without a baseline, adding a constant to every reward changes nothing in expectation and makes the gradient noisier.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Build a random 4-state row-stochastic \(P\) (normalise random rows). Compute <code>np.linalg.eigvals(P)</code> and confirm the largest modulus is 1.</li>
+      <li>Solve \(v = r + \gamma P v\) three ways: <code>np.linalg.solve</code>, a truncated Neumann series, and repeated application of \(T\). Count the iterations each iterative method needs to reach \(10^{-6}\) for \(\gamma = 0.5, 0.9, 0.99\).</li>
+      <li>Write out the proof that \(T\) is a \(\gamma\)-contraction in \(\|\cdot\|_\infty\), justifying every step.</li>
+      <li>Run the gradient snippet and report the variance ratio. Then use \((f(x) - b)\cdot\text{score}\) with \(b = \E[f]\). The mean is unchanged; what happens to the variance? (You have just invented the baseline of Day 85.)</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Strang, <i>Introduction to Linear Algebra</i>, Ch. 6 · Sutton &amp; Barto §4.1 · Mohamed et al. 2020, “Monte Carlo Gradient Estimation in Machine Learning”, §4–5</p>
+</article>
+
+<!-- ================================================================ DAY 5 -->
+<article class="day" id="d5">
+  <header class="day-head">
+    <span class="day-no">DAY 5</span>
+    <h2>Optimization for RL</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Almost every RL algorithm is stochastic gradient descent on an objective that keeps moving. Knowing exactly what SGD, momentum and Adam do, and what the Robbins–Monro conditions guarantee, is how you tell a bug from a learning-rate problem.</p>
+
+  <h3>Objectives and landscapes</h3>
+  <p>We minimise a loss \(L(\theta)\), or maximise an objective such as expected return. If \(L\) is convex, every local minimum is global and gradient descent with a suitable step converges to it. Neural-network losses are non-convex, with saddle points and flat plateaus, and we settle for good stationary points. In RL there is an extra twist: even the objective moves, as you'll see at the end of this lesson.</p>
+
+  <h3>Gradient descent and SGD</h3>
+  <div class="box algo"><span class="tag">Algorithm · SGD</span>
+    <ol>
+      <li>Sample a minibatch \(B\) and compute \(g = \frac{1}{|B|}\sum_{i \in B} \nabla_\theta \ell_i(\theta)\). It is unbiased: \(\E[g] = \nabla L(\theta)\).</li>
+      <li>Update \(\theta \leftarrow \theta - \alpha\, g\).</li>
+    </ol>
+  </div>
+  <p>Minibatch noise has variance proportional to \(1/|B|\). On a quadratic with curvatures \(\lambda_{\min} \le \dots \le \lambda_{\max}\), plain gradient descent is stable only for \(\alpha &lt; 2/\lambda_{\max}\), and then the flattest direction contracts by \(1 - \alpha\lambda_{\min}\) per step. Badly conditioned problems are slow because the steepest direction caps the step size for every other direction.</p>
+
+  <h3>Momentum, RMSProp and Adam</h3>
+  <div class="box algo"><span class="tag">Algorithm · Adam</span>
+    <ol>
+      <li>\(m \leftarrow \beta_1 m + (1 - \beta_1)\, g\) <span class="step">(momentum: running mean of gradients)</span></li>
+      <li>\(v \leftarrow \beta_2 v + (1 - \beta_2)\, g^2\) <span class="step">(RMSProp: running mean of squared gradients)</span></li>
+      <li>\(\hat m = m / (1 - \beta_1^t)\), \(\hat v = v / (1 - \beta_2^t)\) <span class="step">(bias correction for the zero start)</span></li>
+      <li>\(\theta \leftarrow \theta - \alpha\, \hat m / (\sqrt{\hat v} + \epsilon)\)</li>
+    </ol>
+  </div>
+  <p>Momentum alone averages gradients over roughly \(1/(1 - \beta_1)\) steps, which smooths noise. RMSProp alone divides each coordinate by its running RMS, giving per-parameter step sizes that undo bad conditioning. Adam is both plus bias correction. The defaults are \(\beta_1 = 0.9\) and \(\beta_2 = 0.999\).</p>
+  <div class="box note"><span class="tag">RL practice</span>
+    <p>Deep RL often changes \(\epsilon\). Rainbow-style DQN agents use Adam with a learning rate around \(6.25\times10^{-5}\) and \(\epsilon = 1.5\times10^{-4}\); common PPO implementations use \(2.5\times10^{-4}\) to \(3\times10^{-4}\) with \(\epsilon = 10^{-5}\). A larger \(\epsilon\) stops the update from exploding when gradient variance estimates are tiny. Take the exact values from the implementation you are reproducing, since they are part of the algorithm.</p>
+  </div>
+
+  <h3>Learning-rate schedules</h3>
+  <p>The common choices are constant, linear decay to zero (PPO's usual default), cosine decay, and warm-up followed by decay. Constant step sizes are far more common in RL than in supervised learning, because the problem is nonstationary: a step size decayed towards zero can no longer track a moving target.</p>
+
+  <h3>Robbins–Monro: when do noisy updates converge?</h3>
+  <div class="box thm"><span class="tag">Theorem · stochastic approximation (simplified)</span>
+    <p>Consider \(\theta_{k+1} = \theta_k + \alpha_k (Y_k - \theta_k)\) where \(\E[Y_k \mid \text{past}] = \mu\) and the noise has bounded variance. Then \(\theta_k \to \mu\) almost surely provided</p>
+    $$\sum_{k} \alpha_k = \infty \qquad\text{and}\qquad \sum_k \alpha_k^2 &lt; \infty.$$
+  </div>
+  <p>The first condition makes the steps large enough, in total, to overcome any initial condition. The second makes them eventually small enough to average out the noise. The choice \(\alpha_k = 1/k\) satisfies both, and it is exactly the running sample mean. A constant \(\alpha\) violates the second condition: the estimate keeps jittering, with variance proportional to \(\alpha\), but in exchange it tracks a drifting target (Day 12). Every tabular convergence proof in Modules 4–5, Q-learning's included, assumes these conditions.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 620 215" role="img" aria-label="Four step-size schedules and whether they satisfy the Robbins–Monro conditions">
+      <line x1="50" y1="180" x2="595" y2="180" class="s-ln"/><line x1="50" y1="20" x2="50" y2="180" class="s-ln"/>
+      <text x="44" y="24" class="s-ink3 s-end s-sm">1.0</text><text x="44" y="104" class="s-ink3 s-end s-sm">0.5</text><text x="44" y="183" class="s-ink3 s-end s-sm">0</text>
+      <text x="50" y="197" class="s-ink3 s-mid s-sm">1</text><text x="217.6" y="197" class="s-ink3 s-mid s-sm">10</text><text x="403.8" y="197" class="s-ink3 s-mid s-sm">20</text><text x="589.4" y="197" class="s-ink3 s-mid s-sm">30</text>
+      <text x="320" y="212" class="s-ink3 s-mid s-sm">update k</text>
+      <line x1="50" y1="140" x2="589.4" y2="140" class="s-ln-bad s-dash"/>
+      <polyline points="50,20 68.6,66.9 87.2,87.6 105.9,100 124.5,108.4 161.7,119.5 217.6,129.4 310.7,138.7 403.8,144.2 589.4,150.8" class="s-ln-warn"/>
+      <polyline points="50,20 68.6,81.5 87.2,105.9 105.9,119.4 124.5,128.1 161.7,139 217.6,148.1 310.7,156 403.8,160.4 589.4,165.2" class="s-ln-acc"/>
+      <polyline points="50,20 68.6,100 87.2,126.7 105.9,140 124.5,148 161.7,157.1 217.6,164 310.7,169.3 403.8,172 589.4,174.7" class="s-ln-mod"/>
+      <g class="s-sm">
+        <line x1="290" y1="34" x2="310" y2="34" class="s-ln-mod"/><text x="318" y="38">αₖ = 1/k        ✓ both (the sample mean)</text>
+        <line x1="290" y1="52" x2="310" y2="52" class="s-ln-acc"/><text x="318" y="56">αₖ = k^−0.7     ✓ both</text>
+        <line x1="290" y1="70" x2="310" y2="70" class="s-ln-warn"/><text x="318" y="74">αₖ = 1/√k       ✗ Σα² diverges</text>
+        <line x1="290" y1="88" x2="310" y2="88" class="s-ln-bad s-dash"/><text x="318" y="92">αₖ = 0.25       ✗ never settles, tracks drift</text>
+      </g>
+    </svg>
+    <figcaption><b>Step-size schedules.</b> The conditions sit on a knife-edge: \(k^{-p}\) works exactly for \(\tfrac12 &lt; p \le 1\). In practice deep RL ignores them and uses constant or linearly decayed rates, trading guaranteed convergence for the ability to track a moving target.</figcaption>
+  </figure>
+
+  <h3>Why RL optimization is non-stationary</h3>
+  <div class="box trap"><span class="tag">What breaks · three moving parts</span>
+    <ol>
+      <li><b>Moving targets.</b> A TD target \(r + \gamma \max_{a'} Q(s', a'; \theta)\) depends on \(\theta\), so the regression labels change with every update. Target networks (Day 73) slow this down.</li>
+      <li><b>Policy-dependent data.</b> Improving the policy changes which states you visit, so the training distribution shifts under you.</li>
+      <li><b>Exploration schedules.</b> \(\varepsilon\) decays and entropy bonuses shrink, so the behaviour policy itself changes during training.</li>
+    </ol>
+    <p>The upshot: RL loss curves are neither monotone nor very informative, and a falling loss does not mean a better policy. Track returns.</p>
+  </div>
+
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+A = np.diag([1.0, 50.0])                          # badly conditioned quadratic
+grad = lambda th: A @ th + rng.normal(0, 1.0, 2)  # noisy gradient
+
+def sgd(th, lr=0.015, steps=200):
+    for _ in range(steps):
+        th = th - lr * grad(th)
+    return th
+
+def adam(th, lr=0.05, b1=0.9, b2=0.999, eps=1e-8, steps=200):
+    m = v = np.zeros_like(th)
+    for t in range(1, steps + 1):
+        g = grad(th)
+        m = b1 * m + (1 - b1) * g
+        v = b2 * v + (1 - b2) * g ** 2
+        m_hat, v_hat = m / (1 - b1 ** t), v / (1 - b2 ** t)
+        th = th - lr * m_hat / (np.sqrt(v_hat) + eps)
+    return th
+
+th0 = np.array([5.0, 5.0])
+print("SGD :", sgd(th0.copy()))    # flat axis still far from 0: lr is capped by the steep axis
+print("Adam:", adam(th0.copy()))   # per-coordinate scaling removes the conditioning problem</code></pre>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run SGD with <code>lr</code> in {0.005, 0.015, 0.045}. One diverges. Explain which, using the \(2/\lambda_{\max}\) bound.</li>
+      <li>Implement \(\theta \leftarrow \theta + \alpha_k (Y_k - \theta)\) with \(Y_k \sim \mathcal N(3, 1)\) for \(\alpha_k = 1/k\), \(1/\sqrt k\) and \(0.1\). Plot \(|\theta_k - 3|\) over \(10^4\) steps. Which schedules satisfy Robbins–Monro, and does the plot agree?</li>
+      <li>Make the target drift, \(\mu_k = 3 + 0.001k\), and repeat. Which schedule tracks it best?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Goodfellow, Bengio &amp; Courville, <i>Deep Learning</i>, Ch. 8 · Kingma &amp; Ba 2015, “Adam” · Robbins &amp; Monro 1951 · Sutton &amp; Barto §2.5</p>
+</article>
+
+<!-- ================================================================ DAY 6 -->
+<article class="day" id="d6">
+  <header class="day-head">
+    <span class="day-no">DAY 6</span>
+    <h2>Stochastic Processes &amp; Markov Chains</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">A Markov chain is an MDP with the decisions taken out, or equivalently an MDP once a policy is fixed and folded in. Everything about long-run behaviour in RL (stationary distributions, mixing, the on-policy state distribution \(\mu\) of Module 7) is Markov chain theory.</p>
+
+  <h3>Stochastic processes and the Markov property</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A stochastic process is a sequence of random variables \((X_t)_{t \ge 0}\). It is <b>Markov</b> if</p>
+    $$\Pr(X_{t+1} = j \mid X_t = i, X_{t-1}, \dots, X_0) = \Pr(X_{t+1} = j \mid X_t = i),$$
+    <p>and <b>time-homogeneous</b> if this probability doesn't depend on \(t\). Its values form the transition matrix \(P_{ij}\).</p>
+  </div>
+  <p>“The future is independent of the past given the present.” This is a property of the <em>state representation</em>, not of the world. A pendulum's angle alone is not Markov, because you can't tell which way it is swinging; angle plus angular velocity is. Choosing a Markov state is half of modelling, which is why Atari agents stack frames (Day 74) and partially observed agents use memory (Day 121).</p>
+
+  <h3>Transition matrices and n-step transitions</h3>
+  <div class="box thm"><span class="tag">Theorem · Chapman–Kolmogorov</span>
+    <p>\(\Pr(X_{t+n} = j \mid X_t = i) = (P^n)_{ij}\). If \(X_0 \sim \pi_0\), written as a row vector, then \(X_t \sim \pi_t = \pi_0 P^t\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    <p>Condition on the intermediate state: \(\Pr(X_{t+2} = j \mid X_t = i) = \sum_k P_{ik} P_{kj} = (P^2)_{ij}\). Induct on \(n\).</p>
+  </div>
+
+  <h3>Irreducible, aperiodic, ergodic</h3>
+  <div class="box def"><span class="tag">Definitions</span>
+    <ul>
+      <li><b>Irreducible:</b> every state can reach every other, so \((P^n)_{ij} &gt; 0\) for some \(n\).</li>
+      <li><b>Period</b> of \(i\): \(\gcd\{n \ge 1 : (P^n)_{ii} &gt; 0\}\). The chain is <b>aperiodic</b> if every state has period 1; a single self-loop is enough in an irreducible chain.</li>
+      <li><b>Ergodic</b> (for finite chains): irreducible and aperiodic.</li>
+    </ul>
+  </div>
+
+  <h3>Stationary distributions</h3>
+  <div class="box thm"><span class="tag">Theorem</span>
+    <p>A distribution \(\pi\) is <b>stationary</b> if \(\pi = \pi P\). A finite irreducible chain has exactly one, with every \(\pi_i &gt; 0\) and \(\pi_i = 1 / \E[\text{return time to } i]\). If the chain is also aperiodic, \(\pi_t \to \pi\) from any starting distribution. Without aperiodicity \(\pi_t\) may oscillate forever, but time averages still converge: \(\frac1T \sum_{t &lt; T} \mathbb 1\{X_t = i\} \to \pi_i\) almost surely.</p>
+  </div>
+  <p>To compute \(\pi\), solve the linear system \(\pi P = \pi\) together with \(\sum_i \pi_i = 1\); equivalently, take the left eigenvector of \(P\) for eigenvalue 1 and normalise it. Try all three chains below. The ergodic one converges within a few dozen steps. The cycle never settles in \(\pi_t\), yet its visit frequencies converge. The checkout chain ends in its absorbing state every time.</p>
+
+  <div class="demo" data-demo="markov"><p class="demo-loading">Loading demo…</p></div>
+
+  <h3>Absorbing states</h3>
+  <p>A state is absorbing if \(P_{ii} = 1\). Episodic RL tasks are exactly chains with absorbing terminal states once a policy is fixed. Order the transient states first:</p>
+  $$P = \begin{pmatrix} Q &amp; R \\ 0 &amp; I \end{pmatrix}, \qquad N = (I - Q)^{-1} = \sum_{k \ge 0} Q^k.$$
+  <p>\(N_{ij}\) is the expected number of visits to transient state \(j\) starting from \(i\). Expected steps to absorption are \(t = N\mathbf 1\), and absorption probabilities are \(B = NR\).</p>
+  <div class="box intuition"><span class="tag">Intuition</span>
+    <p>This is the Neumann series of Day 4 again, with the substochastic \(Q\) (some probability leaks into absorption every step) playing the role of \(\gamma P\). Discounting by \(\gamma\) is equivalent to an undiscounted chain that terminates with probability \(1 - \gamma\) at every step.</p>
+  </div>
+
+  <pre><code>import numpy as np
+
+P = np.array([[0.70, 0.20, 0.10],
+              [0.30, 0.40, 0.30],
+              [0.20, 0.40, 0.40]])
+
+# 1) left eigenvector for eigenvalue 1
+w, V = np.linalg.eig(P.T)
+pi = np.real(V[:, np.argmin(np.abs(w - 1))])
+pi /= pi.sum()
+
+# 2) linear system: (P^T - I) pi = 0 plus the constraint sum(pi) = 1
+A = np.vstack([P.T - np.eye(3), np.ones(3)])
+pi_ls = np.linalg.lstsq(A, np.r_[0, 0, 0, 1], rcond=None)[0]
+
+# 3) simulation: long-run visit frequencies
+rng, x, counts = np.random.default_rng(0), 0, np.zeros(3)
+for _ in range(100_000):
+    x = rng.choice(3, p=P[x])
+    counts[x] += 1
+
+print(pi, pi_ls, counts / counts.sum())   # all about [0.462, 0.308, 0.231]</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Reducible chains have many stationary distributions.</b> With two closed classes, every mixture of their stationary distributions is stationary too, and the eigenvector you get back depends on numerical accident. Check irreducibility before trusting a unique \(\pi\).</li>
+      <li><b><code>np.linalg.eig</code> returns any eigenvector.</b> It can be complex-typed, negative or unnormalised. Take the real part, divide by the sum, and check that every entry is non-negative.</li>
+      <li><b>Power iteration from a point mass</b> never converges on a periodic chain (the demo's cycle). Averaging the iterates, or using the lazy chain \((P + I)/2\), fixes it without changing \(\pi\).</li>
+      <li><b>Slow mixing looks like convergence.</b> If the chain has nearly separate regions, empirical frequencies can sit at the wrong values for a very long time. In RL this is exactly the agent stuck in one part of the state space, and it is why exploration (Module 11) matters.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>For the weather chain, compute \(\pi\) three ways (eigenvector, linear solve, power iteration \(\pi_0 P^t\)) and check that they agree.</li>
+      <li>Build the 3-cycle chain. Show that \(\pi_t\) oscillates while the empirical visit frequencies converge. What is the smallest change that makes the chain aperiodic?</li>
+      <li>For the checkout chain in the demo, compute the fundamental matrix \(N\) and the expected number of steps from “Browse” until “Bought”. Verify by simulation.</li>
+      <li>Show that the expected discounted return with discount \(\gamma\) equals the expected undiscounted return in a modified chain that terminates with probability \(1 - \gamma\) after every step.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.1 · Levin, Peres &amp; Wilmer, <i>Markov Chains and Mixing Times</i>, Ch. 1 · Kemeny &amp; Snell, <i>Finite Markov Chains</i> (absorbing chains)</p>
+</article>
+
+<!-- ================================================================ DAY 7 -->
+<article class="day" id="d7">
+  <header class="day-head">
+    <span class="day-no">DAY 7</span>
+    <h2>Python, NumPy &amp; Experiment Hygiene</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">RL results are noisy enough that a careless experiment proves nothing. Fast vectorized code lets you afford many seeds; seeding, logging and confidence intervals let you trust what those seeds tell you.</p>
+
+  <h3>Environment setup</h3>
+  <pre><code class="plain">uv venv --python 3.12
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+uv pip install numpy scipy matplotlib "gymnasium[classic-control]" torch tensorboard</code></pre>
+  <p>Pin exact versions in a lockfile (<code>uv lock</code>, or a <code>requirements.txt</code> with <code>==</code>) and commit it. Gymnasium's API changed at version 0.26 and again at 1.0, and mixing tutorials written for one version with another is a classic source of silent bugs (Day 8). Conda works just as well if you need non-Python dependencies.</p>
+
+  <h3>Vectorize the value table</h3>
+  <p>Tabular RL is linear algebra over arrays indexed by state, action and next state. A Python loop over states is typically one to two orders of magnitude slower than the equivalent single <code>einsum</code>, and that difference decides whether you can afford 50 seeds.</p>
+  <pre><code>import numpy as np
+
+S, A, gamma = 500, 4, 0.95
+rng = np.random.default_rng(0)
+P = rng.dirichlet(np.ones(S), size=(S, A))   # P[s, a, s'] sums to 1 over s'
+R = rng.normal(size=(S, A))                   # expected reward r(s, a)
+
+def backup_loop(V):                           # one Bellman optimality backup
+    out = np.empty(S)
+    for s in range(S):
+        out[s] = max(R[s, a] + gamma * P[s, a] @ V for a in range(A))
+    return out
+
+def backup_vec(V):                            # Q[s,a] = R[s,a] + gamma * sum_s' P[s,a,s'] V[s']
+    return (R + gamma * np.einsum("sat,t-&gt;sa", P, V)).max(axis=1)
+
+V = rng.normal(size=S)
+assert np.allclose(backup_loop(V), backup_vec(V))</code></pre>
+
+  <h3>Seed everything</h3>
+  <pre><code>import random
+import numpy as np
+import torch
+
+def seed_everything(seed: int) -&gt; np.random.Generator:
+    random.seed(seed)
+    np.random.seed(seed)                      # legacy global RNG, for libraries that still use it
+    torch.manual_seed(seed)                   # CPU and every CUDA device
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    return np.random.default_rng(seed)        # prefer passing this Generator around explicitly
+
+rng = seed_everything(42)
+obs, info = env.reset(seed=42)                # Gymnasium: seed the env on the first reset only
+env.action_space.seed(42)                     # ...and the action space, if you sample from it</code></pre>
+  <div class="box note"><span class="tag">Reproducible is not the same as robust</span>
+    <p>Seeding makes a run repeatable on the same machine with the same library versions. It does not make your conclusion seed-independent, which is the property you actually care about. GPU determinism also costs speed, and some operations have no deterministic kernel at all; <code>torch.use_deterministic_algorithms(True)</code> will raise an error naming them.</p>
+  </div>
+
+  <h3>Log everything you'll want later</h3>
+  <p>Log per-episode return and length, every loss term, Q-value or value magnitudes, policy entropy, gradient norms, the learning rate, and both wall-clock time and environment steps. With TensorBoard that is <code>writer.add_scalar("charts/episodic_return", G, global_step)</code>, and Weights &amp; Biases is equivalent. Index everything by <b>environment steps</b>, not updates or episodes: that is the axis papers compare on, and it is the only one that is fair across algorithms with different update rates.</p>
+
+  <h3>Multiple seeds and confidence intervals</h3>
+  <div class="box def"><span class="tag">Definition · intervals over seeds</span>
+    <p>For \(N\) independent seeds with final returns \(x_1, \dots, x_N\): the mean is \(\bar x\), the standard error is \(s/\sqrt N\), and a 95% t-interval is \(\bar x \pm t_{0.975,\,N-1}\, s/\sqrt N\). With \(N = 5\), \(t \approx 2.78\), so the interval is wide. A bootstrap interval (resample seeds with replacement, recompute the mean, take percentiles) avoids the normality assumption. For aggregates across many tasks, the interquartile mean with stratified bootstrap intervals, as in the <code>rliable</code> library, is the current recommendation.</p>
+  </div>
+  <pre><code>import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_with_ci(curves, label, n_boot=2000, rng=np.random.default_rng(0)):
+    """curves: array of shape [n_seeds, n_points] on a shared x-axis (env steps)."""
+    curves = np.asarray(curves)
+    idx = rng.integers(0, len(curves), size=(n_boot, len(curves)))
+    boot = curves[idx].mean(axis=1)                      # [n_boot, n_points]
+    lo, hi = np.percentile(boot, [2.5, 97.5], axis=0)
+    x = np.arange(curves.shape[1])
+    plt.plot(x, curves.mean(axis=0), label=label)
+    plt.fill_between(x, lo, hi, alpha=0.25)</code></pre>
+
+  <h3>Why single-seed RL results are meaningless</h3>
+  <p>Henderson et al. (2018) ran one algorithm with two disjoint sets of five seeds and obtained learning curves that looked like two different algorithms, with a statistically significant gap between them. Variation across seeds is often larger than the difference between methods. Agarwal et al. (2021) showed that several published conclusions on the Atari 100k benchmark change once uncertainty is reported properly.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 620 240" role="img" aria-label="Two groups of five seeds of the same algorithm produce visibly different learning curves">
+      <line x1="60" y1="205" x2="590" y2="205" class="s-ln"/><line x1="60" y1="25" x2="60" y2="205" class="s-ln"/>
+      <text x="66" y="20" class="s-ink3 s-sm">return</text>
+      <text x="325" y="228" class="s-ink3 s-mid s-sm">environment steps</text>
+      <path d="M60,188 C200,165 300,78 580,48 L580,88 C300,118 200,194 60,198 Z" class="s-info" fill-opacity="0.22"/>
+      <path d="M60,193 C200,180 300,98 580,68" class="s-ln-info"/>
+      <path d="M60,188 C220,176 330,118 580,98 L580,138 C330,156 220,196 60,198 Z" class="s-warn" fill-opacity="0.22"/>
+      <path d="M60,193 C220,188 330,137 580,118" class="s-ln-warn"/>
+      <g class="s-sm">
+        <line x1="80" y1="44" x2="100" y2="44" class="s-ln-info"/><text x="108" y="48">seeds 1–5</text>
+        <line x1="80" y1="62" x2="100" y2="62" class="s-ln-warn"/><text x="108" y="66">seeds 6–10</text>
+        <text x="80" y="86" class="s-ink3">same code, same hyperparameters</text>
+      </g>
+    </svg>
+    <figcaption><b>Schematic of the Henderson et al. experiment.</b> Two disjoint groups of five seeds, run with identical code and settings, give mean curves (lines) and 95% bands (shaded) that separate. Draw a picture like this from one seed per method and you will report a difference that is pure noise.</figcaption>
+  </figure>
+  <div class="box trap"><span class="tag">What breaks · ways to manufacture a result</span>
+    <ul>
+      <li>Reporting the best seed, or the best checkpoint of each seed.</li>
+      <li>Tuning hyperparameters on the same seeds you then report.</li>
+      <li>Comparing a tuned new method against a baseline with default hyperparameters.</li>
+      <li>Smoothing curves so heavily that the variance disappears.</li>
+    </ul>
+    <p>Any one of these alone can produce a fake improvement. Day 128 turns this into a full evaluation checklist.</p>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Time <code>backup_loop</code> against <code>backup_vec</code> for \(S\) = 100, 500 and 2000, and plot the speed-up.</li>
+      <li>Write a <code>run(seed) -&gt; curve</code> function for the Day 1 corridor with any simple learning agent (for example, a running average of returns for each first action, chosen ε-greedily). Run 10 seeds and plot the mean with a bootstrap 95% band.</li>
+      <li>Split 20 seeds randomly into two groups of 10 and plot both bands for the same algorithm. Repeat 100 times: how often do the final-performance intervals fail to overlap? Now try groups of 3.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Henderson et al. 2018, “Deep Reinforcement Learning That Matters” · Agarwal et al. 2021, “Deep RL at the Edge of the Statistical Precipice” · Patterson et al. 2023, “Empirical Design in Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 8 -->
+<article class="day" id="d8">
+  <header class="day-head">
+    <span class="day-no">DAY 8</span>
+    <h2>Gymnasium Deep Dive</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Gymnasium is the interface every algorithm in this course talks to. Two of its details, the five-value <code>step</code> return and the difference between <em>terminated</em> and <em>truncated</em>, decide whether your value targets are correct.</p>
+
+  <h3>The API</h3>
+  <pre><code>import gymnasium as gym
+
+env = gym.make("CartPole-v1")
+obs, info = env.reset(seed=0)
+episode_return, done = 0.0, False
+while not done:
+    action = env.action_space.sample()
+    obs, reward, terminated, truncated, info = env.step(action)
+    episode_return += reward
+    done = terminated or truncated
+env.close()
+print(episode_return)</code></pre>
+  <p><code>reset</code> returns <code>(obs, info)</code> and <code>step</code> returns five values. Gymnasium is the maintained successor of OpenAI Gym. Older tutorials use the pre-0.26 four-value form <code>obs, reward, done, info</code>; if you see that, the code is for the old API.</p>
+
+  <h3>Spaces</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Space</th><th>Example</th><th>A sample is</th><th>Typical use</th></tr></thead>
+    <tbody>
+      <tr><td><code>Discrete(n)</code></td><td>CartPole actions: <code>Discrete(2)</code></td><td>an int in \(\{0, \dots, n-1\}\)</td><td>tabular methods, DQN action heads</td></tr>
+      <tr><td><code>Box(low, high, shape)</code></td><td>CartPole observations: <code>Box(4,)</code></td><td>a float array within bounds</td><td>continuous observations and actions (Pendulum)</td></tr>
+      <tr><td><code>MultiDiscrete(nvec)</code></td><td>several independent discrete choices</td><td>an int array</td><td>multi-joint discrete control</td></tr>
+      <tr><td><code>Dict</code>, <code>Tuple</code></td><td>observation + desired goal</td><td>a nested structure</td><td>goal-conditioned RL (Day 114)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Print <code>env.observation_space</code> and <code>env.action_space</code> before writing a single layer of a network. The shapes and bounds are the contract.</p>
+
+  <h3>Terminated vs truncated: the bug that ruins value targets</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p><b>terminated</b>: the MDP reached a terminal state (the pole fell, the goal was reached). The future return really is 0.</p>
+    <p><b>truncated</b>: the episode was cut off for a reason outside the MDP, usually a time limit. The state is not terminal and its future return is not 0.</p>
+  </div>
+  <p>So the TD target must bootstrap through a truncation and stop at a termination:</p>
+  $$y = r + \gamma\,(1 - \text{terminated})\,\max_{a'} Q(s', a').$$
+  <pre><code># WRONG: treats a time-limit cut-off as if the world ended
+target = r + gamma * (1 - (terminated or truncated)) * q_next
+
+# RIGHT: only true termination removes the bootstrap
+target = r + gamma * (1 - terminated) * q_next</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 680 200" role="img" aria-label="A terminated episode ends in a terminal state; a truncated episode is cut off by a time limit while the state still has value">
+      <defs>
+        <marker id="ah-d8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <g>
+        <circle cx="50" cy="60" r="15" class="s-node"/><text x="50" y="64" class="s-mid s-sm">s₀</text>
+        <line x1="66" y1="60" x2="92" y2="60" class="s-ln" marker-end="url(#ah-d8)"/>
+        <circle cx="110" cy="60" r="15" class="s-node"/><text x="110" y="64" class="s-mid s-sm">s₁</text>
+        <text x="160" y="64" class="s-ink3 s-mid">· · ·</text>
+        <circle cx="210" cy="60" r="15" class="s-node"/><text x="210" y="64" class="s-mid s-sm">sₖ</text>
+        <line x1="226" y1="60" x2="252" y2="60" class="s-ln" marker-end="url(#ah-d8)"/>
+        <circle cx="270" cy="60" r="15" class="s-bad"/><text x="270" y="64" class="s-mid s-sm">⊥</text>
+        <text x="330" y="52" class="s-ttl">terminated = True</text>
+        <text x="330" y="70" class="s-ink2 s-sm">the MDP reached a terminal state; nothing follows</text>
+        <text x="330" y="88" class="s-mod">y = r</text>
+      </g>
+      <g>
+        <circle cx="50" cy="145" r="15" class="s-node"/><text x="50" y="149" class="s-mid s-sm">s₀</text>
+        <line x1="66" y1="145" x2="92" y2="145" class="s-ln" marker-end="url(#ah-d8)"/>
+        <circle cx="110" cy="145" r="15" class="s-node"/><text x="110" y="149" class="s-mid s-sm">s₁</text>
+        <text x="160" y="149" class="s-ink3 s-mid">· · ·</text>
+        <circle cx="210" cy="145" r="15" class="s-node"/><text x="210" y="149" class="s-mid s-sm">s₄₉₉</text>
+        <line x1="226" y1="145" x2="252" y2="145" class="s-ln" marker-end="url(#ah-d8)"/>
+        <circle cx="270" cy="145" r="15" class="s-node"/><text x="270" y="149" class="s-mid s-sm">s′</text>
+        <line x1="296" y1="118" x2="296" y2="172" class="s-ln-bad s-dash"/>
+        <text x="296" y="190" class="s-bad s-mid s-sm">time limit</text>
+        <text x="330" y="137" class="s-ttl">truncated = True</text>
+        <text x="330" y="155" class="s-ink2 s-sm">the clock ran out; s′ still has a future</text>
+        <text x="330" y="173" class="s-mod">y = r + γ · maxₐ′ Q(s′, a′)</text>
+      </g>
+    </svg>
+    <figcaption><b>Same last transition, different targets.</b> The environment signals the two endings separately because they mean different things for the value of \(s'\). Only the top case may drop the bootstrap term.</figcaption>
+  </figure>
+  <div class="box trap"><span class="tag">What breaks</span>
+    <p>Pre-0.26 Gym folded both cases into a single <code>done</code>, and a generation of code zeroed the bootstrap at time limits. On CartPole-v1, with its 500-step limit, that teaches the agent the state at step 499 is worth nothing, even though time isn't part of the observation and the agent can't tell step 499 from step 5. Pardo et al. (2018) measure the damage.</p>
+    <p>A second trap lives in vector environments, which reset automatically. In Gymnasium 0.26–0.29 the true final observation of a finished episode is in <code>info["final_observation"]</code>, while <code>obs</code> is already the next episode's first observation. Gymnasium 1.0 switched to a next-step autoreset, where the reset happens on the following <code>step</code> call. Read your version's documentation before trusting <code>obs</code> at an episode boundary.</p>
+  </div>
+
+  <h3>Wrappers</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Wrapper</th><th>What it does</th><th>Why you use it</th></tr></thead>
+    <tbody>
+      <tr><td><code>TimeLimit</code></td><td>sets <code>truncated</code> after <code>max_episode_steps</code></td><td>applied automatically by <code>gym.make</code> from the registry</td></tr>
+      <tr><td><code>RecordEpisodeStatistics</code></td><td>puts episode return and length into <code>info</code></td><td>logging without touching your loop</td></tr>
+      <tr><td><code>FrameStackObservation</code></td><td>stacks the last \(k\) observations</td><td>restores the Markov property for pixels (Day 74)</td></tr>
+      <tr><td><code>NormalizeObservation</code>, <code>NormalizeReward</code></td><td>running mean/std normalization</td><td>standard in PPO (Day 92)</td></tr>
+      <tr><td><code>RecordVideo</code></td><td>saves episodes as video</td><td>needs <code>render_mode="rgb_array"</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Gymnasium 1.0 renamed <code>FrameStack</code> to <code>FrameStackObservation</code>, which is another version trap for older code.</p>
+
+  <h3>Vectorized environments</h3>
+  <pre><code>envs = gym.make_vec("CartPole-v1", num_envs=8, vectorization_mode="sync")
+obs, info = envs.reset(seed=0)            # obs.shape == (8, 4)
+actions = envs.action_space.sample()      # shape (8,)
+obs, rewards, terminated, truncated, info = envs.step(actions)</code></pre>
+  <p>Synchronous vector envs step every copy in one process, which is right for cheap environments. Asynchronous ones use subprocesses, which pays off when each step is expensive. A2C and PPO (Days 87 and 91) are built around the batches these produce.</p>
+
+  <h3>Writing a custom environment</h3>
+  <pre><code>import numpy as np
+import gymnasium as gym
+from gymnasium import spaces
+
+class GridWorld(gym.Env):
+    metadata = {"render_modes": []}
+
+    def __init__(self, size=5, max_steps=100):
+        self.size, self.max_steps = size, max_steps
+        self.observation_space = spaces.Discrete(size * size)
+        self.action_space = spaces.Discrete(4)                 # up, right, down, left
+        self._moves = np.array([[-1, 0], [0, 1], [1, 0], [0, -1]])
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)                               # seeds self.np_random
+        self.pos, self.t = np.array([0, 0]), 0
+        return self._obs(), {}
+
+    def step(self, action):
+        self.pos = np.clip(self.pos + self._moves[action], 0, self.size - 1)
+        self.t += 1
+        terminated = bool((self.pos == self.size - 1).all())  # reached the far corner
+        truncated = self.t &gt;= self.max_steps
+        reward = 1.0 if terminated else -0.01
+        return self._obs(), reward, terminated, truncated, {}
+
+    def _obs(self):
+        return int(self.pos[0] * self.size + self.pos[1])
+
+from gymnasium.utils.env_checker import check_env
+check_env(GridWorld())                                        # catches API mistakes early</code></pre>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Run 100 random episodes each of CartPole-v1, MountainCar-v0 and Acrobot-v1. Record the mean length and, for each environment, how many episodes ended by termination and how many by truncation.</li>
+      <li>Implement <code>GridWorld</code>, register it with <code>gym.register</code>, create it through <code>gym.make</code>, and wrap it in <code>RecordEpisodeStatistics</code>.</li>
+      <li>Add a <code>slippery</code> option: with probability 0.2 the move goes in a random direction. Use <code>self.np_random</code> so seeding still works.</li>
+      <li>Write a test that runs the env twice with the same seed and a fixed action sequence and asserts the trajectories are identical.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Gymnasium documentation: Basic Usage, Env, Wrappers, Vector · Pardo et al. 2018, “Time Limits in Reinforcement Learning” · Towers et al. 2024, “Gymnasium: A Standard Interface for Reinforcement Learning Environments”</p>
+</article>
+
+<!-- ================================================================ DAY 9 -->
+<article class="day" id="d9">
+  <header class="day-head">
+    <span class="day-no">DAY 9</span>
+    <h2>PyTorch Crash Course for RL</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Deep RL is ordinary PyTorch with one unusual habit: deciding what <em>not</em> to differentiate. A large share of deep-RL bugs are a missing <code>detach()</code>, a stale target, or a gradient flowing somewhere it shouldn't.</p>
+
+  <h3>Tensors and devices</h3>
+  <pre><code>import torch
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)   # NumPy -&gt; tensor
+batch = torch.randn(32, 4, device=device)                         # 32 states of dimension 4</code></pre>
+  <p>Keep environments on the CPU in NumPy and networks on the device, and convert once per step at the boundary. Small MLPs on CartPole are often faster on the CPU; the GPU wins with convolutional networks and large batches.</p>
+
+  <h3>Autograd</h3>
+  <p>Tensors created with <code>requires_grad=True</code> (every <code>nn.Parameter</code>) record the operations applied to them in a computation graph. <code>loss.backward()</code> walks that graph in reverse and <em>adds</em> \(\partial\,\text{loss}/\partial\theta\) into each <code>θ.grad</code>. Because gradients accumulate, you call <code>optimizer.zero_grad()</code> before every backward pass.</p>
+
+  <h3>nn.Module, layers and initialization</h3>
+  <pre><code>import torch.nn as nn
+
+class QNet(nn.Module):
+    def __init__(self, obs_dim, n_actions, hidden=128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, n_actions),            # one output per action (Day 71)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+def init_orthogonal(m, gain=2 ** 0.5):
+    if isinstance(m, nn.Linear):
+        nn.init.orthogonal_(m.weight, gain)
+        nn.init.zeros_(m.bias)
+
+q = QNet(obs_dim=4, n_actions=2).apply(init_orthogonal)</code></pre>
+  <p>PyTorch's default <code>Linear</code> initialization is a scaled uniform. Many PPO implementations use orthogonal initialization with gain \(\sqrt 2\) for hidden layers and very small gains (0.01) for the policy output layer, so the initial policy is close to uniform (Day 92).</p>
+
+  <h3>Losses and optimizers</h3>
+  <p>The losses you'll meet: mean squared error (<code>F.mse_loss</code>); Huber (<code>F.smooth_l1_loss</code>), which is quadratic near zero and linear for large errors, so a single huge TD error can't dominate an update (Day 73); and cross-entropy for distributional RL (Day 79). The optimizer is almost always <code>torch.optim.Adam(params, lr=...)</code>, with the RL-specific <code>eps</code> values from Day 5.</p>
+
+  <h3>detach(), and why it's everywhere in RL</h3>
+  <div class="box intuition"><span class="tag">Intuition</span>
+    <p>A TD target \(r + \gamma \max_{a'} Q(s', a')\) is a <em>label</em>, not a prediction. If gradients flow through it, the optimizer lowers the loss by also dragging the target towards the prediction. That is a different algorithm, the residual-gradient method, with different fixed points and its own problems. Blocking the gradient gives semi-gradient TD (Day 62), which is what DQN and nearly every practical method use.</p>
+  </div>
+  <div class="box def"><span class="tag">Definition · semi-gradient vs residual gradient</span>
+    <p>For one transition with loss \(\tfrac12\big(y - Q_\theta(s, a)\big)^2\) and target \(y = r + \gamma\, Q_\theta(s', a')\):</p>
+    $$\text{semi-gradient (y held fixed):}\qquad -\big(y - Q_\theta(s, a)\big)\, \nabla_\theta Q_\theta(s, a)$$
+    $$\text{residual gradient (through y):}\qquad -\big(y - Q_\theta(s, a)\big)\, \big(\nabla_\theta Q_\theta(s, a) - \gamma\, \nabla_\theta Q_\theta(s', a')\big)$$
+    <p>The residual gradient is a true gradient of the squared TD error, but with random transitions it minimises the wrong quantity: the expected <em>squared</em> TD error includes the variance of \(s'\), so it prefers value functions that make \(s'\) predictable rather than correct. A target network (Day 73) computes \(y\) with separate parameters \(\theta^-\), so \(y\) is a constant with respect to \(\theta\) by construction; <code>no_grad</code> enforces the same thing in code.</p>
+  </div>
+  <pre><code>import torch.nn.functional as F
+
+q_sa = q(obs).gather(1, actions.unsqueeze(1)).squeeze(1)    # Q(s, a) for the actions taken
+with torch.no_grad():                                        # targets carry no gradient
+    q_next = target_q(next_obs).max(dim=1).values
+    y = rewards + gamma * (1 - terminated.float()) * q_next
+loss = F.smooth_l1_loss(q_sa, y)
+
+optimizer.zero_grad()
+loss.backward()
+torch.nn.utils.clip_grad_norm_(q.parameters(), max_norm=10.0)
+optimizer.step()</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Computation graph of a DQN loss: gradients flow back through the online network only; the target branch is computed under no_grad">
+      <defs>
+        <marker id="ah-d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d9m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <path d="M530,113 C530,30 120,30 105,56" class="s-ln-mod s-dash" marker-end="url(#ah-d9m)"/>
+      <text x="320" y="22" class="s-mod s-mid s-sm">∂loss/∂θ flows back along the top path only</text>
+      <rect x="30" y="60" width="150" height="44" rx="6" class="s-node-mod"/><text x="105" y="87" class="s-mid">online net Q_θ</text>
+      <rect x="230" y="60" width="130" height="44" rx="6" class="s-node"/><text x="295" y="87" class="s-mid">Q_θ(s, a)</text>
+      <rect x="470" y="115" width="120" height="44" rx="6" class="s-node"/><text x="530" y="142" class="s-mid">Huber loss</text>
+      <rect x="18" y="150" width="362" height="88" rx="8" class="s-grid s-dash"/>
+      <rect x="30" y="164" width="150" height="44" rx="6" class="s-node"/><text x="105" y="191" class="s-mid">target net Q_θ⁻</text>
+      <rect x="230" y="164" width="130" height="44" rx="6" class="s-node"/><text x="295" y="191" class="s-mid">y  (a constant)</text>
+      <text x="30" y="229" class="s-ink3 s-sm">torch.no_grad(): no graph is recorded here</text>
+      <line x1="180" y1="82" x2="226" y2="82" class="s-ln" marker-end="url(#ah-d9)"/>
+      <path d="M360,82 C420,82 430,126 466,130" class="s-ln" marker-end="url(#ah-d9)"/>
+      <line x1="180" y1="186" x2="226" y2="186" class="s-ln" marker-end="url(#ah-d9)"/>
+      <path d="M360,186 C420,186 430,150 466,146" class="s-ln" marker-end="url(#ah-d9)"/>
+    </svg>
+    <figcaption><b>Where the graph is cut.</b> Both branches feed the loss, but only the online branch was recorded by autograd, so <code>backward()</code> reaches only \(\theta\). Forget the <code>no_grad</code> and, with a shared network instead of a target network, the gradient would also flow down the bottom branch.</figcaption>
+  </figure>
+  <p><code>torch.no_grad()</code> stops graph construction for everything inside the block; <code>.detach()</code> returns a single tensor cut off from the graph. Here they have the same effect, and <code>no_grad</code> also saves memory.</p>
+  <div class="box trap"><span class="tag">What breaks · other places you need it</span>
+    <ul>
+      <li>The advantage in a policy-gradient loss weights the score function. It must be detached, or the critic is trained through the actor's loss (Day 86).</li>
+      <li>DDPG's actor maximises \(Q(s, \mu(s))\): gradients must flow through the critic into the action, but only the actor's optimizer may step (Day 93).</li>
+      <li>SAC's temperature loss uses detached log-probabilities (Day 95).</li>
+    </ul>
+  </div>
+
+  <h3>Gradient clipping and checkpoints</h3>
+  <p><code>clip_grad_norm_</code> goes between <code>backward()</code> and <code>step()</code>. It rescales the whole gradient vector whenever its norm exceeds the threshold. PPO commonly uses 0.5 (Day 92); DQN-style agents often use 10.</p>
+  <pre><code>torch.save({"q": q.state_dict(), "opt": optimizer.state_dict(), "step": step}, "ckpt.pt")
+
+ckpt = torch.load("ckpt.pt", map_location=device)
+q.load_state_dict(ckpt["q"])
+optimizer.load_state_dict(ckpt["opt"])</code></pre>
+  <p>Save the optimizer as well: Adam's moment estimates are part of the training state, and resuming without them causes a visible jolt in the learning curve. For an exact resume you also need the RNG states and, for off-policy methods, the replay buffer.</p>
+
+  <h3>A tiny end-to-end training loop</h3>
+  <p>This fits the values of the 5-state random walk you'll meet on Day 42 (true values \(1/6, \dots, 5/6\)) with a small network and semi-gradient TD(0). It uses every piece above.</p>
+  <pre><code>import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(0)
+true_v = torch.arange(1, 6) / 6
+net = nn.Sequential(nn.Linear(5, 32), nn.ReLU(), nn.Linear(32, 1))
+opt = torch.optim.Adam(net.parameters(), lr=1e-2)
+onehot = torch.eye(5)
+
+for episode in range(2000):
+    s, transitions = 2, []
+    while 0 &lt;= s &lt; 5:                                    # one episode, start in the middle
+        s2 = s + (1 if torch.rand(()) &lt; 0.5 else -1)
+        transitions.append((s, 1.0 if s2 == 5 else 0.0, s2))
+        s = s2
+    states, rewards, nxt = map(torch.tensor, zip(*transitions))
+    terminal = (nxt &lt; 0) | (nxt &gt; 4)
+    with torch.no_grad():                                 # semi-gradient TD(0) target, gamma = 1
+        v_next = net(onehot[nxt.clamp(0, 4)]).squeeze(1)
+        y = rewards + (~terminal).float() * v_next
+    loss = F.mse_loss(net(onehot[states]).squeeze(1), y)
+    opt.zero_grad()
+    loss.backward()
+    opt.step()
+
+print(net(onehot).squeeze(1).detach(), true_v)</code></pre>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Remove the <code>torch.no_grad()</code> block from the loop so the target carries gradients. Compare the learned values with the true ones and explain the difference. (Hint: what does the residual-gradient method minimise, and why is that biased when transitions are random?)</li>
+      <li>Replace the one-hot input with the scalar state index scaled to \([0, 1]\). Does the network still fit? Which states are hardest?</li>
+      <li>Add gradient-norm clipping, log the pre-clipping gradient norm every episode, and plot it.</li>
+      <li>Save a checkpoint at episode 1000, stop the process, resume from the checkpoint, and confirm the loss curve continues smoothly. Then resume without the optimizer state and compare.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> PyTorch tutorial “Learn the Basics” · CleanRL <code>dqn.py</code>, read end to end · Sutton &amp; Barto §9.3 (semi-gradient methods)</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="index.html"><small>Back to</small>◂ Syllabus</a>
+  <a class="next" href="m01.html"><small>Next · Days 10–17</small>Module 1 — Multi-Armed Bandits ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

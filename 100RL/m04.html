@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 4 — Monte Carlo Methods · 130 Days of RL</title>
+<meta name="description" content="Days 35–41: Monte Carlo prediction and control from complete episodes, exploring starts, ε-soft policies and GLIE, off-policy learning with ordinary, weighted, per-decision and discounting-aware importance sampling, and a Blackjack agent scored exactly against the optimal strategy.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m4">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 4 · Monte Carlo Methods · Days 35–41</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 4 · Monte Carlo</h4>
+  <nav>
+    <a href="#d35"><span class="n">D35</span>MC Prediction</a>
+    <a href="#d36"><span class="n">D36</span>MC Action Values</a>
+    <a href="#d37"><span class="n">D37</span>MC Exploring Starts</a>
+    <a href="#d38"><span class="n">D38</span>ε-Soft Control</a>
+    <a href="#d39"><span class="n">D39</span>Importance Sampling</a>
+    <a href="#d40"><span class="n">D40</span>Incremental &amp; Per-Decision IS</a>
+    <a href="#d41"><span class="n">D41</span>Project 3: Blackjack</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="4"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m03.html">◂ Module 3</a><a href="m05.html">Module 5 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 4 · Days 35–41 · Weeks 7–9</p>
+<h1>Monte Carlo Methods</h1>
+<p class="dek">Dynamic programming needed the whole model. Monte Carlo methods need only experience: they estimate a value by averaging the returns that actually followed it, and improve policies with the same evaluate-and-improve loop as Module 3. Without a model, exploration stops being optional, and the module's second half is about the three ways to guarantee it: exploring starts, ε-soft policies, and learning off-policy with importance sampling. Module 5 keeps the sampling but stops waiting for the episode to end.</p>
+<ul class="chips">
+  <li><b>7</b> lessons</li>
+  <li><b>4h 20m</b> video</li>
+  <li><b>11h 15m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto Ch. 5</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Estimate \(v_\pi\) and \(q_\pi\) from sampled episodes with first-visit and every-visit Monte Carlo, and say which estimator is unbiased and why.</li>
+    <li>Explain why model-free control needs action values and some guaranteed form of exploration.</li>
+    <li>Implement Monte Carlo control with exploring starts and with \(\varepsilon\)-soft policies, and prove that \(\varepsilon\)-greedy improvement works within the \(\varepsilon\)-soft class.</li>
+    <li>State the GLIE conditions and pick an exploration schedule that satisfies them and also works in practice.</li>
+    <li>Derive the importance-sampling ratio, prove that ordinary importance sampling is unbiased, and explain why weighted importance sampling is usually preferred.</li>
+    <li>Write the incremental weighted-IS update and off-policy MC control, and reduce variance with per-decision and discounting-aware importance sampling.</li>
+    <li>Train a Blackjack agent four ways and score it exactly against the optimal strategy.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 35 -->
+<article class="day" id="d35">
+  <header class="day-head">
+    <span class="day-no">DAY 35</span>
+    <h2>Monte Carlo Prediction</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">A state's value is its expected return, so estimate it by averaging the returns you actually observed after visiting it. No model and no bootstrapping: just complete episodes and the law of large numbers.</p>
+
+  <h3>Learning from complete episodes, with no model</h3>
+  <p>Every algorithm in Module 3 needed \(p(s', r \mid s, a)\). Monte Carlo (MC) methods need only the ability to <em>generate</em> episodes, either by acting in the real environment or by running a simulator. That is a much weaker requirement than it sounds. To write down Blackjack's transition probabilities for "stick" you would have to compute the distribution of the dealer's final total for every showing card, which is tedious and error-prone. Simulating a hand takes ten lines. S&amp;B make the point directly: a <em>sample model</em> is often easy when a <em>distribution model</em> is not.</p>
+  <p>The idea follows from the definition of value. \(v_\pi(s) = \E_\pi[G_t \mid S_t = s]\), so if you follow \(\pi\), record every return that follows a visit to \(s\), and average them, the average converges to \(v_\pi(s)\) by the law of large numbers (Day 3). Two properties set MC apart from DP:</p>
+  <ul>
+    <li><b>No bootstrapping.</b> The estimate for each state is built only from returns observed after that state, never from other states' estimates. The cost of estimating one state's value is independent of how many states there are, so you can evaluate just the states you care about.</li>
+    <li><b>Sample backups.</b> Instead of averaging over every successor with its probability, MC follows one sampled trajectory all the way to the end.</li>
+  </ul>
+  <figure class="fig">
+    <svg viewBox="0 0 660 270" role="img" aria-label="Backup diagrams side by side: dynamic programming backs up one step over all branches; Monte Carlo backs up along one sampled trajectory to the terminal state">
+      <text x="165" y="18" class="s-ttl s-mid">DP: one step, every branch</text>
+      <circle cx="165" cy="46" r="11" class="s-node"/>
+      <line x1="158" y1="55" x2="108" y2="96" class="s-ln"/><line x1="165" y1="57" x2="165" y2="95" class="s-ln"/><line x1="172" y1="55" x2="222" y2="96" class="s-ln"/>
+      <circle cx="105" cy="100" r="5" class="s-ink"/><circle cx="165" cy="100" r="5" class="s-ink"/><circle cx="225" cy="100" r="5" class="s-ink"/>
+      <line x1="103" y1="105" x2="89" y2="149" class="s-ln"/><line x1="107" y1="105" x2="121" y2="149" class="s-ln"/>
+      <line x1="163" y1="105" x2="149" y2="149" class="s-ln"/><line x1="167" y1="105" x2="181" y2="149" class="s-ln"/>
+      <line x1="223" y1="105" x2="209" y2="149" class="s-ln"/><line x1="227" y1="105" x2="241" y2="149" class="s-ln"/>
+      <circle cx="87" cy="158" r="9" class="s-node"/><circle cx="123" cy="158" r="9" class="s-node"/>
+      <circle cx="147" cy="158" r="9" class="s-node"/><circle cx="183" cy="158" r="9" class="s-node"/>
+      <circle cx="207" cy="158" r="9" class="s-node"/><circle cx="243" cy="158" r="9" class="s-node"/>
+      <text x="165" y="196" class="s-ink2 s-mid s-sm">needs p(s′, r | s, a)</text>
+      <text x="165" y="213" class="s-ink2 s-mid s-sm">leaves are estimates vₖ(s′): bootstrapping</text>
+      <line x1="330" y1="28" x2="330" y2="250" class="s-grid"/>
+      <text x="495" y="18" class="s-ttl s-mid">MC: one sampled episode, to the end</text>
+      <line x1="495" y1="57" x2="495" y2="71" class="s-ln"/><line x1="495" y1="81" x2="495" y2="97" class="s-ln"/>
+      <line x1="495" y1="119" x2="495" y2="135" class="s-ln"/><line x1="495" y1="145" x2="495" y2="161" class="s-ln"/>
+      <line x1="495" y1="183" x2="495" y2="199" class="s-ln-mod s-dash"/><line x1="495" y1="209" x2="495" y2="222" class="s-ln"/>
+      <circle cx="495" cy="46" r="11" class="s-node"/><circle cx="495" cy="76" r="5" class="s-ink"/>
+      <circle cx="495" cy="108" r="11" class="s-node"/><circle cx="495" cy="140" r="5" class="s-ink"/>
+      <circle cx="495" cy="172" r="11" class="s-node"/><circle cx="495" cy="204" r="5" class="s-ink"/>
+      <rect x="485" y="222" width="20" height="20" class="s-node-mod"/>
+      <text x="495" y="236" class="s-mid s-sm">T</text>
+      <text x="515" y="50" class="s-sm">Sₜ</text>
+      <text x="515" y="80" class="s-ink2 s-sm">Aₜ</text>
+      <text x="515" y="112" class="s-sm">Rₜ₊₁, Sₜ₊₁</text>
+      <text x="515" y="144" class="s-ink2 s-sm">Aₜ₊₁</text>
+      <text x="515" y="176" class="s-sm">Rₜ₊₂, Sₜ₊₂ …</text>
+      <text x="515" y="236" class="s-mod s-sm">terminal: Gₜ known</text>
+      <text x="470" y="112" class="s-ink2 s-end s-sm">no model</text>
+      <text x="470" y="128" class="s-ink2 s-end s-sm">no bootstrap</text>
+      <text x="495" y="262" class="s-ink2 s-mid s-sm">the update waits until the episode ends</text>
+    </svg>
+    <figcaption><b>Two backups.</b> DP is wide and shallow: every branch, one step, then trust the stored estimates. MC is narrow and deep: one sampled branch, followed to termination, so the target \(G_t\) is an unbiased sample of \(v_\pi(S_t)\). TD learning (Day 42) is narrow and shallow: one sampled step, then trust the stored estimate.</figcaption>
+  </figure>
+
+  <h3>First-visit Monte Carlo</h3>
+  <p>A state can occur several times in one episode. <b>First-visit MC</b> uses only the return that follows the first occurrence of \(s\) in each episode; <b>every-visit MC</b> uses the returns after every occurrence. Computing the returns is cheapest backwards, with the recursion \(G_t = R_{t+1} + \gamma G_{t+1}\) of Day 19.</p>
+  <div class="box algo"><span class="tag">Algorithm · First-visit MC prediction</span>
+    <ol>
+      <li>Input the policy \(\pi\). Initialise \(V(s)\) arbitrarily and \(N(s) \leftarrow 0\) for all \(s\).</li>
+      <li>Repeat for each episode:
+        <ol>
+          <li>Generate \(S_0, A_0, R_1, S_1, \dots, S_{T-1}, A_{T-1}, R_T\) by following \(\pi\).</li>
+          <li>\(G \leftarrow 0\)</li>
+          <li>For \(t = T-1, T-2, \dots, 0\):
+            <ol>
+              <li>\(G \leftarrow \gamma G + R_{t+1}\)</li>
+              <li>If \(S_t\) does not appear among \(S_0, \dots, S_{t-1}\): \(N(S_t) \leftarrow N(S_t) + 1\); \(V(S_t) \leftarrow V(S_t) + \frac{1}{N(S_t)}\big[G - V(S_t)\big]\)</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+    <p><span class="step">(every-visit MC drops the "does not appear" test)</span></p>
+  </div>
+
+  <h3>Bias and consistency: first-visit vs every-visit</h3>
+  <p>For first-visit MC, the returns collected for \(s\) come from different, independent episodes, and each has expectation \(v_\pi(s)\) by the Markov property. They are i.i.d., so the average is unbiased, its variance is \(\sigma^2/n\), and it converges by the law of large numbers. Every-visit returns from the same episode overlap (they share their tails) and the number of visits per episode is random, so the every-visit average is biased for any finite number of episodes. It is still <b>consistent</b>: it converges to \(v_\pi(s)\) as the number of episodes grows.</p>
+  <div class="box deriv"><span class="tag">Derivation · biased but consistent, on a one-state example</span>
+    <p>One non-terminal state \(s\). Each step earns \(+1\) and returns to \(s\) with probability \(p\), terminating otherwise; \(\gamma = 1\). Write \(q = 1 - p\). The episode length \(T\) is geometric with \(\E[T] = 1/q\) and \(\E[T^2] = (2 - q)/q^2\), and \(v(s) = \E[T] = 1/q\).</p>
+    <p><b>First visit.</b> The first-visit return is \(T\) itself, so \(\E[\hat v] = 1/q\): unbiased.</p>
+    <p><b>Every visit, one episode.</b> The visits are followed by returns \(T, T-1, \dots, 1\), whose average is \((T+1)/2\). Its expectation is \(\tfrac12(1/q + 1) \ne 1/q\) whenever \(p &gt; 0\): biased low.</p>
+    <p><b>Every visit, many episodes.</b> Pool all visits from \(n\) episodes: \(\hat v_n = \sum_i T_i(T_i + 1)/2 \,\big/\, \sum_i T_i\). By the law of large numbers in the numerator and denominator,</p>
+    $$\hat v_n \;\longrightarrow\; \frac{\E[T^2] + \E[T]}{2\,\E[T]} = \frac{(2 - q)/q^2 + 1/q}{2/q} = \frac{2 - q + q}{2q} = \frac1q = v(s).$$
+    <p>Consistent, as claimed. Yet with a single episode the every-visit estimate has the <em>lower</em> mean squared error: its variance is a quarter of first-visit's, which more than pays for its bias (MSE \(p(1+p)/(4q^2)\) against \(p/q^2\)). Singh &amp; Sutton (1996) analyse the two in general; in their examples every-visit tends to win early and first-visit asymptotically.</p>
+  </div>
+
+  <h3>Incremental implementation</h3>
+  <p>Storing every return and re-averaging is wasteful. The running-mean update of Day 12 does the same job in constant memory:</p>
+  $$V(S_t) \leftarrow V(S_t) + \frac{1}{N(S_t)}\big[G_t - V(S_t)\big].$$
+  <p>Replace \(1/N\) with a constant step size and you get <b>constant-α MC</b>, \(V(S_t) \leftarrow V(S_t) + \alpha[G_t - V(S_t)]\), which forgets old returns exponentially and so tracks a changing policy or environment. It is also the exact starting point for TD(0) on Day 42: replace \(G_t\) with \(R_{t+1} + \gamma V(S_{t+1})\).</p>
+
+  <h3>Why MC needs episodic tasks</h3>
+  <ul>
+    <li><b>The target exists only at the end.</b> \(G_t\) includes every reward until termination, so no update can happen before the episode finishes. Long episodes mean long delays between experience and learning.</li>
+    <li><b>Continuing tasks have no end.</b> You could truncate at a horizon \(H\), but then the target is biased by up to \(\gamma^H R_{\max}/(1-\gamma)\). Bootstrapping methods (Module 5) remove the problem.</li>
+    <li><b>Variance grows with episode length.</b> \(G_t\) sums many random rewards, so its variance generally grows with the number of steps that remain.</li>
+    <li><b>A bad policy may never terminate.</b> During control, a policy that walks into a wall forever produces an episode that never ends. Every MC implementation needs a time limit, and a truncated episode's return is not an unbiased sample of \(v_\pi\) (Day 8's terminated versus truncated distinction).</li>
+  </ul>
+
+  <h3>Running MC on Blackjack</h3>
+  <div class="box def"><span class="tag">Definition · Blackjack (S&amp;B Example 5.1)</span>
+    <ul>
+      <li>Cards are dealt from an infinite deck (with replacement). Face cards count 10; an ace counts 1 or 11. The player and dealer each get two cards; one dealer card is face up.</li>
+      <li>A <b>natural</b> (ace plus a ten-card) wins outright, unless the dealer also has one, which is a draw.</li>
+      <li>Otherwise the player <em>hits</em> (takes a card) or <em>sticks</em>. Going over 21 is a bust and loses. After the player sticks, the dealer hits until reaching 17 or more (an ace counts 11 if that doesn't bust); a dealer bust is a win for the player; otherwise the closer total to 21 wins.</li>
+      <li>Rewards \(+1, 0, -1\) for win, draw, loss, all at the end; \(\gamma = 1\).</li>
+      <li><b>State</b>: the player's sum (12–21), the dealer's showing card (ace–10), and whether the player holds a <b>usable ace</b> (one counted as 11 without busting). That is 200 states. Below 12 the player always hits, since no card can bust.</li>
+    </ul>
+  </div>
+  <p>Gymnasium's <code>gym.make("Blackjack-v1", sab=True)</code> implements exactly these rules (<code>sab</code> stands for Sutton and Barto); observations are <code>(player_sum, dealer_card, usable_ace)</code> with the ace as 1, and actions are 0 = stick, 1 = hit. It also shows you sums below 12, where you should simply hit. The self-contained simulator below follows the same rules and adds one thing Gymnasium lacks, the ability to start an episode in a chosen state, which Day 37 needs.</p>
+  <pre><code>import random
+
+class Blackjack:
+    """S&amp;B Example 5.1 rules (= Gymnasium Blackjack-v1 with sab=True), infinite deck.
+    State (player sum 12-21, dealer's showing card 1-10, usable ace). Actions 0 = stick, 1 = hit."""
+    def __init__(self, seed=0):
+        self.rng = random.Random(seed)
+
+    def draw(self):
+        return min(self.rng.randint(1, 13), 10)             # ace = 1; J, Q, K count 10
+
+    @staticmethod
+    def total(hand):                                        # (sum, usable ace?)
+        s = sum(hand)
+        return (s + 10, True) if 1 in hand and s + 10 &lt;= 21 else (s, False)
+
+    def state(self):
+        s, ace = self.total(self.player)
+        return s, self.dealer[0], ace
+
+    def reset(self, start=None):
+        self.dealer = [self.draw(), self.draw()]
+        if start is None:
+            self.player = [self.draw(), self.draw()]
+            while self.total(self.player)[0] &lt; 12:          # below 12, hitting is free: no decision
+                self.player.append(self.draw())
+        else:                                               # exploring start (sum, showing, usable)
+            s, self.dealer[0], ace = start
+            self.player = [1, s - 11] if ace else ([10, s - 10] if s &lt; 21 else [10, 9, 2])
+        return self.state()
+
+    def step(self, action):                                 # -&gt; (next state, reward, done)
+        if action == 1:
+            self.player.append(self.draw())
+            bust = self.total(self.player)[0] &gt; 21
+            return (None, -1.0, True) if bust else (self.state(), 0.0, False)
+        while self.total(self.dealer)[0] &lt; 17:              # stick: dealer draws to 17 or more
+            self.dealer.append(self.draw())
+        p, d = self.total(self.player)[0], self.total(self.dealer)[0]
+        if sorted(self.player) == [1, 10] and sorted(self.dealer) != [1, 10]:
+            return None, 1.0, True                          # a natural wins outright
+        return None, 1.0 if d &gt; 21 else float((p &gt; d) - (p &lt; d)), True
+
+def play_episode(env, policy, start=None, first_action=None):
+    """[(S_t, A_t, R_t+1), ...]; first_action forces A_0 (exploring starts)."""
+    state, episode, done = env.reset(start), [], False
+    action = policy(state) if first_action is None else first_action
+    while not done:
+        next_state, reward, done = env.step(action)
+        episode.append((state, action, reward))
+        state = next_state
+        if not done:
+            action = policy(state)
+    return episode</code></pre>
+  <p class="code-cap">Every later snippet in this module imports these two names. Check the simulator against Gymnasium once: under the same policy, the mean returns over \(10^6\) episodes should agree within their confidence intervals.</p>
+  <pre><code># continues from the Day 35 snippet (Blackjack, play_episode)
+from collections import defaultdict
+
+def first_visit_mc(policy, n_episodes, gamma=1.0, seed=0):
+    env = Blackjack(seed)
+    V, N = defaultdict(float), defaultdict(int)
+    for _ in range(n_episodes):
+        episode = play_episode(env, policy)
+        states = [s for s, _, _ in episode]
+        G = 0.0
+        for t in reversed(range(len(episode))):          # walk backwards: G_t = R_t+1 + gamma*G_t+1
+            s, _, r = episode[t]
+            G = gamma * G + r
+            if s not in states[:t]:                      # first visit of s in this episode
+                N[s] += 1
+                V[s] += (G - V[s]) / N[s]                # incremental sample mean
+    return V, N
+
+stick_on_20 = lambda s: 0 if s[0] &gt;= 20 else 1
+for n in (10_000, 500_000):
+    V, N = first_visit_mc(stick_on_20, n)
+    print(f"{n:&gt;7} episodes: V(21, 10, no ace) = {V[21, 10, False]:.3f}, "
+          f"V(13, 2, ace) = {V[13, 2, True]:.3f} from {N[13, 2, True]} visits")</code></pre>
+  <p class="code-cap">Evaluates S&amp;B's policy "stick only on 20 or 21". Exact values (by DP on the known card probabilities, Day 41) are 0.889 and −0.277; the run prints 0.889 and −0.667 after 10,000 episodes (6 visits) and 0.888 and −0.316 after 500,000 (510 visits). In Blackjack the player's state can never repeat within a hand, so first-visit and every-visit MC coincide.</p>
+  <p>This reproduces S&amp;B Figure 5.1. Against the exact values, the root-mean-square error over the 100 no-usable-ace states falls from 0.072 after 10,000 episodes to 0.011 after 500,000; over the usable-ace states it falls from 0.28 to 0.037. Usable-ace states are visited six to seven times less often per hand, so their surface stays ragged for longer. The shape is easy to read: values are high only at 20 and 21, where this policy sticks, and negative everywhere it keeps hitting, worst (down to about −0.79) when the dealer shows an ace.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Off-by-one returns.</b> Accumulate \(G \leftarrow \gamma G + R_{t+1}\) <em>before</em> crediting \(S_t\), with the reward that followed \(A_t\), not the one that preceded it.</li>
+      <li><b>The wrong first-visit test.</b> "First visit" means \(S_t\) does not occur at an <em>earlier</em> time. Testing later times gives a last-visit estimator, which is biased.</li>
+      <li><b>Naive confidence intervals for every-visit MC.</b> Returns from the same episode are correlated, so treating them as independent samples makes intervals too narrow. Bootstrap over episodes instead.</li>
+      <li><b>Episodes that never end.</b> Add a step limit, and remember that a truncated return is not an unbiased target.</li>
+      <li><b>Blackjack's soft 21.</b> In Gymnasium a natural shows up as the observation (21, dealer card, usable ace), the same observation as a three-card soft 21. The two have different values (a natural also beats a dealer's three-card 21), so that observation's estimate is a mixture: 0.916 rather than 0.889 against a dealer 10. It is not a bug in your code, but it will look like one when you compare with a published figure that removed naturals.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Reproduce S&amp;B Figure 5.1: value surfaces (or heatmaps) for usable and non-usable ace after 10,000 and 500,000 episodes.</li>
+      <li>Implement every-visit MC on the one-state example with \(p = 0.9\). Check numerically that the one-episode estimate averages \((1/q + 1)/2 = 5.5\) and that the pooled estimate converges to 10. Compare the mean squared errors of first-visit and every-visit as a function of the number of episodes.</li>
+      <li>Run the same policy in <code>gym.make("Blackjack-v1", sab=True)</code> for \(10^6\) episodes and check that its mean return matches your simulator's within a 95% interval.</li>
+      <li>Replace the \(1/N\) step with constant \(\alpha \in \{0.1, 0.01, 0.001\}\). Plot \(V(13, 2, \text{ace})\) against episodes and describe the noise floor for each \(\alpha\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §5.1 · Singh &amp; Sutton 1996, “Reinforcement learning with replacing eligibility traces” · Gymnasium documentation, Blackjack (Toy Text)</p>
+</article>
+
+<!-- ================================================================ DAY 36 -->
+<article class="day" id="d36">
+  <header class="day-head">
+    <span class="day-no">DAY 36</span>
+    <h2>MC Estimation of Action Values</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Without a model, state values cannot tell you which action to take. Estimating \(q_\pi(s, a)\) directly fixes that, but only for the actions you actually try, so exploration becomes part of the estimation problem itself.</p>
+
+  <h3>Why v alone is useless without a model</h3>
+  <p>Policy improvement (Day 29) picks \(\pi'(s) = \argmax_a \sum_{s', r} p(s', r \mid s, a)\,[r + \gamma v_\pi(s')]\). Every term needs the model. In Blackjack, knowing \(v_\pi\) of every state does not tell you whether to hit 16 against a dealer 10: "stick" leads to a terminal outcome whose probabilities depend on the dealer's drawing, and "hit" leads to a distribution over next sums. Without those probabilities, \(v\) is a scoreboard with no instructions. Action values make the decision model-free:</p>
+  $$\pi'(s) = \argmax_a q_\pi(s, a).$$
+  <p>That is why every model-free control method in this course, from Monte Carlo control to DQN, learns action values or a policy directly, never state values alone.</p>
+
+  <h3>Estimating q<sub>π</sub>(s, a)</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>\(q_\pi(s, a) = \E_\pi[G_t \mid S_t = s, A_t = a]\): the expected return from taking \(a\) in \(s\) and following \(\pi\) afterwards. A <b>visit</b> to the pair \((s, a)\) is a time step with \(S_t = s\) and \(A_t = a\).</p>
+  </div>
+  <p>The estimators are exactly Day 35's with pairs in place of states. First-visit MC averages the return after the first visit to \((s, a)\) in each episode, is unbiased, and converges at the \(1/\sqrt n\) rate; every-visit MC is biased but consistent. The only new cost is size: there are \(|\mathcal S||\mathcal A|\) quantities to estimate instead of \(|\mathcal S|\), each from its own share of the data.</p>
+
+  <h3>The problem of unvisited state–action pairs</h3>
+  <p>If \(\pi\) is deterministic, each state is only ever paired with one action, \(\pi(s)\). The returns for every other action are never observed, their estimates never improve, and improvement has nothing to compare. Run S&amp;B's stick-on-20 policy for 200,000 hands and exactly half of the 400 pairs are never tried: "stick" below 20 and "hit" at 20 or 21.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 244" role="img" aria-label="Which state-action pairs get data: without exploring starts, stick is only tried at 20 and 21 and hit only below 20; with exploring starts every pair is tried">
+      <text x="125" y="26" class="s-ttl s-mid">stick, no exploring starts</text>
+      <rect x="50" y="40" width="150" height="150" class="s-node"/>
+      <rect x="50" y="40" width="150" height="30" class="s-node-mod"/>
+      <text x="125" y="59" class="s-mod s-mid s-sm">N &gt; 0</text>
+      <text x="125" y="134" class="s-bad s-mid">N = 0</text>
+      <text x="335" y="26" class="s-ttl s-mid">hit, no exploring starts</text>
+      <rect x="260" y="40" width="150" height="150" class="s-node"/>
+      <rect x="260" y="70" width="150" height="120" class="s-node-mod"/>
+      <text x="335" y="59" class="s-bad s-mid s-sm">N = 0</text>
+      <text x="335" y="134" class="s-mod s-mid">N &gt; 0</text>
+      <text x="545" y="26" class="s-ttl s-mid">either action, exploring starts</text>
+      <rect x="470" y="40" width="150" height="150" class="s-node-mod"/>
+      <text x="545" y="120" class="s-mod s-mid">N &gt; 0 everywhere</text>
+      <text x="44" y="52" class="s-ink3 s-end s-sm">21</text>
+      <text x="44" y="67" class="s-ink3 s-end s-sm">20</text>
+      <text x="44" y="187" class="s-ink3 s-end s-sm">12</text>
+      <text x="57" y="204" class="s-ink3 s-mid s-sm">A</text><text x="192" y="204" class="s-ink3 s-mid s-sm">10</text>
+      <text x="267" y="204" class="s-ink3 s-mid s-sm">A</text><text x="402" y="204" class="s-ink3 s-mid s-sm">10</text>
+      <text x="477" y="204" class="s-ink3 s-mid s-sm">A</text><text x="612" y="204" class="s-ink3 s-mid s-sm">10</text>
+      <text x="330" y="232" class="s-ink2 s-mid s-sm">rows: player sum 12–21 · columns: dealer showing A–10 · both usable-ace panels look the same</text>
+    </svg>
+    <figcaption><b>Coverage under a deterministic policy.</b> Following stick-on-20 visits only the shaded pairs. The 200 unshaded pairs keep their initial value forever, so a greedy improvement step compares a real estimate with an arbitrary number.</figcaption>
+  </figure>
+  <p>The danger is concrete. After those 200,000 hands, \(\hat Q(16, 10, \text{hit}) = -0.687\) from thousands of returns, while \(\hat Q(16, 10, \text{stick}) = 0\), its initial value, from none. A greedy step would switch to sticking on the strength of no evidence at all. Here that happens to be close to right; in general it is a coin flip decided by your initialisation.</p>
+
+  <h3>The exploring-starts assumption</h3>
+  <div class="box def"><span class="tag">Definition · exploring starts</span>
+    <p>Every episode begins in a state–action pair \((S_0, A_0)\) drawn from a distribution that gives every pair positive probability. After the first action, the policy is followed as usual. With infinitely many episodes, every pair is then visited infinitely often, which is what convergence of the averages requires.</p>
+  </div>
+  <p>With exploring starts the same 200,000 hands leave no pair untried, and the two estimates at 16 against 10 become \(-0.586\) (stick) and \(-0.659\) (hit, then follow stick-on-20). The assumption is still unrealistic in most problems:</p>
+  <ul>
+    <li><b>It needs a resettable simulator.</b> You must be able to place the environment in any state and force the first action. With a real robot, a patient, or a customer you start wherever the world puts you.</li>
+    <li><b>The start distribution must reach everything.</b> States that only occur deep inside episodes must still be possible starting points, and in many environments you cannot even enumerate the valid states.</li>
+    <li><b>It wastes samples at scale.</b> Uniform starts over a huge state space spend almost all their effort on states the optimal policy never visits.</li>
+  </ul>
+  <p>Exploring starts are useful for understanding and for simulators you control, which is why Day 37 uses them. Days 38–40 replace them with the two general solutions: keep the policy itself stochastic, or learn about one policy while following another.</p>
+
+  <h3>Maintaining visit counts</h3>
+  <p>Store a count \(N(s, a)\) next to each estimate. It drives the incremental mean \(Q \leftarrow Q + (G - Q)/N\); it gives the standard error \(\hat\sigma/\sqrt{N}\) of each estimate; it exposes coverage holes (\(N = 0\)) before they corrupt an improvement step; and later it drives exploration schedules (\(\varepsilon = c/N(s)\), Day 38) and importance weights (Day 40). Blackjack returns lie in \([-1, 1]\), so \(\sigma \le 1\), and a 95% interval of \(\pm 0.01\) needs roughly \((1.96/0.01)^2 \approx 38{,}000\) visits to a pair. Differences between the best and second-best action are often smaller than that (Day 41 finds five states where they are under 0.02), so near-ties stay unresolved for a long time.</p>
+  <pre><code># continues from the Day 35 snippet (Blackjack, play_episode)
+import random
+from collections import defaultdict
+
+STATES = [(s, d, u) for s in range(12, 22) for d in range(1, 11) for u in (False, True)]
+
+def mc_q(policy, n_episodes, exploring_starts, seed=0):
+    env, rng = Blackjack(seed), random.Random(seed + 1)
+    Q, N = defaultdict(float), defaultdict(int)
+    for _ in range(n_episodes):
+        if exploring_starts:                         # every (s, a) pair has probability &gt; 0
+            episode = play_episode(env, policy, start=rng.choice(STATES),
+                                   first_action=rng.randint(0, 1))
+        else:
+            episode = play_episode(env, policy)
+        G = 0.0
+        for s, a, r in reversed(episode):            # Blackjack never revisits a state, so
+            G += r                                   # first-visit and every-visit coincide
+            N[s, a] += 1
+            Q[s, a] += (G - Q[s, a]) / N[s, a]
+    return Q, N
+
+stick_on_20 = lambda s: 0 if s[0] &gt;= 20 else 1
+for es in (False, True):
+    Q, N = mc_q(stick_on_20, 200_000, exploring_starts=es)
+    never = sum(N[s, a] == 0 for s in STATES for a in (0, 1))
+    print(f"exploring starts={es!s:5}: {never} of 400 pairs never tried; "
+          f"Q(16, 10, no ace): stick {Q[(16, 10, False), 0]:+.3f}, hit {Q[(16, 10, False), 1]:+.3f}")</code></pre>
+  <p class="code-cap">Prints 200 untried pairs and 0.000 versus −0.687 without exploring starts; 0 untried pairs and −0.586 versus −0.659 with them.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Initial values posing as estimates.</b> An untried action keeps \(Q = 0\). In Blackjack, where most values are negative, that makes it look attractive; in a task with positive returns it looks terrible and is never tried. Always check \(N\) before trusting a comparison.</li>
+      <li><b>Exploring the state but not the action.</b> A random start state with \(A_0 = \pi(S_0)\) is not an exploring start; the first action must be random too.</li>
+      <li><b>Thin start distributions.</b> Exploring starts guarantee every pair positive probability, not enough data. A pair with start probability \(10^{-5}\) may still have a handful of visits after a million episodes. Look at the smallest \(N\), not the average.</li>
+      <li><b>Impossible starts.</b> In environments with constraints, a random state may be unreachable or invalid. Learning its value wastes samples, or crashes the simulator.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run the snippet and plot heatmaps of \(N(s, \text{stick})\) and \(N(s, \text{hit})\) with and without exploring starts.</li>
+      <li>After \(10^6\) exploring-start episodes, which pairs still have a 95% interval wider than \(\pm 0.02\)? Why those?</li>
+      <li>Make the exploring starts realistic: deal a normal hand, then take a random first action. Which pairs now starve, and how many visits do they get per million episodes?</li>
+      <li>Take one greedy improvement step from the estimates without exploring starts, once with \(Q\) initialised to 0 and once to −1. Compare the two resulting policies with each other.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §5.2</p>
+</article>
+
+<!-- ================================================================ DAY 37 -->
+<article class="day" id="d37">
+  <header class="day-head">
+    <span class="day-no">DAY 37</span>
+    <h2>MC Control with Exploring Starts</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Plug Monte Carlo evaluation into generalized policy iteration: average returns into \(Q\), act greedily on \(Q\), and let exploring starts keep every action in play. On Blackjack this rediscovers the optimal strategy from nothing but simulated hands, even though nobody has proved that it must in general.</p>
+
+  <h3>GPI with Monte Carlo evaluation</h3>
+  <p>Policy iteration (Day 30) alternates complete evaluation with greedy improvement. With action values, the improvement step needs no model:</p>
+  $$\pi_{k+1}(s) = \argmax_a q_{\pi_k}(s, a), \qquad q_{\pi_k}(s, \pi_{k+1}(s)) = \max_a q_{\pi_k}(s, a) \ge q_{\pi_k}(s, \pi_k(s)) = v_{\pi_k}(s),$$
+  <p>so the policy improvement theorem applies unchanged and \(\pi_{k+1}\) is at least as good as \(\pi_k\). Two assumptions would make this an exact algorithm: every pair is explored (exploring starts), and each evaluation uses infinitely many episodes. The second is the impractical one, and the fix is the one value iteration used (Day 31): don't evaluate to convergence. After each episode, update \(Q\) with that episode's returns and immediately make the policy greedy at the states it visited. Evaluation and improvement now interleave at the finest grain Monte Carlo allows, one episode.</p>
+
+  <h3>The MCES algorithm</h3>
+  <div class="box algo"><span class="tag">Algorithm · Monte Carlo with Exploring Starts (MCES)</span>
+    <ol>
+      <li>Initialise \(\pi(s)\) arbitrarily, \(Q(s, a)\) arbitrarily and \(N(s, a) \leftarrow 0\).</li>
+      <li>Repeat for each episode:
+        <ol>
+          <li>Choose \(S_0\) and \(A_0\) at random so that every pair has positive probability. <span class="step">(the exploring start)</span></li>
+          <li>Generate an episode from \(S_0, A_0\) following \(\pi\): \(S_0, A_0, R_1, \dots, S_{T-1}, A_{T-1}, R_T\).</li>
+          <li>\(G \leftarrow 0\). For \(t = T-1, \dots, 0\):
+            <ol>
+              <li>\(G \leftarrow \gamma G + R_{t+1}\)</li>
+              <li>If \((S_t, A_t)\) does not appear among \((S_0, A_0), \dots, (S_{t-1}, A_{t-1})\):
+                <ol>
+                  <li>\(N(S_t, A_t) \leftarrow N(S_t, A_t) + 1\); \(Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \frac{1}{N(S_t, A_t)}\big[G - Q(S_t, A_t)\big]\)</li>
+                  <li>\(\pi(S_t) \leftarrow \argmax_a Q(S_t, a)\)</li>
+                </ol>
+              </li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+    <p><span class="step">(S&amp;B keep a list of returns per pair and average it; the running mean is the same number in constant memory)</span></p>
+  </div>
+
+  <h3>Convergence: what is known and what isn't</h3>
+  <p>There is a clean argument that MCES <em>cannot settle on a suboptimal policy</em>. If the policy stopped changing at some \(\pi\), the averages would converge to \(q_\pi\), and the greedy step would then change \(\pi\) unless \(\pi\) were already optimal. So the only stable point is optimal. What that argument does not show is that the process ever settles. Sutton &amp; Barto call the convergence of MCES "one of the most fundamental open theoretical questions in reinforcement learning".</p>
+  <p>The difficulty is that \(Q(s, a)\) is not an estimate of any single policy's action value. It averages returns generated by a sequence of different policies, weighted by the random order in which pairs happened to be visited, while the policy changes asynchronously, one state at a time. The current state of knowledge, roughly:</p>
+  <ul>
+    <li>Bertsekas &amp; Tsitsiklis (1996) give a counterexample showing that a version of the algorithm need not converge.</li>
+    <li>Tsitsiklis (2002) proves convergence when the estimates of all state–action pairs are updated at the same rate and \(\gamma &lt; 1\), which is not how MCES is run in practice.</li>
+    <li>Wang, Yuan, Shao &amp; Ross (2022) prove almost-sure convergence of the original algorithm for "optimal policy feed-forward" MDPs, in which an optimal policy never revisits a state within an episode. Blackjack is one; general MDPs remain open.</li>
+  </ul>
+  <p>Treat MCES as a well-behaved heuristic in feed-forward problems, and as a stepping stone to the methods that come next.</p>
+
+  <h3>Full implementation on Blackjack</h3>
+  <p>Exploring starts are easy here because we control the simulator: deal any of the 200 states and force either first action. Following S&amp;B Example 5.3, the initial policy is stick-on-20 and \(Q\) starts at zero.</p>
+  <pre><code># continues from the Day 35 snippet (Blackjack, play_episode)
+import random
+from collections import defaultdict
+
+STATES = [(s, d, u) for s in range(12, 22) for d in range(1, 11) for u in (False, True)]
+# the exact optimal policy, derived by DP on Day 41: stick iff the sum reaches a threshold
+STICK_AT = {False: dict(zip(range(1, 11), (17, 13, 13, 12, 12, 12, 17, 17, 17, 17))),
+            True:  dict(zip(range(1, 11), (19, 18, 18, 18, 18, 18, 18, 18, 19, 19)))}
+optimal = {s: 0 if s[0] &gt;= STICK_AT[s[2]][s[1]] else 1 for s in STATES}
+
+def mc_exploring_starts(n_episodes, seed=0):
+    env, rng = Blackjack(seed), random.Random(seed + 1)
+    Q, N = defaultdict(float), defaultdict(int)
+    policy = {s: 0 if s[0] &gt;= 20 else 1 for s in STATES}       # S&amp;B: start from stick-on-20
+    for _ in range(n_episodes):
+        episode = play_episode(env, policy.__getitem__,
+                               start=rng.choice(STATES), first_action=rng.randint(0, 1))
+        G = 0.0
+        for s, a, r in reversed(episode):
+            G += r                                              # gamma = 1
+            N[s, a] += 1
+            Q[s, a] += (G - Q[s, a]) / N[s, a]                  # evaluation: running mean
+            policy[s] = 0 if Q[s, 0] &gt;= Q[s, 1] else 1          # improvement: greedy at s
+    return Q, policy
+
+Q, policy = mc_exploring_starts(1_000_000)
+for ace in (True, False):
+    print("usable ace" if ace else "no usable ace", "(rows 21..12, columns A, 2..10; S stick, H hit)")
+    for total in range(21, 11, -1):
+        print(f"{total:3d}  " + " ".join("SH"[policy[total, d, ace]] for d in range(1, 11)))
+print("differs from optimal at", [s for s in STATES if policy[s] != optimal[s]])</code></pre>
+  <p class="code-cap">No first-visit test is needed because a Blackjack hand never revisits a state. A million episodes take a few seconds to a minute in pure Python; the result differs from the optimal policy at three states: hard 12 against a 4 and a 5, and hard 13 against a 2.</p>
+  <p>Those three are not bugs. They are among the six states with the smallest action gaps in the game, all under 0.03: at hard 12 against a 4, sticking beats hitting by only 0.0025 in expected return, which would take millions of visits to resolve. Over three seeds, MCES disagrees with the optimal policy in about 29 states after 10,000 episodes, 7 after 100,000, and 1–3 after a million, and the disagreements left are always near-ties. Counting mismatched cells is therefore a misleading score. Day 41 scores policies by their exact expected return instead: this one earns −0.0435 per hand against −0.0431 for the optimal policy.</p>
+
+  <h3>Visualizing the learned policy surface</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 640 272" role="img" aria-label="Optimal Blackjack policy as two grids, usable ace and no usable ace, with stick regions shaded">
+      <text x="160" y="22" class="s-ttl s-mid">usable ace</text>
+      <rect x="60" y="34" width="200" height="200" class="s-node"/>
+      <rect x="60" y="34" width="200" height="20" class="s-node-mod"/>
+      <rect x="60" y="54" width="200" height="20" class="s-node-mod"/>
+      <rect x="60" y="74" width="200" height="20" class="s-node-mod"/>
+      <rect x="80" y="94" width="140" height="20" class="s-node-mod"/>
+      <line x1="80" y1="34" x2="80" y2="234" class="s-grid"/>
+      <line x1="60" y1="54" x2="260" y2="54" class="s-grid"/>
+      <line x1="100" y1="34" x2="100" y2="234" class="s-grid"/>
+      <line x1="60" y1="74" x2="260" y2="74" class="s-grid"/>
+      <line x1="120" y1="34" x2="120" y2="234" class="s-grid"/>
+      <line x1="60" y1="94" x2="260" y2="94" class="s-grid"/>
+      <line x1="140" y1="34" x2="140" y2="234" class="s-grid"/>
+      <line x1="60" y1="114" x2="260" y2="114" class="s-grid"/>
+      <line x1="160" y1="34" x2="160" y2="234" class="s-grid"/>
+      <line x1="60" y1="134" x2="260" y2="134" class="s-grid"/>
+      <line x1="180" y1="34" x2="180" y2="234" class="s-grid"/>
+      <line x1="60" y1="154" x2="260" y2="154" class="s-grid"/>
+      <line x1="200" y1="34" x2="200" y2="234" class="s-grid"/>
+      <line x1="60" y1="174" x2="260" y2="174" class="s-grid"/>
+      <line x1="220" y1="34" x2="220" y2="234" class="s-grid"/>
+      <line x1="60" y1="194" x2="260" y2="194" class="s-grid"/>
+      <line x1="240" y1="34" x2="240" y2="234" class="s-grid"/>
+      <line x1="60" y1="214" x2="260" y2="214" class="s-grid"/>
+      <text x="54" y="48" class="s-ink3 s-end s-sm">21</text>
+      <text x="54" y="68" class="s-ink3 s-end s-sm">20</text>
+      <text x="54" y="88" class="s-ink3 s-end s-sm">19</text>
+      <text x="54" y="108" class="s-ink3 s-end s-sm">18</text>
+      <text x="54" y="128" class="s-ink3 s-end s-sm">17</text>
+      <text x="54" y="148" class="s-ink3 s-end s-sm">16</text>
+      <text x="54" y="168" class="s-ink3 s-end s-sm">15</text>
+      <text x="54" y="188" class="s-ink3 s-end s-sm">14</text>
+      <text x="54" y="208" class="s-ink3 s-end s-sm">13</text>
+      <text x="54" y="228" class="s-ink3 s-end s-sm">12</text>
+      <text x="70" y="248" class="s-ink3 s-mid s-sm">A</text>
+      <text x="90" y="248" class="s-ink3 s-mid s-sm">2</text>
+      <text x="110" y="248" class="s-ink3 s-mid s-sm">3</text>
+      <text x="130" y="248" class="s-ink3 s-mid s-sm">4</text>
+      <text x="150" y="248" class="s-ink3 s-mid s-sm">5</text>
+      <text x="170" y="248" class="s-ink3 s-mid s-sm">6</text>
+      <text x="190" y="248" class="s-ink3 s-mid s-sm">7</text>
+      <text x="210" y="248" class="s-ink3 s-mid s-sm">8</text>
+      <text x="230" y="248" class="s-ink3 s-mid s-sm">9</text>
+      <text x="250" y="248" class="s-ink3 s-mid s-sm">10</text>
+      <text x="480" y="22" class="s-ttl s-mid">no usable ace</text>
+      <rect x="380" y="34" width="200" height="200" class="s-node"/>
+      <rect x="380" y="34" width="200" height="20" class="s-node-mod"/>
+      <rect x="380" y="54" width="200" height="20" class="s-node-mod"/>
+      <rect x="380" y="74" width="200" height="20" class="s-node-mod"/>
+      <rect x="380" y="94" width="200" height="20" class="s-node-mod"/>
+      <rect x="380" y="114" width="200" height="20" class="s-node-mod"/>
+      <rect x="400" y="134" width="100" height="20" class="s-node-mod"/>
+      <rect x="400" y="154" width="100" height="20" class="s-node-mod"/>
+      <rect x="400" y="174" width="100" height="20" class="s-node-mod"/>
+      <rect x="400" y="194" width="100" height="20" class="s-node-mod"/>
+      <rect x="440" y="214" width="60" height="20" class="s-node-mod"/>
+      <line x1="400" y1="34" x2="400" y2="234" class="s-grid"/>
+      <line x1="380" y1="54" x2="580" y2="54" class="s-grid"/>
+      <line x1="420" y1="34" x2="420" y2="234" class="s-grid"/>
+      <line x1="380" y1="74" x2="580" y2="74" class="s-grid"/>
+      <line x1="440" y1="34" x2="440" y2="234" class="s-grid"/>
+      <line x1="380" y1="94" x2="580" y2="94" class="s-grid"/>
+      <line x1="460" y1="34" x2="460" y2="234" class="s-grid"/>
+      <line x1="380" y1="114" x2="580" y2="114" class="s-grid"/>
+      <line x1="480" y1="34" x2="480" y2="234" class="s-grid"/>
+      <line x1="380" y1="134" x2="580" y2="134" class="s-grid"/>
+      <line x1="500" y1="34" x2="500" y2="234" class="s-grid"/>
+      <line x1="380" y1="154" x2="580" y2="154" class="s-grid"/>
+      <line x1="520" y1="34" x2="520" y2="234" class="s-grid"/>
+      <line x1="380" y1="174" x2="580" y2="174" class="s-grid"/>
+      <line x1="540" y1="34" x2="540" y2="234" class="s-grid"/>
+      <line x1="380" y1="194" x2="580" y2="194" class="s-grid"/>
+      <line x1="560" y1="34" x2="560" y2="234" class="s-grid"/>
+      <line x1="380" y1="214" x2="580" y2="214" class="s-grid"/>
+      <text x="374" y="48" class="s-ink3 s-end s-sm">21</text>
+      <text x="374" y="68" class="s-ink3 s-end s-sm">20</text>
+      <text x="374" y="88" class="s-ink3 s-end s-sm">19</text>
+      <text x="374" y="108" class="s-ink3 s-end s-sm">18</text>
+      <text x="374" y="128" class="s-ink3 s-end s-sm">17</text>
+      <text x="374" y="148" class="s-ink3 s-end s-sm">16</text>
+      <text x="374" y="168" class="s-ink3 s-end s-sm">15</text>
+      <text x="374" y="188" class="s-ink3 s-end s-sm">14</text>
+      <text x="374" y="208" class="s-ink3 s-end s-sm">13</text>
+      <text x="374" y="228" class="s-ink3 s-end s-sm">12</text>
+      <text x="390" y="248" class="s-ink3 s-mid s-sm">A</text>
+      <text x="410" y="248" class="s-ink3 s-mid s-sm">2</text>
+      <text x="430" y="248" class="s-ink3 s-mid s-sm">3</text>
+      <text x="450" y="248" class="s-ink3 s-mid s-sm">4</text>
+      <text x="470" y="248" class="s-ink3 s-mid s-sm">5</text>
+      <text x="490" y="248" class="s-ink3 s-mid s-sm">6</text>
+      <text x="510" y="248" class="s-ink3 s-mid s-sm">7</text>
+      <text x="530" y="248" class="s-ink3 s-mid s-sm">8</text>
+      <text x="550" y="248" class="s-ink3 s-mid s-sm">9</text>
+      <text x="570" y="248" class="s-ink3 s-mid s-sm">10</text>
+      <rect x="61" y="95" width="18" height="18" class="s-ln-warn"/>
+      <text x="160" y="70" class="s-ttl s-mid">STICK</text>
+      <text x="160" y="180" class="s-ttl s-mid">HIT</text>
+      <text x="480" y="90" class="s-ttl s-mid">STICK</text>
+      <text x="550" y="190" class="s-ttl s-mid">HIT</text>
+      <text x="160" y="266" class="s-ink2 s-mid s-sm">dealer showing</text>
+      <text x="480" y="266" class="s-ink2 s-mid s-sm">dealer showing</text>
+    </svg>
+    <figcaption><b>The optimal policy</b>, rows = player sum (12 at the bottom), shaded = stick. This is what MCES converges to and what S&amp;B Figure 5.2 shows. Without a usable ace: stick on 17 or more; stick on 13–16 when the dealer shows 2–6, because the dealer is likely to bust; stick on 12 only against 4–6. With a usable ace you can hit more boldly, since a bad card just turns the ace back into a 1: stick on 19 or more, and on 18 against 2–8. The outlined cell (soft 18 against an ace: hit) is the one place where this differs from Thorp's (1966) basic strategy, a discrepancy S&amp;B also report; the game here is not quite casino blackjack (no doubling, no splitting, a natural pays 1:1, and the dealer's hand is not checked for a natural before you play).</figcaption>
+  </figure>
+  <p>To draw the learned version, plot the greedy action as two 10 × 10 heatmaps like the figure, and the value \(\max_a Q(s, a)\) as two surfaces (or heatmaps) over player sum and dealer card, one per usable-ace flag. The optimal values run from about −0.64 (hard 16 against a dealer ace, the worst state in the game) up to about 0.94 (21 against a 9); with a usable ace the floor is higher, about −0.40, because a soft hand cannot bust on the next card. Against a dealer ace every value drops sharply, since the ace makes the dealer's own hand so strong.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Scoring by matching cells.</b> Near-tie states (hard 12 against 4, 16 against 10) flip back and forth for millions of episodes. Count mismatches if you like, but judge the policy by its return.</li>
+      <li><b>Averaging stale returns.</b> Early returns were generated by bad policies, and a sample average never forgets them. That slows MCES down, though it does not stop it here. A constant step size forgets faster, at the cost of extra noise.</li>
+      <li><b>Exploring starts that aren't.</b> Starting in a random state but taking \(\pi(S_0)\) explores nothing at that state. Both the state and the first action must be random.</li>
+      <li><b>Tie-breaking before any data.</b> With \(Q = 0\) everywhere, the argmax silently prefers whichever action comes first. Harmless with exploring starts, which will try both anyway; harmful without them (Day 36).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run MCES for \(10^4\), \(10^5\) and \(10^6\) episodes with three seeds. Plot the policy heatmaps and the \(\max_a Q\) surfaces, and count disagreements with <code>optimal</code>.</li>
+      <li>For each disagreeing state, print \(Q(s, \text{stick}) - Q(s, \text{hit})\) and the visit counts. Are the disagreements explained by the estimates' standard errors?</li>
+      <li>Replace the running mean with a constant step size \(\alpha \in \{0.01, 0.001\}\). Does the policy converge faster or slower? Does it stop flickering?</li>
+      <li>Replace the uniform exploring starts with "deal a normal hand, random first action". Which states are now learned slowly, and why?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §5.3 · Tsitsiklis 2002, “On the convergence of optimistic policy iteration” · Wang, Yuan, Shao &amp; Ross 2022, “On the convergence of the Monte Carlo exploring starts algorithm for reinforcement learning” · Thorp 1966, <i>Beat the Dealer</i></p>
+</article>
+
+<!-- ================================================================ DAY 38 -->
+<article class="day" id="d38">
+  <header class="day-head">
+    <span class="day-no">DAY 38</span>
+    <h2>On-Policy MC Control with ε-Soft Policies</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Drop exploring starts by never letting the policy become deterministic: keep every action's probability at least \(\varepsilon/|\mathcal A|\). The policy improvement theorem still holds inside that class, so on-policy Monte Carlo control finds the best \(\varepsilon\)-soft policy, which is close to optimal but not optimal unless \(\varepsilon\) is decayed, and decayed with care.</p>
+
+  <h3>ε-greedy as an ε-soft policy</h3>
+  <div class="box def"><span class="tag">Definition · soft, ε-soft, ε-greedy</span>
+    <p>A policy is <b>soft</b> if \(\pi(a \mid s) &gt; 0\) for every state and action, and <b>\(\varepsilon\)-soft</b> if \(\pi(a \mid s) \ge \varepsilon/|\mathcal A(s)|\). The <b>\(\varepsilon\)-greedy</b> policy with respect to \(Q\) gives the greedy action probability \(1 - \varepsilon + \varepsilon/|\mathcal A(s)|\) and every other action \(\varepsilon/|\mathcal A(s)|\).</p>
+  </div>
+  <p>Every \(\varepsilon\)-greedy policy is \(\varepsilon\)-soft, and among all \(\varepsilon\)-soft policies it is the one closest to greedy: it puts as much probability on the best action as the constraint allows. That makes it the natural "improvement" step within the class.</p>
+
+  <h3>Dropping exploring starts</h3>
+  <p>If the policy itself always explores, episodes can start wherever the environment puts them. Every action keeps being tried in every state the policy visits, so the action values of all reachable pairs keep improving.</p>
+  <div class="box algo"><span class="tag">Algorithm · On-policy first-visit MC control (ε-soft)</span>
+    <ol>
+      <li>Choose \(\varepsilon &gt; 0\). Initialise \(Q(s, a)\) arbitrarily, \(N(s, a) \leftarrow 0\), and \(\pi\) to any \(\varepsilon\)-soft policy.</li>
+      <li>Repeat for each episode:
+        <ol>
+          <li>Generate an episode following \(\pi\), from the environment's own start distribution.</li>
+          <li>\(G \leftarrow 0\). For \(t = T-1, \dots, 0\): \(G \leftarrow \gamma G + R_{t+1}\); if \((S_t, A_t)\) is a first visit:
+            <ol>
+              <li>\(N(S_t, A_t) \mathrel{+}= 1\); \(Q(S_t, A_t) \mathrel{+}= \frac{1}{N(S_t, A_t)}[G - Q(S_t, A_t)]\)</li>
+              <li>\(A^* \leftarrow \argmax_a Q(S_t, a)\); for all \(a\): \(\pi(a \mid S_t) \leftarrow 1 - \varepsilon + \varepsilon/|\mathcal A|\) if \(a = A^*\), else \(\varepsilon/|\mathcal A|\)</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+
+  <h3>The policy improvement theorem for ε-soft policies</h3>
+  <div class="box thm"><span class="tag">Theorem · ε-greedy improvement</span>
+    <p>Let \(\pi\) be any \(\varepsilon\)-soft policy and \(\pi'\) the \(\varepsilon\)-greedy policy with respect to \(q_\pi\). Then \(v_{\pi'}(s) \ge v_\pi(s)\) for every \(s\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof (S&amp;B §5.4)</span>
+    <p>Write \(m = |\mathcal A(s)|\). For every state \(s\),</p>
+    $$\begin{aligned}
+    \sum_a \pi'(a \mid s)\, q_\pi(s, a) &amp;= \frac{\varepsilon}{m} \sum_a q_\pi(s, a) + (1 - \varepsilon) \max_a q_\pi(s, a) \\
+    &amp;\ge \frac{\varepsilon}{m} \sum_a q_\pi(s, a) + (1 - \varepsilon) \sum_a \frac{\pi(a \mid s) - \varepsilon/m}{1 - \varepsilon}\, q_\pi(s, a) \\
+    &amp;= \frac{\varepsilon}{m} \sum_a q_\pi(s, a) - \frac{\varepsilon}{m} \sum_a q_\pi(s, a) + \sum_a \pi(a \mid s)\, q_\pi(s, a) = v_\pi(s).
+    \end{aligned}$$
+    <p>The inequality holds because the weights \(\big(\pi(a \mid s) - \varepsilon/m\big)/(1 - \varepsilon)\) are non-negative (that is exactly the \(\varepsilon\)-soft condition) and sum to 1 (since \(\sum_a \pi(a \mid s) = 1\) and \(\sum_a \varepsilon/m = \varepsilon\)), and a weighted average never exceeds the maximum. The hypothesis of the stochastic policy improvement theorem (Day 29) therefore holds at every state, and \(v_{\pi'} \ge v_\pi\).</p>
+  </div>
+
+  <h3>The ε-soft optimality caveat</h3>
+  <p>When does the improvement stop? S&amp;B's argument moves the randomness into the environment. Imagine a modified environment that, with probability \(\varepsilon\), ignores the agent's chosen action and substitutes a uniformly random one. Any policy in the new environment behaves like an \(\varepsilon\)-soft policy in the old one, so the best value achievable there, \(\tilde v_*\), is the best value achievable by \(\varepsilon\)-soft policies here. It is the unique solution of</p>
+  $$\tilde v_*(s) = (1 - \varepsilon) \max_a \tilde q_*(s, a) + \frac{\varepsilon}{m} \sum_a \tilde q_*(s, a), \qquad \tilde q_*(s, a) = \sum_{s', r} p(s', r \mid s, a)\big[r + \gamma \tilde v_*(s')\big],$$
+  <p>unique because the right-hand side is again a \(\gamma\)-contraction (Day 32). If \(\varepsilon\)-greedy improvement leaves \(\pi\) unchanged, then \(\pi\) is \(\varepsilon\)-greedy with respect to its own \(q_\pi\), and substituting shows \(v_\pi\) satisfies exactly this equation, so \(v_\pi = \tilde v_*\). The algorithm therefore converges (in the idealised policy-iteration sense) to the <b>best \(\varepsilon\)-soft policy</b>, not to \(\pi_*\).</p>
+  <p>How much does that cost? On Blackjack it can be computed exactly:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>ε</th><th>Return of the best ε-soft policy, acting ε-softly</th><th>Return of its greedy part</th><th>States where the greedy part differs from π*</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0 (π*)</td><td class="num">−0.0431</td><td class="num">−0.0431</td><td class="num">0</td></tr>
+      <tr><td class="num">0.05</td><td class="num">−0.0591</td><td class="num">−0.0434</td><td class="num">1</td></tr>
+      <tr><td class="num">0.1</td><td class="num">−0.0749</td><td class="num">−0.0435</td><td class="num">2</td></tr>
+      <tr><td class="num">0.2</td><td class="num">−0.1068</td><td class="num">−0.0445</td><td class="num">6</td></tr>
+      <tr><td class="num">0.3</td><td class="num">−0.1385</td><td class="num">−0.0472</td><td class="num">9</td></tr>
+    </tbody>
+  </table></div>
+  <p>Two separate costs show up. While it keeps exploring, the agent pays for its random actions: at \(\varepsilon = 0.1\), about 3 cents per hand. And the greedy policy it learns is optimal for a world in which its own future actions are random: at \(\varepsilon = 0.1\) it sticks on hard 16 against a 10 and on hard 12 against a 3, where a greedy player should hit. Both changes make sense once your own future is noisy: hitting leads to more decisions, and every later decision is another chance to blunder (hit on 18, say). In Blackjack the second cost is tiny. In Cliff Walking (Day 45), where one random step next to the cliff costs −100, the best \(\varepsilon\)-soft policy walks a visibly different, safer path.</p>
+
+  <h3>GLIE</h3>
+  <div class="box def"><span class="tag">Definition · GLIE (Singh, Jaakkola, Littman &amp; Szepesvári 2000)</span>
+    <p>A sequence of policies is <b>greedy in the limit with infinite exploration</b> if</p>
+    <ol>
+      <li>every state–action pair is visited infinitely often, and</li>
+      <li>the policies converge to greedy: \(\lim_{k \to \infty} \pi_k(a \mid s) = \mathbb 1\{a = \argmax_{a'} Q_k(s, a')\}\).</li>
+    </ol>
+  </div>
+  <p>\(\varepsilon\)-greedy with a state-dependent rate \(\varepsilon(s) = c/n(s)\), where \(n(s)\) counts visits to \(s\), is GLIE: \(\varepsilon \to 0\), and because \(\sum_n c/n = \infty\), every action is still tried infinitely often (the second Borel–Cantelli lemma, since the exploration coin flips are independent). GLIE is the condition under which SARSA is proved to converge to \(q_*\) (Singh et al. 2000), and David Silver's lectures state the corresponding result for GLIE Monte Carlo control; a rigorous proof for the Monte Carlo version runs into the same averaging-across-policies difficulty as MCES.</p>
+
+  <h3>Decaying ε schedules</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 228" role="img" aria-label="Four epsilon schedules plotted against the number of visits to a state on a log scale">
+      <line x1="60" y1="190" x2="440" y2="190" class="s-ln"/><line x1="60" y1="20" x2="60" y2="190" class="s-ln"/>
+      <text x="54" y="194.0" class="s-ink3 s-end s-sm">0</text>
+      <text x="54" y="109.0" class="s-ink3 s-end s-sm">0.5</text>
+      <text x="54" y="24.0" class="s-ink3 s-end s-sm">1</text>
+      <text x="60.0" y="205" class="s-ink3 s-mid s-sm">1</text>
+      <text x="136.0" y="205" class="s-ink3 s-mid s-sm">10</text>
+      <text x="212.0" y="205" class="s-ink3 s-mid s-sm">10²</text>
+      <text x="288.0" y="205" class="s-ink3 s-mid s-sm">10³</text>
+      <text x="364.0" y="205" class="s-ink3 s-mid s-sm">10⁴</text>
+      <text x="440.0" y="205" class="s-ink3 s-mid s-sm">10⁵</text>
+      <polyline points="60.0,173.0 82.9,173.0 96.3,173.0 105.8,173.0 113.1,173.0 119.1,173.0 124.2,173.0 132.5,173.0 136.0,173.0 144.7,173.0 149.4,173.0 157.2,173.0 163.5,173.0 170.0,173.0 176.4,173.0 182.6,173.0 189.1,173.0 195.1,173.0 201.6,173.0 208.2,173.0 214.5,173.0 220.9,173.0 227.5,173.0 233.9,173.0 240.3,173.0 246.8,173.0 253.3,173.0 259.7,173.0 266.1,173.0 272.5,173.0 279.0,173.0 285.4,173.0 291.9,173.0 298.3,173.0 304.7,173.0 311.2,173.0 317.6,173.0 324.1,173.0 330.5,173.0 336.9,173.0 343.4,173.0 349.8,173.0 356.3,173.0 362.7,173.0 369.2,173.0 375.6,173.0 382.0,173.0 388.5,173.0 394.9,173.0 401.4,173.0 407.8,173.0 414.2,173.0 420.7,173.0 427.1,173.0 433.6,173.0 440.0,173.0" class="s-ln s-dash"/>
+      <polyline points="60.0,20.0 82.9,105.0 96.3,133.3 105.8,147.5 113.1,156.0 119.1,161.7 124.2,165.7 132.5,171.1 136.0,173.0 144.7,176.9 149.4,178.7 157.2,181.1 163.5,182.6 170.0,183.9 176.4,185.0 182.6,185.9 189.1,186.6 195.1,187.2 201.6,187.7 208.2,188.1 214.5,188.4 220.9,188.7 227.5,188.9 233.9,189.1 240.3,189.3 246.8,189.4 253.3,189.5 259.7,189.6 266.1,189.7 272.5,189.7 279.0,189.8 285.4,189.8 291.9,189.8 298.3,189.9 304.7,189.9 311.2,189.9 317.6,189.9 324.1,189.9 330.5,190.0 336.9,190.0 343.4,190.0 349.8,190.0 356.3,190.0 362.7,190.0 369.2,190.0 375.6,190.0 382.0,190.0 388.5,190.0 394.9,190.0 401.4,190.0 407.8,190.0 414.2,190.0 420.7,190.0 427.1,190.0 433.6,190.0 440.0,190.0" class="s-ln-info"/>
+      <polyline points="60.0,21.7 82.9,23.3 96.3,25.0 105.8,26.5 113.1,28.1 119.1,29.6 124.2,31.1 132.5,34.0 136.0,35.5 144.7,39.6 149.4,42.2 157.2,47.1 163.5,51.8 170.0,57.2 176.4,63.1 182.6,69.4 189.1,76.7 195.1,83.8 201.6,91.7 208.2,100.1 214.5,108.3 220.9,116.4 227.5,124.6 233.9,132.2 240.3,139.4 246.8,146.1 253.3,152.1 259.7,157.6 266.1,162.4 272.5,166.6 279.0,170.3 285.4,173.4 291.9,176.1 298.3,178.4 304.7,180.3 311.2,182.0 317.6,183.3 324.1,184.5 330.5,185.4 336.9,186.2 343.4,186.9 349.8,187.4 356.3,187.9 362.7,188.3 369.2,188.6 375.6,188.8 382.0,189.0 388.5,189.2 394.9,189.3 401.4,189.5 407.8,189.6 414.2,189.6 420.7,189.7 427.1,189.7 433.6,189.8 440.0,189.8" class="s-ln-mod"/>
+      <polyline points="60.0,20.9 82.9,21.7 96.3,22.5 105.8,23.4 113.1,24.2 119.1,25.0 124.2,25.9 132.5,27.5 136.0,28.3 144.7,30.7 149.4,32.3 157.2,35.4 163.5,38.5 170.0,42.3 176.4,46.6 182.6,51.6 189.1,57.7 195.1,64.2 201.6,72.1 208.2,81.2 214.5,91.1 220.9,101.8 227.5,113.8 233.9,125.7 240.3,137.9 246.8,149.7 253.3,160.4 259.7,169.7 266.1,177.1 272.5,182.6 279.0,186.3 285.4,188.4 291.9,189.4 298.3,189.8 304.7,190.0 311.2,190.0 317.6,190.0 324.1,190.0 330.5,190.0 336.9,190.0 343.4,190.0 349.8,190.0 356.3,190.0 362.7,190.0 369.2,190.0 375.6,190.0 382.0,190.0 388.5,190.0 394.9,190.0 401.4,190.0 407.8,190.0 414.2,190.0 420.7,190.0 427.1,190.0 433.6,190.0 440.0,190.0" class="s-ln-warn"/>
+      <line x1="470" y1="36" x2="492" y2="36" class="s-ln s-dash"/><text x="498" y="40" class="s-sm">ε = 0.1</text><text x="498" y="54" class="s-ink2 s-sm">never greedy: not GLIE</text>
+      <line x1="470" y1="80" x2="492" y2="80" class="s-ln-info"/><text x="498" y="84" class="s-sm">ε = 1/n</text><text x="498" y="98" class="s-ink2 s-sm">GLIE, decays too fast</text>
+      <line x1="470" y1="124" x2="492" y2="124" class="s-ln-mod"/><text x="498" y="128" class="s-sm">ε = 100/(100 + n)</text><text x="498" y="142" class="s-ink2 s-sm">GLIE, decays slowly</text>
+      <line x1="470" y1="168" x2="492" y2="168" class="s-ln-warn"/><text x="498" y="172" class="s-sm">ε = 0.995ⁿ</text><text x="498" y="186" class="s-ink2 s-sm">explores finitely: not GLIE</text>
+      <text x="250" y="222" class="s-ink2 s-mid s-sm">visits n(s) to the state (log scale)</text>
+      <text x="16" y="108" class="s-ink2 s-mid">ε</text>
+    </svg>
+    <figcaption><b>Schedules by visit count.</b> The exponential schedule has \(\sum_n 0.995^n = 200 &lt; \infty\), so after finitely many visits it stops exploring for good: not GLIE. \(1/n\) satisfies GLIE, but the expected number of exploratory actions after \(n\) visits grows only like \(\ln n\). \(100/(100+n)\) is GLIE too and stays exploratory for the first few hundred visits.</figcaption>
+  </figure>
+  <p>Satisfying GLIE and working well are different things. Here is on-policy MC control on Blackjack for 300,000 episodes, two seeds, scored exactly:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Schedule</th><th>GLIE?</th><th>States differing from π*</th><th>Exact return of the greedy policy</th></tr></thead>
+    <tbody>
+      <tr><td>ε = 0.05</td><td>no</td><td class="num">19</td><td class="num">−0.049</td></tr>
+      <tr><td>ε = 0.1</td><td>no</td><td class="num">15–16</td><td class="num">−0.047 to −0.051</td></tr>
+      <tr><td>ε = 0.3</td><td>no</td><td class="num">11–13</td><td class="num">−0.048 to −0.050</td></tr>
+      <tr><td>ε = 1/n(s)</td><td>yes</td><td class="num">28–35</td><td class="num">−0.063 to −0.077</td></tr>
+      <tr><td>ε = 100/(100 + n(s))</td><td>yes</td><td class="num">14</td><td class="num">−0.048 to −0.051</td></tr>
+      <tr><td>ε = 1000/(1000 + n(s))</td><td>yes</td><td class="num">25</td><td class="num">−0.055 to −0.058</td></tr>
+      <tr><td>linear 1 → 0.01 over 150k episodes</td><td>no (floor)</td><td class="num">25</td><td class="num">−0.064 to −0.065</td></tr>
+    </tbody>
+  </table></div>
+  <p>The textbook-correct \(1/n(s)\) is the worst schedule in the table: exploration dies before the estimates of the non-greedy actions are any good, and the greedy policy freezes on early noise. \(1000/(1000+n)\) is still exploring heavily at this budget, so it will be good later and is mediocre now. In practice people run a constant \(\varepsilon\) and evaluate the greedy policy separately, or decay \(\varepsilon\) slowly with a constant tuned to the training budget.</p>
+  <pre><code># continues from the Day 37 snippet (Blackjack, play_episode, STATES, optimal)
+def on_policy_mc(n_episodes, epsilon, seed=0):
+    """First-visit on-policy MC control with an epsilon-greedy (hence epsilon-soft) policy.
+    epsilon(n) is the exploration rate at a state that has now been visited n times."""
+    env, rng = Blackjack(seed), random.Random(seed + 1)
+    Q, N, visits = defaultdict(float), defaultdict(int), defaultdict(int)
+    greedy = lambda s: 0 if Q[s, 0] &gt;= Q[s, 1] else 1
+    def act(s):                                     # improvement is implicit: act() reads Q
+        visits[s] += 1
+        return rng.randint(0, 1) if rng.random() &lt; epsilon(visits[s]) else greedy(s)
+    for _ in range(n_episodes):
+        G = 0.0
+        for s, a, r in reversed(play_episode(env, act)):
+            G += r
+            N[s, a] += 1
+            Q[s, a] += (G - Q[s, a]) / N[s, a]
+    return {s: greedy(s) for s in STATES}
+
+schedules = {"constant 0.1":       lambda n: 0.1,          # epsilon-soft forever: not GLIE
+             "1/n(s)":             lambda n: 1.0 / n,      # GLIE, but explores only ~ln(n) times
+             "100/(100 + n(s))":   lambda n: 100 / (100 + n)}
+for name, eps in schedules.items():
+    pi = on_policy_mc(300_000, eps)
+    print(f"{name:17}: greedy policy differs from optimal in "
+          f"{sum(pi[s] != optimal[s] for s in STATES)} of 200 states")</code></pre>
+  <p class="code-cap">Prints 15, 28 and 14. The policy is never stored explicitly: acting \(\varepsilon\)-greedily on the current \(Q\) is the improvement step. Every hand starts from a normal deal, with no exploring starts.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Reporting the behaviour policy's return.</b> The returns you observe during training include the exploration. Evaluate the greedy policy separately, with \(\varepsilon = 0\), before comparing methods.</li>
+      <li><b>Decaying too fast.</b> A schedule that hits a tiny \(\varepsilon\) before the values settle locks in whatever the noise said at the time. If the learning curve flattens early at a poor level, suspect the schedule before the algorithm.</li>
+      <li><b>Never decaying, and calling it optimal.</b> A constant \(\varepsilon\) converges, at best, to the best \(\varepsilon\)-soft policy. That is a different policy, and in risky tasks a noticeably different one.</li>
+      <li><b>Episode-based schedules on unevenly visited states.</b> \(\varepsilon_k = 1/k\) per episode decays the same everywhere, so rare states stop exploring long before they have been explored. State-dependent counts \(n(s)\) avoid this.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the snippet for all seven schedules in the table, three seeds each, and plot disagreements against episodes on a log axis.</li>
+      <li>Prove the theorem for \(|\mathcal A| = 2\) by direct calculation, then explain in one sentence why the proof needs \(\pi\) to be \(\varepsilon\)-soft and not merely soft.</li>
+      <li>Compute the best \(\varepsilon\)-soft Blackjack policy for \(\varepsilon = 0.2\) with the "randomness in the environment" construction (the Day 41 DP makes this a few lines), and check that your learned greedy policy converges towards it, not towards \(\pi_*\).</li>
+      <li>For \(\varepsilon(s) = 1/n(s)\), compute the expected number of exploratory actions after \(n = 10^2, 10^4, 10^6\) visits, and relate it to the table.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §5.4 · Singh, Jaakkola, Littman &amp; Szepesvári 2000, “Convergence results for single-step on-policy reinforcement-learning algorithms” · David Silver, UCL RL Lecture 5</p>
+</article>
+
+<!-- ================================================================ DAY 39 -->
+<article class="day" id="d39">
+  <header class="day-head">
+    <span class="day-no">DAY 39</span>
+    <h2>Off-Policy Prediction &amp; Importance Sampling</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">To learn about one policy from data generated by another, reweight each return by how much more (or less) likely its trajectory is under the policy you care about. The reweighting is exact in expectation and needs no model. The price is variance, and sometimes that variance is infinite.</p>
+
+  <h3>Behaviour policy b vs target policy π</h3>
+  <p>On-policy control is a compromise: it learns the values of a policy that still explores, so it can only reach the best \(\varepsilon\)-soft policy (Day 38). Off-policy methods separate the two jobs. The <b>target policy</b> \(\pi\) is the one we want to evaluate or improve, typically greedy. The <b>behaviour policy</b> \(b\) generates the data and does the exploring. On-policy learning is the special case \(b = \pi\).</p>
+  <p>Separating them buys a lot: you can learn the greedy policy while acting exploratorily, learn from logged data produced by someone else (a human, an older version of the system, a fixed rule), and learn about many policies from one stream of experience. The cost is variance and slower learning. Today's problem is <b>prediction</b>: \(\pi\) and \(b\) are both fixed and known, and we want \(v_\pi\) or \(q_\pi\) from episodes generated by \(b\).</p>
+
+  <h3>The coverage assumption</h3>
+  <div class="box def"><span class="tag">Definition · coverage</span>
+    <p>\(b\) <b>covers</b> \(\pi\) if \(\pi(a \mid s) &gt; 0\) implies \(b(a \mid s) &gt; 0\): every action the target might take, the behaviour policy takes at least sometimes.</p>
+  </div>
+  <p>It is a necessary condition, not a technicality. If \(b\) never takes an action that \(\pi\) takes, the data contain no information about what that action leads to, and no reweighting can invent it. Coverage forces \(b\) to be stochastic wherever it differs from \(\pi\), while \(\pi\) itself may be deterministic, which is the case that matters for control.</p>
+
+  <h3>The importance-sampling ratio</h3>
+  <p>Start at \(S_t\) and look at the rest of the episode, \(A_t, S_{t+1}, A_{t+1}, \dots, S_T\). Its probability under \(\pi\) is \(\prod_{k=t}^{T-1} \pi(A_k \mid S_k)\, p(S_{k+1} \mid S_k, A_k)\), and similarly under \(b\). Their ratio is</p>
+  $$\rho_{t:T-1} \doteq \prod_{k=t}^{T-1} \frac{\pi(A_k \mid S_k)\, p(S_{k+1} \mid S_k, A_k)}{b(A_k \mid S_k)\, p(S_{k+1} \mid S_k, A_k)} = \prod_{k=t}^{T-1} \frac{\pi(A_k \mid S_k)}{b(A_k \mid S_k)}.$$
+  <p>The dynamics cancel. The ratio depends only on the two policies and the actions that were actually taken, so computing it needs no model.</p>
+  <div class="box thm"><span class="tag">Theorem · importance sampling is unbiased</span>
+    <p>If \(b\) covers \(\pi\), then \(\E_b\big[\rho_{t:T-1}\, G_t \mid S_t = s\big] = v_\pi(s)\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Sum over the possible continuations \(\tau = (A_t, S_{t+1}, \dots, S_T)\) that have positive probability under \(b\), writing \(G(\tau)\) for the return along \(\tau\) and \(\Pr_b(\tau \mid s)\), \(\Pr_\pi(\tau \mid s)\) for its probabilities:</p>
+    $$\E_b\big[\rho\, G \mid S_t = s\big] = \sum_{\tau:\, \Pr_b(\tau \mid s) &gt; 0} \Pr_b(\tau \mid s)\, \frac{\Pr_\pi(\tau \mid s)}{\Pr_b(\tau \mid s)}\, G(\tau) = \sum_{\tau:\, \Pr_b(\tau \mid s) &gt; 0} \Pr_\pi(\tau \mid s)\, G(\tau) = v_\pi(s).$$
+    <p>The last step is where coverage enters. Every \(\tau\) with \(\Pr_\pi(\tau \mid s) &gt; 0\) uses only actions that \(\pi\) takes, hence actions that \(b\) takes, so it also has \(\Pr_b(\tau \mid s) &gt; 0\) and appears in the sum. Without coverage, trajectories that \(\pi\) can produce would be missing, and the estimate would be biased.</p>
+  </div>
+
+  <h3>Ordinary importance sampling</h3>
+  <p>Number time steps consecutively across episodes, let \(\mathcal T(s)\) be the set of (first-)visit times to \(s\), and \(T(t)\) the termination time of the episode containing \(t\). <b>Ordinary importance sampling</b> averages the reweighted returns:</p>
+  $$V(s) = \frac{\sum_{t \in \mathcal T(s)} \rho_{t:T(t)-1}\, G_t}{|\mathcal T(s)|}.$$
+  <p>With first visits, each term is an independent sample of \(\rho G\) whose mean is \(v_\pi(s)\) by the theorem, so the estimate is <b>unbiased</b>. Its variance, however, is governed by \(\E_b[\rho^2 G^2]\), and ratios are products: if \(\pi\) is deterministic and \(b\) picks uniformly between two actions, any episode in which \(b\) happens to agree with \(\pi\) for \(k\) steps gets weight \(2^k\), and every other episode gets weight 0. The variance of ordinary IS is unbounded in general, and can be infinite.</p>
+
+  <h3>Weighted importance sampling</h3>
+  <p><b>Weighted importance sampling</b> normalises by the total weight instead of the count:</p>
+  $$V(s) = \frac{\sum_{t \in \mathcal T(s)} \rho_{t:T(t)-1}\, G_t}{\sum_{t \in \mathcal T(s)} \rho_{t:T(t)-1}} \qquad (\text{and } 0 \text{ if the denominator is } 0).$$
+  <ul>
+    <li><b>Biased.</b> With a single return the ratio cancels and the estimate is just \(G\), whose expectation is \(v_b(s)\), not \(v_\pi(s)\). The bias shrinks to zero as data accumulate: the estimator is consistent.</li>
+    <li><b>Bounded.</b> It is a weighted average of observed returns, so it can never leave the range of the returns. With bounded returns its variance converges to zero even when the ratios themselves have infinite variance (S&amp;B, citing Precup, Sutton &amp; Dasgupta 2001).</li>
+    <li><b>Preferred in practice.</b> Its far lower variance almost always outweighs its vanishing bias.</li>
+  </ul>
+  <p>Every-visit versions of both estimators exist; both are then biased, but they need no first-visit bookkeeping and extend more naturally to function approximation, so they are often used in practice. S&amp;B's Example 5.4 compares the two on Blackjack: estimate the value of (sum 13, dealer showing 2, usable ace) under stick-on-20 from episodes that start there and follow a uniformly random behaviour policy. The exact value is −0.2772 (S&amp;B report −0.27726 from \(10^8\) simulated episodes). Over 100 runs:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Episodes</th><th>1</th><th>10</th><th>100</th><th>1,000</th><th>10,000</th></tr></thead>
+    <tbody>
+      <tr><td>MSE, ordinary IS</td><td class="num">10.0</td><td class="num">1.22</td><td class="num">0.070</td><td class="num">0.0095</td><td class="num">0.0007</td></tr>
+      <tr><td>MSE, weighted IS</td><td class="num">0.27</td><td class="num">0.50</td><td class="num">0.074</td><td class="num">0.0092</td><td class="num">0.0007</td></tr>
+    </tbody>
+  </table></div>
+  <p>Weighted IS is dramatically better at first and the two meet from about 100 episodes on. Blackjack is a gentle case: hands last only a few decisions, so the ratios are bounded and ordinary IS has finite variance. The next example is not gentle.</p>
+
+  <h3>A concrete infinite-variance example</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 700 214" role="img" aria-label="One-state MDP: action right ends the episode with reward 0; action left returns to the state with probability 0.9 and ends with reward +1 with probability 0.1">
+      <defs>
+        <marker id="ah-d39" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d39m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="36" y="110" width="30" height="30" class="s-node-mod"/><text x="51" y="130" class="s-mid">T</text>
+      <rect x="434" y="110" width="30" height="30" class="s-node-mod"/><text x="449" y="130" class="s-mid">T</text>
+      <circle cx="250" cy="125" r="22" class="s-node"/><text x="250" y="130" class="s-mid">s</text>
+      <circle cx="160" cy="125" r="5" class="s-ink"/>
+      <circle cx="340" cy="125" r="5" class="s-ink"/>
+      <line x1="228" y1="125" x2="166" y2="125" class="s-ln"/>
+      <text x="198" y="116" class="s-mid s-sm">left</text>
+      <line x1="155" y1="125" x2="70" y2="125" class="s-ln-mod" marker-end="url(#ah-d39m)"/>
+      <text x="112" y="116" class="s-mod s-mid s-sm">0.1, R = +1</text>
+      <path d="M160,119 C160,60 250,52 250,100" class="s-ln-mod" marker-end="url(#ah-d39m)"/>
+      <text x="200" y="62" class="s-mod s-mid s-sm">0.9, R = 0</text>
+      <line x1="272" y1="125" x2="334" y2="125" class="s-ln"/>
+      <text x="304" y="116" class="s-mid s-sm">right</text>
+      <line x1="346" y1="125" x2="430" y2="125" class="s-ln" marker-end="url(#ah-d39)"/>
+      <text x="388" y="116" class="s-mid s-sm">1, R = 0</text>
+      <text x="500" y="56" class="s-ttl">target π: always left</text>
+      <text x="500" y="76" class="s-sm">so vπ(s) = 1, γ = 1</text>
+      <text x="500" y="106" class="s-ttl">behaviour b: ½ left, ½ right</text>
+      <text x="500" y="126" class="s-sm">k lefts then exit: ρ = 2ᵏ</text>
+      <text x="500" y="144" class="s-sm">any right: ρ = 0</text>
+      <text x="500" y="174" class="s-bad s-sm">E_b[ρG] = 1, E_b[(ρG)²] = ∞</text>
+    </svg>
+    <figcaption><b>S&amp;B Example 5.5.</b> One non-terminal state, two actions. "Right" ends the episode with reward 0. "Left" loops back with probability 0.9 and ends with reward +1 with probability 0.1. The target always goes left, so it always eventually wins.</figcaption>
+  </figure>
+  <div class="box deriv"><span class="tag">Derivation · the variance is infinite</span>
+    <p>Under \(b\), only episodes made entirely of lefts have nonzero \(\rho G\). An episode of \(k\) lefts that loops back \(k - 1\) times and then exits has probability \((\tfrac12 \cdot 0.9)^{k-1}(\tfrac12 \cdot 0.1)\), ratio \(\rho = 2^k\), and return \(G = 1\). So</p>
+    $$\E_b[\rho G] = \sum_{k \ge 1} 0.45^{k-1} \cdot 0.05 \cdot 2^k = 0.1 \sum_{j \ge 0} 0.9^j = 1 = v_\pi(s), \qquad \E_b\big[(\rho G)^2\big] = \sum_{k \ge 1} 0.45^{k-1} \cdot 0.05 \cdot 4^k = 0.2 \sum_{j \ge 0} 1.8^j = \infty.$$
+    <p>The mean is right, as the theorem promised, but the second moment diverges, so the variance of every ordinary-IS estimate built from these samples is infinite. The law of large numbers still applies (the mean is finite), so the estimate does converge, but there is no central limit theorem and no useful rate. S&amp;B show ordinary IS still visibly off after 100 million episodes.</p>
+  </div>
+  <pre><code>import numpy as np
+
+def one_state_episode(rng):
+    """S&amp;B Example 5.5 run under b(left) = b(right) = 1/2; target pi = always left, gamma = 1.
+    Returns (rho, G): the episode's importance ratio and return."""
+    rho = 1.0
+    while True:
+        if rng.random() &lt; 0.5:            # right: episode ends with reward 0, and pi(right) = 0
+            return 0.0, 0.0
+        rho *= 1.0 / 0.5                  # left: pi(left) / b(left) = 2
+        if rng.random() &lt; 0.1:            # left ends the episode with +1 w.p. 0.1 ...
+            return rho, 1.0               # ... otherwise it loops back to s with reward 0
+
+rng = np.random.default_rng(0)
+n = 100_000
+for run in range(4):
+    rho, G = np.array([one_state_episode(rng) for _ in range(n)]).T
+    ordinary = np.cumsum(rho * G) / np.arange(1, n + 1)
+    weighted = np.cumsum(rho * G) / np.maximum(np.cumsum(rho), 1e-12)
+    print(f"run {run}  ordinary IS at 10^2..10^5 episodes:",
+          " ".join(f"{ordinary[10**k - 1]:6.2f}" for k in range(2, 6)),
+          f"  weighted IS: {weighted[-1]:.2f}   largest rho: {rho.max():.0e}")</code></pre>
+  <pre><code class="plain">run 0  ordinary IS at 10^2..10^5 episodes:   0.90   0.51   0.74   0.91   weighted IS: 1.00   largest rho: 8e+03
+run 1  ordinary IS at 10^2..10^5 episodes:   0.18   2.82   0.81   0.74   weighted IS: 1.00   largest rho: 4e+03
+run 2  ordinary IS at 10^2..10^5 episodes:   0.44   1.49   0.83   0.76   weighted IS: 1.00   largest rho: 4e+03
+run 3  ordinary IS at 10^2..10^5 episodes:   0.30   0.37   0.55   0.82   weighted IS: 1.00   largest rho: 2e+04</code></pre>
+  <p class="code-cap">Ordinary IS wanders: usually <em>below</em> 1, because most samples are 0 and the rare enormous ones haven't arrived yet, then jumps when one does. Weighted IS is exactly 1 from the first episode with nonzero weight, because every such episode has return 1.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Missing coverage.</b> A behaviour policy that never takes some action of \(\pi\) (say, a greedy logging policy) produces ratios that are silently wrong, not undefined: the trajectories that would have carried the weight simply never appear. Assert \(b(a \mid s) &gt; 0\) wherever \(\pi(a \mid s) &gt; 0\).</li>
+      <li><b>Off-by-one in the ratio.</b> For \(V(S_t)\) the product starts at \(t\) (it includes \(A_t\)). For \(Q(S_t, A_t)\) it starts at \(t+1\): the action is given, so it needs no correction.</li>
+      <li><b>Recomputing b later.</b> Store \(b(A_t \mid S_t)\) at the moment the action is taken. If \(b\) changes during learning (an \(\varepsilon\)-greedy policy built on a changing \(Q\)), recomputing it afterwards gives the wrong ratio.</li>
+      <li><b>Overflow and underflow.</b> Products of hundreds of ratios overflow or round to zero. Accumulate \(\log\rho\), or keep episodes short; clipping ratios is a common fix but introduces bias (Day 121's V-trace does this on purpose).</li>
+      <li><b>Weighted IS with zero total weight.</b> Until some episode has nonzero weight, the weighted estimate is undefined. Decide what you report (0, or a prior value) and say so.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the snippet with \(10^6\) episodes per run for 10 runs and plot both estimates against episodes on a log axis (S&amp;B Figure 5.4).</li>
+      <li>Reproduce the Example 5.4 table: 100 runs of 10,000 episodes from (13, 2, usable ace), uniform behaviour, stick-on-20 target, mean squared error of both estimators against −0.27726.</li>
+      <li>In Example 5.5, let \(b(\text{left}) = \beta\). Show that \(\E_b[(\rho G)^2]\) is finite exactly when \(\beta &gt; 0.9\), then check numerically that ordinary IS settles down for \(\beta = 0.95\).</li>
+      <li>Show that weighted IS from a single episode has expectation \(v_b(s)\). Construct a two-action bandit where \(v_b\) and \(v_\pi\) differ by 1 and measure the weighted estimator's bias after 1, 10 and 100 samples.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §5.5 · Precup, Sutton &amp; Singh 2000, “Eligibility traces for off-policy policy evaluation” · Rubinstein 1981, <i>Simulation and the Monte Carlo Method</i> · Mahmood, van Hasselt &amp; Sutton 2014, “Weighted importance sampling for off-policy learning with linear function approximation”</p>
+</article>
+
+<!-- ================================================================ DAY 40 -->
+<article class="day" id="d40">
+  <header class="day-head">
+    <span class="day-no">DAY 40</span>
+    <h2>Incremental &amp; Per-Decision IS</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Weighted importance sampling fits the same incremental update as every other average, with the step size replaced by a ratio of weights. Plugged into GPI it gives off-policy Monte Carlo control. Two refinements, per-decision and discounting-aware importance sampling, cut variance by refusing to multiply a reward by ratios that could not have affected it.</p>
+
+  <h3>The incremental weighted-IS update</h3>
+  <div class="box deriv"><span class="tag">Derivation · cumulative weight C</span>
+    <p>Suppose a state has received returns \(G_1, \dots, G_n\) with weights \(W_1, \dots, W_n\) (each \(W_k\) is that return's ratio). Let \(C_n = \sum_{k \le n} W_k\) and \(V_n = \sum_{k \le n} W_k G_k / C_n\). Then</p>
+    $$C_n V_n = C_{n-1} V_{n-1} + W_n G_n = (C_n - W_n)\, V_{n-1} + W_n G_n,$$
+    <p>and dividing by \(C_n\):</p>
+    $$V_n = V_{n-1} + \frac{W_n}{C_n}\big[G_n - V_{n-1}\big], \qquad C_n = C_{n-1} + W_n, \qquad C_0 = 0.$$
+  </div>
+  <p>The step size \(W_n/C_n\) plays the role of \(1/n\). With every weight equal to 1 it <em>is</em> \(1/n\), and the update is on-policy MC again. A return with weight 0 changes nothing, and a return with a large weight moves the estimate a long way, but never past the new return itself, since \(W_n/C_n \le 1\).</p>
+
+  <h3>The running-weight trick</h3>
+  <p>Each time step needs its own ratio \(\rho_{t:T-1}\), and computing each product from scratch costs \(O(T^2)\) per episode. Walking backwards, the ratios nest: \(\rho_{t:T-1} = \frac{\pi(A_t \mid S_t)}{b(A_t \mid S_t)}\, \rho_{t+1:T-1}\). So keep one running weight \(W\), starting at 1 at the end of the episode, and multiply in one factor per step. For action values, the pair \((S_t, A_t)\) needs \(\rho_{t+1:T-1}\), the ratio of the actions <em>after</em> \(A_t\), so update \(Q(S_t, A_t)\) with the current \(W\) first and multiply by the factor for \(A_t\) afterwards. Once \(W\) hits zero, every earlier step has weight zero too, and the loop can stop.</p>
+  <div class="box algo"><span class="tag">Algorithm · Off-policy MC prediction of q<sub>π</sub> (weighted, incremental)</span>
+    <ol>
+      <li>Initialise \(Q(s, a)\) arbitrarily and \(C(s, a) \leftarrow 0\).</li>
+      <li>For each episode, generated by any \(b\) that covers \(\pi\):
+        <ol>
+          <li>\(G \leftarrow 0\), \(W \leftarrow 1\)</li>
+          <li>For \(t = T-1, \dots, 0\), while \(W \ne 0\):
+            <ol>
+              <li>\(G \leftarrow \gamma G + R_{t+1}\)</li>
+              <li>\(C(S_t, A_t) \leftarrow C(S_t, A_t) + W\)</li>
+              <li>\(Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \frac{W}{C(S_t, A_t)}\big[G - Q(S_t, A_t)\big]\)</li>
+              <li>\(W \leftarrow W\, \pi(A_t \mid S_t) / b(A_t \mid S_t)\)</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+
+  <h3>Off-policy MC control</h3>
+  <p>Now let the target be greedy with respect to \(Q\), and let \(b\) be any soft policy. Because \(\pi\) is deterministic, \(\pi(A_t \mid S_t)\) is 1 if \(A_t\) is the greedy action and 0 otherwise. So the weight update becomes \(W \leftarrow W / b(A_t \mid S_t)\), and the loop ends the first time (walking backwards) that the behaviour took a non-greedy action.</p>
+  <div class="box algo"><span class="tag">Algorithm · Off-policy MC control (S&amp;B §5.7)</span>
+    <ol>
+      <li>Initialise \(Q(s, a)\) arbitrarily, \(C(s, a) \leftarrow 0\), \(\pi(s) \leftarrow \argmax_a Q(s, a)\).</li>
+      <li>For each episode:
+        <ol>
+          <li>Pick any soft \(b\) and generate an episode with it, recording \(b(A_t \mid S_t)\).</li>
+          <li>\(G \leftarrow 0\), \(W \leftarrow 1\). For \(t = T-1, \dots, 0\):
+            <ol>
+              <li>\(G \leftarrow \gamma G + R_{t+1}\); \(C(S_t, A_t) \mathrel{+}= W\); \(Q(S_t, A_t) \mathrel{+}= \frac{W}{C(S_t, A_t)}[G - Q(S_t, A_t)]\)</li>
+              <li>\(\pi(S_t) \leftarrow \argmax_a Q(S_t, a)\)</li>
+              <li>If \(A_t \ne \pi(S_t)\), exit the loop. <span class="step">(earlier steps would get weight 0)</span></li>
+              <li>\(W \leftarrow W / b(A_t \mid S_t)\)</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <pre><code># continues from the Day 37 snippet (Blackjack, play_episode, STATES, optimal)
+def off_policy_mc_control(n_episodes, seed=0):
+    """Off-policy MC control with incremental weighted importance sampling (S&amp;B section 5.7)."""
+    env, rng = Blackjack(seed), random.Random(seed + 1)
+    Q, C = defaultdict(float), defaultdict(float)             # C = cumulative IS weight per pair
+    target = {s: 0 if s[0] &gt;= 20 else 1 for s in STATES}      # greedy target policy pi
+    behaviour = lambda s: rng.randint(0, 1)                   # b(a|s) = 1/2: soft, covers pi
+    for _ in range(n_episodes):
+        G, W = 0.0, 1.0
+        for s, a, r in reversed(play_episode(env, behaviour)):
+            G += r                                            # gamma = 1
+            C[s, a] += W
+            Q[s, a] += (W / C[s, a]) * (G - Q[s, a])          # weighted running average
+            target[s] = 0 if Q[s, 0] &gt;= Q[s, 1] else 1
+            if a != target[s]:
+                break                                         # pi(a|s) = 0: earlier steps get weight 0
+            W /= 0.5                                          # W *= pi(a|s) / b(a|s) = 1 / 0.5
+    return target
+
+for n in (100_000, 1_000_000):
+    target = off_policy_mc_control(n)
+    print(f"{n:&gt;9} episodes: differs from optimal in "
+          f"{sum(target[s] != optimal[s] for s in STATES)} states")</code></pre>
+  <p class="code-cap">Prints 16 and 1. The behaviour policy is uniformly random and never improves, yet the greedy target ends up within one state of optimal (soft 18 against a 4, a rarely visited state with an action gap of 0.057); its exact return is −0.0432 against the optimal −0.0431.</p>
+  <p>This works well on Blackjack because hands are short. A random behaviour policy agrees with the greedy target on the last one or two decisions often enough that most episodes teach something. The general picture is very different, as the end of this lesson shows.</p>
+
+  <h3>Per-decision importance sampling</h3>
+  <p>Ordinary IS multiplies the whole return by the whole ratio. But a reward cannot depend on actions taken after it was received, so the later factors only add noise.</p>
+  <div class="box deriv"><span class="tag">Derivation · dropping the factors that come after a reward</span>
+    <p>Expand \(\rho_{t:T-1} G_t = \sum_{k=t}^{T-1} \gamma^{k-t}\, \rho_{t:T-1} R_{k+1}\) and split one term as \(\rho_{t:k} R_{k+1} \cdot \rho_{k+1:T-1}\). A single ratio has conditional mean 1 under \(b\):</p>
+    $$\E_b\!\left[\frac{\pi(A_j \mid S_j)}{b(A_j \mid S_j)} \,\middle|\, S_j\right] = \sum_a b(a \mid S_j)\, \frac{\pi(a \mid S_j)}{b(a \mid S_j)} = \sum_a \pi(a \mid S_j) = 1.$$
+    <p>Condition on everything up to \(R_{k+1}\) and apply this to the factors \(j = T-1, T-2, \dots, k+1\) one at a time with the tower rule: \(\E_b[\rho_{k+1:T-1} \mid \text{history to } R_{k+1}] = 1\). Since \(\rho_{t:k} R_{k+1}\) is fixed by that history, \(\E_b[\rho_{t:T-1} R_{k+1}] = \E_b[\rho_{t:k} R_{k+1}]\). Summing over \(k\),</p>
+    $$\E_b\big[\rho_{t:T-1} G_t\big] = \E_b\big[\tilde G_t\big], \qquad \tilde G_t = \sum_{k=t}^{T-1} \gamma^{k-t}\, \rho_{t:k}\, R_{k+1}.$$
+  </div>
+  <p>The <b>per-decision</b> estimator \(V(s) = \sum_{t \in \mathcal T(s)} \tilde G_t / |\mathcal T(s)|\) is unbiased, like ordinary IS, with lower variance: each reward carries only the ratios of the actions that preceded it. It also has a recursive form, \(\tilde G_t = \rho_t\,\big(R_{t+1} + \gamma \tilde G_{t+1}\big)\) with \(\tilde G_T = 0\), which is exactly the structure off-policy \(n\)-step TD uses on Day 49. One gap remains: S&amp;B note that every weighted (normalised) per-decision estimator proposed so far is inconsistent, so per-decision IS is used in its ordinary form.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 232" role="img" aria-label="Which ratio factors multiply each reward: ordinary importance sampling uses all factors for every reward; per-decision uses only the factors up to the action before the reward">
+      <text x="168" y="24" class="s-ttl s-mid">ordinary IS</text>
+      <rect x="96" y="36" width="24" height="24" class="s-node-mod"/>
+      <rect x="120" y="36" width="24" height="24" class="s-node-mod"/>
+      <rect x="144" y="36" width="24" height="24" class="s-node-mod"/>
+      <rect x="168" y="36" width="24" height="24" class="s-node-mod"/>
+      <rect x="192" y="36" width="24" height="24" class="s-node-mod"/>
+      <rect x="216" y="36" width="24" height="24" class="s-node-mod"/>
+      <text x="88" y="52" class="s-ink2 s-end s-sm">R₁</text>
+      <rect x="96" y="60" width="24" height="24" class="s-node-mod"/>
+      <rect x="120" y="60" width="24" height="24" class="s-node-mod"/>
+      <rect x="144" y="60" width="24" height="24" class="s-node-mod"/>
+      <rect x="168" y="60" width="24" height="24" class="s-node-mod"/>
+      <rect x="192" y="60" width="24" height="24" class="s-node-mod"/>
+      <rect x="216" y="60" width="24" height="24" class="s-node-mod"/>
+      <text x="88" y="76" class="s-ink2 s-end s-sm">R₂</text>
+      <rect x="96" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="120" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="144" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="168" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="192" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="216" y="84" width="24" height="24" class="s-node-mod"/>
+      <text x="88" y="100" class="s-ink2 s-end s-sm">R₃</text>
+      <rect x="96" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="120" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="144" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="168" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="192" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="216" y="108" width="24" height="24" class="s-node-mod"/>
+      <text x="88" y="124" class="s-ink2 s-end s-sm">R₄</text>
+      <rect x="96" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="120" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="144" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="168" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="192" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="216" y="132" width="24" height="24" class="s-node-mod"/>
+      <text x="88" y="148" class="s-ink2 s-end s-sm">R₅</text>
+      <rect x="96" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="120" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="144" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="168" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="192" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="216" y="156" width="24" height="24" class="s-node-mod"/>
+      <text x="88" y="172" class="s-ink2 s-end s-sm">R₆</text>
+      <text x="108" y="195" class="s-ink2 s-mid s-sm">ρ₀</text>
+      <text x="132" y="195" class="s-ink2 s-mid s-sm">ρ₁</text>
+      <text x="156" y="195" class="s-ink2 s-mid s-sm">ρ₂</text>
+      <text x="180" y="195" class="s-ink2 s-mid s-sm">ρ₃</text>
+      <text x="204" y="195" class="s-ink2 s-mid s-sm">ρ₄</text>
+      <text x="228" y="195" class="s-ink2 s-mid s-sm">ρ₅</text>
+      <text x="478" y="24" class="s-ttl s-mid">per-decision IS</text>
+      <rect x="406" y="36" width="24" height="24" class="s-node-mod"/>
+      <rect x="430" y="36" width="24" height="24" class="s-node"/>
+      <rect x="454" y="36" width="24" height="24" class="s-node"/>
+      <rect x="478" y="36" width="24" height="24" class="s-node"/>
+      <rect x="502" y="36" width="24" height="24" class="s-node"/>
+      <rect x="526" y="36" width="24" height="24" class="s-node"/>
+      <text x="398" y="52" class="s-ink2 s-end s-sm">R₁</text>
+      <rect x="406" y="60" width="24" height="24" class="s-node-mod"/>
+      <rect x="430" y="60" width="24" height="24" class="s-node-mod"/>
+      <rect x="454" y="60" width="24" height="24" class="s-node"/>
+      <rect x="478" y="60" width="24" height="24" class="s-node"/>
+      <rect x="502" y="60" width="24" height="24" class="s-node"/>
+      <rect x="526" y="60" width="24" height="24" class="s-node"/>
+      <text x="398" y="76" class="s-ink2 s-end s-sm">R₂</text>
+      <rect x="406" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="430" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="454" y="84" width="24" height="24" class="s-node-mod"/>
+      <rect x="478" y="84" width="24" height="24" class="s-node"/>
+      <rect x="502" y="84" width="24" height="24" class="s-node"/>
+      <rect x="526" y="84" width="24" height="24" class="s-node"/>
+      <text x="398" y="100" class="s-ink2 s-end s-sm">R₃</text>
+      <rect x="406" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="430" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="454" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="478" y="108" width="24" height="24" class="s-node-mod"/>
+      <rect x="502" y="108" width="24" height="24" class="s-node"/>
+      <rect x="526" y="108" width="24" height="24" class="s-node"/>
+      <text x="398" y="124" class="s-ink2 s-end s-sm">R₄</text>
+      <rect x="406" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="430" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="454" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="478" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="502" y="132" width="24" height="24" class="s-node-mod"/>
+      <rect x="526" y="132" width="24" height="24" class="s-node"/>
+      <text x="398" y="148" class="s-ink2 s-end s-sm">R₅</text>
+      <rect x="406" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="430" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="454" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="478" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="502" y="156" width="24" height="24" class="s-node-mod"/>
+      <rect x="526" y="156" width="24" height="24" class="s-node-mod"/>
+      <text x="398" y="172" class="s-ink2 s-end s-sm">R₆</text>
+      <text x="418" y="195" class="s-ink2 s-mid s-sm">ρ₀</text>
+      <text x="442" y="195" class="s-ink2 s-mid s-sm">ρ₁</text>
+      <text x="466" y="195" class="s-ink2 s-mid s-sm">ρ₂</text>
+      <text x="490" y="195" class="s-ink2 s-mid s-sm">ρ₃</text>
+      <text x="514" y="195" class="s-ink2 s-mid s-sm">ρ₄</text>
+      <text x="538" y="195" class="s-ink2 s-mid s-sm">ρ₅</text>
+      <text x="330" y="226" class="s-ink2 s-mid s-sm">each row is a reward; shaded cells are the ratio factors it gets multiplied by</text>
+    </svg>
+    <figcaption><b>Six-step episode.</b> Ordinary IS multiplies every reward by all six factors. Per-decision IS multiplies \(R_{k+1}\) only by \(\rho_0, \dots, \rho_k\), the factors of actions that could have influenced it. The unshaded upper triangle is pure noise that ordinary IS carries around.</figcaption>
+  </figure>
+
+  <h3>Discounting-aware importance sampling</h3>
+  <p>When \(\gamma &lt; 1\), think of discounting as a chance of the episode ending: with probability \(1 - \gamma\) after each step. Then the return is a mixture of undiscounted <em>flat partial returns</em> \(\bar G_{t:h} = R_{t+1} + R_{t+2} + \cdots + R_h\):</p>
+  $$G_t = (1 - \gamma) \sum_{h=t+1}^{T-1} \gamma^{h-t-1}\, \bar G_{t:h} \;+\; \gamma^{T-t-1}\, \bar G_{t:T}.$$
+  <p>(Check: the coefficient on \(R_j\) is \(\sum_{h=j}^{T-1} (1-\gamma)\gamma^{h-t-1} + \gamma^{T-t-1} = \gamma^{j-t-1}(1 - \gamma^{T-j}) + \gamma^{T-t-1} = \gamma^{j-t-1}\), as it should be.) Each flat partial return \(\bar G_{t:h}\) depends only on actions up to \(A_{h-1}\), so it needs only the ratio \(\rho_{t:h-1}\). Reweight each piece by its own ratio:</p>
+  $$N_t = (1 - \gamma) \sum_{h=t+1}^{T(t)-1} \gamma^{h-t-1}\, \rho_{t:h-1}\, \bar G_{t:h} + \gamma^{T(t)-t-1}\, \rho_{t:T(t)-1}\, \bar G_{t:T(t)}, \qquad D_t = (1 - \gamma) \sum_{h=t+1}^{T(t)-1} \gamma^{h-t-1}\, \rho_{t:h-1} + \gamma^{T(t)-t-1}\, \rho_{t:T(t)-1}.$$
+  <p>The <b>discounting-aware</b> estimators are then</p>
+  $$V_{\text{ordinary}}(s) = \frac{\sum_{t \in \mathcal T(s)} N_t}{|\mathcal T(s)|}, \qquad V_{\text{weighted}}(s) = \frac{\sum_{t \in \mathcal T(s)} N_t}{\sum_{t \in \mathcal T(s)} D_t}.$$
+  <p>S&amp;B's motivating case: 100-step episodes and \(\gamma = 0\). The return is just \(R_1\), yet ordinary IS multiplies it by 100 ratios; the discounting-aware estimator uses only \(\rho_0\). Here are exact standard deviations of the three ordinary estimators on a 20-step task (reward 1 whenever action 0 is taken, \(\pi(0) = 0.9\), \(b\) uniform), computed by enumerating all \(2^{20}\) action sequences. All three have exactly the right mean.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>γ</th><th>True value</th><th>Ordinary IS</th><th>Per-decision IS</th><th>Discounting-aware IS</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">0.9</td><td class="num">140</td><td class="num">0.9</td><td class="num">0.9</td></tr>
+      <tr><td class="num">0.5</td><td class="num">1.8</td><td class="num">279</td><td class="num">2.1</td><td class="num">3.0</td></tr>
+      <tr><td class="num">0.9</td><td class="num">7.9</td><td class="num">1,222</td><td class="num">82</td><td class="num">451</td></tr>
+      <tr><td class="num">1</td><td class="num">18</td><td class="num">2,781</td><td class="num">437</td><td class="num">2,781</td></tr>
+    </tbody>
+  </table></div>
+  <p>Discounting-aware IS helps exactly in proportion to how much discounting there is, and at \(\gamma = 1\) it is ordinary IS again. With rewards on every step, per-decision IS is better still in its ordinary form. The discounting-aware idea earns its place because, unlike per-decision IS, it has a weighted version.</p>
+  <pre><code>import numpy as np
+
+def is_estimates(rewards, ratios, gamma):
+    """Three estimates of G_0 under pi, each unbiased, from one episode generated by b.
+    rewards[k] = R_{k+1}, ratios[k] = pi(A_k | S_k) / b(A_k | S_k)."""
+    T = len(rewards)
+    rho = np.cumprod(ratios)                         # rho[k] = rho_{0:k}
+    disc = gamma ** np.arange(T)
+    ordinary = rho[-1] * np.sum(disc * rewards)      # every reward carries the full product
+    per_decision = np.sum(disc * rho * rewards)      # R_{k+1} carries only rho_{0:k}
+    h = np.arange(1, T + 1)                          # flat partial returns G_bar_{0:h}
+    w = np.where(h &lt; T, (1 - gamma) * gamma ** (h - 1), gamma ** (T - 1))
+    discount_aware = np.sum(w * rho * np.cumsum(rewards))   # G_bar_{0:h} carries rho_{0:h-1}
+    return ordinary, per_decision, discount_aware
+
+# a 20-step task: reward 1 whenever action 0 is taken; pi(0) = 0.9, b(0) = 0.5
+rng, T, gamma = np.random.default_rng(0), 20, 0.9
+true_v = 0.9 * (1 - gamma ** T) / (1 - gamma)
+est = []
+for _ in range(100_000):
+    a = rng.random(T) &lt; 0.5                          # True means action 0, drawn from b
+    est.append(is_estimates(a.astype(float), np.where(a, 0.9 / 0.5, 0.1 / 0.5), gamma))
+est = np.array(est)
+print(f"true v = {true_v:.3f}")
+for name, col in zip(("ordinary", "per-decision", "discounting-aware"), est.T):
+    print(f"{name:18s} mean {col.mean():7.3f}   std {col.std():8.2f}")</code></pre>
+  <p class="code-cap">A sampled version of the table's \(\gamma = 0.9\) row. Expect means scattered around 7.9 (ordinary IS can miss by a few units even with 100,000 episodes) and sample standard deviations that differ noticeably from the exact ones. With heavy-tailed estimators, even the estimate of the spread is unreliable.</p>
+
+  <h3>The tail-collapse problem in long episodes</h3>
+  <p>Off-policy MC control learns only from the <em>tail</em> of each episode, the part after the last action on which \(b\) disagreed with the greedy target. If \(b\) is \(\varepsilon\)-greedy over \(|\mathcal A|\) actions, the chance that the last \(k\) actions all agree with the target is \((1 - \varepsilon + \varepsilon/|\mathcal A|)^k\). With \(\varepsilon = 0.1\) and four actions that is 0.46 for \(k = 10\), 0.02 for \(k = 50\), and 0.0004 for \(k = 100\). States more than a few dozen steps from the end of an episode almost never receive an update, and early states in long episodes are exactly the ones that matter. S&amp;B flag this as the method's main weakness.</p>
+  <p>With a stochastic target the same thing happens more gradually: the variance of a product of \(k\) ratios grows like \(\big(\E_b[\rho^2]\big)^k\), exponentially in the horizon, and the effective sample size \(\big(\sum W\big)^2 / \sum W^2\) of a batch of weighted returns collapses towards 1 as episodes get longer. The cures come later in the course: bootstrapping, so that each update needs only one ratio or none (Q-learning on Day 45, off-policy \(n\)-step methods and tree backup on Day 49), and truncated, clipped ratios (Retrace; V-trace on Day 121).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Exiting too early.</b> The pair \((S_t, A_t)\) is updated from the tail <em>after</em> it, whether or not \(A_t\) is greedy. Update first, then test \(A_t \ne \pi(S_t)\). Testing first throws away the most useful update in every episode.</li>
+      <li><b>Dividing by today's b.</b> If \(b\) is \(\varepsilon\)-greedy on a changing \(Q\), divide by the probability recorded when the action was taken.</li>
+      <li><b>A behaviour policy that becomes greedy.</b> As \(\varepsilon \to 0\), \(b(A_t \mid S_t)\) for exploratory actions shrinks and \(W\) explodes, while the episodes that agree with the target carry ever less information. Keep \(b\) genuinely soft.</li>
+      <li><b>Trusting a flat learning curve.</b> If almost every episode exits after one step, the method is learning only about states near the end. Log the average tail length.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Derive the incremental weighted update without notes. Then implement off-policy MC prediction of \(q_\pi\) for stick-on-20 with a uniform behaviour policy, and compare its error against on-policy first-visit MC for the same number of episodes.</li>
+      <li>Run off-policy MC control with a uniform \(b\) and with \(b\) = \(\varepsilon\)-greedy on the current \(Q\) (\(\varepsilon\) = 0.1 and 0.3, recording \(b(A_t \mid S_t)\)). Which learns faster on Blackjack, and why?</li>
+      <li>Build a 50-state corridor (the goal at the right end, 4 actions, two of which are no-ops) and measure the average tail length and the fraction of states updated per episode for \(\varepsilon \in \{0.05, 0.1, 0.3\}\).</li>
+      <li>Run the snippet for \(\gamma \in \{0, 0.5, 0.9, 1\}\) several times with different seeds and compare the sample standard deviations with the exact ones in the table.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §5.6–5.9 · Precup, Sutton &amp; Singh 2000 · Munos, Stepleton, Harutyunyan &amp; Bellemare 2016, “Safe and efficient off-policy reinforcement learning”</p>
+</article>
+
+<!-- ================================================================ DAY 41 -->
+<article class="day project" id="d41">
+  <header class="day-head">
+    <span class="day-no">DAY 41</span>
+    <h2>Blackjack Agent</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">180m practice</span><span class="proj">Project 3</span></p>
+  </header>
+
+  <p class="thesis">Four Monte Carlo methods, one game, and an exact answer key. Because Blackjack's card probabilities are known, Module 3's dynamic programming can compute the true values and the optimal policy, so every number your agents produce can be scored without sampling noise.</p>
+
+  <h3>Goal</h3>
+  <p>Implement first-visit MC prediction, Monte Carlo with exploring starts, on-policy \(\varepsilon\)-soft control and off-policy control with weighted importance sampling, all on S&amp;B's Blackjack. Reproduce the classic value surfaces for the usable-ace and no-usable-ace cases, compare how many episodes each method needs, and evaluate every learned policy against the optimal strategy, both exactly and by playing it in Gymnasium.</p>
+
+  <h3>The answer key: exact DP on an infinite deck</h3>
+  <p>With an infinite deck every card is drawn independently with known probabilities (1/13 each for ace to 9, 4/13 for a ten-card), so the game is a small, known MDP and the methods of Module 3 solve it exactly. The dealer's final total depends only on the showing card; a player hand's value depends only on its total, whether it holds an ace, and the dealer's card. Since hitting always increases the hard total, the recursion has no cycles and memoisation evaluates it in a fraction of a second.</p>
+  <pre><code>from functools import lru_cache
+
+CARDS = range(1, 11)
+P_CARD = {c: (4 if c == 10 else 1) / 13 for c in CARDS}      # infinite deck
+
+def total(hard, ace):                                       # (sum, usable ace?)
+    return (hard + 10, True) if ace and hard + 10 &lt;= 21 else (hard, False)
+
+@lru_cache(None)
+def dealer(hard, ace):
+    """Distribution of the dealer's final total (22 = bust) from hard total and has-ace flag."""
+    s = total(hard, ace)[0]
+    if s &gt;= 17:                                             # dealer stands on 17+, soft 17 included
+        return {min(s, 22): 1.0}
+    out = {}
+    for c in CARDS:
+        for k, p in dealer(hard + c, ace or c == 1).items():
+            out[k] = out.get(k, 0.0) + P_CARD[c] * p
+    return out
+
+@lru_cache(None)
+def stick(s, up):                                           # expected reward for sticking on s
+    value = 0.0
+    for hidden in CARDS:
+        for k, p in dealer(up + hidden, up == 1 or hidden == 1).items():
+            value += P_CARD[hidden] * p * (1.0 if k == 22 or s &gt; k else 0.0 if s == k else -1.0)
+    return value
+
+@lru_cache(None)
+def v_star(hard, ace, up):                                  # optimal value of a player hand
+    s = total(hard, ace)[0]
+    if s &gt; 21:
+        return -1.0
+    hit = sum(P_CARD[c] * v_star(hard + c, ace or c == 1, up) for c in CARDS)
+    return hit if s &lt; 12 else max(stick(s, up), hit)
+
+def q_star(s, up, usable):                                  # (stick, hit) action values
+    hard = s - 10 if usable else s
+    return stick(s, up), sum(P_CARD[c] * v_star(hard + c, usable or c == 1, up) for c in CARDS)
+
+def expected_return(policy):
+    """Exact return per hand of policy(sum, up, usable) -&gt; 0 stick / 1 hit, from a fresh deal."""
+    @lru_cache(None)
+    def V(hard, ace, up):
+        s, usable = total(hard, ace)
+        if s &gt; 21:
+            return -1.0
+        if s &gt;= 12 and policy(s, up, usable) == 0:
+            return stick(s, up)
+        return sum(P_CARD[c] * V(hard + c, ace or c == 1, up) for c in CARDS)
+    p_dealer_natural = {1: P_CARD[10], 10: P_CARD[1]}
+    ret = 0.0
+    for c1 in CARDS:
+        for c2 in CARDS:
+            for up in CARDS:
+                p = P_CARD[c1] * P_CARD[c2] * P_CARD[up]
+                if {c1, c2} == {1, 10} and policy(21, up, True) == 0:   # natural, and we stick
+                    ret += p * (1.0 - p_dealer_natural.get(up, 0.0))
+                else:
+                    ret += p * V(c1 + c2, 1 in (c1, c2), up)
+    return ret
+
+optimal = lambda s, up, usable: int(q_star(s, up, usable)[1] &gt; q_star(s, up, usable)[0])
+stick_on_20 = lambda s, up, usable: 0 if s &gt;= 20 else 1
+print(f"optimal {expected_return(optimal):+.4f}   stick-on-20 {expected_return(stick_on_20):+.4f}")</code></pre>
+  <p class="code-cap">Prints −0.0431 and −0.3501. <code>optimal</code> is exactly the threshold table used on Days 37–40 and drawn on Day 37. To score a learned policy stored as a dict, pass <code>lambda s, up, u: pi[s, up, u]</code>. The values \(v_\pi(s)\) of the 200 observable states, for comparison with MC prediction, come from the inner <code>V</code> with <code>hard = s - 10</code> for usable aces; the one subtlety is the soft-21 observation, which mixes naturals with three-card 21s (Day 35).</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Policy</th><th>Exact expected return per hand</th></tr></thead>
+    <tbody>
+      <tr><td>Optimal (the "basic strategy" of this game)</td><td class="num">−0.0431 (win 43.3%, draw 9.1%, lose 47.6%)</td></tr>
+      <tr><td>Hit below 17, like the dealer</td><td class="num">−0.0759</td></tr>
+      <tr><td>Never risk a bust (stick on 12+)</td><td class="num">−0.1024</td></tr>
+      <tr><td>Stick only on 20 or 21 (S&amp;B's Example 5.1 policy)</td><td class="num">−0.3501</td></tr>
+    </tbody>
+  </table></div>
+  <p>Even perfect play loses about 4.3 cents per unit bet, which is why casinos are happy to deal this game. The smallest action gaps, which decide how hard each method's job is, are at hard 12 against a 4 (0.0025), hard 16 against a 10 (0.0065), hard 13 against a 2 (0.015), hard 12 against a 6 (0.017) and hard 12 against a 3 (0.019).</p>
+
+  <h3>Suggested repo layout</h3>
+  <pre><code class="plain">blackjack-mc/
+  blackjack/
+    env.py              # the Day 35 simulator (with exploring starts) + a Gymnasium adapter
+    exact.py            # the DP above: dealer, stick, q_star, expected_return, exact v_pi
+  agents/
+    mc_prediction.py    # first-visit (and every-visit) prediction, on- and off-policy
+    mces.py             # exploring starts
+    on_policy.py        # epsilon-soft control, pluggable epsilon schedule
+    off_policy.py       # weighted-IS control, uniform or epsilon-greedy behaviour
+  experiments/
+    surfaces.py  efficiency.py  basic_strategy.py
+  results/              # JSON per run: method, seed, episodes, exact return, disagreements, time
+  tests/
+    test_env_vs_gym.py  # mean return of a fixed policy matches Blackjack-v1 (sab=True)
+    test_exact.py       # DP values match 10^6-episode MC within 3 standard errors
+  README.md</code></pre>
+
+  <h3>Experiments, with exact settings</h3>
+  <ol>
+    <li><b>Validate the environment.</b> Run stick-on-20 for \(10^6\) hands in your simulator and in <code>gym.make("Blackjack-v1", sab=True)</code>; both means should be within their 95% intervals of −0.350.</li>
+    <li><b>Value surfaces.</b> First-visit MC prediction of stick-on-20 for 10,000 and 500,000 episodes. Plot \(V\) for usable and no-usable ace as 3-D surfaces (or heatmaps) over player sum 12–21 and dealer card A–10, next to the exact surfaces.</li>
+    <li><b>Prediction efficiency.</b> RMSE over the 200 states against the exact \(v_\pi\), at \(10^4, 3 \times 10^4, 10^5, 3 \times 10^5, 10^6\) episodes, for on-policy first-visit MC and for off-policy prediction from a uniformly random behaviour policy with ordinary and with weighted IS. Five seeds.</li>
+    <li><b>Control efficiency.</b> MCES (uniform exploring starts, initial policy stick-on-20), on-policy \(\varepsilon\)-soft control (\(\varepsilon = 0.1\), and \(\varepsilon = 100/(100 + n(s))\)), and off-policy weighted-IS control (uniform behaviour). Same checkpoints, five seeds. At each checkpoint record the greedy policy's exact expected return, its number of disagreements with the optimal policy, and wall-clock time.</li>
+    <li><b>Against basic strategy.</b> For each method's final policy, list the states where it differs from the optimal policy with their action gaps, and play \(10^6\) hands in Gymnasium with it and with the optimal policy, reporting win, draw and loss rates and the mean return with a 95% interval.</li>
+  </ol>
+
+  <h3>What the plots should look like</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 222" role="img" aria-label="Exact state values of the stick-on-20 policy against player sum, for four dealer cards, with and without a usable ace">
+      <text x="175" y="18" class="s-ttl s-mid">v of stick-on-20, usable ace</text>
+      <line x1="60" y1="180" x2="290" y2="180" class="s-ln"/><line x1="60" y1="30" x2="60" y2="180" class="s-ln"/>
+      <line x1="60" y1="105.0" x2="290" y2="105.0" class="s-grid"/>
+      <text x="54" y="184.0" class="s-ink3 s-end s-sm">-1</text>
+      <text x="54" y="109.0" class="s-ink3 s-end s-sm">0</text>
+      <text x="54" y="34.0" class="s-ink3 s-end s-sm">1</text>
+      <text x="60.0" y="194" class="s-ink3 s-mid s-sm">12</text>
+      <text x="136.7" y="194" class="s-ink3 s-mid s-sm">15</text>
+      <text x="213.3" y="194" class="s-ink3 s-mid s-sm">18</text>
+      <text x="290.0" y="194" class="s-ink3 s-mid s-sm">21</text>
+      <polyline points="60.0,135.3 85.6,137.1 111.1,138.9 136.7,140.7 162.2,142.4 187.8,144.0 213.3,145.7 238.9,147.2 264.4,94.0 290.0,54.0" class="s-ln-bad"/>
+      <polyline points="60.0,123.5 85.6,125.8 111.1,128.0 136.7,130.3 162.2,132.4 187.8,134.5 213.3,136.6 238.9,138.6 264.4,57.0 290.0,31.9" class="s-ln-info"/>
+      <polyline points="60.0,122.1 85.6,124.5 111.1,126.8 136.7,129.1 162.2,131.3 187.8,133.4 213.3,135.5 238.9,137.6 264.4,52.2 290.0,31.6" class="s-ln-acc"/>
+      <polyline points="60.0,126.7 85.6,128.8 111.1,131.0 136.7,133.1 162.2,135.1 187.8,137.1 213.3,139.0 238.9,140.9 264.4,72.4 290.0,36.3" class="s-ln-mod"/>
+      <text x="495" y="18" class="s-ttl s-mid">v of stick-on-20, no usable ace</text>
+      <line x1="380" y1="180" x2="610" y2="180" class="s-ln"/><line x1="380" y1="30" x2="380" y2="180" class="s-ln"/>
+      <line x1="380" y1="105.0" x2="610" y2="105.0" class="s-grid"/>
+      <text x="374" y="184.0" class="s-ink3 s-end s-sm">-1</text>
+      <text x="374" y="109.0" class="s-ink3 s-end s-sm">0</text>
+      <text x="374" y="34.0" class="s-ink3 s-end s-sm">1</text>
+      <text x="380.0" y="194" class="s-ink3 s-mid s-sm">12</text>
+      <text x="456.7" y="194" class="s-ink3 s-mid s-sm">15</text>
+      <text x="533.3" y="194" class="s-ink3 s-mid s-sm">18</text>
+      <text x="610.0" y="194" class="s-ink3 s-mid s-sm">21</text>
+      <polyline points="380.0,153.0 405.6,154.9 431.1,156.7 456.7,158.4 482.2,159.9 507.8,161.4 533.3,162.7 558.9,163.9 584.4,94.0 610.0,57.1" class="s-ln-bad"/>
+      <polyline points="380.0,145.9 405.6,148.3 431.1,150.6 456.7,152.7 482.2,154.6 507.8,156.4 533.3,158.1 558.9,159.7 584.4,57.0 610.0,38.8" class="s-ln-info"/>
+      <polyline points="380.0,145.0 405.6,147.5 431.1,149.9 456.7,152.0 482.2,154.0 507.8,155.9 533.3,157.6 558.9,159.2 584.4,52.2 610.0,37.3" class="s-ln-acc"/>
+      <polyline points="380.0,147.8 405.6,150.1 431.1,152.2 456.7,154.2 482.2,156.1 507.8,157.8 533.3,159.4 558.9,160.8 584.4,72.4 610.0,38.4" class="s-ln-mod"/>
+      <g>
+        <line x1="110" y1="210" x2="130" y2="210" class="s-ln-bad"/><text x="136" y="214" class="s-sm">dealer A</text>
+        <line x1="240" y1="210" x2="260" y2="210" class="s-ln-info"/><text x="266" y="214" class="s-sm">dealer 2</text>
+        <line x1="370" y1="210" x2="390" y2="210" class="s-ln-acc"/><text x="396" y="214" class="s-sm">dealer 6</text>
+        <line x1="500" y1="210" x2="520" y2="210" class="s-ln-mod"/><text x="526" y="214" class="s-sm">dealer 10</text>
+      </g>
+    </svg>
+    <figcaption><b>Exact values of stick-on-20</b>, i.e. the surfaces of S&amp;B Figure 5.1 sliced along four dealer cards, from player sum 12 to 21. Without a usable ace every curve sits between about −0.5 and −0.8 up to 19; with one, between about −0.2 and −0.6, since a soft hand can take a card without busting. Both leap at 20 and 21, where the policy finally sticks, and a dealer ace drags everything down. Your 500,000-episode estimates should lie within about ±0.04 (usable) and ±0.01 (no usable ace) of these, RMS.</figcaption>
+  </figure>
+  <figure class="fig">
+    <svg viewBox="0 0 720 232" role="img" aria-label="Exact expected return of the greedy policy against episodes for MCES, off-policy weighted importance sampling and on-policy epsilon-soft control, approaching the optimal value">
+      <line x1="70" y1="190" x2="490" y2="190" class="s-ln"/><line x1="70" y1="20" x2="70" y2="190" class="s-ln"/>
+      <text x="64" y="24.0" class="s-ink3 s-end s-sm">−0.04</text>
+      <text x="64" y="58.0" class="s-ink3 s-end s-sm">−0.05</text>
+      <text x="64" y="92.0" class="s-ink3 s-end s-sm">−0.06</text>
+      <text x="64" y="126.0" class="s-ink3 s-end s-sm">−0.07</text>
+      <text x="64" y="160.0" class="s-ink3 s-end s-sm">−0.08</text>
+      <text x="64" y="194.0" class="s-ink3 s-end s-sm">−0.09</text>
+      <text x="70.0" y="205" class="s-ink3 s-mid s-sm">10⁴</text>
+      <text x="280.0" y="205" class="s-ink3 s-mid s-sm">10⁵</text>
+      <text x="490.0" y="205" class="s-ink3 s-mid s-sm">10⁶</text>
+      <line x1="70" y1="30.5" x2="490" y2="30.5" class="s-ln s-dash"/>
+      <polyline points="70.0,102.6 170.2,63.0 280.0,37.1 380.2,33.2 490.0,31.7" class="s-ln-mod"/>
+      <circle cx="70.0" cy="102.6" r="3" class="s-mod"/>
+      <circle cx="170.2" cy="63.0" r="3" class="s-mod"/>
+      <circle cx="280.0" cy="37.1" r="3" class="s-mod"/>
+      <circle cx="380.2" cy="33.2" r="3" class="s-mod"/>
+      <circle cx="490.0" cy="31.7" r="3" class="s-mod"/>
+      <polyline points="70.0,161.3 170.2,116.4 280.0,74.2 380.2,46.6 490.0,35.3" class="s-ln-warn"/>
+      <circle cx="70.0" cy="161.3" r="3" class="s-warn"/>
+      <circle cx="170.2" cy="116.4" r="3" class="s-warn"/>
+      <circle cx="280.0" cy="74.2" r="3" class="s-warn"/>
+      <circle cx="380.2" cy="46.6" r="3" class="s-warn"/>
+      <circle cx="490.0" cy="35.3" r="3" class="s-warn"/>
+      <polyline points="70.0,118.6 170.2,77.8 280.0,46.2 380.2,34.7 490.0,31.3" class="s-ln-info"/>
+      <circle cx="70.0" cy="118.6" r="3" class="s-info"/>
+      <circle cx="170.2" cy="77.8" r="3" class="s-info"/>
+      <circle cx="280.0" cy="46.2" r="3" class="s-info"/>
+      <circle cx="380.2" cy="34.7" r="3" class="s-info"/>
+      <circle cx="490.0" cy="31.3" r="3" class="s-info"/>
+      <line x1="510" y1="40" x2="532" y2="40" class="s-ln-mod"/><text x="538" y="44" class="s-sm">MCES</text>
+      <line x1="510" y1="62" x2="532" y2="62" class="s-ln-info"/><text x="538" y="66" class="s-sm">off-policy, weighted IS</text>
+      <line x1="510" y1="84" x2="532" y2="84" class="s-ln-warn"/><text x="538" y="88" class="s-sm">on-policy, ε = 0.1</text>
+      <line x1="510" y1="106" x2="532" y2="106" class="s-ln s-dash"/><text x="538" y="110" class="s-sm">optimal, −0.0431</text>
+      <text x="280" y="226" class="s-ink2 s-mid s-sm">episodes (log scale)</text>
+      <text transform="translate(18,105) rotate(-90)" class="s-ink2 s-mid s-sm">exact return of greedy policy</text>
+    </svg>
+    <figcaption><b>Sample efficiency, mean of three seeds.</b> Each point is the greedy policy's exact expected return, so there is no evaluation noise, only seed-to-seed variation. MCES and off-policy weighted IS reach within 0.002 of optimal by \(10^5\)–\(3 \times 10^5\) episodes; on-policy control with constant \(\varepsilon\) needs three or more times as many episodes to match them. Plot yours with bands over five seeds.</figcaption>
+  </figure>
+
+  <h3>Expected results</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Control method (exact return of greedy policy, 3 seeds)</th><th>10⁴</th><th>3 × 10⁴</th><th>10⁵</th><th>3 × 10⁵</th><th>10⁶</th></tr></thead>
+    <tbody>
+      <tr><td>MCES</td><td class="num">−0.064</td><td class="num">−0.053</td><td class="num">−0.045</td><td class="num">−0.044</td><td class="num">−0.0434</td></tr>
+      <tr><td>Off-policy weighted IS, uniform b</td><td class="num">−0.069</td><td class="num">−0.057</td><td class="num">−0.048</td><td class="num">−0.044</td><td class="num">−0.0433</td></tr>
+      <tr><td>On-policy, ε = 0.1</td><td class="num">−0.082</td><td class="num">−0.068</td><td class="num">−0.056</td><td class="num">−0.048</td><td class="num">−0.0445</td></tr>
+      <tr><td>Disagreements with optimal (MCES / off / on)</td><td class="num">29 / 46 / 57</td><td class="num">17 / 29 / 47</td><td class="num">7 / 16 / 31</td><td class="num">4 / 7 / 15</td><td class="num">2 / 2 / 6</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><b>Prediction.</b> RMSE against the exact \(v_\pi\): on-policy first-visit MC about 0.20, 0.05 and 0.018 at \(10^4\), \(10^5\) and \(10^6\) episodes, falling as \(1/\sqrt n\). Off-policy from a uniform behaviour policy is roughly three times worse at every budget (0.41–0.62 at \(10^4\), 0.05–0.07 at \(10^6\)), because most episodes deviate from the target and carry zero weight. Weighted IS is clearly better than ordinary IS only at the smallest budgets; Blackjack's short episodes keep ordinary IS's variance finite.</li>
+    <li><b>Why the ranking.</b> MCES's uniform exploring starts spend as many episodes on rare states such as soft 13 against an ace as on common ones, which a normal deal never would. Off-policy control with a uniform behaviour policy explores evenly too, and short hands mean little tail collapse. On-policy control explores only through \(\varepsilon\), and its estimates describe an \(\varepsilon\)-soft policy rather than the greedy one.</li>
+    <li><b>Basic strategy.</b> Expect your best policies to differ from the optimal one in 1–3 near-tie states and to lose 0.0001–0.0005 per hand relative to it. Over \(10^6\) Gymnasium hands the 95% interval of the mean return is about ±0.002, wider than those differences, so policies that agree on all but near-tie states are statistically indistinguishable by play. That is why the exact evaluation matters.</li>
+  </ul>
+
+  <ul class="deliverables">
+    <li>A simulator test showing your environment matches <code>Blackjack-v1</code> with <code>sab=True</code> on mean return within confidence intervals.</li>
+    <li>The exact DP module, with a test that its values agree with \(10^6\)-episode MC estimates.</li>
+    <li>Value-surface figures for usable and no-usable ace at 10,000 and 500,000 episodes, next to the exact surfaces (S&amp;B Figure 5.1).</li>
+    <li>The learned optimal policy and \(\max_a Q\) surfaces from MCES (S&amp;B Figure 5.2).</li>
+    <li>Two sample-efficiency plots with five-seed bands: prediction RMSE (three estimators) and control exact return (four configurations), both against episodes on a log axis.</li>
+    <li>A basic-strategy table: each method's disagreements with the optimal policy, their action gaps, and win/draw/loss rates from \(10^6\) Gymnasium hands.</li>
+    <li>A README that explains, in a paragraph each, why the methods rank as they do and where the optimal policy differs from casino basic strategy.</li>
+  </ul>
+
+  <div class="practice">
+    <h4>Practice · 180 min</h4>
+    <ol>
+      <li><b>30 min</b>: simulator, Gymnasium adapter and the environment test; the exact DP and its test.</li>
+      <li><b>30 min</b>: first-visit MC prediction and the value surfaces.</li>
+      <li><b>60 min</b>: MCES, on-policy and off-policy control behind one interface, with the checkpointed efficiency runs (start them early; they take a while in pure Python).</li>
+      <li><b>30 min</b>: off-policy prediction with ordinary and weighted IS, and the RMSE plot.</li>
+      <li><b>30 min</b>: the basic-strategy comparison, Gymnasium play-out, and the README.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto Ch. 5 (Examples 5.1, 5.3, 5.4) · Thorp 1966, <i>Beat the Dealer</i> · Gymnasium documentation, Blackjack (Toy Text)</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m03.html"><small>Previous · Days 28–34</small>◂ Module 3 — Dynamic Programming</a>
+  <a class="next" href="m05.html"><small>Next · Days 42–53</small>Module 5 — Temporal-Difference Learning ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

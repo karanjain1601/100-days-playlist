@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 15 — Spring Data · 365 Days of Java Backend</title>
+<meta name="description" content="365 Days of Java Backend, phase 15: Spring Data (lessons 317–328).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+</head>
+<body class="m15" data-lang="java">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>365 Days</b> of Java</a>
+  <span class="meta">Phase 15 · Spring Data · Days 317–328</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 15 · Spring Data</h4>
+  <nav>
+    <a href="#l317"><span class="n">L317</span>Spring Data Architecture &amp; Reposi…</a>
+    <a href="#l318"><span class="n">L318</span>Derived Query Methods</a>
+    <a href="#l319"><span class="n">L319</span>@Query: JPQL, Native SQL &amp; SpEL</a>
+    <a href="#l320"><span class="n">L320</span>Modifying Queries &amp; Repository Tr…</a>
+    <a href="#l321"><span class="n">L321</span>Specifications &amp; Dynamic Queries</a>
+    <a href="#l322"><span class="n">L322</span>Querydsl: Type-Safe Queries</a>
+    <a href="#l323"><span class="n">L323</span>Projections &amp; DTO Mapping</a>
+    <a href="#l324"><span class="n">L324</span>Pagination, Sorting, Page vs Slic…</a>
+    <a href="#l325"><span class="n">L325</span>Auditing, Custom Implementations…</a>
+    <a href="#l326"><span class="n">L326</span>Spring Data JDBC: The Simpler Alt…</a>
+    <a href="#l327"><span class="n">L327</span>Spring Data MongoDB</a>
+    <a href="#l328"><span class="n">L328</span>Spring Data Redis</a>
+  </nav>
+  <h4>All 480 lessons</h4>
+  <div class="spine" data-spine data-module="15" style="grid-template-columns:repeat(20,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p14.html">◂ Phase 14</a><a href="p16.html">Phase 16 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 15 · Days 317–328 · Lessons 317–328</p>
+<h1>Spring Data</h1>
+<p class="dek">Phase 15 is about Spring Data, the repository layer that sits between the REST controllers of Phase 14 and the database: how an interface becomes a working repository, and how to choose between derived queries, <code>@Query</code>, Specifications, Querydsl and projections for each access pattern. It then applies the same programming model to Spring Data JDBC, MongoDB and Redis, and leads into Phase 16's transaction management. The milestone is a repository layer with derived queries, specifications, projections, keyset pagination and auditing, benchmarked against raw SQL.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Explain how Spring Data builds a repository proxy, what <code>save()</code> does for new and detached entities, and expose only the repository methods callers need.</li>
+    <li>Write derived queries, JPQL and native <code>@Query</code> methods (with <code>countQuery</code>, sorting, SpEL and hints), and recognise when a method name has become unreadable.</li>
+    <li>Run bulk updates and deletes safely, keeping the persistence context consistent, and put transaction boundaries on service methods rather than repositories.</li>
+    <li>Build optional-filter search with composable Specifications or Querydsl, without duplicate rows, broken count queries or unescaped LIKE patterns.</li>
+    <li>Return DTOs and interface projections instead of entities, and paginate with <code>Page</code>, <code>Slice</code> or keyset scrolling depending on whether the client needs a total.</li>
+    <li>Add auditing and custom repository fragments, and decide when Spring Data JDBC, MongoDB or Redis fits better than JPA.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>12</b> lessons</li><li><b>8h 20m</b> video</li><li><b>9h 25m</b> practice</li><li>Days <b>317–328</b></li>
+</ul>
+
+<!-- ================================================================ L317 -->
+<article class="day" id="l317">
+  <header class="day-head">
+    <span class="day-no">L317 · DAY 317</span>
+    <h2>Spring Data Architecture &amp; Repository Interfaces</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A Spring Data repository is an interface you declare and Spring implements at startup: a dynamic proxy that sends CRUD calls to a generic store-specific class and query methods to queries it built by parsing their names. Knowing that proxy, the interface hierarchy and what <code>save()</code> actually does explains most surprises, from extra SELECTs to methods you never meant to expose.</p>
+
+  <h3>One programming model, many stores</h3>
+  <p>Spring Data is an umbrella of modules (JPA, JDBC, MongoDB, Redis, Elasticsearch, Cassandra, R2DBC, Neo4j, plus Spring Data REST, which exports repositories over HTTP) built on a shared core, <code>spring-data-commons</code>. The core provides what feels the same everywhere: repository interfaces, query derivation from method names, <code>Pageable</code>/<code>Sort</code>, projections, auditing and Query by Example. Each module adds its own mapping annotations, a template for low-level access (<code>MongoTemplate</code>, <code>RedisTemplate</code>, <code>JdbcAggregateTemplate</code>…) and its own query language for <code>@Query</code>. The abstraction is shared; the semantics are not: a JPA <code>save</code> can be deferred until flush, while a JDBC or MongoDB <code>save</code> writes immediately.</p>
+
+  <h3>How an interface becomes a bean</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 260" role="img" aria-label="Repository proxy routing calls to SimpleJpaRepository, query objects or custom fragments">
+      <defs><marker id="ah-l317" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="20" width="120" height="40" rx="6" class="s-node"/><text x="70" y="44" class="s-ink s-sm s-mid">OrderService</text>
+      <rect x="170" y="10" width="240" height="120" rx="8" class="s-node-mod"/>
+      <text x="290" y="30" class="s-ink s-sm s-mid">JDK proxy: OrderRepository</text>
+      <text x="290" y="54" class="s-ink3 s-sm s-mid">TransactionInterceptor</text>
+      <text x="290" y="72" class="s-ink3 s-sm s-mid">exception translation</text>
+      <text x="290" y="90" class="s-ink3 s-sm s-mid">QueryExecutorMethodInterceptor</text>
+      <text x="290" y="108" class="s-ink3 s-sm s-mid">fragment dispatch</text>
+      <line x1="130" y1="40" x2="168" y2="40" class="s-ln" marker-end="url(#ah-l317)"/>
+      <rect x="450" y="10" width="200" height="40" rx="6" class="s-node"/><text x="550" y="34" class="s-ink s-sm s-mid">SimpleJpaRepository</text>
+      <rect x="450" y="70" width="200" height="40" rx="6" class="s-node"/><text x="550" y="94" class="s-ink s-sm s-mid">RepositoryQuery objects</text>
+      <rect x="450" y="130" width="200" height="40" rx="6" class="s-node"/><text x="550" y="154" class="s-ink s-sm s-mid">custom fragment Impl</text>
+      <line x1="410" y1="40" x2="448" y2="30" class="s-ln" marker-end="url(#ah-l317)"/>
+      <line x1="410" y1="80" x2="448" y2="90" class="s-ln" marker-end="url(#ah-l317)"/>
+      <line x1="410" y1="110" x2="448" y2="148" class="s-ln" marker-end="url(#ah-l317)"/>
+      <text x="300" y="155" class="s-ink3 s-sm s-mid">findByStatus, @Query → built at startup</text>
+      <rect x="450" y="200" width="200" height="40" rx="6" class="s-node-mod"/><text x="550" y="224" class="s-ink s-sm s-mid">EntityManager</text>
+      <line x1="550" y1="170" x2="550" y2="198" class="s-ln" marker-end="url(#ah-l317)"/>
+      <text x="440" y="224" class="s-ink3 s-sm s-end">all three use it</text>
+    </svg>
+    <figcaption><b>Three destinations behind one interface.</b> Inherited CRUD methods go to <code>SimpleJpaRepository</code>, query methods to pre-built query objects, and custom methods to your implementation fragment (L325).</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · repository bootstrap</span>
+    <ol>
+      <li><code>@EnableJpaRepositories</code> (applied by Boot's auto-configuration to the <code>@SpringBootApplication</code> package) imports a registrar derived from <code>RepositoryBeanDefinitionRegistrarSupport</code>.</li>
+      <li>The registrar scans for interfaces extending <code>Repository</code> and registers a <code>JpaRepositoryFactoryBean</code> definition for each.</li>
+      <li>When the bean is created, <code>JpaRepositoryFactory</code> instantiates the base class <code>SimpleJpaRepository</code> for the entity type and wraps it in a JDK dynamic proxy implementing your interface.</li>
+      <li>It adds interceptors: transactions (from <code>SimpleJpaRepository</code>'s annotations), persistence exception translation, and <code>QueryExecutorMethodInterceptor</code>, which at this point resolves <b>every query method</b> into a <code>RepositoryQuery</code>: a parsed derived query, an <code>@Query</code> or a named query.</li>
+      <li>At call time the proxy routes each method: query methods to their <code>RepositoryQuery</code>, custom methods to fragments, everything else to <code>SimpleJpaRepository</code>.</li>
+    </ol>
+  </div>
+  <p>Because step 4 happens at startup, a misspelled property in <code>findByStatsu</code> fails the application context on boot. <code>spring.data.jpa.repositories.bootstrap-mode=deferred</code> (or <code>lazy</code>) moves that work off the startup path, at the cost of finding errors later.</p>
+
+  <h3>The interface hierarchy</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Interface</th><th>Adds</th></tr></thead>
+    <tbody>
+      <tr><td><code>Repository&lt;T, ID&gt;</code></td><td>Nothing: a marker. You declare exactly the methods you want.</td></tr>
+      <tr><td><code>CrudRepository</code></td><td><code>save</code>, <code>saveAll</code>, <code>findById</code>, <code>existsById</code>, <code>findAll</code>, <code>findAllById</code>, <code>count</code>, <code>deleteById</code>, <code>delete</code>, <code>deleteAll</code> (returning <code>Iterable</code>)</td></tr>
+      <tr><td><code>ListCrudRepository</code></td><td>The same, returning <code>List</code> (Spring Data 3)</td></tr>
+      <tr><td><code>PagingAndSortingRepository</code></td><td><code>findAll(Sort)</code>, <code>findAll(Pageable)</code>; since 3.0 it no longer extends <code>CrudRepository</code></td></tr>
+      <tr><td><code>JpaRepository</code></td><td>Extends <code>ListCrudRepository</code>, <code>ListPagingAndSortingRepository</code> and <code>QueryByExampleExecutor</code>; adds <code>flush</code>, <code>saveAndFlush</code>, <code>saveAllAndFlush</code>, <code>deleteAllInBatch</code>, <code>deleteAllByIdInBatch</code>, <code>getReferenceById</code></td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><b><code>getReferenceById</code></b> returns an uninitialized proxy without a SELECT (<code>EntityManager.getReference</code>); ideal for setting a foreign key, <code>order.setCustomer(customers.getReferenceById(7))</code>. Touching a field of a missing row throws <code>EntityNotFoundException</code>.</li>
+    <li><b><code>deleteAllInBatch</code></b> issues one <code>DELETE</code> statement, bypassing cascades and lifecycle callbacks; <code>deleteAll</code> loads every entity and removes them one by one (<a href="#l320">L320</a>).</li>
+    <li><b><code>flush</code>/<code>saveAndFlush</code></b> force pending SQL now, e.g. to surface a constraint violation inside the method that caused it.</li>
+  </ul>
+
+  <h3>save() is "persist or merge"</h3>
+  <pre><code class="plain">// SimpleJpaRepository.save, in essence
+if (entityInformation.isNew(entity)) { em.persist(entity); return entity; }
+else                                 { return em.merge(entity); }</code></pre>
+  <div class="box def"><span class="tag">Definition · isNew</span>
+    <p>By default an entity is new if its <code>@Version</code> property (of a wrapper type) is <code>null</code>; without a version, if its id is <code>null</code> (or <code>0</code> for a primitive). An entity whose id you <b>assign yourself</b> (a natural key, a UUID set in the constructor) is therefore never new, so <code>save</code> calls <code>merge</code>, and merge must first SELECT the row to find out whether to update or insert.</p>
+  </div>
+  <pre><code>@Entity
+class Sku implements Persistable&lt;String&gt; {
+    @Id private String code;                       // assigned, not generated
+    private String name;
+    @Transient private boolean isNew = true;
+
+    protected Sku() {}
+    Sku(String code, String name) { this.code = code; this.name = name; }
+
+    @Override public String getId() { return code; }
+    @Override public boolean isNew() { return isNew; }
+
+    @PostPersist @PostLoad
+    void markNotNew() { this.isNew = false; }
+}</code></pre>
+  <pre><code class="plain">-- save(new Sku("A-1", "Widget")), plain entity: merge
+select s1_0.code,s1_0.name from sku s1_0 where s1_0.code=?
+insert into sku (name,code) values (?,?)
+
+-- same call, Persistable.isNew() == true: persist
+insert into sku (name,code) values (?,?)</code></pre>
+  <p><code>Persistable</code> lets the entity answer <code>isNew</code> itself; a wrapper <code>@Version Long version</code> field achieves the same and adds optimistic locking. Remember also that <code>merge</code> returns a <em>different</em>, managed instance: always use the value <code>save</code> returns.</p>
+
+  <h3>Expose less, share more</h3>
+  <pre><code>interface OrderRepository extends Repository&lt;Order, Long&gt; {      // only what callers need
+    Optional&lt;Order&gt; findById(Long id);
+    Order save(Order order);
+    List&lt;Order&gt; findByStatus(OrderStatus status);
+}
+
+@NoRepositoryBean                                                    // base, never instantiated
+interface ReadOnlyRepository&lt;T, ID&gt; extends Repository&lt;T, ID&gt; {
+    Optional&lt;T&gt; findById(ID id);
+    List&lt;T&gt; findAll(Sort sort);
+    long count();
+}
+
+interface CountryRepository extends ReadOnlyRepository&lt;Country, String&gt; {}</code></pre>
+  <p>Extending <code>JpaRepository</code> hands every caller <code>deleteAll()</code>, <code>deleteAllInBatch()</code> and <code>flush()</code>. Declaring methods selectively on <code>Repository</code> gives the same implementations (signatures matching CRUD methods route to <code>SimpleJpaRepository</code>) with a deliberate surface: a reference-data repository that can't write, an audit log that can't delete. <code>@NoRepositoryBean</code> marks shared base interfaces so the scanner doesn't try to create a repository for them.</p>
+  <p><b>Scanning</b>: Boot scans from the main application class's package. Use <code>@EnableJpaRepositories(basePackages = …)</code> for repositories elsewhere, or <code>repositoryBaseClass</code> to replace <code>SimpleJpaRepository</code> globally. With two Spring Data modules on the classpath (JPA and Redis, say) Spring Data enters <b>strict configuration mode</b> and only claims a repository for a store when the interface extends a store-specific type (<code>JpaRepository</code>) or the entity carries that store's annotation (<code>@Entity</code>); separate base packages per store keep it unambiguous.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A SELECT before every insert</b> for entities with assigned ids, doubling write latency in bulk imports.</li>
+      <li><b>Ignoring <code>save</code>'s return value</b> after a merge: later changes go to the detached copy and are silently lost.</li>
+      <li><b>Repositories silently not created</b> when a second Spring Data module triggers strict mode; the log says "Multiple Spring Data modules found".</li>
+      <li><b>Repositories as the service layer</b>: controllers calling <code>deleteAll</code> because it was available.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Set a breakpoint in a service on a repository call; inspect the proxy class, its target and interceptor list, and step into <code>SimpleJpaRepository.save</code>.</li>
+    <li>Create <code>Sku</code> with an assigned id, enable SQL logging, save 1,000 rows, and count the SELECTs; repeat with <code>Persistable</code> and with a <code>@Version</code> field.</li>
+    <li>Misspell a property in a derived query method and read the startup error; switch to <code>deferred</code> bootstrap and see when it fails instead.</li>
+    <li>Replace a <code>JpaRepository</code> with a narrow <code>Repository</code> declaration and fix the call sites that relied on the extra methods.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Working with Spring Data Repositories” (core concepts, defining repository interfaces, creating instances), “Persisting Entities” (entity state detection) · Javadoc: <code>SimpleJpaRepository</code>, <code>JpaRepository</code>, <code>Persistable</code>, <code>NoRepositoryBean</code> · Jakarta Persistence 3.1 specification, §3.2 (entity instance lifecycle: persist, merge)</p>
+</article>
+<!-- ================================================================ L318 -->
+<article class="day" id="l318">
+  <header class="day-head">
+    <span class="day-no">L318 · DAY 318</span>
+    <h2>Derived Query Methods</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">A derived query is a method name parsed at startup into a query: a subject, the keyword <code>By</code>, and a predicate of property paths joined by operators. It is the fastest way to write simple, fixed queries, and it stops being the right tool at the point where the name is harder to read than the JPQL would be.</p>
+
+  <h3>The grammar</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 150" role="img" aria-label="Parts of a derived query method name">
+      <rect x="10" y="40" width="110" height="36" rx="6" class="s-node-mod"/><text x="65" y="63" class="s-ink s-mid">findTop5</text>
+      <rect x="125" y="40" width="40" height="36" rx="6" class="s-node"/><text x="145" y="63" class="s-ink s-mid">By</text>
+      <rect x="170" y="40" width="300" height="36" rx="6" class="s-node-mod"/><text x="320" y="63" class="s-ink s-mid">StatusAndTotalCentsGreaterThan</text>
+      <rect x="475" y="40" width="175" height="36" rx="6" class="s-node"/><text x="562" y="63" class="s-ink s-mid">OrderByCreatedAtDesc</text>
+      <text x="65" y="100" class="s-ink3 s-sm s-mid">subject + limit</text>
+      <text x="320" y="100" class="s-ink3 s-sm s-mid">predicate: property + operator, And/Or</text>
+      <text x="562" y="100" class="s-ink3 s-sm s-mid">static ordering</text>
+      <text x="330" y="132" class="s-acc s-sm s-mid">where status = ?1 and totalCents &gt; ?2 order by createdAt desc, max 5 rows</text>
+    </svg>
+    <figcaption><b>A method name is a tiny query language.</b> Parameters bind to predicate parts in declaration order; <code>Pageable</code>, <code>Sort</code> and <code>ScrollPosition</code> parameters are recognised by type.</figcaption>
+  </figure>
+  <div class="box def"><span class="tag">Definition · derived query</span>
+    <p>The <b>subject</b> picks the operation: <code>find</code>, <code>read</code>, <code>get</code>, <code>query</code>, <code>search</code> and <code>stream</code> all select; <code>count</code> counts; <code>exists</code> checks existence; <code>delete</code>/<code>remove</code> delete. Between the subject and <code>By</code> you may put <code>Distinct</code>, <code>First</code>/<code>Top</code> with an optional number, or any descriptive word (<code>findSliceByStatus</code> is just <code>findByStatus</code>). After <code>By</code> come <b>property expressions</b>, each a property path plus an optional operator keyword, joined with <code>And</code>/<code>Or</code>, and finally an optional <code>OrderBy…Asc/Desc</code>. <code>PartTree</code> parses the name, <code>PartTreeJpaQuery</code> turns it into a Criteria query, and both happen when the repository is created, so mistakes fail at startup.</p>
+  </div>
+
+  <h3>Keywords</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Keyword</th><th>Method fragment</th><th>Predicate</th></tr></thead>
+    <tbody>
+      <tr><td><code>And</code>, <code>Or</code></td><td><code>ByStatusAndCustomerId</code></td><td><code>status = ?1 and customer.id = ?2</code></td></tr>
+      <tr><td><code>Is</code>, <code>Equals</code> (implicit)</td><td><code>ByStatus</code></td><td><code>status = ?1</code>; a <code>null</code> argument becomes <code>is null</code></td></tr>
+      <tr><td><code>Between</code></td><td><code>ByTotalCentsBetween</code></td><td><code>between ?1 and ?2</code> (inclusive)</td></tr>
+      <tr><td><code>LessThan</code>, <code>GreaterThanEqual</code>…</td><td><code>ByTotalCentsGreaterThanEqual</code></td><td><code>&gt;= ?1</code></td></tr>
+      <tr><td><code>After</code>, <code>Before</code></td><td><code>ByCreatedAtAfter</code></td><td><code>createdAt &gt; ?1</code> (strict)</td></tr>
+      <tr><td><code>IsNull</code>, <code>IsNotNull</code></td><td><code>ByShippedAtIsNull</code></td><td>no parameter</td></tr>
+      <tr><td><code>Like</code>, <code>NotLike</code></td><td><code>ByNoteLike</code></td><td>you supply the <code>%</code></td></tr>
+      <tr><td><code>StartingWith</code>, <code>EndingWith</code>, <code>Containing</code></td><td><code>ByNoteContaining</code></td><td><code>like %?1%</code>, wildcards in the argument escaped</td></tr>
+      <tr><td><code>IgnoreCase</code>, <code>AllIgnoreCase</code></td><td><code>ByEmailIgnoreCase</code></td><td><code>upper(email) = upper(?1)</code></td></tr>
+      <tr><td><code>In</code>, <code>NotIn</code></td><td><code>ByStatusIn</code></td><td>collection or array parameter</td></tr>
+      <tr><td><code>True</code>, <code>False</code></td><td><code>ByCancelledFalse</code></td><td><code>cancelled = false</code></td></tr>
+      <tr><td><code>Not</code></td><td><code>ByStatusNot</code></td><td><code>status &lt;&gt; ?1</code></td></tr>
+      <tr><td><code>First</code>/<code>Top</code>, <code>Distinct</code></td><td><code>findTop5By…</code>, <code>findDistinctBy…</code></td><td>row limit, <code>select distinct</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>A repository of derived queries</h3>
+  <pre><code>interface OrderRepository extends JpaRepository&lt;Order, Long&gt; {
+    List&lt;Order&gt; findByStatusAndCreatedAtAfter(OrderStatus status, Instant since);
+    List&lt;Order&gt; findByTotalCentsBetween(long min, long max);
+    List&lt;Order&gt; findByCustomerEmailIgnoreCase(String email);            // traverses customer.email
+    List&lt;Order&gt; findByCustomer_Address_City(String city);              // explicit path with _
+    List&lt;Order&gt; findByStatusInAndCancelledFalse(Collection&lt;OrderStatus&gt; statuses);
+    List&lt;Order&gt; findByNoteContainingIgnoreCase(String fragment);
+    Optional&lt;Order&gt; findFirstByCustomerIdOrderByCreatedAtDesc(long customerId);
+    List&lt;Order&gt; findTop5ByStatusOrderByTotalCentsDesc(OrderStatus status);
+    long countByStatus(OrderStatus status);
+    boolean existsByExternalRef(String externalRef);
+
+    Page&lt;Order&gt; findByStatus(OrderStatus status, Pageable pageable);          // + count query
+    Slice&lt;Order&gt; findSliceByStatus(OrderStatus status, Pageable pageable);    // size+1, no count
+    Window&lt;Order&gt; findFirst50ByStatusOrderByIdAsc(OrderStatus status, ScrollPosition position);
+    Stream&lt;Order&gt; streamByCreatedAtBefore(Instant cutoff);
+
+    @Transactional
+    long deleteByStatusAndCreatedAtBefore(OrderStatus status, Instant cutoff);   // loads, then removes each
+}</code></pre>
+  <p><b>Nested properties</b>: for <code>findByCustomerAddressCity</code> the parser first looks for a property <code>customerAddressCity</code>, then splits the camel-case name from the right (<code>customerAddress.city</code>, then <code>customer.addressCity</code>, then <code>customer.address.city</code>) until a path resolves, joining as needed. If the entity also had a <code>customerAddress</code> property, the guess could be wrong; an underscore fixes the split points explicitly. That makes underscores reserved, which is another reason Java fields should be camelCase.</p>
+
+  <h3>Return types</h3>
+  <ul>
+    <li><b><code>T</code></b> (returns <code>null</code> when nothing matches) and <b><code>Optional&lt;T&gt;</code></b>: single result. More than one row throws <code>IncorrectResultSizeDataAccessException</code>; use <code>findFirst…</code> or make the predicate unique.</li>
+    <li><b><code>List&lt;T&gt;</code></b>: everything that matches, so bound it with <code>Top</code> or a <code>Pageable</code>.</li>
+    <li><b><code>Page&lt;T&gt;</code></b>: a page plus a <code>COUNT</code> query for totals; <b><code>Slice&lt;T&gt;</code></b>: fetches one extra row to know whether a next page exists; <b><code>Window&lt;T&gt;</code></b> (Spring Data 3.1): scrolling by offset or keyset with a <code>ScrollPosition</code> (<a href="#l324">L324</a>).</li>
+    <li><b><code>Stream&lt;T&gt;</code></b>: rows are read from an open cursor as you consume them. The caller must hold a transaction and close the stream.</li>
+    <li><b><code>CompletableFuture&lt;T&gt;</code></b>/<code>Future&lt;T&gt;</code> with <code>@Async</code> on the method: runs on a task executor (needs <code>@EnableAsync</code>), outside the caller's transaction.</li>
+  </ul>
+  <pre><code>@Transactional(readOnly = true)
+void exportOldOrders(Instant cutoff, Consumer&lt;Order&gt; sink) {
+    try (Stream&lt;Order&gt; orders = repository.streamByCreatedAtBefore(cutoff)) {
+        orders.forEach(o -&gt; {
+            sink.accept(o);
+            entityManager.detach(o);              // keep the persistence context from growing
+        });
+    }
+}</code></pre>
+  <p>Derived <code>deleteBy…</code> loads every matching entity and calls <code>remove</code> on each, so cascades and callbacks run, at the price of one SELECT plus N DELETEs. For bulk deletes use a <code>@Modifying</code> query or <code>deleteAllInBatch</code> (<a href="#l320">L320</a>).</p>
+
+  <h3>When names stop working</h3>
+  <p><code>findByStatusAndCustomerAddressCountryAndCreatedAtBetweenAndTotalCentsGreaterThanOrderByCreatedAtDesc</code> is valid, and nobody can review it. Change tools when any of these appear:</p>
+  <ul>
+    <li><b>More than two or three predicates</b>, or names you have to read twice: write <code>@Query</code> with JPQL (<a href="#l319">L319</a>).</li>
+    <li><b>Optional filters</b>: derived queries can't skip a <code>null</code> argument (it becomes <code>is null</code>), so <em>n</em> optional filters need 2<sup><em>n</em></sup> methods. Use Specifications (<a href="#l321">L321</a>) or Querydsl (<a href="#l322">L322</a>).</li>
+    <li><b>Aggregates, grouping, conditions on joins, DTO results</b>: <code>@Query</code> or projections (<a href="#l323">L323</a>).</li>
+  </ul>
+  <p><b>Validating at startup</b> comes for free with the default bootstrap mode: derived queries are parsed and JPQL in <code>@Query</code> is compiled when the repository bean is created. A <code>@DataJpaTest</code> that only starts the context therefore checks every query method against the real mappings; keep one in the build.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A single-result method that starts returning two rows</b> when the data changes (a duplicated email) and throws on every call. Back uniqueness with a constraint or use <code>findFirst</code>.</li>
+      <li><b><code>IgnoreCase</code> defeats indexes</b>: <code>upper(email)</code> can't use a plain index on <code>email</code>. Add a function-based index or store a normalized column.</li>
+      <li><b>Unclosed streams</b> hold a connection and cursor until the transaction ends, or leak outside one.</li>
+      <li><b>Unbounded <code>List</code> results</b> that were fine with 1,000 rows and run out of memory at 10 million.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Write ten derived queries over an <code>Order</code>/<code>Customer</code>/<code>Address</code> model, enable SQL logging, and write down the SQL Hibernate generates for each.</li>
+    <li>Insert two customers with the same email and call <code>findByEmail</code>; catch the exception, then fix it two ways.</li>
+    <li>Add a <code>customerAddress</code> field to break <code>findByCustomerAddressCity</code>'s resolution, then fix it with underscores.</li>
+    <li>Stream 100,000 orders inside a read-only transaction with detaching, and compare heap use against <code>findAll()</code>.</li>
+    <li>Rewrite your longest derived query as <code>@Query</code> and decide which version you'd rather maintain.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Query Methods” (query creation, property expressions, special parameter handling, limiting results, streaming, async results) and the appendix “Repository query keywords” and “Repository query return types” · Javadoc: <code>PartTree</code>, <code>Window</code>, <code>ScrollPosition</code></p>
+</article>
+<!-- ================================================================ L319 -->
+<article class="day" id="l319">
+  <header class="day-head">
+    <span class="day-no">L319 · DAY 319</span>
+    <h2>@Query: JPQL, Native SQL &amp; SpEL</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis"><code>@Query</code> puts the query text next to the method that runs it: JPQL by default, which is validated at startup and portable across databases, or native SQL when you need a database feature JPQL lacks. Parameters, sorting, paging, SpEL and projections all work on top of it, with a few sharp edges, mostly on the native side.</p>
+
+  <h3>How Spring Data finds a method's query</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 150" role="img" aria-label="Query lookup order: @Query, named query, derived from the method name">
+      <defs><marker id="ah-l319" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="40" width="130" height="44" rx="6" class="s-node"/><text x="75" y="66" class="s-ink s-sm s-mid">repository method</text>
+      <rect x="180" y="40" width="130" height="44" rx="6" class="s-node-mod"/><text x="245" y="60" class="s-ink s-sm s-mid">1 @Query</text><text x="245" y="76" class="s-ink3 s-sm s-mid">on the method</text>
+      <rect x="350" y="40" width="140" height="44" rx="6" class="s-node-mod"/><text x="420" y="60" class="s-ink s-sm s-mid">2 named query</text><text x="420" y="76" class="s-ink3 s-sm s-mid">Order.findOverdue</text>
+      <rect x="530" y="40" width="120" height="44" rx="6" class="s-node-mod"/><text x="590" y="60" class="s-ink s-sm s-mid">3 derive</text><text x="590" y="76" class="s-ink3 s-sm s-mid">from the name</text>
+      <line x1="140" y1="62" x2="178" y2="62" class="s-ln" marker-end="url(#ah-l319)"/>
+      <line x1="310" y1="62" x2="348" y2="62" class="s-ln" marker-end="url(#ah-l319)"/>
+      <line x1="490" y1="62" x2="528" y2="62" class="s-ln" marker-end="url(#ah-l319)"/>
+      <text x="330" y="125" class="s-ink2 s-sm s-mid">default lookup strategy CREATE_IF_NOT_FOUND: first match wins, all resolved at startup</text>
+    </svg>
+    <figcaption><b>Explicit beats conventional.</b> A method name is only parsed when no <code>@Query</code> and no named query claims it.</figcaption>
+  </figure>
+
+  <h3>JPQL with parameters and sorting</h3>
+  <pre><code>interface OrderRepository extends JpaRepository&lt;Order, Long&gt; {
+
+    @Query("""
+           select o from Order o
+           where o.status = :status and o.createdAt &gt;= :since
+           order by o.createdAt desc""")
+    List&lt;Order&gt; recent(@Param("status") OrderStatus status, @Param("since") Instant since);
+
+    @Query("select o from Order o where o.customer.id = ?1 and o.status = ?2")   // positional
+    List&lt;Order&gt; byCustomerAndStatus(long customerId, OrderStatus status);
+
+    @Query("select o from Order o where o.status = :status")
+    List&lt;Order&gt; byStatus(@Param("status") OrderStatus status, Sort sort);       // order by appended
+
+    @Query("select o from Order o where o.note like %:fragment%")              // Spring Data LIKE syntax
+    List&lt;Order&gt; noteContains(@Param("fragment") String fragment);
+}</code></pre>
+  <p><b>Named parameters</b> (<code>:status</code>) bind by name, so reordering method parameters or adding one in the middle can't silently swap values, and the query reads on its own. <b>Positional</b> ones (<code>?1</code>) bind by index: rearrange the signature and two parameters of the same type trade places without any error. With <code>-parameters</code> (Boot's default) <code>@Param</code> can be omitted, but keeping it makes the binding independent of compiler flags. A trailing <code>Sort</code> or <code>Pageable</code> parameter is appended to JPQL as <code>order by o.&lt;property&gt;</code>; Spring Data checks that the names are plain property paths, so sorting by an expression requires <code>JpaSort.unsafe("length(o.note)")</code>, deliberately named to make you think about where that string came from.</p>
+
+  <h3>Native SQL and countQuery</h3>
+  <pre><code>@Query(value = """
+       select o.* from orders o
+       where o.status = :status
+         and to_tsvector('english', o.note) @@ plainto_tsquery('english', :q)""",
+       countQuery = """
+       select count(*) from orders o
+       where o.status = :status
+         and to_tsvector('english', o.note) @@ plainto_tsquery('english', :q)""",
+       nativeQuery = true)
+Page&lt;Order&gt; search(@Param("status") String status, @Param("q") String q, Pageable pageable);</code></pre>
+  <p>Native queries reach what JPQL can't: full-text search, JSON operators, window functions, CTEs, database hints. The price is portability (this one is PostgreSQL-only), no validation at startup (the SQL is sent as-is and fails on first call), and mapping by column name. With a <code>Pageable</code>, Spring Data needs a count query: for JPQL it derives one reliably, but for native SQL it can only attempt a textual rewrite, which breaks on <code>DISTINCT</code>, <code>GROUP BY</code>, CTEs and subqueries. <b>Always give <code>countQuery</code> for a paginated native query.</b> <code>Sort</code> works by appending raw column names, so the API's sort keys must match column names exactly, which is fragile; map client sort fields to columns yourself.</p>
+
+  <h3>SpEL in queries</h3>
+  <pre><code>@NoRepositoryBean
+interface SoftDeleteRepository&lt;T, ID&gt; extends JpaRepository&lt;T, ID&gt; {
+    @Query("select e from #{#entityName} e where e.deletedAt is null")    // resolved per entity
+    List&lt;T&gt; findAllActive();
+}
+
+interface InvoiceRepository extends SoftDeleteRepository&lt;Invoice, Long&gt; {
+
+    @Query("select i from Invoice i where i.tenantId = ?#{principal.tenantId}")
+    List&lt;Invoice&gt; findMine();                                 // needs SecurityEvaluationContextExtension
+
+    @Query("select i from Invoice i where i.reference like %?#{escape([0])}% escape ?#{escapeCharacter()}")
+    List&lt;Invoice&gt; referenceContains(String fragment);         // user input with % or _ stays literal
+}
+
+// @Bean SecurityEvaluationContextExtension securityEvaluationContextExtension() {
+//     return new SecurityEvaluationContextExtension();       // spring-security-data
+// }</code></pre>
+  <ul>
+    <li><b><code>#{#entityName}</code></b> expands to the entity name of the concrete repository, so one generic query in a <code>@NoRepositoryBean</code> base serves every entity with a <code>deletedAt</code> column.</li>
+    <li><b><code>?#{principal.tenantId}</code></b> evaluates against Spring Security's current <code>Authentication</code> (once the extension bean is registered) and binds the result as a parameter: a tenant filter the caller can't forget to pass. It is still a parameter, not string concatenation.</li>
+    <li><b><code>%:fragment%</code></b> wraps the bound value in wildcards, but a user typing <code>%</code> matches everything; <code>escape([0])</code> with <code>escapeCharacter()</code> escapes the wildcards in the argument.</li>
+  </ul>
+
+  <h3>DTO results, named queries and hints</h3>
+  <pre><code>record OrderSummary(Long id, OrderStatus status, String customerName, Long totalCents) {}
+
+interface OrderRow { Long getId(); String getCustomerName(); Long getTotalCents(); }
+
+interface OrderReadRepository extends Repository&lt;Order, Long&gt; {
+
+    @Query("""
+           select new com.acme.shop.orders.OrderSummary(o.id, o.status, c.name, o.totalCents)
+           from Order o join o.customer c
+           where o.status = :status""")
+    List&lt;OrderSummary&gt; summaries(@Param("status") OrderStatus status);        // constructor expression
+
+    @Query("""
+           select o.id as id, c.name as customerName, o.totalCents as totalCents
+           from Order o join o.customer c""")
+    List&lt;OrderRow&gt; rows();                                                     // aliases match getters
+
+    List&lt;Order&gt; findOverdue();                                                 // @NamedQuery Order.findOverdue
+
+    @QueryHints({
+            @QueryHint(name = "org.hibernate.fetchSize", value = "500"),
+            @QueryHint(name = "org.hibernate.readOnly", value = "true"),
+            @QueryHint(name = "jakarta.persistence.query.timeout", value = "5000")})
+    @Query("select o from Order o where o.createdAt &lt; :cutoff")
+    Stream&lt;Order&gt; streamOlderThan(@Param("cutoff") Instant cutoff);
+}
+
+@Entity
+@NamedQuery(name = "Order.findOverdue",
+            query = "select o from Order o where o.paidAt is null and o.dueAt &lt; current_timestamp")
+class Order { /* … */ }</code></pre>
+  <p>A <b>constructor expression</b> (<code>select new</code> with the fully qualified class name) builds DTOs, records included, straight from the selected columns, with no entity loaded or managed. An <b>interface projection</b> does the same through aliases matching getter names, and also works for native queries. Both are covered in depth in <a href="#l323">L323</a>.</p>
+  <div class="box def"><span class="tag">Definition · named query vs @Query</span>
+    <p>A <code>@NamedQuery</code> on the entity is parsed by Hibernate when the <code>EntityManagerFactory</code> starts and is found by the repository through the <code>Entity.method</code> naming convention. A JPQL <code>@Query</code> is validated a little later, when Spring Data creates the repository. Both fail fast, so the real difference is <b>locality</b>: <code>@Query</code> keeps the query beside the method that uses it, while named queries centralize queries on the entity (and <code>@NamedNativeQuery</code> pairs with <code>@SqlResultSetMapping</code> for custom result mapping). Most teams prefer <code>@Query</code>.</p>
+  </div>
+  <p><b><code>@QueryHints</code></b> pass provider hints to the query: <code>org.hibernate.fetchSize</code> controls how many rows the JDBC driver fetches per round trip (important for streaming; some drivers, such as PostgreSQL's, only stream with a fetch size inside a transaction), <code>org.hibernate.readOnly</code> skips dirty-checking snapshots, <code>org.hibernate.cacheable</code> uses the query cache, and <code>jakarta.persistence.query.timeout</code> (milliseconds) cancels runaway queries.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Native query + <code>Pageable</code> without <code>countQuery</code></b>: wrong totals or a SQL error on the first page request.</li>
+      <li><b><code>join fetch</code> of a collection + <code>Pageable</code></b>: Hibernate can't limit in SQL, logs <code>HHH90003004</code> ("applying in memory") and loads every row before slicing the page.</li>
+      <li><b>String concatenation into a native query</b> (in a custom implementation, say): SQL injection. Every value goes in as a parameter.</li>
+      <li><b>Positional parameters reordered</b> during a refactor: same types, swapped values, wrong results, no error.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Rewrite three long derived queries as JPQL <code>@Query</code>s with named parameters; misspell an entity property and confirm startup fails.</li>
+    <li>Write a paginated native full-text (or JSON) query; run it without <code>countQuery</code>, observe the result, then add it.</li>
+    <li>Build <code>SoftDeleteRepository</code> with <code>#{#entityName}</code> and use it for two entities.</li>
+    <li>Return <code>OrderSummary</code> via a constructor expression and <code>OrderRow</code> via an interface; compare the SQL with loading entities.</li>
+    <li>Add a <code>jakarta.persistence.query.timeout</code> hint of 100 ms to a query that sleeps (<code>pg_sleep</code>) and handle the resulting exception.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Using @Query”, “Using Advanced LIKE Expressions”, “Native Queries”, “Using Sort”, “Using SpEL Expressions”, “Applying Query Hints”, “Using JPA Named Queries” · Jakarta Persistence 3.1 specification, ch. 4 (query language) · Hibernate ORM 6 user guide, “Query hints” · Spring Security reference, “Spring Data Integration”</p>
+</article>
+<!-- ================================================================ L320 -->
+<article class="day" id="l320">
+  <header class="day-head">
+    <span class="day-no">L320 · DAY 320</span>
+    <h2>Modifying Queries &amp; Repository Transactions</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A bulk <code>UPDATE</code> or <code>DELETE</code> runs directly in the database and bypasses the persistence context, so after it the entities in memory are stale and none of the JPA machinery (cascades, versions, callbacks) has run. Repository methods also carry their own transaction defaults, which is why transaction boundaries belong on service methods, where a use case starts and ends.</p>
+
+  <h3>@Modifying for bulk updates and deletes</h3>
+  <pre><code>interface OrderRepository extends JpaRepository&lt;Order, Long&gt; {
+
+    @Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           update Order o set o.status = :to
+           where o.status = :from and o.createdAt &lt; :before""")
+    int expire(@Param("from") OrderStatus from, @Param("to") OrderStatus to, @Param("before") Instant before);
+
+    @Transactional
+    @Modifying
+    @Query("delete from OrderEvent e where e.occurredAt &lt; :cutoff")
+    int purgeEventsBefore(@Param("cutoff") Instant cutoff);         // returns rows affected
+}</code></pre>
+  <p>Without <code>@Modifying</code>, Spring Data executes the query as a select and fails with <code>InvalidDataAccessApiUsageException</code>. Without a transaction, JPA refuses to run it (<code>TransactionRequiredException: Executing an update/delete query</code>). Query methods you declare get <b>no transaction configuration by default</b>, unlike the CRUD methods inherited from <code>SimpleJpaRepository</code>, so either annotate the method or call it from a transactional service. The return type <code>int</code> (or <code>void</code>) gives the number of affected rows.</p>
+
+  <h3>The stale persistence context</h3>
+  <pre><code>@Transactional
+OrderStatus demo(long id) {
+    Order o = orders.findById(id).orElseThrow();         // managed: status OPEN
+    orders.expire(OPEN, EXPIRED, Instant.now());         // database row is now EXPIRED
+    return orders.findById(id).orElseThrow().getStatus();  // OPEN without clearAutomatically
+}</code></pre>
+  <div class="box def"><span class="tag">Definition · the two flags</span>
+    <p>The persistence context is a cache: <code>findById</code> for an id it already manages returns the same instance without querying. A bulk statement changes rows behind its back, so the cached instance keeps the old state, and if it is dirty, its eventual flush can even <b>overwrite</b> the bulk change. <b><code>clearAutomatically = true</code></b> calls <code>EntityManager.clear()</code> after the statement so later reads hit the database. Clearing also discards changes that were never flushed, so <b><code>flushAutomatically = true</code></b> flushes pending changes <em>before</em> the statement. Use both together, and know that every previously loaded entity is now detached.</p>
+  </div>
+
+  <h3>What bulk statements skip</h3>
+  <ul>
+    <li><b>Cascades</b>: <code>delete from Order</code> doesn't remove <code>OrderLine</code>s. You get a foreign-key violation, or orphans if the constraint is missing. Delete children first, or use <code>ON DELETE CASCADE</code> in the schema.</li>
+    <li><b>Optimistic locking</b>: <code>@Version</code> is neither checked nor incremented, so concurrent editors won't notice the bulk change. Increment it in the statement (<code>set o.version = o.version + 1</code>) if others hold copies.</li>
+    <li><b>Lifecycle callbacks and listeners</b>: <code>@PreUpdate</code>, <code>@PreRemove</code>, Spring Data auditing (<code>@LastModifiedDate</code>) and Envers revisions don't run. Set audit columns in the statement.</li>
+    <li><b>Domain events</b> and any invariant enforced in entity methods. If a rule lives in <code>Order.expire()</code>, a bulk update ignores it.</li>
+  </ul>
+  <p>That's the trade: one statement for a million rows instead of a million entity updates. It is right for maintenance jobs and data that carries no per-row behaviour; for business transitions, load the entities, ideally in chunks.</p>
+
+  <h3>Delete methods compared</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Method</th><th>SQL</th><th>Cascades and callbacks</th></tr></thead>
+    <tbody>
+      <tr><td><code>deleteAll()</code></td><td><code>select</code> all, then one <code>delete</code> per entity</td><td>Yes, at N+1 cost and with every entity in memory</td></tr>
+      <tr><td><code>deleteAll(entities)</code>, <code>deleteById</code></td><td>One <code>delete</code> per entity (<code>deleteById</code> loads first)</td><td>Yes</td></tr>
+      <tr><td><code>deleteAllInBatch()</code></td><td><code>delete from Order x</code></td><td>No</td></tr>
+      <tr><td><code>deleteAllInBatch(entities)</code></td><td>One <code>delete … where x = ?1 or x = ?2 …</code></td><td>No</td></tr>
+      <tr><td><code>deleteAllByIdInBatch(ids)</code></td><td><code>delete … where x.id in (:ids)</code></td><td>No</td></tr>
+    </tbody>
+  </table></div>
+  <p>Batch deletes leave the persistence context untouched: entities loaded earlier still look alive. Large id lists also hit database limits on <code>IN</code> lists or bind parameters, so chunk them (a few thousand per statement).</p>
+
+  <h3>Transaction defaults in Spring Data</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 200" role="img" aria-label="Three repository calls as three transactions versus one service transaction">
+      <text x="10" y="44" class="s-ink s-sm">no service tx</text>
+      <rect x="130" y="30" width="120" height="22" rx="4" class="s-node"/><text x="190" y="45" class="s-ink s-sm s-mid">tx1 findById</text>
+      <rect x="270" y="30" width="120" height="22" rx="4" class="s-node"/><text x="330" y="45" class="s-ink s-sm s-mid">tx2 findByOrder</text>
+      <rect x="410" y="30" width="120" height="22" rx="4" class="s-node"/><text x="470" y="45" class="s-ink s-sm s-mid">tx3 save</text>
+      <text x="540" y="45" class="s-bad s-sm">3 checkouts</text>
+      <text x="330" y="74" class="s-ink3 s-sm s-mid">entities detached between calls; no consistent snapshot; no atomicity</text>
+      <text x="10" y="124" class="s-ink s-sm">@Transactional</text>
+      <rect x="130" y="108" width="400" height="30" rx="4" class="s-node-mod"/>
+      <text x="190" y="127" class="s-ink s-sm s-mid">findById</text>
+      <text x="330" y="127" class="s-ink s-sm s-mid">findByOrder</text>
+      <text x="470" y="127" class="s-ink s-sm s-mid">save</text>
+      <text x="540" y="127" class="s-acc s-sm">1 checkout</text>
+      <text x="330" y="160" class="s-ink3 s-sm s-mid">one connection, one commit, lazy loading works, rollback covers everything</text>
+    </svg>
+    <figcaption><b>Repository transactions are per call.</b> They exist so a lone repository call is safe; they don't make a use case atomic.</figcaption>
+  </figure>
+  <p><code>SimpleJpaRepository</code> is annotated <code>@Transactional(readOnly = true)</code> at class level, and its write methods (<code>save</code>, <code>delete…</code>, <code>flush</code>) override that with <code>@Transactional</code>. A repository call outside any transaction therefore opens and commits a transaction of its own: a read-only one for <code>findById</code>, which still means a connection checkout, a read-only hint to Hibernate (no flush, no snapshots) and the driver, and a commit. Inside an existing service transaction the repository simply joins it (propagation <code>REQUIRED</code>).</p>
+  <pre><code>@Service
+class OrderService {
+    private final OrderRepository orders;
+    private final OutboxRepository outbox;
+    OrderService(OrderRepository orders, OutboxRepository outbox) { this.orders = orders; this.outbox = outbox; }
+
+    @Transactional(readOnly = true)
+    OrderDetails details(long id) {
+        Order o = orders.findById(id).orElseThrow(() -&gt; new OrderNotFoundException(id));
+        return OrderDetails.of(o, o.getCustomer(), o.getLines());      // lazy loads inside the tx
+    }
+
+    @Transactional
+    void cancel(long id) {
+        Order o = orders.findById(id).orElseThrow(() -&gt; new OrderNotFoundException(id));
+        o.cancel();                                        // dirty checking: UPDATE at commit
+        outbox.save(OutboxEvent.orderCancelled(o));        // atomic with the update
+    }
+}</code></pre>
+  <p><b>Declare transactions on the service</b>: the service method is the unit of work, so it decides atomicity (the cancellation and its outbox event commit together or not at all), isolation and read-only-ness; it holds one connection for the use case instead of several; and lazy associations load inside it. Repositories stay reusable building blocks that join whatever transaction their caller started. Phase 16 covers propagation and isolation in depth.</p>
+
+  <h3>saveAll and JDBC batching</h3>
+  <pre><code class="plain">spring:
+  jpa:
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50       # without this, every insert is its own round trip
+        order_inserts: true
+        order_updates: true</code></pre>
+  <p><code>saveAll</code> is just a loop over <code>save</code>: it persists each entity, and only Hibernate's JDBC batching (the <code>hibernate.jdbc.batch_size</code> setting from Day 246) turns those inserts into batched round trips. Two things silently disable it: <b><code>GenerationType.IDENTITY</code></b> ids, because Hibernate must execute each insert immediately to learn the generated key (use a <code>SEQUENCE</code> with a pooled <code>allocationSize</code> instead), and <b>assigned ids</b> without <code>Persistable</code>, which turn each <code>save</code> into a merge with its own SELECT (<a href="#l317">L317</a>). For very large loads, flush and clear every batch so the persistence context doesn't grow without bound.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A bulk update followed by a stale read</b> in the same transaction returns the old state and makes a decision on it.</li>
+      <li><b><code>clearAutomatically</code> without <code>flushAutomatically</code></b> discards the caller's unflushed changes, with no error.</li>
+      <li><b><code>deleteAll()</code> in a cleanup job</b> loads millions of rows into memory first.</li>
+      <li><b>Missing service transactions</b>: a "read, check, write" sequence spans three repository transactions, so another request can change the data between the check and the write.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 40 min</h4><ol>
+    <li>Reproduce the stale read with a bulk update, then fix it with the two flags; then show a dirty entity overwriting the bulk change when only <code>clearAutomatically</code> is missing.</li>
+    <li>Delete 10,000 orders with <code>deleteAll()</code>, <code>deleteAllInBatch()</code> and <code>deleteAllByIdInBatch()</code>; count statements and time each.</li>
+    <li>Call three repository methods from a non-transactional service method with <code>logging.level.org.springframework.orm.jpa.JpaTransactionManager=DEBUG</code> and count the transactions; add <code>@Transactional</code> and count again.</li>
+    <li>Insert 100,000 entities with <code>saveAll</code> using IDENTITY, then SEQUENCE with <code>batch_size</code> 50, and compare the time.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Modifying Queries”, “Transactionality” (transactional query methods) · Javadoc: <code>Modifying</code>, <code>SimpleJpaRepository</code> · Jakarta Persistence 3.1 specification, §4.10 (bulk update and delete operations) · Hibernate ORM 6 user guide, “Batching”</p>
+</article>
+<!-- ================================================================ L321 -->
+<article class="day" id="l321">
+  <header class="day-head">
+    <span class="day-no">L321 · DAY 321</span>
+    <h2>Specifications &amp; Dynamic Queries</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">A search screen with six optional filters can't be a derived query, because every combination would need its own method. A <code>Specification</code> is one reusable predicate built with the JPA Criteria API; you write one per filter, have each return <code>null</code> when its input is absent, and compose them at runtime into exactly the query the request asks for.</p>
+
+  <h3>JpaSpecificationExecutor and the Specification interface</h3>
+  <pre><code>interface OrderRepository extends JpaRepository&lt;Order, Long&gt;, JpaSpecificationExecutor&lt;Order&gt; {}
+
+@FunctionalInterface
+public interface Specification&lt;T&gt; {                       // simplified
+    Predicate toPredicate(Root&lt;T&gt; root, CriteriaQuery&lt;?&gt; query, CriteriaBuilder cb);
+}</code></pre>
+  <div class="box def"><span class="tag">Definition · Specification</span>
+    <p>A function from the Criteria API's building blocks to a <code>Predicate</code>. <b><code>root</code></b> is the queried entity (navigate with <code>get</code>, <code>join</code>, <code>fetch</code>), <b><code>query</code></b> is the query being built (for <code>distinct</code>, subqueries and inspecting the result type), and <b><code>cb</code></b> creates expressions and predicates. Returning <code>null</code> means "no restriction". <code>JpaSpecificationExecutor</code> adds <code>findAll(spec)</code>, <code>findAll(spec, Pageable)</code>, <code>findAll(spec, Sort)</code>, <code>findOne</code>, <code>count(spec)</code>, <code>exists(spec)</code> and <code>delete(spec)</code>, all of which run the same predicate.</p>
+  </div>
+  <p>Composition is built into the interface: <code>Specification.where(a).and(b).or(c)</code> and <code>Specification.not(a)</code> combine predicates, and both <code>where</code> and <code>and</code> accept <code>null</code> and skip it. That rule is the whole trick for optional filters. (<code>Specification.allOf(…)</code> and <code>anyOf(…)</code> combine lists; newer Spring Data versions steer away from <code>where</code> towards these.)</p>
+
+  <h3>A reusable filter library</h3>
+  <pre><code>final class OrderSpecs {
+    private OrderSpecs() {}
+
+    static Specification&lt;Order&gt; hasStatus(OrderStatus status) {
+        return status == null ? null : (root, q, cb) -&gt; cb.equal(root.get("status"), status);
+    }
+
+    static Specification&lt;Order&gt; createdBetween(Instant from, Instant to) {
+        if (from == null &amp;&amp; to == null) return null;
+        return (root, q, cb) -&gt; {
+            Path&lt;Instant&gt; created = root.get("createdAt");
+            if (from == null) return cb.lessThan(created, to);
+            if (to == null) return cb.greaterThanOrEqualTo(created, from);
+            return cb.and(cb.greaterThanOrEqualTo(created, from), cb.lessThan(created, to));   // half-open
+        };
+    }
+
+    static Specification&lt;Order&gt; customerNameContains(String text) {
+        if (text == null || text.isBlank()) return null;
+        String pattern = "%" + escapeLike(text.toLowerCase(Locale.ROOT)) + "%";
+        return (root, q, cb) -&gt; {
+            Join&lt;Order, Customer&gt; customer = root.join("customer");
+            return cb.like(cb.lower(customer.get("name")), pattern, '\\');
+        };
+    }
+
+    static Specification&lt;Order&gt; hasLineWithSku(String sku) {              // to-many: EXISTS, no duplicates
+        if (sku == null) return null;
+        return (root, query, cb) -&gt; {
+            Subquery&lt;Long&gt; sub = query.subquery(Long.class);
+            Root&lt;OrderLine&gt; line = sub.from(OrderLine.class);
+            sub.select(line.get("id")).where(cb.equal(line.get("order"), root), cb.equal(line.get("sku"), sku));
+            return cb.exists(sub);
+        };
+    }
+
+    static Specification&lt;Order&gt; tenant(String tenantId) { return (root, q, cb) -&gt; cb.equal(root.get("tenantId"), tenantId); }
+
+    static Specification&lt;Order&gt; notDeleted() { return (root, q, cb) -&gt; cb.isNull(root.get("deletedAt")); }
+
+    private static String escapeLike(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+}</code></pre>
+  <pre><code>record OrderFilter(OrderStatus status, Instant from, Instant to, String customer, String sku) {}
+
+@Transactional(readOnly = true)
+Page&lt;OrderDto&gt; search(OrderFilter f, Pageable pageable) {
+    Specification&lt;Order&gt; spec = Specification.where(OrderSpecs.tenant(tenants.current()))   // always on
+            .and(OrderSpecs.notDeleted())                                                 // always on
+            .and(OrderSpecs.hasStatus(f.status()))                                        // optional ...
+            .and(OrderSpecs.createdBetween(f.from(), f.to()))
+            .and(OrderSpecs.customerNameContains(f.customer()))
+            .and(OrderSpecs.hasLineWithSku(f.sku()));
+    return orders.findAll(spec, pageable).map(OrderDto::from);
+}</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 660 200" role="img" aria-label="Composition of specifications where null filters drop out">
+      <rect x="290" y="15" width="80" height="34" rx="17" class="s-node-mod"/><text x="330" y="37" class="s-ink s-mid">AND</text>
+      <rect x="10" y="110" width="100" height="40" rx="6" class="s-node"/><text x="60" y="134" class="s-ink s-sm s-mid">tenant</text>
+      <rect x="120" y="110" width="100" height="40" rx="6" class="s-node"/><text x="170" y="134" class="s-ink s-sm s-mid">notDeleted</text>
+      <rect x="230" y="110" width="100" height="40" rx="6" class="s-node"/><text x="280" y="134" class="s-ink s-sm s-mid">hasStatus</text>
+      <rect x="340" y="110" width="100" height="40" rx="6" class="s-node s-dash"/><text x="390" y="134" class="s-ink3 s-sm s-mid">createdBetween</text>
+      <rect x="450" y="110" width="100" height="40" rx="6" class="s-node"/><text x="500" y="134" class="s-ink s-sm s-mid">nameContains</text>
+      <rect x="560" y="110" width="90" height="40" rx="6" class="s-node s-dash"/><text x="605" y="134" class="s-ink3 s-sm s-mid">hasLineWithSku</text>
+      <line x1="330" y1="49" x2="60" y2="108" class="s-ln"/>
+      <line x1="330" y1="49" x2="170" y2="108" class="s-ln"/>
+      <line x1="330" y1="49" x2="280" y2="108" class="s-ln"/>
+      <line x1="330" y1="49" x2="390" y2="108" class="s-ln s-dash"/>
+      <line x1="330" y1="49" x2="500" y2="108" class="s-ln"/>
+      <line x1="330" y1="49" x2="605" y2="108" class="s-ln s-dash"/>
+      <text x="330" y="182" class="s-ink2 s-sm s-mid">?status=OPEN&amp;customer=ada: dashed filters returned null and add nothing to the WHERE clause</text>
+    </svg>
+    <figcaption><b>One method, every combination.</b> The request decides which predicates exist; the code path is the same for all 2⁴ combinations of the optional filters.</figcaption>
+  </figure>
+  <p>String attribute names (<code>root.get("status")</code>) fail only at runtime. The JPA static metamodel (<code>Order_.status</code>, generated by Hibernate's annotation processor) makes them compile-checked: <code>root.get(Order_.status)</code>.</p>
+
+  <h3>Joins, fetch joins and the count query</h3>
+  <pre><code>static Specification&lt;Order&gt; fetchCustomer() {
+    return (root, query, cb) -&gt; {
+        Class&lt;?&gt; type = query.getResultType();
+        if (type != Long.class &amp;&amp; type != long.class) {       // skip in the count query
+            root.fetch("customer", JoinType.LEFT);
+        }
+        return null;                                          // fetch only, no restriction
+    };
+}</code></pre>
+  <p><code>findAll(spec, pageable)</code> runs your specification <b>twice</b>: once for the page and once inside a <code>select count(…)</code> for the total. A fetch join in the count query is invalid ("query specified join fetching, but the owner of the fetched association was not present in the select list"), so a fetching specification must check <code>query.getResultType()</code> and only fetch for the entity query. Fetch-joining a <em>collection</em> with paging brings back the in-memory pagination problem from <a href="#l319">L319</a>; fetch to-one associations only, or load collections in a second query.</p>
+  <p><b>Duplicates</b>: joining a to-many association for filtering (<code>root.join("lines")</code>) returns one row per matching line, so an order with three matching lines appears three times and page sizes come out wrong. Either call <code>query.distinct(true)</code>, which makes the database deduplicate and can be expensive, or filter with an <code>EXISTS</code> subquery as <code>hasLineWithSku</code> does, which never multiplies rows.</p>
+
+  <h3>Defaults for tenants and soft delete</h3>
+  <p>Filters that must <em>always</em> apply, such as the tenant and <code>deletedAt is null</code>, are the dangerous ones to leave to each call site. Centralize them: compose them in one service method or a custom repository method that every search goes through, and never expose the raw <code>findAll(spec)</code> to controllers. Hibernate offers alternatives at the mapping level: <code>@TenantId</code> for discriminator-based multi-tenancy, <code>@SoftDelete</code> (Hibernate 6.4+) and <code>@Filter</code>, which apply to every query including ones that don't use specifications.</p>
+
+  <h3>Specifications vs Querydsl vs a JPQL builder</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Approach</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+    <tbody>
+      <tr><td>Specifications</td><td>Built into Spring Data, no code generation, composable, null-skipping</td><td>Criteria API is verbose; type-safe only with the metamodel; projections are awkward</td></tr>
+      <tr><td>Querydsl (<a href="#l322">L322</a>)</td><td>Fluent, concise, type-safe through generated Q-classes; joins, subqueries and DTO projections read well</td><td>Annotation-processor setup; maintenance concerns about the original project</td></tr>
+      <tr><td>Hand-built JPQL string</td><td>Reads like the query; no extra library</td><td>Spacing, <code>where</code>/<code>and</code> bookkeeping and parameter names done by hand; errors only at runtime; injection risk the moment someone concatenates a value</td></tr>
+    </tbody>
+  </table></div>
+  <p>For filter-style search over one aggregate, Specifications are enough and add no dependency. When queries grow joins, projections and aggregates, Querydsl (or jOOQ, if you are willing to step outside JPA) stays readable where the Criteria API doesn't.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Duplicate rows</b> from a to-many join: pages with 17 items instead of 20 and totals that don't match.</li>
+      <li><b>Unescaped user input in <code>like</code></b>: a search for <code>%</code> or <code>_</code> matches everything and scans the table.</li>
+      <li><b>A forgotten tenant spec</b> on one new endpoint leaks another tenant's data. Make the default impossible to skip.</li>
+      <li><b>Leading-wildcard <code>like '%ada%'</code></b> can't use a B-tree index; at scale use trigram or full-text indexes.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Implement <code>OrderSpecs</code> and a <code>GET /api/orders/search</code> endpoint binding <code>OrderFilter</code> with <code>@ModelAttribute</code>; log the SQL for four filter combinations.</li>
+    <li>Add a to-many join filter with <code>root.join("lines")</code>, show the duplicates, then fix it with <code>distinct</code> and with <code>EXISTS</code> and compare the query plans.</li>
+    <li>Add <code>fetchCustomer()</code> to a paged search, see the count-query failure, then add the result-type check.</li>
+    <li>Generate the JPA static metamodel and convert <code>OrderSpecs</code> to it; rename an entity field and watch compilation fail.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Specifications”, “Query by Example” · Javadoc: <code>Specification</code>, <code>JpaSpecificationExecutor</code> · Jakarta Persistence 3.1 specification, ch. 6 (Criteria API) and §6.2 (metamodel) · Hibernate ORM 6 user guide: “Multitenancy”, “Soft delete”, “Filters” · Evans, <i>Domain-Driven Design</i>, ch. 9 (the Specification pattern)</p>
+</article>
+<!-- ================================================================ L322 -->
+<article class="day" id="l322">
+  <header class="day-head">
+    <span class="day-no">L322 · DAY 322</span>
+    <h2>Querydsl: Type-Safe Queries</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Querydsl generates a query class for every entity at compile time, so queries are written as fluent Java against <code>QOrder.order.status</code> rather than against strings. Renaming a field breaks the build instead of a production query, and joins, projections, subqueries and dynamic predicates stay readable where the Criteria API gets verbose.</p>
+
+  <h3>Setup and code generation</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 150" role="img" aria-label="Querydsl code generation from entities to Q-classes to queries">
+      <defs><marker id="ah-l322" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="40" width="130" height="50" rx="6" class="s-node"/><text x="75" y="61" class="s-ink s-sm s-mid">@Entity Order</text><text x="75" y="78" class="s-ink3 s-sm s-mid">status, customer</text>
+      <rect x="180" y="40" width="130" height="50" rx="6" class="s-node-mod"/><text x="245" y="61" class="s-ink s-sm s-mid">querydsl-apt</text><text x="245" y="78" class="s-ink3 s-sm s-mid">javac processor</text>
+      <rect x="350" y="40" width="130" height="50" rx="6" class="s-node"/><text x="415" y="61" class="s-ink s-sm s-mid">QOrder.java</text><text x="415" y="78" class="s-ink3 s-sm s-mid">generated-sources</text>
+      <rect x="520" y="40" width="130" height="50" rx="6" class="s-node-mod"/><text x="585" y="61" class="s-ink s-sm s-mid">your queries</text><text x="585" y="78" class="s-ink3 s-sm s-mid">o.status.eq(…)</text>
+      <line x1="140" y1="65" x2="178" y2="65" class="s-ln" marker-end="url(#ah-l322)"/>
+      <line x1="310" y1="65" x2="348" y2="65" class="s-ln" marker-end="url(#ah-l322)"/>
+      <line x1="480" y1="65" x2="518" y2="65" class="s-ln" marker-end="url(#ah-l322)"/>
+      <text x="330" y="125" class="s-warn s-sm s-mid">rename Order.status → QOrder changes → every query using it fails to compile</text>
+    </svg>
+    <figcaption><b>The metamodel is generated, the safety is the compiler's.</b> Q-classes mirror each entity's fields with typed paths (<code>EnumPath</code>, <code>NumberPath&lt;Long&gt;</code>, <code>StringPath</code>).</figcaption>
+  </figure>
+  <pre><code class="plain">&lt;dependency&gt;
+  &lt;groupId&gt;com.querydsl&lt;/groupId&gt;
+  &lt;artifactId&gt;querydsl-jpa&lt;/artifactId&gt;
+  &lt;classifier&gt;jakarta&lt;/classifier&gt;              &lt;!-- jakarta.persistence, not javax --&gt;
+&lt;/dependency&gt;
+
+&lt;plugin&gt;
+  &lt;artifactId&gt;maven-compiler-plugin&lt;/artifactId&gt;
+  &lt;configuration&gt;
+    &lt;annotationProcessorPaths&gt;                     &lt;!-- once present, nothing else is auto-discovered --&gt;
+      &lt;path&gt;&lt;groupId&gt;org.projectlombok&lt;/groupId&gt;&lt;artifactId&gt;lombok&lt;/artifactId&gt;&lt;version&gt;…&lt;/version&gt;&lt;/path&gt;
+      &lt;path&gt;&lt;groupId&gt;org.projectlombok&lt;/groupId&gt;&lt;artifactId&gt;lombok-mapstruct-binding&lt;/artifactId&gt;&lt;version&gt;…&lt;/version&gt;&lt;/path&gt;
+      &lt;path&gt;&lt;groupId&gt;org.mapstruct&lt;/groupId&gt;&lt;artifactId&gt;mapstruct-processor&lt;/artifactId&gt;&lt;version&gt;…&lt;/version&gt;&lt;/path&gt;
+      &lt;path&gt;&lt;groupId&gt;com.querydsl&lt;/groupId&gt;&lt;artifactId&gt;querydsl-apt&lt;/artifactId&gt;&lt;version&gt;…&lt;/version&gt;&lt;classifier&gt;jakarta&lt;/classifier&gt;&lt;/path&gt;
+      &lt;path&gt;&lt;groupId&gt;jakarta.persistence&lt;/groupId&gt;&lt;artifactId&gt;jakarta.persistence-api&lt;/artifactId&gt;&lt;version&gt;…&lt;/version&gt;&lt;/path&gt;
+    &lt;/annotationProcessorPaths&gt;
+  &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre>
+  <div class="box note"><span class="tag">Processor trap</span>
+    <p>Without <code>annotationProcessorPaths</code>, javac discovers <code>querydsl-apt</code> on the compile classpath by itself. The moment you add the element for Lombok or MapStruct, discovery stops and <b>only the listed processors run</b>, so <code>QOrder</code> silently stops being generated and the build fails with "cannot find symbol". List every processor, with the <code>jakarta</code> classifier on <code>querydsl-apt</code> and the persistence API beside it; keep Lombok first and add <code>lombok-mapstruct-binding</code> so MapStruct sees Lombok's generated accessors. Boot's dependency management supplies the Querydsl version.</p>
+  </div>
+
+  <h3>JPAQueryFactory</h3>
+  <pre><code>@Bean
+JPAQueryFactory queryFactory(EntityManager em) { return new JPAQueryFactory(em); }   // shared EM proxy: thread-safe
+
+@Repository
+class OrderQueries {
+    private static final QOrder o = QOrder.order;
+    private static final QCustomer c = QCustomer.customer;
+    private final JPAQueryFactory query;
+    OrderQueries(JPAQueryFactory query) { this.query = query; }
+
+    List&lt;Order&gt; openInCountry(String country, int page, int size) {
+        return query.selectFrom(o)
+                .join(o.customer, c).fetchJoin()                      // to-one fetch: safe to page
+                .where(o.status.eq(OrderStatus.OPEN), c.country.eq(country))
+                .orderBy(o.createdAt.desc(), o.id.desc())
+                .offset((long) page * size).limit(size)
+                .fetch();
+    }
+
+    Order byRef(String ref) {
+        return query.selectFrom(o).where(o.externalRef.eq(ref)).fetchOne();  // null if none; throws if 2+
+    }
+
+    List&lt;CountryRevenue&gt; revenueByCountry(long minOrders) {
+        return query.select(Projections.constructor(CountryRevenue.class, c.country, o.count(), o.totalCents.sum()))
+                .from(o).join(o.customer, c)
+                .groupBy(c.country)
+                .having(o.count().goe(minOrders))
+                .orderBy(o.totalCents.sum().desc())
+                .fetch();
+    }
+}
+
+record CountryRevenue(String country, Long orders, Long revenueCents) {}</code></pre>
+  <p><code>selectFrom</code> is <code>select(o).from(o)</code>; <code>join</code>/<code>leftJoin</code> take the association path and an alias, and <code>fetchJoin()</code> turns the preceding join into a fetch. <code>fetch()</code> returns a list, <code>fetchOne()</code> one row or <code>null</code> (and <code>NonUniqueResultException</code> for more), <code>fetchFirst()</code> is <code>limit(1).fetchOne()</code>. <code>fetchCount()</code> and <code>fetchResults()</code> are deprecated since Querydsl 5, because deriving a count from an arbitrary JPQL query (with <code>groupBy</code>, <code>having</code>) is unreliable; write the count yourself.</p>
+
+  <h3>Dynamic predicates</h3>
+  <pre><code>Page&lt;Order&gt; search(OrderFilter f, Pageable pageable) {
+    Predicate[] where = {
+            statusEq(f.status()), createdFrom(f.from()), customerContains(f.customer()), hasSku(f.sku()) };
+
+    List&lt;Order&gt; content = query.selectFrom(o).join(o.customer, c)
+            .where(where)                                     // null entries are ignored
+            .orderBy(o.createdAt.desc(), o.id.desc())
+            .offset(pageable.getOffset()).limit(pageable.getPageSize())
+            .fetch();
+    JPAQuery&lt;Long&gt; count = query.select(o.count()).from(o).join(o.customer, c).where(where);
+    return PageableExecutionUtils.getPage(content, pageable, count::fetchOne);   // skips count when possible
+}
+
+private static BooleanExpression statusEq(OrderStatus s) { return s == null ? null : o.status.eq(s); }
+private static BooleanExpression createdFrom(Instant t)  { return t == null ? null : o.createdAt.goe(t); }
+private static BooleanExpression customerContains(String q) {
+    return q == null || q.isBlank() ? null : c.name.containsIgnoreCase(q);
+}
+private static BooleanExpression hasSku(String sku) {                     // subquery: EXISTS
+    if (sku == null) return null;
+    QOrderLine l = QOrderLine.orderLine;
+    return JPAExpressions.selectOne().from(l).where(l.order.eq(o), l.sku.eq(sku)).exists();
+}</code></pre>
+  <p>Two equivalent styles: <b><code>BooleanBuilder</code></b>, a mutable accumulator (<code>if (s != null) where.and(o.status.eq(s))</code>), or small methods returning a <b><code>BooleanExpression</code></b> or <code>null</code>, which compose with <code>and</code>/<code>or</code> and are ignored when null in <code>where(…)</code>. The second style reads like the Specification library of <a href="#l321">L321</a> with half the code. <code>PageableExecutionUtils.getPage</code> only runs the count when it can't infer the total (for example, a first page shorter than the page size needs none).</p>
+
+  <h3>Projections, CASE and SQL functions</h3>
+  <pre><code>NumberExpression&lt;Integer&gt; priority = new CaseBuilder()
+        .when(o.status.eq(OrderStatus.PAID)).then(1)
+        .when(o.status.eq(OrderStatus.OPEN)).then(2)
+        .otherwise(3);
+
+StringExpression month = Expressions.stringTemplate("function('to_char', {0}, 'YYYY-MM')", o.createdAt);
+
+List&lt;Tuple&gt; rows = query.select(month, o.count())
+        .from(o)
+        .groupBy(month)
+        .orderBy(month.asc())
+        .fetch();                                          // rows.get(0).get(month), .get(o.count())
+
+List&lt;Order&gt; queue = query.selectFrom(o).orderBy(priority.asc(), o.createdAt.asc()).limit(50).fetch();</code></pre>
+  <ul>
+    <li><b><code>Projections.constructor</code></b> calls a matching constructor (records work); <b><code>Projections.bean</code></b> uses setters, <b><code>Projections.fields</code></b> sets fields directly. All check arguments at runtime.</li>
+    <li><b><code>@QueryProjection</code></b> on a DTO constructor generates a <code>QCountryRevenue</code> whose constructor is type-checked at compile time, at the cost of a Querydsl annotation on your DTO.</li>
+    <li><b><code>CaseBuilder</code></b> produces SQL <code>CASE</code>; <b><code>Expressions.stringTemplate</code></b> (and <code>numberTemplate</code>, <code>dateTimeTemplate</code>) inserts provider or database functions through JPQL's <code>function(…)</code>, with <code>{0}</code> placeholders bound to typed expressions.</li>
+    <li><b><code>JPAExpressions</code></b> builds subqueries for <code>exists</code>, <code>in</code> and comparisons (<code>o.totalCents.gt(JPAExpressions.select(o2.totalCents.avg()).from(o2))</code>).</li>
+  </ul>
+
+  <h3>Spring Data integration</h3>
+  <pre><code>interface OrderRepository extends JpaRepository&lt;Order, Long&gt;,
+        QuerydslPredicateExecutor&lt;Order&gt;, QuerydslBinderCustomizer&lt;QOrder&gt; {
+
+    @Override
+    default void customize(QuerydslBindings bindings, QOrder order) {
+        bindings.excludeUnlistedProperties(true);                      // allow-list, not every field
+        bindings.including(order.status, order.customer.name, order.createdAt);
+        bindings.bind(order.customer.name).first(StringExpression::containsIgnoreCase);
+    }
+}
+
+@GetMapping("/api/orders/q")                    // ?status=OPEN&amp;customer.name=ada&amp;page=0&amp;size=20
+Page&lt;OrderDto&gt; query(@QuerydslPredicate(root = Order.class) Predicate predicate, Pageable pageable) {
+    return orders.findAll(predicate, pageable).map(OrderDto::from);
+}</code></pre>
+  <p><code>QuerydslPredicateExecutor</code> adds <code>findAll(Predicate)</code>, <code>findAll(Predicate, Pageable)</code>, <code>count</code>, <code>exists</code> and <code>findOne</code>. <code>@QuerydslPredicate</code> turns request parameters into a predicate (equality by default, customizable per path). Without an allow-list, clients can filter on <em>any</em> mapped property path, including internal ones, which is both a data-exposure and a performance risk (unindexed filters). Keep the binding explicit.</p>
+  <div class="box def"><span class="tag">Definition · maintenance status</span>
+    <p>The original <code>com.querydsl</code> project's release cadence slowed sharply after 5.0, with long gaps between releases and slow handling of issues and CVE reports. OpenFeign maintains an active fork (Maven group <code>io.github.openfeign.querydsl</code>) that keeps the <code>com.querydsl</code> package names, so migrating is mostly a coordinates change. Querydsl remains widely used and Spring Data supports it, but check the project's current state before adopting it, and keep its use behind your own repository classes so it can be replaced.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Q-classes missing</b> on CI after someone adds MapStruct's processor path.</li>
+      <li><b><code>fetchJoin()</code> on a collection with <code>offset</code>/<code>limit</code></b>: in-memory pagination again (<code>HHH90003004</code>).</li>
+      <li><b>Unrestricted <code>@QuerydslPredicate</code> bindings</b> letting clients filter on <code>passwordHash</code> or an unindexed column.</li>
+      <li><b>Unstable ordering</b> with offset paging: order by a unique tiebreaker (<code>o.id</code>) or rows repeat and vanish between pages.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Add Querydsl to a project that already uses Lombok and MapStruct; break and then fix the processor configuration.</li>
+    <li>Port the <code>OrderSpecs</code> search from <a href="#l321">L321</a> to <code>BooleanExpression</code> helpers with a separate count query, and compare lines of code and generated SQL.</li>
+    <li>Write <code>revenueByCountry</code> with <code>Projections.constructor</code> and again with <code>@QueryProjection</code>; change a constructor parameter type and see which version catches it at compile time.</li>
+    <li>Expose <code>@QuerydslPredicate</code> with an allow-list and try filtering on an excluded property.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Querydsl reference documentation: “Querying JPA” (code generation, query factory, joins, subqueries, projections) · Spring Data JPA reference: “Querydsl Extension”, “Web support” (Querydsl web support) · Javadoc: <code>JPAQueryFactory</code>, <code>QuerydslPredicateExecutor</code>, <code>PageableExecutionUtils</code> · OpenFeign Querydsl fork README</p>
+</article>
+<!-- ================================================================ L323 -->
+<article class="day" id="l323">
+  <header class="day-head">
+    <span class="day-no">L323 · DAY 323</span>
+    <h2>Projections &amp; DTO Mapping</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A projection asks Spring Data for a shape instead of an entity: only the columns you need, no managed instance, no dirty-check snapshot, no lazy proxies. For read paths that is often the single biggest performance win available, but only if the projection is one Spring Data can push down into the SELECT; open and some nested projections quietly load the whole entity anyway.</p>
+
+  <h3>Closed interface projections</h3>
+  <p>Declare an interface whose getters match entity property names and use it as the return type. Spring Data knows every property the proxy will need, so for a derived query it builds a tuple query that selects exactly those paths, then wraps each <code>jakarta.persistence.Tuple</code> in a map-backed JDK proxy that implements your interface.</p>
+  <pre><code>@Entity @Table(name = "orders")
+class Order {
+    @Id @GeneratedValue Long id;
+    @Enumerated(EnumType.STRING) OrderStatus status;
+    BigDecimal total;
+    Instant createdAt;
+    @ManyToOne(fetch = FetchType.LAZY) Customer customer;
+    @OneToMany(mappedBy = "order") List&lt;LineItem&gt; items = new ArrayList&lt;&gt;();
+}
+
+interface OrderSummary {                 // closed: every getter is a property
+    Long getId();
+    OrderStatus getStatus();
+    BigDecimal getTotal();
+}
+
+interface OrderRepository extends JpaRepository&lt;Order, Long&gt; {
+    List&lt;OrderSummary&gt; findByStatus(OrderStatus status);
+    &lt;T&gt; List&lt;T&gt; findByCreatedAtAfter(Instant from, Class&lt;T&gt; type);   // dynamic
+}</code></pre>
+  <pre><code class="plain">-- findByStatus(PAID) with OrderSummary
+select o1_0.id,o1_0.status,o1_0.total from orders o1_0 where o1_0.status=?</code></pre>
+
+  <h3>Open projections and their catch</h3>
+  <div class="box def"><span class="tag">Definition · open projection</span>
+    <p>A projection interface with at least one getter annotated <code>@Value</code> holding a SpEL expression evaluated against <code>target</code>, the backing object. Because the expression can touch anything, Spring Data cannot know which columns it needs, so it <b>loads the full entity</b> and evaluates the expression on it.</p>
+  </div>
+  <pre><code>interface CustomerLabel {
+    @Value("#{target.firstName + ' ' + target.lastName}")
+    String getFullName();
+
+    default String getInitials() {                 // computed from closed getters
+        return getFirstName().charAt(0) + "" + getLastName().charAt(0);
+    }
+    String getFirstName();
+    String getLastName();
+}</code></pre>
+  <p>The <code>@Value</code> getter makes <code>CustomerLabel</code> open: you get a managed <code>Customer</code> with every column, a snapshot, and the proxy on top. A <code>default</code> method computed from closed getters keeps the projection closed, so prefer it for simple derivations. <code>@Value("#{@formatter.format(target)}")</code> can even call beans, which is powerful and a strong signal that the mapping belongs in Java code instead.</p>
+
+  <h3>DTO classes, dynamic and nested projections</h3>
+  <p>A <b>class-based projection</b> is a record or class whose constructor parameters match property names. For derived queries Spring Data JPA emits a JPQL constructor expression, so the result is a plain object: no proxy, no persistence context, cheap to serialize. Records are the natural fit; parameter names come from the record components.</p>
+  <pre><code>record OrderRow(Long id, OrderStatus status, BigDecimal total) {}
+
+// same method, three shapes, decided by the caller
+var rows   = orders.findByCreatedAtAfter(since, OrderRow.class);
+var views  = orders.findByCreatedAtAfter(since, OrderSummary.class);
+var full   = orders.findByCreatedAtAfter(since, Order.class);</code></pre>
+  <p>A <b>dynamic projection</b> (the <code>Class&lt;T&gt;</code> parameter) lets one query method serve several shapes; the query is derived per requested type at call time. A <b>nested projection</b> returns another projection from a getter:</p>
+  <pre><code>interface OrderWithCustomer {
+    Long getId();
+    CustomerName getCustomer();
+    interface CustomerName { String getFirstName(); String getLastName(); }
+}</code></pre>
+  <p>Spring Data cannot narrow a nested projection to the nested columns: it selects the association as an entity (a join that loads every <code>Customer</code> column), and depending on the version may fall back to loading the root entity too. A nested projection over a collection (<code>List&lt;ItemView&gt; getItems()</code>) is worse: the root is loaded as an entity and each proxy navigates the lazy collection, one SELECT per order. Flatten instead, with a DTO and a join in <code>@Query</code>.</p>
+
+  <h3>Projections with @Query, native SQL and Tuple</h3>
+  <pre><code>@Query("""
+       select new com.shop.api.OrderLine(o.id, c.lastName, o.total)
+       from Order o join o.customer c where o.status = :status""")
+List&lt;OrderLine&gt; findLines(@Param("status") OrderStatus status);
+
+@Query("select o.id as id, o.total as total from Order o where o.total &gt; :min")
+List&lt;OrderSummaryLite&gt; findBig(@Param("min") BigDecimal min);       // aliases = getters
+
+@Query(value = """
+       select o.id as id, count(i.id) as itemCount
+       from orders o join line_item i on i.order_id = o.id group by o.id""",
+       nativeQuery = true)
+List&lt;OrderItemCount&gt; countItems();     // interface projection over native columns</code></pre>
+  <p>With JPQL, a DTO needs an explicit constructor expression with the fully qualified class name; interface projections need aliases matching the getter names. Native queries have no constructor expressions, so use an interface projection keyed by column alias. When you want untyped rows (ad-hoc reports, a dynamic column list), drop to JPA in a custom fragment (<a href="#l325">L325</a>): <code>em.createQuery(jpql, Tuple.class)</code> and read <code>tuple.get("total", BigDecimal.class)</code>.</p>
+
+  <h3>Why projections pay off, and how to prove it</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Work done per row when loading an entity compared with a projection">
+      <defs><marker id="ah-l323" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="10" y="22" class="s-ink s-ttl">Entity</text>
+      <rect x="10" y="32" width="110" height="36" rx="6" class="s-node"/><text x="65" y="54" class="s-ink s-sm s-mid">all columns</text>
+      <rect x="160" y="32" width="110" height="36" rx="6" class="s-node"/><text x="215" y="54" class="s-ink s-sm s-mid">hydrate entity</text>
+      <rect x="310" y="32" width="130" height="36" rx="6" class="s-node"/><text x="375" y="54" class="s-ink s-sm s-mid">snapshot copy</text>
+      <rect x="480" y="32" width="170" height="36" rx="6" class="s-node-mod"/><text x="565" y="54" class="s-ink s-sm s-mid">persistence context</text>
+      <line x1="120" y1="50" x2="158" y2="50" class="s-ln" marker-end="url(#ah-l323)"/>
+      <line x1="270" y1="50" x2="308" y2="50" class="s-ln" marker-end="url(#ah-l323)"/>
+      <line x1="440" y1="50" x2="478" y2="50" class="s-ln" marker-end="url(#ah-l323)"/>
+      <text x="565" y="88" class="s-warn s-sm s-mid">+ lazy proxies, flush-time dirty check</text>
+      <text x="10" y="128" class="s-ink s-ttl">Closed or DTO projection</text>
+      <rect x="10" y="138" width="110" height="36" rx="6" class="s-node"/><text x="65" y="160" class="s-ink s-sm s-mid">3 columns</text>
+      <rect x="160" y="138" width="200" height="36" rx="6" class="s-node"/><text x="260" y="160" class="s-ink s-sm s-mid">tuple or constructor</text>
+      <rect x="400" y="138" width="130" height="36" rx="6" class="s-node"/><text x="465" y="160" class="s-ink s-sm s-mid">your object</text>
+      <line x1="120" y1="156" x2="158" y2="156" class="s-ln" marker-end="url(#ah-l323)"/>
+      <line x1="360" y1="156" x2="398" y2="156" class="s-ln" marker-end="url(#ah-l323)"/>
+      <text x="330" y="208" class="s-acc s-sm s-mid">nothing managed, nothing to flush, eligible for GC immediately</text>
+    </svg>
+    <figcaption><b>Per-row cost.</b> An entity read pays for every column, the managed instance, a loaded-state copy for dirty checking and a slot in the persistence context until the transaction ends. A projection stops after building your object.</figcaption>
+  </figure>
+  <p><code>@Transactional(readOnly = true)</code> lets Hibernate skip snapshots and flushing, but it still hydrates full entities and tracks them. Projections remove the work rather than tuning it. To measure, seed 50,000 orders and compare <code>findAll()</code> entities, a closed projection and a record DTO: run each several times to warm up, then record wall time, allocated bytes (JFR, or <code>ThreadMXBean.getThreadAllocatedBytes</code>) and SQL from the log. Expect the projections to win clearly on allocation and time, with the gap widening as the entity gets wider; write down your own numbers rather than trusting anyone's.</p>
+  <p><b>MapStruct</b> belongs after the query, not instead of it. Fetch the narrow shape, then let a generated mapper handle renames, formatting and nesting when the mapping is more than a constructor call:</p>
+  <pre><code>@Mapper(componentModel = "spring")
+interface OrderApiMapper {
+    @Mapping(target = "customer", source = "lastName")
+    @Mapping(target = "totalText", expression = "java(money(line.total()))")
+    OrderResponse toResponse(OrderLine line);
+
+    default String money(BigDecimal amount) { return amount.setScale(2, RoundingMode.HALF_UP).toPlainString(); }
+}
+record OrderLine(Long id, String lastName, BigDecimal total) {}
+record OrderResponse(Long id, String customer, String totalText) {}</code></pre>
+  <p>Mapping entities with MapStruct is fine for writes and small reads; mapping an entity list to DTOs for a large read keeps every cost the projection would have avoided, and a mapper touching <code>order.getItems()</code> triggers lazy loads.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>An innocent <code>@Value</code> getter</b> turns a three-column query into a full entity load; review projections for SpEL.</li>
+      <li><b>Nested collection projections</b> produce N+1 selects; the SQL log is the only reliable check.</li>
+      <li><b>Native alias case</b>: some databases fold unquoted aliases (<code>itemCount</code> may come back as <code>itemcount</code>); if a getter returns <code>null</code>, check the alias.</li>
+      <li><b>Constructor mismatch</b>: a JPQL constructor expression whose argument types do not match a constructor fails at startup (good) or, for dynamic projections, on first call.</li>
+      <li><b>Returning projection proxies from controllers</b> works with Jackson, but the JSON shape follows getter names; renaming an entity field silently changes the API. Map to an explicit response record.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Write <code>OrderSummary</code>, a record <code>OrderRow</code> and an open <code>@Value</code> projection; run each with SQL logging and compare the selected columns.</li>
+    <li>Add a dynamic projection method and call it with three types; confirm the SQL differs per type.</li>
+    <li>Build the nested <code>OrderWithCustomer</code> projection and a collection-valued variant; count the statements for 100 orders, then replace both with a flattened <code>@Query</code> DTO.</li>
+    <li>Seed 50k rows and benchmark entity vs projection vs DTO for time and allocated bytes; keep the numbers in your notes.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Projections” (interface-based, class-based, dynamic) and “Using @Query” · Javadoc: <code>org.springframework.beans.factory.annotation.Value</code>, <code>jakarta.persistence.Tuple</code> · Hibernate ORM User Guide, “Fetching” · MapStruct Reference Guide, “Mapping with constructors”, “Expressions” · Vlad Mihalcea, <i>High-Performance Java Persistence</i>, chapter on fetching (DTO projections)</p>
+</article>
+<!-- ================================================================ L324 -->
+<article class="day" id="l324">
+  <header class="day-head">
+    <span class="day-no">L324 · DAY 324</span>
+    <h2>Pagination, Sorting, Page vs Slice &amp; Keyset</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Offset pagination is easy and correct for shallow pages, but every page costs a count query you may not need and every deep page makes the database read and discard all rows before it. Choose the return type by what the client actually needs, cap what the client can ask for, and switch to keyset scrolling when users or jobs go deep.</p>
+
+  <h3>Pageable, Sort and the three return types</h3>
+  <p><code>PageRequest.of(page, size, sort)</code> builds a <code>Pageable</code>; page numbers are <b>zero-based</b>, so the first page is <code>PageRequest.of(0, 20)</code>. Spring Data JPA turns it into <code>offset page × size</code> and <code>limit size</code>, plus an <code>ORDER BY</code>. What it does next depends on the declared return type.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Return type</th><th>Queries</th><th>You learn</th><th>Use when</th></tr></thead>
+    <tbody>
+      <tr><td><code>Page&lt;T&gt;</code></td><td>content + <code>COUNT</code></td><td><code>getTotalElements()</code>, <code>getTotalPages()</code></td><td>the UI shows "page 3 of 41"</td></tr>
+      <tr><td><code>Slice&lt;T&gt;</code></td><td>content only, <code>limit size + 1</code></td><td><code>hasNext()</code></td><td>"load more" and infinite scroll</td></tr>
+      <tr><td><code>List&lt;T&gt;</code></td><td>content only</td><td>nothing beyond the rows</td><td>batch jobs, fixed top-N</td></tr>
+      <tr><td><code>Window&lt;T&gt;</code></td><td>content, by offset or keyset</td><td><code>hasNext()</code>, next position</td><td>deep or unbounded scrolling</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box def"><span class="tag">Definition · page vs slice</span>
+    <p>A <b>page</b> is a slice plus a total: Spring Data runs the content query, then a derived <code>COUNT</code>, skipping the count only when the answer is already known (a first page shorter than <code>size</code>, or a short last page). On a filtered join that count can cost as much as the page itself. A <b>slice</b> asks for <code>size + 1</code> rows and drops the extra one: if it arrived, there is a next page.</p>
+  </div>
+  <pre><code>interface OrderRepository extends JpaRepository&lt;Order, Long&gt; {
+    Page&lt;OrderRow&gt;  findByStatus(OrderStatus status, Pageable pageable);
+    Slice&lt;OrderRow&gt; findSliceByStatus(OrderStatus status, Pageable pageable);
+    Window&lt;Order&gt; findFirst20ByStatusOrderByCreatedAtDescIdDesc(
+            OrderStatus status, ScrollPosition position);
+}
+
+Sort sort = Sort.by(
+        Sort.Order.desc("createdAt"),
+        Sort.Order.asc("customer.lastName").ignoreCase().nullsLast(),
+        Sort.Order.asc("id"));                                  // unique tie-breaker
+Page&lt;OrderRow&gt; page = orders.findByStatus(PAID, PageRequest.of(0, 20, sort));</code></pre>
+  <p><code>Sort.by("createdAt").descending()</code> covers the simple case; <code>Sort.Order</code> adds per-property direction, <code>ignoreCase()</code> (wraps the column in a case function, which a plain index cannot serve) and null handling (<code>nullsFirst()</code>/<code>nullsLast()</code>; check the SQL, as support varies by query type and dialect). Always end with a unique property: two rows with the same <code>createdAt</code> may otherwise swap between requests and appear on two pages or none.</p>
+
+  <h3>Pageable in controllers</h3>
+  <pre><code>@GetMapping("/orders")
+PageResponse&lt;OrderRow&gt; list(@RequestParam OrderStatus status,
+        @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
+        Pageable pageable) {
+    return PageResponse.from(orders.findByStatus(status, pageable));
+}
+
+@Bean
+PageableHandlerMethodArgumentResolverCustomizer pagingCustomizer() {
+    return resolver -&gt; { resolver.setMaxPageSize(100); resolver.setOneIndexedParameters(false); };
+}</code></pre>
+  <pre><code class="plain"># application.yml
+spring:
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 100            # Boot default is 2000
+        serialization-mode: via-dto   # Boot 3.3+: direct | via-dto</code></pre>
+  <p><code>PageableHandlerMethodArgumentResolver</code> reads <code>?page=2&amp;size=50&amp;sort=createdAt,desc&amp;sort=id</code> into the parameter. Requests above the maximum are clamped to it, not rejected. Without a sensible cap, <code>?size=1000000</code> is a one-line denial of service: one request hydrates a million rows. Treat <code>sort</code> as untrusted input too: a sort on an unindexed column over millions of rows is just as expensive, so allow-list the properties you index for.</p>
+
+  <h3>Do not serialize Page directly</h3>
+  <p>Returning <code>Page&lt;T&gt;</code> from a controller serializes <code>PageImpl</code>'s getters: <code>pageable</code>, <code>sort</code>, <code>numberOfElements</code>, <code>first</code>, <code>empty</code> and more. That structure is an implementation detail; Spring Data 3.3 started logging a warning that it is not guaranteed to be stable. <code>serialization-mode: via-dto</code> (or <code>@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)</code>) switches to <code>PagedModel</code>, a stable <code>content</code> + <code>page</code> shape. Better still, own the contract:</p>
+  <pre><code>public record PageResponse&lt;T&gt;(List&lt;T&gt; items, int page, int size,
+                              long totalItems, int totalPages) {
+    public static &lt;T&gt; PageResponse&lt;T&gt; from(Page&lt;T&gt; p) {
+        return new PageResponse&lt;&gt;(p.getContent(), p.getNumber(), p.getSize(),
+                                  p.getTotalElements(), p.getTotalPages());
+    }
+}</code></pre>
+
+  <h3>The deep-offset problem</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 200" role="img" aria-label="Offset pagination scans and discards rows; keyset seeks in the index">
+      <defs><marker id="ah-l324" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="10" y="22" class="s-ink s-ttl">offset 4,000,000 limit 20</text>
+      <rect x="10" y="34" width="560" height="28" class="s-warn" fill-opacity="0.25"/>
+      <rect x="570" y="34" width="20" height="28" class="s-acc"/>
+      <text x="290" y="53" class="s-ink s-sm s-mid">read in index order, then thrown away</text>
+      <text x="600" y="53" class="s-ink s-sm">20</text>
+      <text x="10" y="112" class="s-ink s-ttl">where (created_at, id) &lt; (:c, :i) limit 20</text>
+      <rect x="10" y="124" width="560" height="28" class="s-node"/>
+      <rect x="570" y="124" width="20" height="28" class="s-acc"/>
+      <path d="M40,176 Q300,186 576,156" class="s-ln-acc" fill="none" marker-end="url(#ah-l324)"/>
+      <text x="300" y="196" class="s-acc s-sm s-mid">B-tree seek straight to the cursor</text>
+    </svg>
+    <figcaption><b>Same page, different work.</b> With <code>OFFSET</code> the database must produce every skipped row before returning 20; with a keyset predicate on an indexed sort key it seeks to the last row seen and reads 20.</figcaption>
+  </figure>
+  <p>Measure it yourself: load 5 million orders, index <code>(created_at, id)</code>, and time pages at offsets 0, 100k, 1M and 4M with <code>EXPLAIN ANALYZE</code>. Latency grows roughly in proportion to the offset, while a keyset query stays flat. Offsets also drift: an insert at the head shifts every later page by one, so a user paging through a live table sees duplicates or misses rows.</p>
+
+  <h3>Keyset scrolling with Window and ScrollPosition</h3>
+  <pre><code>Window&lt;Order&gt; first = orders.findFirst20ByStatusOrderByCreatedAtDescIdDesc(
+        PAID, ScrollPosition.keyset());                     // start at the beginning
+if (first.hasNext()) {
+    ScrollPosition next = first.positionAt(first.size() - 1);  // keys of the last row
+    Window&lt;Order&gt; second = orders.findFirst20ByStatusOrderByCreatedAtDescIdDesc(PAID, next);
+}
+
+// whole-table job: iterate without holding more than one window
+WindowIterator.of(pos -&gt; orders.findFirst20ByStatusOrderByCreatedAtDescIdDesc(PAID, pos))
+        .startingAt(ScrollPosition.keyset())
+        .forEachRemaining(order -&gt; exporter.write(order));</code></pre>
+  <pre><code class="plain">select ... from orders o1_0 where o1_0.status=?
+  and (o1_0.created_at&lt;? or (o1_0.created_at=? and o1_0.id&lt;?))
+  order by o1_0.created_at desc, o1_0.id desc
+  fetch first ? rows only     -- 21 = 20 + 1 to detect hasNext; syntax per dialect</code></pre>
+  <p>The sort keys must be <b>non-null and unique together</b>; ending with the id guarantees both. The index must match the sort and the filter, here <code>(status, created_at desc, id desc)</code>. Keyset gives up "jump to page 37" and a cheap total; that is the price. For a hand-written variant, <code>findFirst20ByIdGreaterThanOrderByIdAsc(Long afterId)</code> is keyset pagination over the primary key in one line.</p>
+  <p><b>Cursors</b>: never expose raw keys as query parameters the client edits. Encode the last row's keys into an opaque token and decode it on the way in:</p>
+  <pre><code>record Cursor(Instant createdAt, long id) {
+    String encode() {
+        var raw = createdAt.toEpochMilli() + ":" + id;
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(UTF_8));
+    }
+    static Cursor decode(String token) {
+        var parts = new String(Base64.getUrlDecoder().decode(token), UTF_8).split(":");
+        return new Cursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), Long.parseLong(parts[1]));
+    }
+    ScrollPosition position() {
+        return ScrollPosition.forward(Map.of("createdAt", createdAt, "id", id));
+    }
+}</code></pre>
+  <p>Keep the timestamp's full precision in the token if the column stores microseconds, or rows sharing a millisecond are skipped. Add an HMAC or a version prefix if clients must not forge cursors or if the sort may change.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A COUNT on every scroll</b> of an infinite feed: switch to <code>Slice</code> or <code>Window</code>.</li>
+      <li><b>Non-unique sort</b>: rows repeat or vanish between pages; add the id as the final key.</li>
+      <li><b>Unbounded size</b>: the default cap of 2000 is still huge for wide entities; set your own.</li>
+      <li><b>Page JSON as API</b>: an upgrade changes field names under your clients.</li>
+      <li><b>Paginating a fetch join</b> over a collection: Hibernate applies the limit in memory after loading everything and logs a warning (HHH90003004).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Expose <code>/orders</code> with <code>Page</code>, then <code>Slice</code>; compare the SQL log and response time for a filtered query.</li>
+    <li>Request <code>?size=100000</code> before and after setting <code>max-page-size</code>; then add a sort allow-list.</li>
+    <li>Replace the raw <code>Page</code> JSON with <code>PageResponse</code> and write a JSON contract test for it.</li>
+    <li>Seed 5M rows, time offset pages at increasing depth, then implement the keyset endpoint with an encoded cursor and time it at the same depths.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Paging, Iterating Large Results, Sorting &amp; Limiting”, “Scrolling” · Spring Data Commons reference: “Web support” · Javadoc: <code>Pageable</code>, <code>Slice</code>, <code>Window</code>, <code>ScrollPosition</code>, <code>WindowIterator</code>, <code>PagedModel</code>, <code>PageableHandlerMethodArgumentResolver</code> · Spring Boot reference, data properties (<code>spring.data.web.*</code>) · Markus Winand, <i>SQL Performance Explained</i>, “Paging Through Results”</p>
+</article>
+<!-- ================================================================ L325 -->
+<article class="day" id="l325">
+  <header class="day-head">
+    <span class="day-no">L325 · DAY 325</span>
+    <h2>Auditing, Custom Implementations &amp; Fragment Composition</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A Spring Data repository is not one class but a composition: your fragments first, then the base class, then the derived queries. Once you see it that way, auditing, hand-written <code>EntityManager</code> code, soft deletes and read replicas all become small, local additions instead of workarounds.</p>
+
+  <h3>Auditing: who and when, filled in for you</h3>
+  <p>Auditing is a JPA entity listener. <code>AuditingEntityListener</code> runs on <code>@PrePersist</code> and <code>@PreUpdate</code> and asks an <code>AuditingHandler</code> to fill fields marked <code>@CreatedDate</code>, <code>@LastModifiedDate</code>, <code>@CreatedBy</code> and <code>@LastModifiedBy</code>. The "who" comes from your <code>AuditorAware</code> bean, the "when" from a <code>DateTimeProvider</code> (the system clock by default).</p>
+  <pre><code>@MappedSuperclass
+@EntityListeners(AuditingEntityListener.class)
+public abstract class BaseEntity {
+    @Id @GeneratedValue(strategy = GenerationType.SEQUENCE) private Long id;
+    @Version private Long version;                             // optimistic locking + isNew
+    @CreatedDate  @Column(nullable = false, updatable = false) private Instant createdAt;
+    @LastModifiedDate @Column(nullable = false)                 private Instant updatedAt;
+    @CreatedBy    @Column(updatable = false)                    private String createdBy;
+    @LastModifiedBy                                             private String updatedBy;
+
+    public Long getId() { return id; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+}
+
+@Configuration
+@EnableJpaAuditing(dateTimeProviderRef = "auditingDateTimeProvider")
+class AuditConfig {
+    @Bean Clock clock() { return Clock.systemUTC(); }
+
+    @Bean DateTimeProvider auditingDateTimeProvider(Clock clock) {
+        return () -&gt; Optional.of(Instant.now(clock));
+    }
+
+    @Bean AuditorAware&lt;String&gt; auditorAware() {
+        return () -&gt; Optional.ofNullable(SecurityContextHolder.getContext().getAuthentication())
+                .filter(Authentication::isAuthenticated)
+                .filter(a -&gt; !(a instanceof AnonymousAuthenticationToken))
+                .map(Authentication::getName);
+    }
+}</code></pre>
+  <p>An empty <code>Optional</code> leaves the "by" fields null (scheduled jobs, startup data), so either allow nulls or return a system user such as <code>"system"</code>. <code>@LastModifiedDate</code> is also set on insert unless you configure <code>modifyOnCreate = false</code>. In tests, declare a <code>@Primary</code> <code>Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC)</code> bean and assert exact timestamps instead of "roughly now".</p>
+  <div class="box note"><span class="tag">Listener, not trigger</span>
+    <p>Because it is a lifecycle callback, auditing only sees changes that go through the persistence context. A bulk <code>@Modifying</code> update or <code>deleteAllInBatch</code> (<a href="#l320">L320</a>) skips it, as do <code>JdbcTemplate</code> writes and other services sharing the table. If the audit trail must be complete, set <code>updated_at</code> in the bulk statement too, or use a database trigger.</p>
+  </div>
+
+  <h3>Custom implementations and the Impl suffix</h3>
+  <p>When a method cannot be derived or written as one <code>@Query</code> (a criteria query built in loops, a stored procedure, a batch of native statements), put it in a <b>fragment</b>: an interface plus a class whose name is the interface name with the postfix <code>Impl</code>. Spring Data scans the repository packages for that name, registers it as a bean (so constructor injection works) and routes the interface's methods to it.</p>
+  <pre><code>public interface OrderRepositoryCustom {
+    List&lt;Order&gt; search(OrderFilter filter);
+}
+
+class OrderRepositoryCustomImpl implements OrderRepositoryCustom {
+    private final EntityManager em;                         // shared, transaction-bound proxy
+    OrderRepositoryCustomImpl(EntityManager em) { this.em = em; }
+
+    @Override public List&lt;Order&gt; search(OrderFilter f) {
+        var cb = em.getCriteriaBuilder();
+        var q = cb.createQuery(Order.class);
+        var o = q.from(Order.class);
+        var where = new ArrayList&lt;Predicate&gt;();
+        if (f.status() != null) where.add(cb.equal(o.get("status"), f.status()));
+        if (f.minTotal() != null) where.add(cb.greaterThanOrEqualTo(o.get("total"), f.minTotal()));
+        return em.createQuery(q.where(where.toArray(Predicate[]::new))).setMaxResults(500).getResultList();
+    }
+}
+
+public interface OrderRepository extends JpaRepository&lt;Order, Long&gt;, OrderRepositoryCustom {}</code></pre>
+  <p>The plan's naming, <code>OrderRepositoryImpl</code> (the <em>repository</em> name plus <code>Impl</code>), is the older single-custom-class convention and is still detected; the fragment-name form above scales to several fragments and lets you reuse one across repositories. Either way the suffix is the contract: rename the class to <code>OrderSearchService</code> and Spring Data no longer finds an implementation, tries to derive a query from <code>search</code>, and fails on startup with "No property 'search' found for type 'Order'". The postfix can be changed with <code>repositoryImplementationPostfix</code>, and the class must live under a scanned package.</p>
+
+  <h3>Fragment composition and precedence</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 220" role="img" aria-label="A repository proxy dispatching to fragments in order, then the base class, then query methods">
+      <defs><marker id="ah-l325" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="80" width="130" height="50" rx="6" class="s-node-mod"/>
+      <text x="75" y="102" class="s-ink s-sm s-mid">OrderRepository</text><text x="75" y="118" class="s-ink3 s-sm s-mid">proxy</text>
+      <rect x="190" y="20" width="200" height="34" rx="6" class="s-node"/><text x="290" y="41" class="s-ink s-sm s-mid">1 OrderSearch fragment</text>
+      <rect x="190" y="66" width="200" height="34" rx="6" class="s-node"/><text x="290" y="87" class="s-ink s-sm s-mid">2 OrderReports fragment</text>
+      <rect x="190" y="112" width="200" height="34" rx="6" class="s-node"/><text x="290" y="133" class="s-ink s-sm s-mid">3 base repository class</text>
+      <rect x="190" y="158" width="200" height="34" rx="6" class="s-node"/><text x="290" y="179" class="s-ink s-sm s-mid">4 query methods</text>
+      <line x1="140" y1="95" x2="188" y2="37" class="s-ln" marker-end="url(#ah-l325)"/>
+      <line x1="140" y1="100" x2="188" y2="83" class="s-ln" marker-end="url(#ah-l325)"/>
+      <line x1="140" y1="110" x2="188" y2="129" class="s-ln" marker-end="url(#ah-l325)"/>
+      <line x1="140" y1="118" x2="188" y2="175" class="s-ln" marker-end="url(#ah-l325)"/>
+      <text x="420" y="41" class="s-ink3 s-sm">EntityManager, primary</text>
+      <text x="420" y="87" class="s-ink3 s-sm">JdbcClient, replica</text>
+      <text x="420" y="133" class="s-ink3 s-sm">SimpleJpaRepository or yours</text>
+      <text x="420" y="179" class="s-ink3 s-sm">derived, @Query, named</text>
+      <text x="420" y="210" class="s-acc s-sm">first match wins, top to bottom</text>
+    </svg>
+    <figcaption><b>Lookup order.</b> For each call the proxy picks the first implementation that declares the method: fragments in the order they appear in the <code>extends</code> clause, then the base class, then query methods.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · method dispatch</span>
+    <ol>
+      <li>At startup, collect fragments in <code>extends</code> order, each paired with its implementation bean; append the base class as the last fragment.</li>
+      <li>On a call, take the first fragment that declares the invoked signature, so a fragment can override <code>save</code> or <code>delete</code> for one repository.</li>
+      <li>If none does, the method is a query method and runs its prepared query.</li>
+    </ol>
+  </div>
+  <p>Fragments can be generic and shared:</p>
+  <pre><code>public interface Refreshable&lt;T&gt; { void refresh(T entity); }
+
+class RefreshableImpl&lt;T&gt; implements Refreshable&lt;T&gt; {
+    private final EntityManager em;
+    RefreshableImpl(EntityManager em) { this.em = em; }
+    @Override public void refresh(T entity) { em.refresh(entity); }
+}
+
+public interface OrderRepository
+        extends JpaRepository&lt;Order, Long&gt;, OrderRepositoryCustom, OrderReports, Refreshable&lt;Order&gt; {}</code></pre>
+  <p><b>Read/write splitting</b> fits the same mechanism. Put heavy read-only queries in an <code>OrderReports</code> fragment whose implementation receives a replica-bound <code>JdbcClient</code> or <code>EntityManager</code> through a <code>@Qualifier</code>; writes keep using the primary through the base class. The split is explicit at the type level, which is easier to reason about than routing by <code>readOnly</code> flags, but replica lag still applies: never read your own write through the replica fragment.</p>
+
+  <h3>Replacing the base class: soft delete everywhere</h3>
+  <pre><code>public class SoftDeleteJpaRepository&lt;T, ID&gt; extends SimpleJpaRepository&lt;T, ID&gt; {
+    public SoftDeleteJpaRepository(JpaEntityInformation&lt;T, ?&gt; info, EntityManager em) {
+        super(info, em);
+    }
+
+    @Override @Transactional
+    public void delete(T entity) {
+        if (entity instanceof SoftDeletable s) { s.markDeleted(); save(entity); }   // UPDATE, not DELETE
+        else super.delete(entity);
+    }
+}
+
+@SpringBootApplication
+@EnableJpaRepositories(repositoryBaseClass = SoftDeleteJpaRepository.class)
+class ShopApplication {}</code></pre>
+  <p>The constructor signature <code>(JpaEntityInformation, EntityManager)</code> is required: the factory calls it reflectively for every repository. <code>deleteById</code> and <code>deleteAll</code> delegate to <code>delete</code>, so they follow; <code>deleteAllInBatch</code> issues SQL directly and does not. Hiding deleted rows on reads needs a separate mechanism: Hibernate's <code>@SQLRestriction("deleted = false")</code> on the entity, or a tenant-style filter. The same base-class hook is where teams add a mandatory tenant predicate, though Hibernate 6's <code>@TenantId</code> is usually the safer tool for that.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Wrong class name</b> for an implementation: startup fails with a property-not-found error that looks unrelated.</li>
+      <li><b>Missing audit fields</b> after bulk updates, native writes or a second service writing the table.</li>
+      <li><b>Null <code>createdBy</code></b> on rows written by jobs and message listeners, where there is no security context; violates a NOT NULL column at 3 a.m.</li>
+      <li><b>Fragment without a transaction</b>: custom methods are not covered by <code>SimpleJpaRepository</code>'s annotations; add <code>@Transactional</code> where a fragment writes.</li>
+      <li><b>Soft-deleted rows reappearing</b> because a native query or report ignores the restriction.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Add <code>BaseEntity</code> with auditing and a fixed-clock test that asserts <code>createdAt</code>, <code>updatedAt</code> and <code>createdBy</code> (use <code>@WithMockUser</code>).</li>
+    <li>Write <code>OrderRepositoryCustom.search</code> with the Criteria API; rename the class without the suffix and read the startup error.</li>
+    <li>Add two fragments declaring the same method and confirm which one wins; swap their order in <code>extends</code>.</li>
+    <li>Install <code>SoftDeleteJpaRepository</code>, mark one entity <code>SoftDeletable</code> and verify via SQL log that <code>deleteById</code> issues an UPDATE.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JPA reference: “Auditing”, “Custom Repository Implementations” (customizing individual repositories, customizing the base repository) · Javadoc: <code>AuditingEntityListener</code>, <code>AuditorAware</code>, <code>DateTimeProvider</code>, <code>EnableJpaAuditing</code>, <code>SimpleJpaRepository</code> · Hibernate ORM User Guide: <code>@SQLRestriction</code>, multitenancy · Jakarta Persistence 3.1 specification, chapter 3 (entity listeners and callback methods)</p>
+</article>
+<!-- ================================================================ L326 -->
+<article class="day" id="l326">
+  <header class="day-head">
+    <span class="day-no">L326 · DAY 326</span>
+    <h2>Spring Data JDBC: The Simpler Alternative</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Spring Data JDBC keeps the repository programming model and drops the machinery that makes JPA surprising: there is no persistence context, so every <code>save</code> writes and every <code>find</code> reads, right now. In exchange you design around aggregates, and you reach for <code>JdbcClient</code> or jOOQ for everything else.</p>
+
+  <h3>No session, no magic</h3>
+  <div class="box def"><span class="tag">Definition · the JDBC model</span>
+    <p>Spring Data JDBC maps an <b>aggregate</b>, a root entity plus the entities and values it owns, to tables with plain SQL. There is <b>no persistence context</b> (no first-level cache, no identity guarantee: two <code>findById</code> calls return two objects), <b>no lazy loading</b> (an aggregate is loaded whole, eagerly), and <b>no dirty checking</b> (changing a field does nothing until you call <code>save</code>). <code>save</code> inserts a new root, or updates an existing one and <b>deletes and re-inserts its owned collections</b>.</p>
+  </div>
+  <p>The re-insert rule follows from having no snapshot: without knowing what changed, the only correct write for a collection is "replace it". That is why aggregates must stay small. An order with five lines is cheap to rewrite; a "customer" aggregate holding ten thousand historical orders is a design error, not a tuning problem.</p>
+
+  <h3>Aggregates and their mapping</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Order aggregate owning line items and referencing a customer aggregate only by id">
+      <defs><marker id="ah-l326" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="10" width="330" height="200" rx="10" class="s-node-mod" fill-opacity="0.35"/>
+      <text x="22" y="30" class="s-ink s-ttl">Order aggregate</text>
+      <rect x="40" y="44" width="170" height="40" rx="6" class="s-node"/><text x="125" y="68" class="s-ink s-sm s-mid">PurchaseOrder (root)</text>
+      <rect x="40" y="114" width="120" height="34" rx="6" class="s-node"/><text x="100" y="135" class="s-ink s-sm s-mid">LineItem ×n</text>
+      <rect x="180" y="114" width="140" height="34" rx="6" class="s-node"/><text x="250" y="135" class="s-ink s-sm s-mid">Address (embedded)</text>
+      <line x1="100" y1="84" x2="100" y2="112" class="s-ln" marker-end="url(#ah-l326)"/>
+      <line x1="160" y1="84" x2="240" y2="112" class="s-ln" marker-end="url(#ah-l326)"/>
+      <text x="40" y="180" class="s-ink3 s-sm">saved, loaded, deleted together</text>
+      <rect x="440" y="44" width="200" height="60" rx="10" class="s-node-mod" fill-opacity="0.35"/>
+      <text x="540" y="70" class="s-ink s-sm s-mid">Customer aggregate</text>
+      <text x="540" y="88" class="s-ink3 s-sm s-mid">own repository</text>
+      <line x1="210" y1="60" x2="438" y2="68" class="s-ln-acc s-dash" marker-end="url(#ah-l326)"/>
+      <text x="325" y="56" class="s-acc s-sm s-mid">customer_id only</text>
+      <text x="540" y="150" class="s-ink s-sm s-mid">save(order) on update:</text>
+      <text x="540" y="168" class="s-ink3 s-sm s-mid">UPDATE purchase_order</text>
+      <text x="540" y="184" class="s-ink3 s-sm s-mid">DELETE line_item</text>
+      <text x="540" y="200" class="s-ink3 s-sm s-mid">INSERT line_item ×n</text>
+    </svg>
+    <figcaption><b>The aggregate is the unit of persistence.</b> The root owns its lines and embedded values; another aggregate is referenced by id, never by object, so loading an order never drags in a customer.</figcaption>
+  </figure>
+  <pre><code>@Table("purchase_order")
+class PurchaseOrder {
+    @Id private Long id;
+    @Version private Integer version;
+    @Column("customer_id") private AggregateReference&lt;Customer, Long&gt; customer;  // id only
+    private OrderStatus status = OrderStatus.NEW;
+    @Embedded.Nullable(prefix = "ship_") private Address shipTo;
+    @MappedCollection(idColumn = "order_id", keyColumn = "line_no")
+    private List&lt;LineItem&gt; items = new ArrayList&lt;&gt;();
+
+    PurchaseOrder() {}
+    PurchaseOrder(long customerId, Address shipTo) {
+        this.customer = AggregateReference.to(customerId);
+        this.shipTo = shipTo;
+    }
+
+    void addItem(String sku, int quantity, BigDecimal price) {     // invariants live on the root
+        if (status != OrderStatus.NEW) throw new IllegalStateException("order is " + status);
+        items.add(new LineItem(sku, quantity, price));
+    }
+}
+
+record LineItem(String sku, int quantity, BigDecimal price) {}
+record Address(String street, String city, String zip) {}</code></pre>
+  <pre><code class="plain">create table purchase_order (id bigserial primary key, version int, customer_id bigint not null,
+  status varchar(20) not null, total numeric(12,2) not null default 0, ship_street varchar(200), ship_city varchar(100), ship_zip varchar(20));
+create table line_item (order_id bigint not null references purchase_order(id), line_no int not null,
+  sku varchar(40) not null, quantity int not null, price numeric(12,2) not null,
+  primary key (order_id, line_no));</code></pre>
+  <p><code>@MappedCollection</code> names the back-reference column (<code>idColumn</code>) and, for a <code>List</code> or <code>Map</code>, the column holding the index or key; a <code>Set</code> needs no key. <code>@Embedded</code> flattens a value object into the root's row with a column prefix, and requires you to say whether all-null columns mean <code>null</code> (<code>Nullable</code>) or an empty object (<code>Empty</code>). A new root is detected by a null id or null <code>@Version</code>; with assigned ids, use <code>Persistable</code> as in JPA.</p>
+
+  <h3>Repositories and SQL queries</h3>
+  <pre><code>interface PurchaseOrderRepository extends ListCrudRepository&lt;PurchaseOrder, Long&gt; {
+    List&lt;PurchaseOrder&gt; findByStatus(OrderStatus status);                  // derived
+
+    @Query("select * from purchase_order where customer_id = :customerId order by id desc")
+    List&lt;PurchaseOrder&gt; forCustomer(@Param("customerId") long customerId);
+
+    @Modifying
+    @Query("update purchase_order set status = :to where status = :from")
+    int moveAll(@Param("from") OrderStatus from, @Param("to") OrderStatus to);
+}</code></pre>
+  <p><code>@Query</code> takes <b>SQL</b>, not JPQL: table and column names, your dialect, named parameters. The query returns root columns; owned collections are then loaded with further selects. That is predictable, but it is still one extra query per collection per aggregate when you load many, so avoid <code>findAll</code> over large tables with collections (recent versions offer an opt-in single-query loading for simple aggregates).</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Choose JDBC when</th><th>Stay with JPA when</th></tr></thead>
+    <tbody>
+      <tr><td>You want to read the SQL from the code</td><td>Rich object graphs navigated in many directions</td></tr>
+      <tr><td>Aggregates are small and clearly bounded</td><td>A large existing JPA codebase and team habits</td></tr>
+      <tr><td>No lazy-loading or flush surprises, faster startup</td><td>You rely on the second-level cache or dirty checking</td></tr>
+      <tr><td>New service, DDD-style model</td><td>Inheritance mapping, Criteria, Envers-style auditing</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>JdbcTemplate, NamedParameterJdbcTemplate and JdbcClient</h3>
+  <p>For reports, batch loads and anything that is not an aggregate, use the lower layer. All three translate <code>SQLException</code> into Spring's <code>DataAccessException</code> hierarchy and join the current Spring transaction.</p>
+  <pre><code>// JdbcTemplate: positional parameters, explicit RowMapper
+List&lt;OrderRow&gt; rows = jdbc.query("select id, status, total from purchase_order where status = ?",
+        (rs, n) -&gt; new OrderRow(rs.getLong("id"), OrderStatus.valueOf(rs.getString("status")),
+                                rs.getBigDecimal("total")),
+        status.name());
+long open = jdbc.queryForObject("select count(*) from purchase_order where status = 'NEW'", Long.class);
+
+// NamedParameterJdbcTemplate: :names, reflection-based mapping
+var beans = named.query("select * from customer where city = :city",
+        Map.of("city", city), new BeanPropertyRowMapper&lt;&gt;(CustomerBean.class));  // setters
+var dtos  = named.query("select id, name from customer", new DataClassRowMapper&lt;&gt;(CustomerRow.class)); // records
+
+// batchUpdate: one round trip per 500 rows
+jdbc.batchUpdate("insert into price_history(sku, price, at) values (?, ?, ?)", prices, 500,
+        (ps, p) -&gt; { ps.setString(1, p.sku()); ps.setBigDecimal(2, p.price());
+                     ps.setTimestamp(3, Timestamp.from(p.at())); });
+
+// SimpleJdbcInsert: reads table metadata, returns the generated key
+Number id = new SimpleJdbcInsert(dataSource).withTableName("customer")
+        .usingGeneratedKeyColumns("id").executeAndReturnKey(Map.of("name", "Ada", "city", "London"));
+
+// JdbcClient (Spring Framework 6.1): one fluent API over both styles
+Optional&lt;OrderRow&gt; one = jdbcClient.sql("select id, status, total from purchase_order where id = :id")
+        .param("id", orderId).query(OrderRow.class).optional();
+int moved = jdbcClient.sql("update purchase_order set status = 'SHIPPED' where id = :id")
+        .param("id", orderId).update();</code></pre>
+  <p><code>JdbcClient</code> is auto-configured by Spring Boot 3.2+ and maps rows to records or beans by column name; for new code it replaces most direct <code>JdbcTemplate</code> use. <code>queryForObject</code> throws <code>EmptyResultDataAccessException</code> on zero rows and <code>IncorrectResultSizeDataAccessException</code> on several, which is why <code>.optional()</code> exists.</p>
+
+  <h3>A brief look at jOOQ</h3>
+  <p>jOOQ generates Java classes from your schema (tables, columns, types) and gives you a SQL DSL checked by the compiler: a renamed column breaks the build, not production. <code>spring-boot-starter-jooq</code> auto-configures a <code>DSLContext</code> that joins Spring transactions.</p>
+  <pre><code>List&lt;OrderRow&gt; paid = dsl.select(PURCHASE_ORDER.ID, PURCHASE_ORDER.STATUS, PURCHASE_ORDER.TOTAL)
+        .from(PURCHASE_ORDER)
+        .where(PURCHASE_ORDER.STATUS.eq("PAID"))
+        .orderBy(PURCHASE_ORDER.ID.desc())
+        .limit(50)
+        .fetchInto(OrderRow.class);</code></pre>
+  <p>The costs: a code-generation step in the build (usually against a Flyway-migrated database or Testcontainers), and a commercial licence for commercial databases such as Oracle or SQL Server; the open-source edition covers open-source databases.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Expecting dirty checking</b>: a modified aggregate that is never passed to <code>save</code> is never written.</li>
+      <li><b>Huge aggregates</b>: every save deletes and re-inserts the whole collection; triggers and foreign keys pointing at child rows break.</li>
+      <li><b>Object references across aggregates</b>: mapping <code>Customer</code> as a field makes it part of the order aggregate and saves it with every order. Use <code>AggregateReference</code>.</li>
+      <li><b>Ignoring the value <code>save</code> returns</b> with immutable entities (records, withers): the old id and version stay in memory, so the next save inserts a duplicate or fails with <code>OptimisticLockingFailureException</code>.</li>
+      <li><b><code>queryForObject</code> on maybe-empty results</b> throwing at runtime.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Map <code>PurchaseOrder</code> with lines and an embedded address; save, add a line, save again, and read the SQL log for the delete and re-insert.</li>
+    <li>Load the same order twice with <code>findById</code> and show the two instances are not identical; contrast with JPA inside one transaction.</li>
+    <li>Write the same report three ways: <code>JdbcTemplate</code> with a lambda <code>RowMapper</code>, <code>JdbcClient</code> into a record, and a <code>@Query</code> on the repository.</li>
+    <li>Bulk-insert 100k rows with <code>batchUpdate</code> at batch sizes 1, 100 and 1000 and time each.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data JDBC reference: “Domain Driven Design and Relational Databases”, “Persisting Entities”, “Mapping” (embedded entities, <code>@MappedCollection</code>) · Spring Framework reference, “Data Access with JDBC” (<code>JdbcTemplate</code>, <code>JdbcClient</code>, <code>SimpleJdbcInsert</code>, batch operations) · Eric Evans, <i>Domain-Driven Design</i>, chapter 6 (Aggregates) · jOOQ manual, “Code generation” · Spring Boot reference, “Using jOOQ”</p>
+</article>
+<!-- ================================================================ L327 -->
+<article class="day" id="l327">
+  <header class="day-head">
+    <span class="day-no">L327 · DAY 327</span>
+    <h2>Spring Data MongoDB</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">In MongoDB the document is the unit of atomicity, retrieval and design: you model for the queries you will run, embedding what is read together and referencing what grows without bound. Spring Data MongoDB gives you repositories for the easy cases and <code>MongoTemplate</code> with the aggregation pipeline for the rest; the mapping annotations decide whether that model performs.</p>
+
+  <h3>When a document store fits</h3>
+  <p>Documents fit data that is read as a whole and shaped like a tree: a product with variable attributes per category (flexible schema), an order with its lines and a snapshot of the shipping address (denormalized read model), a configuration with deep nesting, or event and telemetry streams with high write throughput across shards. They fit poorly where many entities reference each other and must stay consistent across documents; there a relational database with foreign keys and joins is less work.</p>
+  <pre><code class="plain"># pom.xml: spring-boot-starter-data-mongodb
+spring:
+  data:
+    mongodb:
+      uri: mongodb://app:&#36;{MONGO_PASSWORD}@mongo-0:27017,mongo-1:27017/shop?replicaSet=rs0
+      auto-index-creation: false     # default; create indexes deliberately</code></pre>
+
+  <h3>Document mapping</h3>
+  <pre><code>@Document(collection = "orders")
+@CompoundIndex(name = "status_created", def = "{'status': 1, 'createdAt': -1}")
+public class OrderDoc {
+    @Id private String id;                       // stored as ObjectId when the value is valid hex
+    @Indexed @Field(targetType = FieldType.OBJECT_ID)
+    private String customerId;                   // reference by id; same BSON type as customers._id
+    private String status;
+    @Field(name = "total", targetType = FieldType.DECIMAL128) private BigDecimal total;
+    private Instant createdAt;
+    private List&lt;Line&gt; items = new ArrayList&lt;&gt;();   // embedded: read and written with the order
+    private CustomerSnapshot customer;            // copy of name and address at order time
+    @TextIndexed private String notes;
+    @Version private Long version;
+    // getters and setters omitted
+}
+
+record Line(String sku, String name, int quantity,
+            @Field(targetType = FieldType.DECIMAL128) BigDecimal lineTotal) {}
+record CustomerSnapshot(String name, String city) {}</code></pre>
+  <ul>
+    <li><b><code>@Id</code></b>: a <code>String</code> or <code>ObjectId</code> field maps to <code>_id</code>. An <code>ObjectId</code> is 12 bytes, roughly time-ordered and generated client-side; a <code>String</code> field holding valid hex is converted to an <code>ObjectId</code> automatically. Use <code>@MongoId(FieldType.STRING)</code> when you really want string ids.</li>
+    <li><b><code>@Field</code></b> renames a field or fixes its BSON type; store money as <code>Decimal128</code>, because by default <code>BigDecimal</code> is written as a string, which sorts and compares as text.</li>
+    <li><b><code>@Indexed</code>, <code>@CompoundIndex</code>, <code>@TextIndexed</code></b> declare indexes, but they are only created if <code>auto-index-creation</code> is on. In production prefer explicit creation through <code>mongoTemplate.indexOps(OrderDoc.class)</code> or a migration tool, so a deploy never builds a large index by surprise.</li>
+    <li><b><code>@Version</code></b> adds optimistic locking: a save with a stale version throws <code>OptimisticLockingFailureException</code>.</li>
+  </ul>
+  <div class="box note"><span class="tag">Avoid DBRef</span>
+    <p><code>@DBRef Customer customer</code> stores <code>{&#36;ref, &#36;id}</code> and resolves it with a separate query per reference, per document: loading 500 orders means 500 extra lookups. MongoDB has no joins for the driver to use, so this N+1 is by design. <code>@DocumentReference(lazy = true)</code> (Spring Data MongoDB 3.3+) stores only the id and can be lazy, which is better, but it is still a second query. Usually the right answer is a plain id field plus an embedded snapshot of the few fields you display.</p>
+  </div>
+
+  <h3>Repositories and MongoTemplate</h3>
+  <pre><code>interface OrderDocRepository extends MongoRepository&lt;OrderDoc, String&gt; {
+    List&lt;OrderDoc&gt; findByCustomerIdOrderByCreatedAtDesc(String customerId);
+
+    @Query(value = "{ 'status': ?0, 'createdAt': { '&#36;gte': ?1 } }",
+           fields = "{ 'items': 0, 'notes': 0 }", sort = "{ 'createdAt': -1 }")
+    List&lt;OrderDoc&gt; recentByStatus(String status, Instant since);
+}</code></pre>
+  <p><code>@Query</code> holds a JSON filter with <code>?0</code>, <code>?1</code> placeholders bound to the method parameters; <code>fields</code> is the projection and <code>sort</code> the order. For updates, conditional writes and batches, use <code>MongoTemplate</code>:</p>
+  <pre><code>import static org.springframework.data.mongodb.core.query.Criteria.where;
+
+var q = Query.query(where("status").is("PAID").and("createdAt").gte(since))
+        .with(Sort.by(Sort.Direction.DESC, "createdAt")).limit(50);
+q.fields().include("customerId", "total");
+List&lt;OrderDoc&gt; paid = mongo.find(q, OrderDoc.class);
+
+// atomic read-modify-write: a sequence counter
+Counter next = mongo.findAndModify(Query.query(where("_id").is("invoice")),
+        new Update().inc("seq", 1), FindAndModifyOptions.options().returnNew(true).upsert(true),
+        Counter.class);
+
+mongo.updateMulti(Query.query(where("status").is("NEW").and("createdAt").lt(cutoff)),
+        Update.update("status", "EXPIRED"), OrderDoc.class);
+mongo.upsert(Query.query(where("sku").is(sku)), Update.update("stock", 40), "inventory");
+
+BulkOperations bulk = mongo.bulkOps(BulkOperations.BulkMode.UNORDERED, "inventory");
+prices.forEach(p -&gt; bulk.updateOne(Query.query(where("sku").is(p.sku())),
+                                   Update.update("price", p.price())));
+BulkWriteResult result = bulk.execute();   // one round trip per batch, not per document</code></pre>
+  <p><code>updateFirst</code> changes the first match, <code>updateMulti</code> every match; both send one update command and never load documents. <code>findAndModify</code> is atomic on the single document, which is enough for counters and claim-a-job patterns.</p>
+
+  <h3>The aggregation pipeline</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 150" role="img" aria-label="Aggregation pipeline stages from match to project">
+      <defs><marker id="ah-l327" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="40" width="100" height="44" rx="6" class="s-node-mod"/><text x="60" y="66" class="s-ink s-sm s-mid">match</text>
+      <rect x="140" y="40" width="100" height="44" rx="6" class="s-node"/><text x="190" y="66" class="s-ink s-sm s-mid">unwind items</text>
+      <rect x="270" y="40" width="100" height="44" rx="6" class="s-node"/><text x="320" y="66" class="s-ink s-sm s-mid">group by sku</text>
+      <rect x="400" y="40" width="100" height="44" rx="6" class="s-node"/><text x="450" y="66" class="s-ink s-sm s-mid">sort, limit</text>
+      <rect x="530" y="40" width="110" height="44" rx="6" class="s-node"/><text x="585" y="66" class="s-ink s-sm s-mid">project</text>
+      <line x1="110" y1="62" x2="138" y2="62" class="s-ln" marker-end="url(#ah-l327)"/>
+      <line x1="240" y1="62" x2="268" y2="62" class="s-ln" marker-end="url(#ah-l327)"/>
+      <line x1="370" y1="62" x2="398" y2="62" class="s-ln" marker-end="url(#ah-l327)"/>
+      <line x1="500" y1="62" x2="528" y2="62" class="s-ln" marker-end="url(#ah-l327)"/>
+      <text x="60" y="108" class="s-acc s-sm s-mid">uses index</text>
+      <text x="190" y="108" class="s-ink3 s-sm s-mid">1 doc per line</text>
+      <text x="320" y="108" class="s-ink3 s-sm s-mid">1 doc per sku</text>
+      <text x="450" y="108" class="s-ink3 s-sm s-mid">top 10</text>
+      <text x="585" y="108" class="s-ink3 s-sm s-mid">rename _id</text>
+      <text x="330" y="138" class="s-warn s-sm s-mid">filter first: every later stage works on what match lets through</text>
+    </svg>
+    <figcaption><b>Documents flow through stages.</b> A leading <code>&#36;match</code> (and <code>&#36;sort</code>) can use indexes; later stages work in memory on the stream they receive.</figcaption>
+  </figure>
+  <pre><code>import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+Aggregation topSkus = newAggregation(
+        match(where("status").is("PAID").and("createdAt").gte(since)),
+        unwind("items"),
+        group("items.sku").sum("items.quantity").as("units").sum("items.lineTotal").as("revenue"),
+        sort(Sort.Direction.DESC, "units"),
+        limit(10),
+        project("units", "revenue").and("sku").previousOperation());
+List&lt;SkuSales&gt; top = mongo.aggregate(topSkus, "orders", SkuSales.class).getMappedResults();
+
+Aggregation pageWithTotal = newAggregation(
+        match(where("status").is("PAID")),
+        lookup("customers", "customerId", "_id", "customerDoc"),     // left outer join
+        facet(count().as("total")).as("meta")
+            .and(sort(Sort.Direction.DESC, "createdAt"), skip(0L), limit(20)).as("items"));</code></pre>
+  <p><code>&#36;lookup</code> exists, but it runs per input document on the server; it is fine for reports and a smell on hot paths. <code>&#36;facet</code> runs several sub-pipelines on the same input, here a total count and a page in one round trip. Blocking stages such as <code>&#36;group</code> and <code>&#36;sort</code> have a 100 MB memory limit; beyond it they need <code>allowDiskUse</code> (the default from MongoDB 6.0), and spilling is slow either way.</p>
+
+  <h3>Transactions and schema design</h3>
+  <p>Multi-document transactions need a replica set (or a sharded cluster), and Spring Boot does not register a transaction manager for MongoDB; declare <code>new MongoTransactionManager(databaseFactory)</code> yourself to make <code>@Transactional</code> work. Limits worth knowing: a transaction is aborted after a lifetime limit (60 seconds by default), write conflicts surface as errors labelled <code>TransientTransactionError</code> that you must retry, and long or large transactions put pressure on the cache. If you need them everywhere, the model is probably relational.</p>
+  <div class="box def"><span class="tag">Definition · embed or reference</span>
+    <p><b>Embed</b> when the child is owned, bounded and read with the parent (order lines, addresses). <b>Reference</b> when it is shared, large, or grows without bound (customers, comments, events). The hard limit is <b>16 MB per document</b>; arrays that grow forever hit it eventually and slow every update long before. For time series, the <b>bucket pattern</b> stores one document per sensor per hour with an array of readings plus precomputed count and min/max; MongoDB 5.0+ also offers native time-series collections (<code>@TimeSeries</code> in Spring Data).</p>
+  </div>
+  <p><b>Index strategy</b>: every query on a hot path needs an index; check with <code>explain()</code> that the plan is <code>IXSCAN</code>, not <code>COLLSCAN</code>. Order compound index keys by the ESR guideline (equality fields, then sort fields, then range fields), which is why the index above is <code>{status: 1, createdAt: -1}</code>.</p>
+  <pre><code>@DataMongoTest
+@Testcontainers
+class OrderDocRepositoryTest {
+    @Container @ServiceConnection
+    static MongoDBContainer mongo = new MongoDBContainer("mongo:7.0");   // single-node replica set
+
+    @Autowired OrderDocRepository orders;
+
+    @Test void findsRecentPaidOrders() {
+        var o = new OrderDoc(); o.setStatus("PAID"); o.setCreatedAt(Instant.now());
+        orders.save(o);
+        assertThat(orders.recentByStatus("PAID", Instant.now().minusSeconds(60))).hasSize(1);
+    }
+}</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Indexes that were never created</b> because <code>@Indexed</code> without auto-index creation is documentation only.</li>
+      <li><b>Money as strings</b>: a <code>BigDecimal</code> without <code>Decimal128</code> makes range queries and sums wrong.</li>
+      <li><b>Unbounded arrays</b> (comments, events) embedded in one document: growing write cost, then the 16 MB wall.</li>
+      <li><b><code>@DBRef</code> N+1</b> on list endpoints.</li>
+      <li><b>Assuming <code>@Transactional</code> works</b> without a <code>MongoTransactionManager</code> or against a standalone server.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Map <code>OrderDoc</code> with embedded lines and a customer snapshot; start MongoDB with Testcontainers and save 10k orders.</li>
+    <li>Run <code>recentByStatus</code> with and without the compound index and compare <code>explain()</code> output.</li>
+    <li>Build the top-SKU aggregation and a <code>&#36;facet</code> page-with-total; verify the totals against a manual count.</li>
+    <li>Replace an <code>@DBRef</code> with an id plus snapshot and count the queries for a 100-order listing before and after.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data MongoDB reference: “Mapping” (annotations, document references, index creation), “Template API”, “Aggregation Framework Support”, “Sessions &amp; Transactions” · MongoDB Manual: “Data Modeling”, “Aggregation Pipeline”, “Transactions”, “The ESR (Equality, Sort, Range) Guideline”, “Time Series” · Testcontainers: MongoDB module · Javadoc: <code>MongoTemplate</code>, <code>Criteria</code>, <code>Aggregation</code>, <code>BulkOperations</code></p>
+</article>
+<!-- ================================================================ L328 -->
+<article class="day" id="l328">
+  <header class="day-head">
+    <span class="day-no">L328 · DAY 328</span>
+    <h2>Spring Data Redis</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Redis is a single-threaded server of data structures, so the decisions that matter are on the client side: how bytes are serialized, how many round trips you pay, which commands could block everyone, and when a key dies. Spring Data Redis wraps all of it in <code>RedisTemplate</code>; its defaults are the first thing to change.</p>
+
+  <h3>Drivers and connection setup</h3>
+  <p><code>spring-boot-starter-data-redis</code> brings <b>Lettuce</b>, a Netty-based, non-blocking driver whose connections are thread-safe: one connection is shared and commands from many threads are multiplexed over it. <b>Jedis</b> is a simple blocking driver whose connections are not thread-safe, so it always needs a pool. With Lettuce a pool (via <code>commons-pool2</code>) is only worth it for blocking commands (<code>BLPOP</code>) and <code>MULTI</code>/<code>EXEC</code> transactions, which tie up a connection.</p>
+  <pre><code class="plain">spring:
+  data:
+    redis:
+      host: redis.internal
+      port: 6379
+      username: app
+      password: &#36;{REDIS_PASSWORD}
+      database: 0                # standalone only; cluster has just database 0
+      timeout: 2s
+      ssl:
+        enabled: true
+      lettuce:
+        pool:                    # requires org.apache.commons:commons-pool2
+          enabled: true
+          max-active: 16
+      # sentinel: master: mymaster, nodes: s1:26379,s2:26379,s3:26379
+      # cluster:  nodes: r1:6379,r2:6379,r3:6379, max-redirects: 3</code></pre>
+  <p>Boot builds a <code>LettuceConnectionFactory</code> from these properties: standalone by default, Sentinel when <code>sentinel.*</code> is set (the client asks the sentinels which node is master and follows failovers), Cluster when <code>cluster.nodes</code> is set (the client learns the slot map and routes each key to its shard). Define your own <code>LettuceConnectionFactory</code> bean only for settings the properties do not expose, such as reading from replicas.</p>
+
+  <h3>RedisTemplate, StringRedisTemplate and serializers</h3>
+  <div class="box def"><span class="tag">Definition · serializer</span>
+    <p>Redis stores bytes. A <code>RedisTemplate&lt;K, V&gt;</code> holds four <code>RedisSerializer</code>s (key, value, hash key, hash value) that turn Java objects into those bytes. If none is set, all four default to <code>JdkSerializationRedisSerializer</code>: Java serialization, readable only by Java, broken by class changes, and unreadable in <code>redis-cli</code> (keys look like <code>\xac\xed\x00\x05t\x00\x07cart:42</code>). <code>StringRedisTemplate</code> uses <code>StringRedisSerializer</code> for all four.</p>
+  </div>
+  <pre><code>@Configuration
+class RedisConfig {
+    @Bean
+    RedisTemplate&lt;String, Object&gt; redisTemplate(RedisConnectionFactory cf) {   // replaces Boot's
+        var json = new GenericJackson2JsonRedisSerializer();     // JSON with an @class hint
+        var t = new RedisTemplate&lt;String, Object&gt;();
+        t.setConnectionFactory(cf);
+        t.setKeySerializer(StringRedisSerializer.UTF_8);
+        t.setHashKeySerializer(StringRedisSerializer.UTF_8);
+        t.setValueSerializer(json);
+        t.setHashValueSerializer(json);
+        return t;
+    }
+}</code></pre>
+  <p>String keys plus JSON values are readable from any language and survive refactoring better. <code>GenericJackson2JsonRedisSerializer</code> stores the class name so it can deserialize to the right type; <code>Jackson2JsonRedisSerializer&lt;T&gt;</code> is typed to one class and stores no hint. Use <code>StringRedisTemplate</code> for counters, flags and anything another service reads.</p>
+
+  <h3>Operations by data structure</h3>
+  <pre><code>var v = str.opsForValue();
+v.set("shop:session:" + sid, json, Duration.ofMinutes(30));             // SET ... EX 1800
+Boolean fresh = v.setIfAbsent("shop:idem:" + key, "1", Duration.ofHours(24)); // SET NX EX
+str.expire("shop:session:" + sid, Duration.ofMinutes(30));              // sliding TTL
+Long secondsLeft = str.getExpire("shop:session:" + sid);
+
+str.opsForHash().put("shop:cart:42", "sku-1", "3");                     // field per item
+str.opsForList().leftPush("shop:recent:42", "sku-9");                    // capped with trim
+str.opsForList().trim("shop:recent:42", 0, 19);
+str.opsForSet().add("shop:tags:sku-1", "red", "sale");
+str.opsForZSet().incrementScore("shop:bestsellers", "sku-1", 3);
+var top = str.opsForZSet().reverseRangeWithScores("shop:bestsellers", 0, 9);
+str.opsForStream().add("shop:events", Map.of("type", "OrderPaid", "id", "42"));
+str.opsForGeo().add("shop:stores", new Point(-0.1276, 51.5072), "store-7");
+str.opsForHyperLogLog().add("shop:uv:2026-10-11", userId);              // at most 12 KB per key
+Long uniques = str.opsForHyperLogLog().size("shop:uv:2026-10-11");</code></pre>
+  <p>Each <code>opsFor…</code> interface maps to one family of commands: strings, hashes, lists, sets, sorted sets (rankings, time-ordered queues), streams (append-only logs with consumer groups), geo (sorted sets with geohash scores) and HyperLogLog (approximate distinct counts, standard error under 1%). TTL is either given at write time with <code>set(key, value, Duration)</code> or set afterwards with <code>expire</code>. A plain <code>SET</code> without a TTL <b>clears</b> any existing expiry, a classic source of keys that never die.</p>
+
+  <h3>Redis repositories</h3>
+  <pre><code>@RedisHash(value = "sessions", timeToLive = 1800)
+public class WebSession {
+    @Id private String id;
+    @Indexed private String userId;          // maintains the set sessions:userId:&lt;value&gt;
+    private String device;
+    @TimeToLive private Long ttlSeconds;     // per-instance override
+    // constructors, getters and setters omitted
+}
+
+interface WebSessionRepository extends CrudRepository&lt;WebSession, String&gt; {
+    List&lt;WebSession&gt; findByUserId(String userId);
+}</code></pre>
+  <p>Each entity becomes a hash <code>sessions:&lt;id&gt;</code>, its id is added to a set <code>sessions</code>, and each <code>@Indexed</code> value gets its own set. Limitations follow from that layout: queries are equality-only on indexed properties (no ranges, no sorting in Redis), <code>findAll</code> reads the whole id set, and when a hash expires the index sets are only cleaned up if the application listens for keyspace events (<code>enableKeyspaceEvents</code>), which many managed Redis services restrict. Use repositories for small, simple lookups; use the template for everything else.</p>
+
+  <h3>Fewer round trips: pipelines and Lua</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 190" role="img" aria-label="Sequential commands pay one round trip each; a pipeline sends them together">
+      <defs><marker id="ah-l328" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="10" y="20" class="s-ink s-ttl">one by one</text>
+      <line x1="90" y1="40" x2="640" y2="40" class="s-ln-ink"/><text x="10" y="44" class="s-ink3 s-sm">app</text>
+      <line x1="90" y1="80" x2="640" y2="80" class="s-ln-ink"/><text x="10" y="84" class="s-ink3 s-sm">redis</text>
+      <line x1="100" y1="40" x2="140" y2="80" class="s-ln-mod" marker-end="url(#ah-l328)"/><line x1="145" y1="80" x2="185" y2="40" class="s-ln-acc" marker-end="url(#ah-l328)"/>
+      <line x1="195" y1="40" x2="235" y2="80" class="s-ln-mod" marker-end="url(#ah-l328)"/><line x1="240" y1="80" x2="280" y2="40" class="s-ln-acc" marker-end="url(#ah-l328)"/>
+      <line x1="290" y1="40" x2="330" y2="80" class="s-ln-mod" marker-end="url(#ah-l328)"/><line x1="335" y1="80" x2="375" y2="40" class="s-ln-acc" marker-end="url(#ah-l328)"/>
+      <text x="520" y="64" class="s-warn s-sm s-mid">N commands = N round trips</text>
+      <text x="10" y="120" class="s-ink s-ttl">pipelined</text>
+      <line x1="90" y1="140" x2="640" y2="140" class="s-ln-ink"/><text x="10" y="144" class="s-ink3 s-sm">app</text>
+      <line x1="90" y1="180" x2="640" y2="180" class="s-ln-ink"/><text x="10" y="184" class="s-ink3 s-sm">redis</text>
+      <line x1="100" y1="140" x2="140" y2="180" class="s-ln-mod" marker-end="url(#ah-l328)"/>
+      <line x1="108" y1="140" x2="148" y2="180" class="s-ln-mod" marker-end="url(#ah-l328)"/>
+      <line x1="116" y1="140" x2="156" y2="180" class="s-ln-mod" marker-end="url(#ah-l328)"/>
+      <line x1="165" y1="180" x2="205" y2="140" class="s-ln-acc" marker-end="url(#ah-l328)"/>
+      <text x="420" y="164" class="s-acc s-sm s-mid">N commands, about 1 round trip</text>
+    </svg>
+    <figcaption><b>Latency, not Redis, is usually the bottleneck.</b> At 0.5 ms per network round trip, 1,000 sequential GETs cost about half a second; pipelined they cost little more than one trip plus server time.</figcaption>
+  </figure>
+  <pre><code>List&lt;Object&gt; prices = str.executePipelined((RedisCallback&lt;Object&gt;) conn -&gt; {
+    for (String sku : skus) conn.stringCommands().get(("shop:price:" + sku).getBytes(UTF_8));
+    return null;                        // results come back from the pipeline, in order
+});
+
+DefaultRedisScript&lt;Long&gt; reserve = new DefaultRedisScript&lt;&gt;("""
+        local stock = tonumber(redis.call('GET', KEYS[1]) or '0')
+        if stock &lt; tonumber(ARGV[1]) then return 0 end
+        redis.call('DECRBY', KEYS[1], ARGV[1])
+        redis.call('HINCRBY', KEYS[2], ARGV[2], ARGV[1])
+        return 1
+        """, Long.class);
+Long ok = str.execute(reserve, List.of("shop:stock:{sku-1}", "shop:reserved:{sku-1}"), "2", "order-42");</code></pre>
+  <p>A pipeline batches commands but is <b>not atomic</b>: other clients' commands can interleave. A Lua script runs atomically on the server, so check-then-act across several keys (here: reserve stock only if enough remains) needs no locks. Pass every key through <code>KEYS</code>, never build key names inside the script, and keep scripts short, because nothing else runs while one executes. <code>DefaultRedisScript</code> sends the script by SHA1 (<code>EVALSHA</code>) and falls back to loading it when the server does not have it cached.</p>
+
+  <h3>Key naming and the KEYS rule</h3>
+  <p>Name keys <code>app:entity:id[:part]</code> (<code>shop:cart:42</code>): colon-separated, lower case, short but readable, and give every cache-like key a TTL. In Cluster, keys used together by one command or script must live in the same slot, which a hash tag forces: only the part in braces is hashed, so <code>shop:stock:{sku-1}</code> and <code>shop:reserved:{sku-1}</code> land together. <b><code>KEYS pattern</code> is O(N) over the whole keyspace and blocks the server while it runs</b>; on a large production instance that is an outage. Iterate with <code>SCAN</code> instead, which returns small batches and a cursor:</p>
+  <pre><code>var opts = ScanOptions.scanOptions().match("shop:cart:*").count(500).build();
+try (Cursor&lt;String&gt; keys = str.scan(opts)) {
+    keys.forEachRemaining(k -&gt; str.expire(k, Duration.ofDays(7)));
+}</code></pre>
+  <p>Caching with <code>@Cacheable</code> on Redis and distributed locks build on all of this and come on Days 386–390.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>JDK serialization by default</b>: binary keys nobody can inspect, and a renamed class makes every cached value undeserializable.</li>
+      <li><b>JSON values with <code>java.time</code> fields</b> failing because the serializer's internal <code>ObjectMapper</code> was not configured with the modules your application mapper has.</li>
+      <li><b>Keys without TTL</b>, or a TTL silently removed by a later plain <code>SET</code>: memory grows until eviction or OOM.</li>
+      <li><b><code>KEYS *</code> in an admin endpoint</b> freezing the server; block it with ACLs.</li>
+      <li><b>Multi-key scripts in Cluster</b> failing with <code>CROSSSLOT</code> because the keys lack a shared hash tag.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Start Redis with Testcontainers, save a value through Boot's default <code>RedisTemplate</code> and inspect it in <code>redis-cli</code>; then configure string keys and JSON values and compare.</li>
+    <li>Implement a leaderboard with a sorted set and a unique-visitor counter with HyperLogLog.</li>
+    <li>Fetch 1,000 keys sequentially and with <code>executePipelined</code>; time both.</li>
+    <li>Write the stock-reservation Lua script and a test firing 50 concurrent reservations at a stock of 10; assert exactly 10 succeed.</li>
+    <li>Replace a <code>keys("shop:*")</code> call with a <code>SCAN</code> loop.</li>
+  </ol></div>
+
+  <p class="refs"><b>Read</b> Spring Data Redis reference: “Drivers”, “Working with Objects through RedisTemplate”, “Serializers”, “Pipelining”, “Redis Scripting”, “Redis Repositories” (secondary indexes, time to live) · Spring Boot reference, “Redis” · Redis documentation: “Data types”, “Pipelining”, “Scripting with Lua”, <code>SCAN</code>, “Cluster specification” (hash tags) · Javadoc: <code>RedisTemplate</code>, <code>StringRedisTemplate</code>, <code>GenericJackson2JsonRedisSerializer</code>, <code>DefaultRedisScript</code></p>
+</article>
+
+<nav class="modnav">
+  <a href="p14.html"><small>Previous · Days 299–316</small>◂ Phase 14 — Spring MVC &amp; REST APIs</a>
+  <a class="next" href="p16.html"><small>Next · Days 329–334</small>Phase 16 — Transaction Management ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

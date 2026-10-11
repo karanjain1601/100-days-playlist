@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 2 — Markov Decision Processes · 130 Days of RL</title>
+<meta name="description" content="Days 18–27: Markov reward processes, returns and discounting, the MDP formalism, policies, value functions, the Bellman expectation and optimality equations, exact solution by linear algebra and linear programming, reward shaping, and the extensions beyond the standard MDP.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m2">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 2 · Markov Decision Processes · Days 18–27</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 2 · MDPs</h4>
+  <nav>
+    <a href="#d18"><span class="n">D18</span>Markov Reward Processes</a>
+    <a href="#d19"><span class="n">D19</span>Returns &amp; Discounting</a>
+    <a href="#d20"><span class="n">D20</span>The MDP Formalism</a>
+    <a href="#d21"><span class="n">D21</span>Policies</a>
+    <a href="#d22"><span class="n">D22</span>Value Functions</a>
+    <a href="#d23"><span class="n">D23</span>Bellman Expectation</a>
+    <a href="#d24"><span class="n">D24</span>Bellman Optimality</a>
+    <a href="#d25"><span class="n">D25</span>Solving MDPs Exactly</a>
+    <a href="#d26"><span class="n">D26</span>Reward Design &amp; Shaping</a>
+    <a href="#d27"><span class="n">D27</span>Beyond the Standard MDP</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="2"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m01.html">◂ Module 1</a><a href="m03.html">Module 3 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 2 · Days 18–27 · Weeks 4–6</p>
+<h1>Markov Decision Processes</h1>
+<p class="dek">Ten lessons that turn the agent–environment loop into mathematics: Markov reward processes, returns and discounting, the MDP tuple, policies, value functions, and the Bellman equations that every later algorithm solves, samples or approximates. Module 1's bandits were MDPs with a single state; Module 3 turns this module's equations into dynamic-programming algorithms for when the model is known, and everything after that is about doing without it.</p>
+<ul class="chips">
+  <li><b>10</b> lessons</li>
+  <li><b>6h 20m</b> video</li>
+  <li><b>11h 45m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto Ch. 3</b></li>
+  <li>Reference: <b>Puterman, <i>Markov Decision Processes</i>, Ch. 5–6</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Write an environment as \(p(s', r \mid s, a)\), derive every marginal from it, and fold a policy in to get the Markov chain \(P^\pi\) and reward vector \(R^\pi\).</li>
+    <li>Derive all four Bellman expectation relations from \(G_t = R_{t+1} + \gamma G_{t+1}\) with the tower rule, and draw their backup diagrams.</li>
+    <li>Evaluate a policy on a small MDP by hand, and exactly with \((I - \gamma P^\pi)^{-1}\), and say why that solve costs \(O(n^3)\).</li>
+    <li>State the Bellman optimality equations, explain why they are nonlinear, and extract \(\pi_*\) from \(v_*\) (with a model) or from \(q_*\) (without one).</li>
+    <li>Write an MDP as a linear program, interpret its dual as an occupancy measure, and sketch why a deterministic stationary optimal policy always exists.</li>
+    <li>Prove that potential-based shaping shifts every action value by \(-\Phi(s)\), and show how a naive bonus creates a reward loop instead.</li>
+    <li>Say when a problem needs a POMDP, SMDP, average-reward or constrained formulation rather than a plain MDP.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 18 -->
+<article class="day" id="d18">
+  <header class="day-head">
+    <span class="day-no">DAY 18</span>
+    <h2>Markov Chains → Markov Reward Processes</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">A Markov reward process is a Markov chain that pays out as it moves. There are no decisions yet, but there are already values, and estimating them is the first time the course turns “how good is it to be here?” into a number you can compute.</p>
+
+  <h3>The Markov property, restated formally</h3>
+  <p>Day 6 defined the Markov property for states alone. Once rewards enter, the property has to cover them too. A state signal \(S_t\) is Markov if the next state and reward depend on the history only through the current state:</p>
+  $$\Pr(S_{t+1} = s',\, R_{t+1} = r \mid S_t, R_t, S_{t-1}, \dots, R_1, S_0) = \Pr(S_{t+1} = s',\, R_{t+1} = r \mid S_t).$$
+  <div class="box def"><span class="tag">Definition · Markov state</span>
+    <p>\(S_t\) is a Markov state if it is a sufficient statistic of the history for the future: for every \(k \ge 1\), the distribution of \((R_{t+1}, S_{t+1}, \dots, R_{t+k}, S_{t+k})\) given the whole history equals its distribution given \(S_t\) alone. The one-step condition above implies the \(k\)-step one by induction, conditioning on the intermediate states exactly as in the Chapman–Kolmogorov derivation of Day 6.</p>
+  </div>
+  <p>The consequence used constantly from now on is that future returns are conditionally independent of the past: \(\E[G_{t+1} \mid S_{t+1}, R_{t+1}, S_t, \dots] = \E[G_{t+1} \mid S_{t+1}]\). That single fact turned the tower rule into a Bellman equation on Day 3. When it fails, because the “state” leaves out something that matters, every value you compute from the model is an average over situations the agent cannot tell apart.</p>
+
+  <h3>The state-transition matrix</h3>
+  <p>For a finite, time-homogeneous chain, the dynamics are one row-stochastic matrix</p>
+  $$P_{ss'} = \Pr(S_{t+1} = s' \mid S_t = s), \qquad P_{ss'} \ge 0, \qquad \sum_{s'} P_{ss'} = 1,$$
+  <p>with \(n\)-step transitions \(P^n\) and state distribution \(\mu_t = \mu_0 P^t\), as on Day 6. An episodic process has at least one absorbing state (\(P_{ss} = 1\)) that is reached with probability 1 from everywhere. In the Student MRP below that state is Sleep.</p>
+
+  <h3>Adding rewards: the MRP tuple ⟨S, P, R, γ⟩</h3>
+  <div class="box def"><span class="tag">Definition · Markov reward process</span>
+    <p>An MRP is a tuple \(\langle \mathcal S, P, R, \gamma \rangle\): a finite state set \(\mathcal S\), a transition matrix \(P\), a reward function \(R(s) = \E[R_{t+1} \mid S_t = s]\), and a discount \(\gamma \in [0, 1]\). Its <b>value function</b> is</p>
+    $$v(s) = \E\big[G_t \mid S_t = s\big], \qquad G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots .$$
+    <p>Because the process is time-homogeneous, \(v\) does not depend on \(t\).</p>
+  </div>
+  <p>Conventions differ on <em>when</em> a reward is paid. Here, as in Sutton &amp; Barto, \(R_{t+1}\) is received on leaving \(S_t\), so \(R(s)\) belongs to the state you are in. Other texts reward entering a state, \(R(s')\), or the transition, \(R(s, s')\). They are interchangeable, since \(R(s) = \sum_{s'} P_{ss'} R(s, s')\), but mixing two conventions in one program shifts every value by a step. The reward may also be random: only its conditional mean enters \(v\), by linearity of expectation.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 345" role="img" aria-label="The Student Markov reward process: seven states with transition probabilities and rewards">
+      <defs><marker id="ah-d18" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <line x1="120" y1="205" x2="238" y2="205" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="180" y="200" class="s-ink2 s-sm s-mid">0.5</text>
+      <path d="M85.4,181.9 Q67,137.5 84.7,94.9" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="60" y="142" class="s-ink2 s-sm s-mid">0.5</text>
+      <path d="M104.6,93.1 Q123,137.5 105.3,180.1" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="130" y="141" class="s-ink2 s-sm s-mid">0.1</text>
+      <line x1="290" y1="205" x2="408" y2="205" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="350" y="200" class="s-ink2 s-sm s-mid">0.8</text>
+      <line x1="288.2" y1="195.7" x2="566.1" y2="83.6" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="422.5" y="133.5" class="s-ink2 s-sm s-mid">0.2</text>
+      <line x1="460" y1="205" x2="573" y2="205" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="517.5" y="200" class="s-ink2 s-sm s-mid">0.6</text>
+      <path d="M425.1,227.9 Q407.7,268 372.7,290.4" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="419.3" y="271.6" class="s-ink2 s-sm s-mid">0.4</text>
+      <path d="M359.9,282.1 Q377.3,242 412.3,219.6" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="367.7" y="246.4" class="s-ink2 s-sm s-mid">0.4</text>
+      <line x1="333.8" y1="286" x2="282.5" y2="225.6" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="293.5" y="259" class="s-ink2 s-sm s-mid">0.4</text>
+      <line x1="326.7" y1="295.9" x2="120.1" y2="214.9" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="222.5" y="273" class="s-ink2 s-sm s-mid">0.2</text>
+      <line x1="600" y1="180" x2="600" y2="92" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="612" y="145.5" class="s-ink2 s-sm s-mid">1</text>
+      <path d="M72,58 C35,35 35,105 71,82" class="s-ln" marker-end="url(#ah-d18)"/>
+      <text x="30" y="74" class="s-ink2 s-sm s-mid">0.9</text>
+      <circle cx="95" cy="70" r="25" class="s-node"/>
+      <text x="95" y="74" class="s-ttl s-mid">FB</text>
+      <circle cx="95" cy="205" r="25" class="s-node"/>
+      <text x="95" y="209" class="s-ttl s-mid">C1</text>
+      <circle cx="265" cy="205" r="25" class="s-node"/>
+      <text x="265" y="209" class="s-ttl s-mid">C2</text>
+      <circle cx="435" cy="205" r="25" class="s-node"/>
+      <text x="435" y="209" class="s-ttl s-mid">C3</text>
+      <circle cx="600" cy="205" r="25" class="s-node"/>
+      <text x="600" y="209" class="s-ttl s-mid">Pass</text>
+      <circle cx="350" cy="305" r="25" class="s-node"/>
+      <text x="350" y="309" class="s-ttl s-mid">Pub</text>
+      <rect x="568" y="50" width="64" height="40" rx="3" class="s-node-mod"/>
+      <text x="600" y="74" class="s-ttl s-mid">Sleep</text>
+      <text x="95" y="32" class="s-mod s-sm s-mid">R = −1</text>
+      <text x="95" y="250" class="s-mod s-sm s-mid">R = −2</text>
+      <text x="246" y="170" class="s-mod s-sm s-mid">R = −2</text>
+      <text x="468" y="246" class="s-mod s-sm s-mid">R = −2</text>
+      <text x="600" y="250" class="s-mod s-sm s-mid">R = +10</text>
+      <text x="420" y="309" class="s-mod s-sm s-mid">R = +1</text>
+      <text x="600" y="36" class="s-mod s-sm s-mid">R = 0</text>
+    </svg>
+    <figcaption><b>The Student MRP.</b> David Silver's teaching example. Edges carry transition probabilities, and each state carries the expected reward \(R(s)\) for leaving it. Sleep (the square) is absorbing and terminal, and every episode reaches it with probability 1.</figcaption>
+  </figure>
+
+  <h3>Sampling episodes</h3>
+  <div class="box algo"><span class="tag">Algorithm · sample one episode and its return</span>
+    <ol>
+      <li>Start in \(S_0 = s\). Set \(G \leftarrow 0\) and \(k \leftarrow 0\).</li>
+      <li>While \(S_k\) is not terminal:
+        <ol>
+          <li>Receive \(R_{k+1}\) (here, \(R(S_k)\)) and set \(G \leftarrow G + \gamma^k R_{k+1}\).</li>
+          <li>Draw \(S_{k+1}\) from row \(S_k\) of \(P\), and set \(k \leftarrow k + 1\).</li>
+        </ol>
+      </li>
+      <li>Return the trajectory and \(G\), which is one sample of \(G_0\) given \(S_0 = s\).</li>
+    </ol>
+  </div>
+  <p>Two episodes from Class 1 with \(\gamma = 0.9\): C1 → C2 → C3 → Pass → Sleep earns \(-2 - 0.9\cdot 2 - 0.81\cdot 2 + 0.729\cdot 10 = 1.87\), while C1 → FB → FB → C1 → C2 → Sleep earns \(-6.48\). The value \(v(\text{C1})\) is the mean of this random variable over all episodes, weighted by their probabilities.</p>
+
+  <h3>Computing state values by simulation</h3>
+  <p>Draw \(n\) episodes from each start state and average their returns. By the law of large numbers (Day 3) the average converges to \(v(s)\), with standard error \(\sigma_s / \sqrt n\), where \(\sigma_s\) is the standard deviation of the return from \(s\). The “exact” column below comes from a 6×6 linear solve. Day 23 derives that system and Day 25 explains why it always has a unique solution when \(\gamma &lt; 1\).</p>
+  <pre><code>import numpy as np
+
+names = ["C1", "C2", "C3", "Pass", "Pub", "FB", "Sleep"]
+P = np.array([                       # P[s, s'] for the Student MRP (Silver, Lecture 2)
+    [0,  .5, 0,  0,  0,  .5, 0 ],    # Class 1
+    [0,  0,  .8, 0,  0,  0,  .2],    # Class 2
+    [0,  0,  0,  .6, .4, 0,  0 ],    # Class 3
+    [0,  0,  0,  0,  0,  0,  1 ],    # Pass
+    [.2, .4, .4, 0,  0,  0,  0 ],    # Pub
+    [.1, 0,  0,  0,  0,  .9, 0 ],    # Facebook
+    [0,  0,  0,  0,  0,  0,  1 ],    # Sleep: absorbing, terminal
+])
+R = np.array([-2, -2, -2, 10, 1, -1, 0.0])   # R(s) = E[R_{t+1} | S_t = s]
+gamma, SLEEP = 0.9, 6
+rng = np.random.default_rng(0)
+
+def sample_episode(s):
+    states, rewards = [s], []
+    while s != SLEEP:
+        rewards.append(R[s])                  # reward for leaving s ...
+        s = rng.choice(7, p=P[s])             # ... and the next state, drawn from row s
+        states.append(s)
+    return states, rewards
+
+def discounted(rewards):
+    return sum(gamma ** k * r for k, r in enumerate(rewards))
+
+states, rewards = sample_episode(0)
+print(" -&gt; ".join(names[s] for s in states), f"G0 = {discounted(rewards):.2f}")
+
+v_mc = [np.mean([discounted(sample_episode(s)[1]) for _ in range(2000)])
+        for s in range(6)]
+# Day 23 explains this line
+v_exact = np.linalg.solve(np.eye(6) - gamma * P[:6, :6], R[:6])
+for name, a, b in zip(names, v_mc, v_exact):
+    print(f"{name:&gt;5}  simulated {a:6.2f}   exact {b:6.2f}")</code></pre>
+  <p class="code-cap">The simulated values land within about 0.1 of the exact ones: C1 −5.0, C2 0.9, C3 4.1, Pass 10, Pub 1.9, FB −7.6. Twelve thousand episodes for six numbers is the price of not using the model.</p>
+
+  <div class="box intuition"><span class="tag">Intuition · value is about where you are going</span>
+    <p>Class 3 pays −2 yet is worth +4.1, because 60% of the time the next stop is Pass (+10). Class 1 pays the same −2 and is worth −5.0, because half the time it leads to Facebook, a 0.9 self-loop that drains −1 per step for an expected \(1/(1 - 0.9) = 10\) steps. Pub beats Class 2 on its own reward (+1 against −2) even though its continuation is worse: \(\gamma\,\E[v(S_{t+1})]\) is 0.91 from Pub and 2.94 from Class 2. A state's value is its own expected reward plus the discounted value of where it leads, and the second term usually dominates.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>A non-Markov state.</b> If the chance of leaving Facebook depended on how long you had been there, the seven-state model would be wrong, and simulating it would disagree with the real process however many episodes you ran. The fix is a richer state (time on Facebook), not more samples.</li>
+      <li><b>Continuing processes.</b> With no terminal state you must truncate each simulated return at some horizon \(H\). If \(|R| \le R_{\max}\), the truncation bias is at most \(\gamma^H R_{\max} / (1 - \gamma)\), so choose \(H\) from that bound (Day 19).</li>
+      <li><b>\(\gamma = 1\) is safe only if termination is certain.</b> The Student MRP reaches Sleep with probability 1, so its undiscounted values exist (C1 ≈ −12.5, FB ≈ −22.5). Delete the edges into Sleep and they no longer do.</li>
+      <li><b>Starting anywhere is a luxury.</b> Estimating \(v(s)\) by starting in \(s\) needs a simulator you can reset to any state. Real systems hand you trajectories from wherever they happen to be, so Monte Carlo methods (Day 35) reuse the visits inside each episode instead.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run the snippet with \(n\) = 100, 1,000 and 10,000 episodes per state, and check that the error against the exact values shrinks like \(1/\sqrt n\).</li>
+      <li>Set \(\gamma = 1\). Confirm by simulation and by the linear solve that \(v(\text{C1}) \approx -12.5\) and \(v(\text{FB}) \approx -22.5\). Which states have the noisiest estimates, and why?</li>
+      <li>Using the linear solve, find by bisection the smallest reward for Pass that makes \(v(\text{C1}) &gt; 0\) at \(\gamma = 0.9\).</li>
+      <li>Write an every-visit estimator: run episodes from C1 only, and credit every state visited with the discounted return that follows that visit. Compare its estimates and their spread with the start-anywhere estimator at an equal number of environment steps.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.1 · David Silver, UCL RL Lecture 2 (the Student MRP) · Day 6 of this course (Markov chains)</p>
+</article>
+
+<!-- ================================================================ DAY 19 -->
+<article class="day" id="d19">
+  <header class="day-head">
+    <span class="day-no">DAY 19</span>
+    <h2>Returns &amp; Discounting</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">The return is the quantity every agent in this course maximises in expectation. Discounting keeps it finite, sets how far ahead the agent looks, and hands us the one-line recursion \(G_t = R_{t+1} + \gamma G_{t+1}\) on which every later equation is built.</p>
+
+  <h3>The return</h3>
+  <div class="box def"><span class="tag">Definition · return</span>
+    <p>For a continuing task with discount \(0 \le \gamma &lt; 1\),</p>
+    $$G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots = \sum_{k=0}^{\infty} \gamma^k R_{t+k+1}.$$
+    <p>For an episodic task that terminates at time \(T\), \(G_t = R_{t+1} + \gamma R_{t+2} + \dots + \gamma^{T-t-1} R_T\), and \(\gamma = 1\) is allowed.</p>
+  </div>
+  <p>\(T\) is itself random (the first time a terminal state is hit), so \(G_t\) is a random sum of random terms. Its expectation is what we will call a value.</p>
+
+  <h3>Episodic and continuing tasks</h3>
+  <p>Episodic tasks break into independent episodes that end in a terminal state and then reset: games, mazes, one grasp attempt by a robot. The state set including the terminal state is written \(\mathcal S^+\). Continuing tasks run forever: process control, a recommender serving live traffic, the machine of Day 20. A time limit does not turn a continuing task into an episodic one. The state at the cut-off is not terminal and still has a future, which is the terminated-versus-truncated distinction of Day 8.</p>
+
+  <h3>Why we discount</h3>
+  <ol>
+    <li><b>Convergence.</b> With bounded rewards an infinite sum of them can diverge, but a discounted one cannot.
+      <div class="box deriv"><span class="tag">Derivation · bounded returns</span>
+        <p>If \(|R_t| \le R_{\max}\) for all \(t\), then \(|G_t| \le \sum_{k \ge 0} \gamma^k R_{\max} = R_{\max} / (1 - \gamma)\). Every value function is then bounded by the same constant, which is what makes the sup-norm arguments of Day 4 and Day 32 work.</p>
+      </div>
+    </li>
+    <li><b>Uncertainty.</b> Discounting is equivalent to a world that might end. Suppose that after every step the process survives independently with probability \(\gamma\), so it is still running after \(k\) steps with probability \(\gamma^k\). The expected <em>undiscounted</em> reward collected is \(\sum_k \gamma^k\, \E[R_{t+k+1}]\), the expected discounted return. So \(\gamma\) also measures how far ahead you trust your model of the world, or your chance of being switched off.</li>
+    <li><b>The financial analogy.</b> With interest rate \(\rho\) per step, a payment \(k\) steps from now is worth \(R/(1+\rho)^k\) today. That is discounting with \(\gamma = 1/(1+\rho)\), and \(\gamma = 0.99\) corresponds to roughly 1% interest per step. Money now can be invested; reward now cannot be lost to an uncertain future.</li>
+  </ol>
+  <p>There is a fourth, less principled reason: algorithms behave better. The Bellman operator is a \(\gamma\)-contraction (Day 4), and returns over shorter effective horizons have lower variance. Deep RL uses \(\gamma &lt; 1\) even on episodic tasks for exactly these reasons.</p>
+
+  <h3>γ = 0 versus γ → 1</h3>
+  <p>With \(\gamma = 0\) the return is \(G_t = R_{t+1}\). The agent maximises immediate reward, each state becomes an independent bandit (the contextual bandit of Day 17), and any action whose payoff is delayed looks worthless: servicing the Day 20 machine costs 1 now and is never chosen. As \(\gamma \to 1\) the agent becomes far-sighted. Values grow like \(1/(1-\gamma)\), returns sum more random rewards and so have higher variance, credit must be assigned over longer stretches, and in continuing tasks the natural limit is the average-reward criterion of Day 27.</p>
+  <p>The discount is part of the problem, not just a knob. Offer the agent +1 now (ending the episode) or +10 arriving as \(R_{30}\), weighted by \(\gamma^{29}\). With \(\gamma = 0.9\) the far reward is worth \(10 \times 0.9^{29} \approx 0.47\), so the optimal policy takes the +1. With \(\gamma = 0.99\) it is worth \(\approx 7.47\), and the optimal policy waits. Different \(\gamma\), different optimal behaviour.</p>
+
+  <h3>The effective horizon ≈ 1/(1−γ)</h3>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    <p>The weights \(\gamma^k\) sum to \(\sum_{k \ge 0} \gamma^k = 1/(1-\gamma)\). The share of the total weight placed on lags \(k \ge H\) is</p>
+    $$\frac{\sum_{k \ge H} \gamma^k}{\sum_{k \ge 0} \gamma^k} = \gamma^H = e^{H \ln \gamma} \approx e^{-H(1-\gamma)},$$
+    <p>using \(\ln \gamma = -(1-\gamma) - (1-\gamma)^2/2 - \cdots \approx -(1-\gamma)\) for \(\gamma\) near 1. At \(H = 1/(1-\gamma)\) about \(e^{-1} \approx 37\%\) of the weight remains, so the first \(1/(1-\gamma)\) steps carry roughly 63% of it. In the survival picture, \(1/(1-\gamma)\) is also the mean lifetime of the geometric process.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 235" role="img" aria-label="Discount weights gamma to the k for gamma 0.5, 0.9 and 0.99">
+      <line x1="60" y1="190" x2="610" y2="190" class="s-ln"/><line x1="60" y1="22" x2="60" y2="190" class="s-ln"/>
+      <text x="54" y="34" class="s-ink3 s-end s-sm">1.0</text><text x="54" y="114" class="s-ink3 s-end s-sm">0.5</text><text x="54" y="193" class="s-ink3 s-end s-sm">0</text>
+      <text x="60" y="206" class="s-ink3 s-mid s-sm">0</text>
+      <text x="150" y="206" class="s-ink3 s-mid s-sm">10</text>
+      <text x="240" y="206" class="s-ink3 s-mid s-sm">20</text>
+      <text x="330" y="206" class="s-ink3 s-mid s-sm">30</text>
+      <text x="420" y="206" class="s-ink3 s-mid s-sm">40</text>
+      <text x="510" y="206" class="s-ink3 s-mid s-sm">50</text>
+      <text x="600" y="206" class="s-ink3 s-mid s-sm">60</text>
+      <text x="335" y="226" class="s-ink3 s-mid s-sm">steps into the future, k</text>
+      <line x1="60" y1="131.1" x2="600" y2="131.1" class="s-grid s-dash"/>
+      <text x="604" y="135.1" class="s-ink3 s-sm">1/e</text>
+      <polyline points="60,30.0 69,110.0 78,150.0 87,170.0 96,180.0 105,185.0 114,187.5 123,188.8 132,189.4 141,189.7 150,189.8 159,189.9 168,190.0 177,190.0 186,190.0" class="s-ln-warn"/>
+      <polyline points="60,30.0 78,60.4 96,85.0 114,105.0 132,121.1 150,134.2 168,144.8 186,153.4 204,160.4 222,166.0 240,170.5 258,174.2 276,177.2 294,179.7 312,181.6 330,183.2 348,184.5 366,185.5 384,186.4 402,187.1 420,187.6 438,188.1 456,188.4 474,188.7 492,189.0 510,189.2 528,189.3 546,189.5 564,189.6 582,189.6 600,189.7" class="s-ln-mod"/>
+      <polyline points="60,30.0 87,34.8 114,39.4 141,43.8 168,48.2 195,52.4 222,56.5 249,60.4 276,64.3 303,68.0 330,71.6 357,75.2 384,78.6 411,81.9 438,85.1 465,88.2 492,91.2 519,94.2 546,97.0 573,99.8 600,102.5" class="s-ln-info"/>
+      <circle cx="78" cy="150.0" r="4" class="s-warn"/>
+      <circle cx="150" cy="134.2" r="4" class="s-mod"/>
+      <g class="s-sm">
+        <line x1="390" y1="142" x2="410" y2="142" class="s-ln-warn"/><text x="418" y="146">γ = 0.5    1/(1−γ) = 2</text>
+        <line x1="390" y1="158" x2="410" y2="158" class="s-ln-mod"/><text x="418" y="162">γ = 0.9    1/(1−γ) = 10</text>
+        <line x1="390" y1="174" x2="410" y2="174" class="s-ln-info"/><text x="418" y="178">γ = 0.99   1/(1−γ) = 100</text>
+      </g>
+    </svg>
+    <figcaption><b>Discount weights \(\gamma^k\).</b> The dots mark \(k = 1/(1-\gamma)\); for \(\gamma = 0.9\) the weight there is \(0.9^{10} \approx 0.35\), close to \(1/e\). The \(\gamma = 0.99\) curve has an effective horizon of 100 steps and is still above 0.5 at \(k = 60\).</figcaption>
+  </figure>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>γ</th><th>1/(1−γ)</th><th>weight in the first 1/(1−γ) steps</th><th>steps until γ<sup>k</sup> &lt; 1%</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0.9</td><td class="num">10</td><td class="num">0.651</td><td class="num">44</td></tr>
+      <tr><td class="num">0.99</td><td class="num">100</td><td class="num">0.634</td><td class="num">458</td></tr>
+      <tr><td class="num">0.999</td><td class="num">1000</td><td class="num">0.632</td><td class="num">4603</td></tr>
+    </tbody>
+  </table></div>
+  <p>\(\gamma = 0.99\) is the common deep-RL default: about 100 decisions of look-ahead. Atari agents act every fourth frame, so that is around 400 frames, under seven seconds of play. A reward 500 steps away is worth \(0.99^{500} \approx 0.007\) of an immediate one, which is why sparse, distant rewards need either a larger \(\gamma\) or help (Day 26).</p>
+
+  <h3>The recursive identity</h3>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    $$G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots = R_{t+1} + \gamma\big(R_{t+2} + \gamma R_{t+3} + \cdots\big) = R_{t+1} + \gamma G_{t+1},$$
+    <p>valid for every \(t &lt; T\), with \(G_T = 0\) at termination.</p>
+  </div>
+  <p>Nearly everything in the course uses this line. It computes every return of an episode in one backward pass (below). Replace \(G_{t+1}\) by an estimate \(V(S_{t+1})\) and you have the TD target of Day 42. Take its conditional expectation and you have the Bellman equation of Day 23.</p>
+  <pre><code>import numpy as np
+
+def discounted_returns(rewards, gamma):
+    """G_t for every t of a finished episode; rewards[t] holds R_{t+1}."""
+    G, out = 0.0, np.zeros(len(rewards))
+    # G_t = R_{t+1} + gamma * G_{t+1}, with G_T = 0
+    for t in reversed(range(len(rewards))):
+        G = rewards[t] + gamma * G
+        out[t] = G
+    return out
+
+rewards = [0, 0, 0, 0, 1]                     # one +1 on reaching the goal at T = 5
+for gamma in [0.0, 0.5, 0.9, 1.0]:
+    print(gamma, discounted_returns(rewards, gamma))
+
+for gamma in [0.9, 0.99, 0.999]:
+    H = 1 / (1 - gamma)
+    k1 = np.log(0.01) / np.log(gamma)         # steps until gamma^k drops below 1%
+    print(f"gamma={gamma}: 1/(1-gamma)={H:5.0f}  "
+          f"weight in first H steps={1 - gamma ** H:.3f}  1% horizon={k1:5.0f}")</code></pre>
+  <p class="code-cap">One backward pass computes all \(G_t\). With \(\gamma = 0\) only the last step sees the reward; with \(\gamma = 0.9\) the goal's value decays by 0.9 per step of distance, which is how discounting creates urgency.</p>
+
+  <h3>Unified notation with absorbing states</h3>
+  <p>Episodic and continuing tasks can share one formula. Treat termination as entering an absorbing state that transitions only to itself and pays 0 forever. Summing to \(T\) and summing to \(\infty\) then give the same return, and we can write</p>
+  $$G_t = \sum_{k=t+1}^{T} \gamma^{k-t-1} R_k,$$
+  <p>allowing either \(T = \infty\) or \(\gamma = 1\), but not both. This is Sutton &amp; Barto's convention, and it is also how every Bellman equation handles terminal states: \(v(\text{terminal}) = 0\).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 130" role="img" aria-label="An episodic task drawn as a chain that ends in an absorbing state with zero reward">
+      <defs><marker id="ah-d19" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <circle cx="60" cy="62" r="20" class="s-ln-ink"/>
+      <text x="60" y="66" class="s-mid">S₀</text>
+      <circle cx="190" cy="62" r="20" class="s-ln-ink"/>
+      <text x="190" y="66" class="s-mid">S₁</text>
+      <circle cx="320" cy="62" r="20" class="s-ln-ink"/>
+      <text x="320" y="66" class="s-mid">S₂</text>
+      <line x1="80" y1="62" x2="168" y2="62" class="s-ln" marker-end="url(#ah-d19)"/>
+      <text x="124" y="52" class="s-mod s-mid s-sm">R₁ = +1</text>
+      <line x1="210" y1="62" x2="298" y2="62" class="s-ln" marker-end="url(#ah-d19)"/>
+      <text x="254" y="52" class="s-mod s-mid s-sm">R₂ = +1</text>
+      <line x1="340" y1="62" x2="428" y2="62" class="s-ln" marker-end="url(#ah-d19)"/>
+      <text x="384" y="52" class="s-mod s-mid s-sm">R₃ = +1</text>
+      <rect x="432" y="44" width="36" height="36" class="s-node-mod"/>
+      <path d="M468,52 C505,30 505,94 469,72" class="s-ln" marker-end="url(#ah-d19)"/>
+      <text x="510" y="58" class="s-mod s-sm">R₄ = R₅ = … = 0</text>
+      <text x="510" y="74" class="s-ink2 s-sm">absorbing</text>
+      <text x="320" y="116" class="s-ink2 s-mid s-sm">summing rewards to T = 3 or to ∞ gives the same return: the absorbing state adds only zeros</text>
+    </svg>
+    <figcaption><b>Termination as an absorbing state.</b> After the last real reward the process sits in a state that loops to itself with reward 0, so a single formula covers episodic and continuing tasks (Sutton &amp; Barto §3.4).</figcaption>
+  </figure>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>\(\gamma = 1\) in a continuing task.</b> \(G_t\) diverges and values are undefined. Use \(\gamma &lt; 1\) or the average-reward formulation (Day 27).</li>
+      <li><b>Truncation treated as termination.</b> Zeroing the future at a time limit biases values towards zero near the limit (Day 8).</li>
+      <li><b>Off-by-one in the backward pass.</b> If <code>rewards[t]</code> holds \(R_{t+1}\), the update is <code>G = r + gamma * G</code>. The tempting <code>G = gamma * (G + r)</code> computes \(\gamma G_t\), and every value comes out a factor \(\gamma\) too small.</li>
+      <li><b>\(\gamma\) too small for the task.</b> If the only reward is 500 steps away, \(\gamma = 0.9\) makes it worth \(10^{-23}\) of an immediate reward, numerically nothing.</li>
+      <li><b>Comparing results at different \(\gamma\).</b> They optimise different objectives. Common practice is to train with \(\gamma = 0.99\) but report undiscounted episode return. That is fine, as long as you remember the agent was never optimising what you report.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Prove \(|G_t| \le R_{\max}/(1-\gamma)\), and prove the survival equivalence: discounting by \(\gamma\) equals undiscounted reward in a process that stops with probability \(1-\gamma\) after every step.</li>
+      <li>Run the snippet. Derive by hand the closed form of \(G_t\) for the reward sequence <code>[0, 0, 0, 0, 1]</code> and check it against the output.</li>
+      <li>Plot the share of weight in the first \(1/(1-\gamma)\) steps for \(\gamma \in [0.5, 0.9999]\) and confirm it tends to \(1 - 1/e\).</li>
+      <li>+1 now or +10 at step \(k\)? For each \(\gamma \in \{0.9, 0.95, 0.99\}\), find the \(k\) at which the agent is indifferent, \(10\gamma^{k-1} = 1\).</li>
+      <li>CartPole pays +1 per step and truncates at 500 steps. What is the largest possible discounted return with \(\gamma = 0.99\)? (About 99.3.) What does that imply about the scale of a learned value function?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.3–3.4 · Jiang et al. 2015, “The Dependence of Effective Planning Horizon on Model Accuracy” · Pardo et al. 2018, “Time Limits in Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 20 -->
+<article class="day" id="d20">
+  <header class="day-head">
+    <span class="day-no">DAY 20</span>
+    <h2>The MDP Formalism</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">An MDP is a Markov reward process with the agent's choices put back in. One object, the four-argument dynamics \(p(s', r \mid s, a)\), says everything there is to know about the environment, and every quantity the algorithms need is a marginal of it.</p>
+
+  <h3>The tuple ⟨S, A, P, R, γ⟩</h3>
+  <div class="box def"><span class="tag">Definition · finite Markov decision process</span>
+    <p>A finite set of states \(\mathcal S\), a finite set of actions \(\mathcal A\) (or \(\mathcal A(s)\) per state), a discount \(\gamma \in [0, 1]\), and the <b>dynamics</b></p>
+    $$p(s', r \mid s, a) = \Pr\big(S_{t+1} = s',\, R_{t+1} = r \mid S_t = s,\, A_t = a\big),$$
+    $$\sum_{s' \in \mathcal S} \sum_{r} p(s', r \mid s, a) = 1 \quad \text{for all } s, a.$$
+    <p>The Markov property now reads: given \((S_t, A_t)\), the pair \((S_{t+1}, R_{t+1})\) is independent of everything earlier.</p>
+  </div>
+  <p>The tuple \(\langle \mathcal S, \mathcal A, P, R, \gamma \rangle\) lists two marginals of \(p\), the transition probabilities \(P\) and the expected rewards \(R\). The four-argument \(p\) carries strictly more: the joint distribution of reward and next state, and the full reward distribution rather than just its mean. Expected-value planning needs only the marginals. Distributional RL (Day 79) and risk-sensitive objectives (Day 122) need the rest.</p>
+
+  <h3>Deriving the marginals</h3>
+  <div class="box deriv"><span class="tag">Derivation · everything from p(s′, r | s, a)</span>
+    <p>Sum out what you don't need, and condition on what you do (Day 3):</p>
+    $$p(s' \mid s, a) = \sum_r p(s', r \mid s, a), \qquad r(s, a) = \E[R_{t+1} \mid s, a] = \sum_r r \sum_{s'} p(s', r \mid s, a),$$
+    $$r(s, a, s') = \E[R_{t+1} \mid s, a, s'] = \frac{\sum_r r\, p(s', r \mid s, a)}{p(s' \mid s, a)} .$$
+    <p>The three are consistent by the tower rule: \(r(s, a) = \sum_{s'} p(s' \mid s, a)\, r(s, a, s')\).</p>
+  </div>
+  <p>Why do the marginals suffice for planning? Because the expected return depends on rewards only through their conditional means. Linearity of expectation gives \(\E[G_t] = \sum_k \gamma^k\, \E[R_{t+k+1}]\), and each \(\E[R_{t+k+1}] = \E\big[r(S_{t+k}, A_{t+k})\big]\) by the tower rule. Two environments with the same \(p(s' \mid s, a)\) and \(r(s, a)\) have identical value functions for every policy, however different their reward noise.</p>
+
+  <h3>The running example: a machine that wears out</h3>
+  <p>A machine is <b>G</b>ood, <b>W</b>orn or <b>B</b>roken. Each shift you either <b>run</b> it or <b>fix</b> it. Running a good machine earns 3 and wears it out half the time. Running a worn one earns 2, except that 40% of the time it breaks partway through the shift and earns only 1. Fixing a good or worn machine costs 1 and leaves it good; repairing a broken one costs 8. Running a broken machine earns nothing and leaves it broken. Take \(\gamma = 0.9\). Days 21–27 all use this MDP.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>s</th><th>a</th><th>s′</th><th>r</th><th>p(s′, r | s, a)</th><th>p(s′ | s, a)</th><th>r(s, a)</th></tr></thead>
+    <tbody>
+      <tr><td>G</td><td>run</td><td>G</td><td class="num">+3</td><td class="num">0.5</td><td class="num">0.5</td><td class="num" rowspan="2">3</td></tr>
+      <tr><td>G</td><td>run</td><td>W</td><td class="num">+3</td><td class="num">0.5</td><td class="num">0.5</td></tr>
+      <tr><td>G</td><td>fix</td><td>G</td><td class="num">−1</td><td class="num">1</td><td class="num">1</td><td class="num">−1</td></tr>
+      <tr><td>W</td><td>run</td><td>W</td><td class="num">+2</td><td class="num">0.6</td><td class="num">0.6</td><td class="num" rowspan="2">1.6</td></tr>
+      <tr><td>W</td><td>run</td><td>B</td><td class="num">+1</td><td class="num">0.4</td><td class="num">0.4</td></tr>
+      <tr><td>W</td><td>fix</td><td>G</td><td class="num">−1</td><td class="num">1</td><td class="num">1</td><td class="num">−1</td></tr>
+      <tr><td>B</td><td>run</td><td>B</td><td class="num">0</td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+      <tr><td>B</td><td>fix</td><td>G</td><td class="num">−8</td><td class="num">1</td><td class="num">1</td><td class="num">−8</td></tr>
+    </tbody>
+  </table></div>
+  <p>The worn-and-run row is the interesting one: \(r(\text{W}, \text{run}) = 0.6 \cdot 2 + 0.4 \cdot 1 = 1.6\), while \(r(\text{W}, \text{run}, \text{W}) = 2\) and \(r(\text{W}, \text{run}, \text{B}) = 1\). The reward depends on the next state, which is exactly the information the two-argument \(r(s, a)\) averages away.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 690 340" role="img" aria-label="Transition graph of the machine-maintenance MDP: states good, worn, broken; actions run and fix">
+      <defs><marker id="ah-d20" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <line x1="132.2" y1="149.6" x2="228.4" y2="82.6" class="s-ln"/>
+      <line x1="239.9" y1="81.4" x2="336.2" y2="148.4" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="311.5" y="117.5" class="s-ink2 s-sm s-mid">0.5, +3</text>
+      <path d="M229.1,79.3 Q154.2,95.2 125.5,140.5" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="139.8" y="92.6" class="s-ink2 s-sm s-mid">0.5, +3</text>
+      <line x1="97.9" y1="189.1" x2="58.6" y2="267.8" class="s-ln"/>
+      <path d="M54.8,269 Q52.1,204.8 86.1,181.4" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="37.3" y="209" class="s-ink2 s-sm s-mid">1, −1</text>
+      <line x1="381.9" y1="149.2" x2="473.5" y2="82.7" class="s-ln"/>
+      <line x1="484.9" y1="81.5" x2="576.5" y2="148" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="558" y="117.5" class="s-ink2 s-sm s-mid">0.4, +1</text>
+      <path d="M474.1,79.3 Q401.2,95.6 374.8,140.1" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="388.8" y="92.6" class="s-ink2 s-sm s-mid">0.6, +2</text>
+      <line x1="336.2" y1="177.8" x2="242.1" y2="228.2" class="s-ln"/>
+      <line x1="229.7" y1="229.2" x2="135.6" y2="178.7" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="180.5" y="192.5" class="s-ink2 s-sm s-mid">1, −1</text>
+      <line x1="610.8" y1="189.8" x2="646.8" y2="272.7" class="s-ln"/>
+      <path d="M650.2,274 Q652.5,210.5 621.9,184" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="668.3" y="223.8" class="s-ink2 s-sm s-mid">1, 0</text>
+      <line x1="578.8" y1="181.8" x2="476.3" y2="263" class="s-ln"/>
+      <path d="M464.1,269.1 Q263.9,307.8 131.3,184.7" class="s-ln" marker-end="url(#ah-d20)"/>
+      <text x="280.8" y="281.4" class="s-ink2 s-sm s-mid">1, −8</text>
+      <circle cx="110" cy="165" r="27" class="s-node"/>
+      <text x="110" y="170" class="s-ttl s-mid">G</text>
+      <circle cx="360" cy="165" r="27" class="s-node"/>
+      <text x="360" y="170" class="s-ttl s-mid">W</text>
+      <circle cx="600" cy="165" r="27" class="s-node"/>
+      <text x="600" y="170" class="s-ttl s-mid">B</text>
+      <circle cx="235" cy="78" r="6" class="s-ink"/>
+      <circle cx="55" cy="275" r="6" class="s-ink"/>
+      <circle cx="480" cy="78" r="6" class="s-ink"/>
+      <circle cx="235" cy="232" r="6" class="s-ink"/>
+      <circle cx="650" cy="280" r="6" class="s-ink"/>
+      <circle cx="470" cy="268" r="6" class="s-ink"/>
+      <text x="235" y="64" class="s-mod s-sm s-mid">run</text>
+      <text x="55" y="300" class="s-mod s-sm s-mid">fix</text>
+      <text x="480" y="64" class="s-mod s-sm s-mid">run</text>
+      <text x="245" y="252" class="s-mod s-sm s-mid">fix</text>
+      <text x="650" y="304" class="s-mod s-sm s-mid">run</text>
+      <text x="486" y="286" class="s-mod s-sm s-mid">fix</text>
+      <text x="345" y="334" class="s-ink3 s-sm s-mid">edge labels: p(s′ | s, a), reward r</text>
+    </svg>
+    <figcaption><b>The machine-maintenance MDP as a transition graph</b>, drawn in Sutton &amp; Barto's style. Large open circles are states, small filled circles are state–action pairs, and every arrow out of an action is labelled with its probability and reward. The outgoing probabilities of each action node sum to 1.</figcaption>
+  </figure>
+  <pre><code>import numpy as np
+
+G, W, B = 0, 1, 2                 # states: good, worn, broken
+RUN, FIX = 0, 1                   # actions
+gamma = 0.9
+
+# The complete dynamics p(s', r | s, a), as (s', r, probability) triples.
+dynamics = {
+    (G, RUN): [(G, 3.0, 0.5), (W, 3.0, 0.5)],
+    (G, FIX): [(G, -1.0, 1.0)],
+    # breaking mid-shift loses half the output
+    (W, RUN): [(W, 2.0, 0.6), (B, 1.0, 0.4)],
+    (W, FIX): [(G, -1.0, 1.0)],
+    (B, RUN): [(B, 0.0, 1.0)],
+    (B, FIX): [(G, -8.0, 1.0)],
+}
+
+nS, nA = 3, 2
+P = np.zeros((nS, nA, nS))   # p(s' | s, a)          = sum_r p(s', r | s, a)
+R = np.zeros((nS, nA))       # r(s, a)               = sum_{s', r} r p(s', r | s, a)
+RS = np.zeros((nS, nA, nS))  # sum_r r p(s', r | s, a), the numerator of r(s, a, s')
+for (s, a), outcomes in dynamics.items():
+    # one distribution per (s, a)
+    assert abs(sum(p for _, _, p in outcomes) - 1) &lt; 1e-12
+    for s2, r, p in outcomes:
+        P[s, a, s2] += p
+        R[s, a] += p * r
+        RS[s, a, s2] += p * r
+R_sas = np.divide(RS, P, out=np.zeros_like(RS), where=P &gt; 0)  # r(s, a, s')
+
+if __name__ == "__main__":
+    print(P[W, RUN], R[W, RUN], R_sas[W, RUN])      # [0. 0.6 0.4] 1.6 [0. 2. 1.]
+    # r(s,a) = sum_s' p(s'|s,a) r(s,a,s')
+    assert np.allclose(R, (P * R_sas).sum(axis=2))</code></pre>
+  <p class="code-cap">Save this as <code>machine.py</code>; the snippets in Days 21–27 import <code>P</code>, <code>R</code> and <code>gamma</code> from it. The assertion on each outcome list catches the commonest hand-built-MDP bug, probabilities that don't sum to 1.</p>
+
+  <h3>Finite, countable and continuous MDPs</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Kind</th><th>Example</th><th>What changes</th></tr></thead>
+    <tbody>
+      <tr><td>Finite</td><td>gridworlds, FrozenLake, the machine</td><td>sums and arrays; everything in Modules 2–6</td></tr>
+      <tr><td>Countably infinite</td><td>queue length, uncapped inventory</td><td>sums become series; values need bounded (or slowly growing) rewards; no tables</td></tr>
+      <tr><td>Continuous state</td><td>CartPole (4 reals), images</td><td>\(p(\cdot \mid s, a)\) becomes a density, values become functions to approximate (Module 7)</td></tr>
+      <tr><td>Continuous action</td><td>joint torques in MuJoCo</td><td>\(\max_a\) becomes an optimisation problem (Days 93–95)</td></tr>
+    </tbody>
+  </table></div>
+  <p>With continuous states the dynamics are a transition kernel, \(\Pr(S_{t+1} \in B \mid s, a) = \int_B p(s' \mid s, a)\, ds'\), and every sum over \(s'\) in this module becomes an integral. The Bellman equations survive unchanged in form. The existence theory needs regularity conditions (measurability, compact action sets, some continuity), which Bertsekas &amp; Shreve (1978) work out in full. In this course, the practical consequence is simply that tables are replaced by function approximators.</p>
+
+  <h3>The agent–environment boundary</h3>
+  <p>Sutton &amp; Barto's rule: anything the agent cannot change arbitrarily is part of the environment. A robot's motors, its sensors, even its body are environment. So is the reward computation, even when it runs on the robot's own computer, because an agent that could set its own reward would simply set it high. The boundary marks the limit of the agent's <em>control</em>, not of its knowledge: a chess player knows the rules completely, and they are still the environment.</p>
+  <p>Where to draw it is a design decision with consequences. A delivery robot can choose motor voltages every 10 ms (a huge horizon and a low-level action space) or choose the next waypoint every few seconds (a short horizon, with a controller absorbed into the environment). A language model's actions can be tokens, with the user and the grader as environment, or whole responses. Hierarchical RL (Day 113) is about having both levels at once.</p>
+
+  <h3>Goals as rewards, and how badly this can go wrong</h3>
+  <p>The reward says <em>what</em> you want achieved, not <em>how</em> to achieve it. Reward a chess agent for winning, not for taking pieces, or it will learn to take pieces at the cost of the game (Sutton &amp; Barto §3.2). Give a maze agent −1 per step and it hurries; give it +1 at the exit with \(\gamma = 1\) and every path that eventually escapes is optimal, however slow. The agent will optimise exactly what you wrote, including its loopholes: a boat-racing agent rewarded for hitting targets learned to circle a lagoon forever instead of finishing the race. Day 26 is a full lesson on this. Write the reward as carefully as the algorithm, and before it.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Missing state information.</b> If the reward or the next state depends on something not in \(S_t\) (time of day, the last action, a hidden counter), the process is not an MDP in that state. Tabular methods may then converge to the wrong values or oscillate.</li>
+      <li><b>Rows that don't sum to 1.</b> A hand-built transition table with a typo creates or destroys probability mass, and the values come out wrong with no error raised. Assert it.</li>
+      <li><b>Discarding the joint.</b> Storing only \(r(s, a)\) is fine for expected-value planning, but it cannot generate realistic samples when the reward depends on \(s'\), and a simulator built that way has the right means and the wrong correlations.</li>
+      <li><b>Rewarding the method.</b> Rewards for subgoals (pieces taken, distance moved) get optimised in their own right, often against the real goal.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Build <code>machine.py</code>. Add a third action, “slow”, available in W: it earns +1 and never breaks the machine. Write its outcomes, rebuild <code>P</code> and <code>R</code>, and check the assertions still hold.</li>
+      <li>Write Sutton &amp; Barto's recycling robot (Example 3.3) as a four-argument dynamics dictionary with \(\alpha = 0.9\), \(\beta = 0.6\), \(r_{\text{search}} = 2\), \(r_{\text{wait}} = 1\), and derive \(p(s' \mid s, a)\) and \(r(s, a)\).</li>
+      <li>In Gymnasium, <code>gym.make("FrozenLake-v1").unwrapped.P[s][a]</code> is a list of <code>(prob, next_state, reward, terminated)</code> tuples. Convert it to arrays <code>P[s, a, s']</code> and <code>R[s, a]</code> and check every row sums to 1, for both the slippery and the deterministic version.</li>
+      <li>Pick a task (a coffee-making robot, a thermostat, a trading agent). Draw the agent–environment boundary in two different places and write down the states, actions, rewards and time step for each.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.1–3.2 · Puterman 1994, Ch. 2 · Bertsekas &amp; Shreve 1978, <i>Stochastic Optimal Control: The Discrete-Time Case</i> (for the continuous-state theory)</p>
+</article>
+
+<!-- ================================================================ DAY 21 -->
+<article class="day" id="d21">
+  <header class="day-head">
+    <span class="day-no">DAY 21</span>
+    <h2>Policies</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">A policy is a rule for choosing actions. Fix one and the MDP collapses back into a Markov reward process with transition matrix \(P^\pi\), so everything known about chains and MRPs applies to evaluating any policy.</p>
+
+  <h3>Deterministic and stochastic policies</h3>
+  <div class="box def"><span class="tag">Definition · policy</span>
+    <ul>
+      <li><b>Deterministic:</b> a map \(\pi: \mathcal S \to \mathcal A\), with \(A_t = \pi(S_t)\).</li>
+      <li><b>Stochastic:</b> a conditional distribution \(\pi(a \mid s) = \Pr(A_t = a \mid S_t = s)\), with \(\pi(a \mid s) \ge 0\) and \(\sum_a \pi(a \mid s) = 1\) for every \(s\).</li>
+    </ul>
+    <p>A deterministic policy is the special case whose rows are one-hot: \(\pi(a \mid s) = \mathbb 1\{a = \pi(s)\}\).</p>
+  </div>
+  <p>Puterman classifies policies by what a decision may depend on, the whole history or only the current state, and by whether it may randomise. That gives history-dependent randomised (HR), history-dependent deterministic (HD), Markov randomised (MR) and Markov deterministic (MD) policies, with \(\text{MD} \subseteq \text{MR} \subseteq \text{HR}\) and \(\text{MD} \subseteq \text{HD} \subseteq \text{HR}\). This course learns stationary Markov policies, which use the same rule at every step. Day 25 proves that in a discounted MDP nothing is lost by that restriction.</p>
+
+  <h3>Stationary and non-stationary policies</h3>
+  <p>A non-stationary policy is a sequence of decision rules \(\pi = (\pi_0, \pi_1, \pi_2, \dots)\), one per time step. Finite-horizon problems need them. With one shift left before the machine is sold, servicing it (−1 now, benefits later) is pointless; with fifty shifts left, it is the right call. In an infinite-horizon discounted MDP the future looks identical from every time step, with the same dynamics and the same geometric weights, so the best decision in a state cannot depend on \(t\), and a stationary policy suffices.</p>
+  <p>The middle case catches people out. An episodic task with a time limit is non-stationary from the agent's point of view unless the remaining time is part of the state. That is why Pardo et al. (2018) recommend adding the remaining time to the observation whenever the limit is part of the task, rather than an artefact of training.</p>
+
+  <h3>Why stochastic policies are sometimes strictly better</h3>
+  <p>In a fully observed MDP some deterministic policy is optimal (Day 25), so randomness never buys optimality there. It does, strictly, once that assumption is broken.</p>
+  <ol>
+    <li><b>Aliased states.</b> In Sutton &amp; Barto's short corridor (Example 13.1) there are three non-terminal states, every step costs −1, and in the second state the actions are reversed. The agent's features are identical in all three states, so whatever it does, it must do everywhere.</li>
+    <li><b>Adversaries.</b> In rock–paper–scissors every deterministic policy loses to an opponent who knows it; the minimax policy is uniform. Multi-agent RL (Day 118) is full of this.</li>
+    <li><b>Constraints.</b> With a budget on expected cost, the best feasible policy may have to mix two actions (Day 27, Day 122).</li>
+    <li><b>Learning.</b> Exploration needs randomness (ε-greedy, softmax), and policy-gradient methods need policies that change smoothly with their parameters (Day 82).</li>
+  </ol>
+  <div class="box deriv"><span class="tag">Derivation · the short corridor</span>
+    <p>Let \(p\) be the probability of choosing “right” (in every state, since they look alike). With \(v_i\) the value of state \(i\) and the goal worth 0:</p>
+    $$v_1 = -1 + p\, v_2 + (1-p)\, v_1, \qquad v_2 = -1 + p\, v_1 + (1-p)\, v_3, \qquad v_3 = -1 + (1-p)\, v_2 .$$
+    <p>(In state 2 “right” moves left.) The first equation gives \(v_2 = v_1 + 1/p\). Substituting the third into the second gives \(p(2-p)\, v_2 = p\, v_1 - (2 - p)\). Eliminating \(v_2\):</p>
+    $$v_1(p) = -\frac{2(2-p)}{p(1-p)} .$$
+    <p>Both deterministic policies are infinitely bad: \(p = 1\) shuttles between states 1 and 2 forever, and \(p = 0\) walks into the wall forever. Setting \(\tfrac{d}{dp}\ln\frac{2-p}{p(1-p)} = 0\) gives \(p^2 - 4p + 2 = 0\), so \(p_* = 2 - \sqrt 2 \approx 0.586\) and \(v_1(p_*) = -(6 + 4\sqrt 2) \approx -11.66\).</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 340" role="img" aria-label="Short corridor with switched actions, and the value of the start state as a function of the probability of choosing right">
+      <defs><marker id="ah-d21" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="80" y="22" width="80" height="44" rx="6" class="s-node"/>
+      <text x="120" y="49" class="s-ttl s-mid">S</text>
+      <rect x="210" y="22" width="80" height="44" rx="6" class="s-node-mod"/>
+      <text x="250" y="49" class="s-ttl s-mid">2</text>
+      <rect x="340" y="22" width="80" height="44" rx="6" class="s-node"/>
+      <text x="380" y="49" class="s-ttl s-mid">3</text>
+      <rect x="470" y="22" width="80" height="44" rx="6" class="s-node"/>
+      <text x="510" y="49" class="s-ttl s-mid">G</text>
+      <line x1="163" y1="44" x2="207" y2="44" class="s-ln" marker-start="url(#ah-d21)" marker-end="url(#ah-d21)"/>
+      <line x1="293" y1="44" x2="337" y2="44" class="s-ln" marker-start="url(#ah-d21)" marker-end="url(#ah-d21)"/>
+      <line x1="423" y1="44" x2="467" y2="44" class="s-ln" marker-start="url(#ah-d21)" marker-end="url(#ah-d21)"/>
+      <text x="250" y="84" class="s-mod s-mid s-sm">actions reversed here</text>
+      <text x="315" y="104" class="s-ink2 s-mid s-sm">every state looks the same to the agent; reward −1 per step</text>
+      <line x1="60" y1="290" x2="620" y2="290" class="s-ln"/><line x1="80" y1="122" x2="80" y2="290" class="s-ln"/>
+      <text x="74" y="134" class="s-ink3 s-end s-sm">-10</text>
+      <text x="74" y="166" class="s-ink3 s-end s-sm">-20</text>
+      <text x="74" y="198" class="s-ink3 s-end s-sm">-30</text>
+      <text x="74" y="230" class="s-ink3 s-end s-sm">-40</text>
+      <text x="74" y="262" class="s-ink3 s-end s-sm">-50</text>
+      <text x="80" y="306" class="s-ink3 s-mid s-sm">0</text>
+      <text x="210" y="306" class="s-ink3 s-mid s-sm">0.25</text>
+      <text x="340" y="306" class="s-ink3 s-mid s-sm">0.5</text>
+      <text x="470" y="306" class="s-ink3 s-mid s-sm">0.75</text>
+      <text x="600" y="306" class="s-ink3 s-mid s-sm">1</text>
+      <text x="340" y="328" class="s-ink3 s-mid s-sm">probability of “right”, p</text>
+      <polyline points="137,221.6 142,211.9 148,203.8 153,196.9 158,190.9 163,185.6 168,181.0 174,176.9 179,173.3 184,170.0 189,167.1 194,164.4 200,162.0 205,159.8 210,157.7 215,155.9 220,154.2 226,152.6 231,151.2 236,149.8 241,148.6 246,147.4 252,146.3 257,145.3 262,144.4 267,143.6 272,142.8 278,142.0 283,141.3 288,140.7 293,140.1 298,139.5 304,139.0 309,138.5 314,138.1 319,137.7 324,137.3 330,137.0 335,136.7 340,136.4 345,136.2 350,135.9 356,135.8 361,135.6 366,135.5 371,135.4 376,135.3 382,135.3 387,135.3 392,135.3 397,135.4 402,135.5 408,135.6 413,135.8 418,136.0 423,136.2 428,136.5 434,136.8 439,137.2 444,137.6 449,138.1 454,138.6 460,139.2 465,139.9 470,140.7 475,141.5 480,142.4 486,143.5 491,144.7 496,146.0 501,147.5 506,149.2 512,151.1 517,153.2 522,155.7 527,158.6 532,161.9 538,165.9 543,170.6 548,176.2 553,183.2 558,191.9 564,203.2 569,218.3 574,239.5" class="s-ln-mod"/>
+      <circle cx="385" cy="135.3" r="4.5" class="s-acc"/>
+      <text x="385" y="125.3" class="s-mid s-sm">p ≈ 0.59, v(S) ≈ −11.7</text>
+      <text x="92" y="282" class="s-bad s-sm">p = 0: −∞</text>
+      <text x="606" y="282" class="s-bad s-end s-sm">p = 1: −∞</text>
+    </svg>
+    <figcaption><b>Short corridor with switched actions</b> (Sutton &amp; Barto, Example 13.1). The value of the start state as a function of the one probability \(p\) of choosing right. Both deterministic policies (\(p = 0\) and \(p = 1\)) never reach the goal; the best stochastic policy, \(p = 2 - \sqrt 2\), gets there in about 11.7 steps on average.</figcaption>
+  </figure>
+
+  <h3>Policy space size</h3>
+  <p>A finite MDP has \(|\mathcal A|^{|\mathcal S|}\) deterministic stationary policies: 8 for the machine, \(4^{14} \approx 2.7 \times 10^8\) for the 4×4 gridworld of Day 22 (14 non-terminal states), and \(4^{100} \approx 1.6 \times 10^{60}\) for a 10×10 gridworld. Non-stationary policies over a horizon \(H\) multiply that to \(|\mathcal A|^{|\mathcal S| H}\). Stochastic stationary policies form a continuum, the product of one probability simplex per state, of dimension \(|\mathcal S|(|\mathcal A| - 1)\); the deterministic policies are its corners. Enumeration is hopeless beyond toys. Policy iteration (Day 30) searches the corners cleverly and usually needs only a handful of steps.</p>
+
+  <h3>Representing policies as tables</h3>
+  <p>In code, a stochastic policy is an array <code>pi</code> of shape <code>[nS, nA]</code> whose rows sum to 1, and a deterministic one is an integer array <code>policy[s]</code>. <code>np.eye(nA)[policy]</code> converts the second into the first. Sampling an action is <code>rng.choice(nA, p=pi[s])</code>. An ε-greedy policy around a greedy action array <code>g</code> is <code>pi = np.full((nS, nA), eps / nA)</code> followed by <code>pi[np.arange(nS), g] += 1 - eps</code>. Later modules replace the table by a softmax over learned preferences (Day 15's gradient bandit, generalised) or by a neural network (Day 82), but the interface, a distribution over actions for each state, stays the same.</p>
+
+  <h3>The induced Markov chain P<sup>π</sup></h3>
+  <div class="box deriv"><span class="tag">Derivation · folding the policy into the dynamics</span>
+    <p>Condition on the action and use the law of total probability:</p>
+    $$\begin{aligned}
+    P^\pi(s' \mid s) &amp;= \Pr(S_{t+1} = s' \mid S_t = s) \\
+    &amp;= \sum_a \Pr(A_t = a \mid S_t = s)\, \Pr(S_{t+1} = s' \mid S_t = s, A_t = a) \\
+    &amp;= \sum_a \pi(a \mid s)\, p(s' \mid s, a).
+    \end{aligned}$$
+    <p>The same argument for rewards gives \(R^\pi(s) = \E_\pi[R_{t+1} \mid S_t = s] = \sum_a \pi(a \mid s)\, r(s, a)\). Because \(\pi\) and \(p\) depend only on the current state, \(S_t\) is again a Markov chain.</p>
+  </div>
+  <p>So \(\langle \mathcal S, P^\pi, R^\pi, \gamma \rangle\) is a Markov reward process (Day 18), and its value function is the policy's value \(v_\pi\) (Day 22). Evaluating a policy is evaluating an MRP. For the machine under <b>run-to-failure</b> (run, run, fix), the rows of \(P^\pi\) are simply the chosen actions' rows: \((0.5, 0.5, 0)\), \((0, 0.6, 0.4)\), \((1, 0, 0)\), with \(R^\pi = (3, 1.6, -8)\). A policy that fixes a worn machine half the time mixes two rows:</p>
+  $$P^{\pi_{\text{mix}}} = \begin{pmatrix} 0.5 &amp; 0.5 &amp; 0 \\ 0.5 &amp; 0.3 &amp; 0.2 \\ 1 &amp; 0 &amp; 0 \end{pmatrix}, \qquad R^{\pi_{\text{mix}}} = \begin{pmatrix} 3 \\ 0.3 \\ -8 \end{pmatrix},$$
+  <p>since the W row is \(\tfrac12(0, 0.6, 0.4) + \tfrac12(1, 0, 0)\) and \(R^\pi(\text{W}) = \tfrac12(1.6) + \tfrac12(-1)\). Its stationary distribution is \(d^\pi = (7, 5, 1)/13\): the long-run fraction of time spent in each state. That on-policy distribution is what Module 7 weights its errors by.</p>
+  <pre><code>import numpy as np
+from machine import P, R
+
+pi_run = np.array([[1, 0], [1, 0], [0, 1]], dtype=float)  # run, run, fix
+pi_mix = np.array([[1, 0], [.5, .5], [0, 1]])             # fix W half the time
+assert np.allclose(pi_mix.sum(axis=1), 1)                 # rows sum to 1
+
+def induced_chain(pi):
+    P_pi = np.einsum("sa,sat-&gt;st", pi, P)   # P^pi[s, s'] = sum_a pi(a|s) p(s'|s,a)
+    R_pi = (pi * R).sum(axis=1)             # R^pi[s]     = sum_a pi(a|s) r(s,a)
+    return P_pi, R_pi
+
+P_pi, R_pi = induced_chain(pi_mix)
+# P^pi rows: [.5 .5 0], [.5 .3 .2], [1 0 0]; R^pi = [3, .3, -8]
+print(P_pi, R_pi)
+
+# Run the MDP itself under pi_mix. Its visit frequencies should match
+# the stationary distribution of the induced chain P^pi (Day 6).
+rng = np.random.default_rng(0)
+s, counts = 0, np.zeros(3)
+for t in range(100_000):
+    a = rng.choice(2, p=pi_mix[s])          # A_t ~ pi(. | S_t)
+    s = rng.choice(3, p=P[s, a])            # S_{t+1} ~ p(. | S_t, A_t)
+    counts[s] += 1
+w, V = np.linalg.eig(P_pi.T)
+d = np.real(V[:, np.argmin(abs(w - 1))])
+print(counts / counts.sum(), d / d.sum())   # both about [0.538 0.385 0.077]</code></pre>
+  <p class="code-cap">Building \(P^\pi\) is one <code>einsum</code>. Simulating the MDP action by action and simulating the chain \(P^\pi\) state by state are the same random process, so the visit frequencies match \(d^\pi\) from Day 6's eigenvector method.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Rows that don't sum to 1.</b> Masking illegal actions without renormalising leaves a “policy” that silently drops probability mass, and \(P^\pi\) stops being stochastic.</li>
+      <li><b>Deterministic policies on aliased observations.</b> Exactly the corridor: the agent can loop forever. ε-greedy breaks the loop only by accident, and slowly.</li>
+      <li><b>Hidden non-stationarity.</b> A policy that reads a step counter which is not in the state makes \(S_t\) a time-inhomogeneous chain, so a single \(P^\pi\) no longer describes it.</li>
+      <li><b>Confusing \(\pi(a \mid s)\) with action frequencies.</b> How often an action is taken overall is \(\sum_s d^\pi(s)\, \pi(a \mid s)\), which mixes the policy with where it spends its time.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Reproduce the corridor derivation, then check it numerically: solve the 3×3 system on a grid of \(p\) values and confirm the maximiser \(2 - \sqrt 2\).</li>
+      <li>Compute \(P^\pi\), \(R^\pi\) and \(d^\pi\) for the uniformly random policy on the machine, by hand and with <code>induced_chain</code>.</li>
+      <li>Enumerate the machine's 8 deterministic policies. For each, build \(P^\pi\) and decide whether the chain has an absorbing state or is irreducible. Which policies never visit B again once they leave it?</li>
+      <li>Make the machine finite-horizon (\(H = 5\) shifts). Simulate the non-stationary policy “fix a worn machine only if more than \(k\) shifts remain” for \(k = 0, \dots, 5\) and find the best \(k\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.5 and Example 13.1 · Puterman 1994, §2.1 · Singh, Jaakkola &amp; Jordan 1994, “Learning Without State-Estimation in Partially Observable Markovian Decision Processes”</p>
+</article>
+
+<!-- ================================================================ DAY 22 -->
+<article class="day" id="d22">
+  <header class="day-head">
+    <span class="day-no">DAY 22</span>
+    <h2>State-Value &amp; Action-Value Functions</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">\(v_\pi(s)\) scores a state and \(q_\pi(s, a)\) scores a first move. They are two views of the same expected return, linked by one average and one look-ahead, and their difference, the advantage, is what policy improvement and policy gradients act on.</p>
+
+  <h3>The state-value function</h3>
+  <div class="box def"><span class="tag">Definition · v<sub>π</sub></span>
+    $$v_\pi(s) = \E_\pi\big[G_t \mid S_t = s\big] = \E_\pi\Big[\sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \,\Big|\, S_t = s\Big] \quad \text{for all } s \in \mathcal S,$$
+    <p>where \(\E_\pi\) means actions are drawn from \(\pi\) and transitions from \(p\). By convention \(v_\pi(\text{terminal}) = 0\).</p>
+  </div>
+  <p>It is the value function of the induced MRP \(\langle \mathcal S, P^\pi, R^\pi, \gamma \rangle\) of Day 21, and since \(\pi\) and \(p\) are stationary it doesn't depend on \(t\).</p>
+
+  <h3>The action-value function</h3>
+  <div class="box def"><span class="tag">Definition · q<sub>π</sub></span>
+    $$q_\pi(s, a) = \E_\pi\big[G_t \mid S_t = s,\, A_t = a\big].$$
+    <p>Take action \(a\) now, whatever \(\pi\) would have done, and follow \(\pi\) from the next step on.</p>
+  </div>
+  <p>A table of \(q_\pi\) has \(|\mathcal S| \times |\mathcal A|\) entries against \(|\mathcal S|\) for \(v_\pi\). The extra column per action is what lets an agent compare moves without a model.</p>
+
+  <h3>The relationship between them</h3>
+  <div class="box deriv"><span class="tag">Derivation · v from q</span>
+    <p>Condition on the first action (tower rule, Day 3):</p>
+    $$\begin{aligned}
+    v_\pi(s) = \E_\pi[G_t \mid S_t = s] &amp;= \sum_a \Pr(A_t = a \mid S_t = s)\, \E_\pi[G_t \mid S_t = s, A_t = a] \\
+    &amp;= \sum_a \pi(a \mid s)\, q_\pi(s, a).
+    \end{aligned}$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · q from v</span>
+    <p>Split the return with \(G_t = R_{t+1} + \gamma G_{t+1}\) and condition on the first transition:</p>
+    $$\begin{aligned}
+    q_\pi(s, a) &amp;= \sum_{s', r} p(s', r \mid s, a)\Big[r + \gamma\, \E_\pi\big[G_{t+1} \mid S_t = s, A_t = a, S_{t+1} = s', R_{t+1} = r\big]\Big] \\
+    &amp;= \sum_{s', r} p(s', r \mid s, a)\big[r + \gamma\, v_\pi(s')\big].
+    \end{aligned}$$
+    <p>The last step is the Markov property: once \(S_{t+1} = s'\) is known, the return from \(t+1\) under \(\pi\) doesn't depend on how you got there, so its conditional mean is \(v_\pi(s')\).</p>
+  </div>
+  <p>The asymmetry matters. To act greedily with \(q\) you need only \(\argmax_a q(s, a)\). To act greedily with \(v\) you need \(\sum_{s'} p(s' \mid s, a)\, v(s')\) for each action, that is, a model. This is why model-free control methods learn action values (Days 44–45).</p>
+  <p>For the machine under run-to-failure, Day 23 will show \(v_\pi = (7.5, 2.5, -1.25)\). The q-from-v relation then gives every action value, for example \(q_\pi(\text{W}, \text{fix}) = -1 + 0.9 \times 7.5 = 5.75\):</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>s</th><th>v<sub>π</sub>(s)</th><th>q<sub>π</sub>(s, run)</th><th>q<sub>π</sub>(s, fix)</th><th>A<sub>π</sub>(s, run)</th><th>A<sub>π</sub>(s, fix)</th></tr></thead>
+    <tbody>
+      <tr><td>G</td><td class="num">7.5</td><td class="num">7.5</td><td class="num">5.75</td><td class="num">0</td><td class="num">−1.75</td></tr>
+      <tr><td>W</td><td class="num">2.5</td><td class="num">2.5</td><td class="num">5.75</td><td class="num">0</td><td class="num">+3.25</td></tr>
+      <tr><td>B</td><td class="num">−1.25</td><td class="num">−1.125</td><td class="num">−1.25</td><td class="num">+0.125</td><td class="num">0</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>The advantage function</h3>
+  <div class="box def"><span class="tag">Definition · advantage</span>
+    $$A_\pi(s, a) = q_\pi(s, a) - v_\pi(s).$$
+    <p>It has zero mean under the policy: \(\sum_a \pi(a \mid s)\, A_\pi(s, a) = \sum_a \pi(a \mid s)\, q_\pi(s, a) - v_\pi(s) = 0\). For a deterministic \(\pi\), the advantage of the action it takes is exactly 0.</p>
+  </div>
+  <p>A positive advantage means “better than what the policy does here on average”. The table above already contains Day 29's policy improvement step: servicing a worn machine has advantage +3.25, so a policy that switches to it must do better. It also contains a surprise. Under run-to-failure, leaving a broken machine broken (+0.125) beats repairing it, because the future this policy offers after a repair (\(0.9 \times 7.5 = 6.75\)) doesn't cover the 8 it costs. Bad policies make good actions look bad.</p>
+  <p>The advantage turns up all over the course. Its expectation is the expected TD error, \(\E[R_{t+1} + \gamma v_\pi(S_{t+1}) - v_\pi(S_t) \mid S_t = s, A_t = a] = q_\pi(s, a) - v_\pi(s)\), which is why actor–critic methods use TD errors as advantage estimates (Days 86 and 88). Subtracting \(v_\pi\) removes a state-dependent baseline from the policy gradient and cuts its variance (Day 85). Dueling networks represent \(q = v + A\) directly (Day 76).</p>
+
+  <h3>Backup diagrams as a visual grammar</h3>
+  <p>A backup diagram draws the computation that sends value information back up to a state or state–action pair from its possible successors. Open circles are states, filled circles are actions, time runs down the page, and each fork is an expectation weighted by \(\pi\) (below a state) or by \(p\) (below an action). The two relations above are the two half-diagrams:</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 225" role="img" aria-label="Backup diagram grammar: open circles are states, filled circles are actions">
+      <circle cx="40" cy="50" r="10" class="s-ln-ink"/><text x="62" y="54" class="s-sm">state  s</text>
+      <circle cx="40" cy="90" r="5.5" class="s-ink"/><text x="62" y="94" class="s-sm">action a</text>
+      <line x1="31" y1="124" x2="49" y2="146" class="s-ln"/><text x="62" y="133" class="s-sm">one possible</text><text x="62" y="147" class="s-sm">branch</text>
+      <text x="28" y="180" class="s-ink2 s-sm">a fork is an average,</text>
+      <text x="28" y="195" class="s-ink2 s-sm">weighted by π or by p</text>
+      <line x1="324" y1="56" x2="281.3" y2="113.6" class="s-ln"/>
+      <line x1="330" y1="58" x2="330" y2="112.5" class="s-ln"/>
+      <line x1="336" y1="56" x2="378.7" y2="113.6" class="s-ln"/>
+      <circle cx="330" cy="48" r="10" class="s-ln-ink"/>
+      <circle cx="278" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="330" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="382" cy="118" r="5.5" class="s-ink"/>
+      <text x="330" y="18" class="s-ttl s-mid">v_π(s) from q_π</text>
+      <text x="346" y="52" class="s-sm">s</text>
+      <text x="290" y="84" class="s-mod s-sm s-end">π(a|s)</text>
+      <text x="278" y="140" class="s-sm s-mid">a</text>
+      <text x="330" y="140" class="s-sm s-mid">a</text>
+      <text x="382" y="140" class="s-sm s-mid">a</text>
+      <text x="330" y="165" class="s-ink2 s-sm s-mid">leaves: q_π(s, a)</text>
+      <line x1="541.7" y1="52.4" x2="499" y2="110" class="s-ln"/>
+      <line x1="545" y1="53.5" x2="545" y2="108" class="s-ln"/>
+      <line x1="548.3" y1="52.4" x2="591" y2="110" class="s-ln"/>
+      <circle cx="545" cy="48" r="5.5" class="s-ink"/>
+      <circle cx="493" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="545" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="597" cy="118" r="10" class="s-ln-ink"/>
+      <text x="545" y="18" class="s-ttl s-mid">q_π(s,a) from v_π</text>
+      <text x="558" y="52" class="s-sm">s, a</text>
+      <text x="505" y="84" class="s-mod s-sm s-end">p(s′,r|s,a)</text>
+      <text x="562" y="92" class="s-sm">r</text>
+      <text x="493" y="144" class="s-sm s-mid">s′</text>
+      <text x="545" y="144" class="s-sm s-mid">s′</text>
+      <text x="597" y="144" class="s-sm s-mid">s′</text>
+      <text x="545" y="165" class="s-ink2 s-sm s-mid">leaves: r + γ v_π(s′)</text>
+      <text x="430" y="212" class="s-ink3 s-sm s-mid">depth = steps of lookahead · width = what you average over</text>
+    </svg>
+    <figcaption><b>The grammar of backup diagrams.</b> Left: \(v_\pi(s)\) is the \(\pi\)-weighted average of the action values below it. Right: \(q_\pi(s, a)\) is the \(p\)-weighted average, over next states and rewards, of \(r + \gamma v_\pi(s')\).</figcaption>
+  </figure>
+  <p>Stack the two halves and you get the two-step backups of Day 23. Replace the average at a fork with a maximum and you get the optimality backups of Day 24. Follow one sampled path instead of every branch and you get the Monte Carlo and TD updates of Modules 4–5. That is the whole family.</p>
+
+  <h3>Estimating both by sampling in a gridworld</h3>
+  <p>The 4×4 gridworld of Sutton &amp; Barto (Example 4.1): two terminal corners, 14 other cells, four moves, −1 per step, \(\gamma = 1\), and the uniformly random policy. Estimate \(v_\pi(s)\) by averaging returns from \(s\), and \(q_\pi(s, a)\) by forcing the first action to \(a\) and following \(\pi\) after that.</p>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+MOVES = [(-1, 0), (0, 1), (1, 0), (0, -1)]   # up, right, down, left
+TERMINAL = {0, 15}                           # the two shaded corners in S&amp;B Example 4.1
+
+def step(s, a):
+    r, c = divmod(s, 4)
+    r = min(max(r + MOVES[a][0], 0), 3)      # moving into a wall leaves you in place
+    c = min(max(c + MOVES[a][1], 0), 3)
+    return 4 * r + c, -1.0                   # reward -1 on every transition
+
+def rollout(s, first_action=None):
+    """One undiscounted return from s under the uniform random policy.
+    If first_action is given, A_0 is forced to it."""
+    G, a = 0.0, first_action
+    while s not in TERMINAL:
+        if a is None:
+            a = rng.integers(4)              # pi(a | s) = 1/4
+        s, r = step(s, a)
+        G += r
+        a = None                             # after the first step, follow pi
+    return G
+
+n = 300
+v = np.array([np.mean([rollout(s) for _ in range(n)]) for s in range(16)])
+q = np.array([[np.mean([rollout(s, a) for _ in range(n)]) for a in range(4)]
+              for s in range(16)])
+adv = q - v[:, None]                         # A(s, a) = q(s, a) - v(s)
+
+print(np.round(v.reshape(4, 4)))             # exact: 0 -14 -20 -22 / -14 -18 ...
+# state 1: q is about [-15 -21 -19 -1]; "left" steps into the terminal corner
+print(np.round(q[1], 1), np.round(adv[1], 1))
+print(np.abs(q.mean(axis=1) - v).max())      # v = sum_a pi(a|s) q(s, a), up to MC noise</code></pre>
+  <p class="code-cap">With 300 returns per estimate the errors are a point or two; the exact values (Day 23 practice) are 0, −14, −20, −22 / −14, −18, −20, −20 / −20, −20, −18, −14 / −22, −20, −14, 0. In state 1, \(q_\pi\) is about (−15, −21, −19, −1): stepping left into the terminal corner has advantage +13.</p>
+  <p>The deterministic gridworld makes the q-from-v relation especially simple: \(q_\pi(s, a) = -1 + v_\pi(s')\) where \(s'\) is the cell the move leads to. In state 1, “up” bumps the wall and stays put, so \(q_\pi(1, \text{up}) = -1 + (-14) = -15\).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Actions the policy never takes.</b> Data generated by \(\pi\) contain no information about \(q_\pi(s, a)\) when \(\pi(a \mid s) = 0\). Forcing first actions, as above, needs a simulator; the alternatives are exploring starts (Day 37), soft policies (Day 38) or off-policy corrections (Day 39).</li>
+      <li><b>Advantages are differences of noisy numbers.</b> The standard error of \(\hat q - \hat v\) is roughly \(\sqrt{\text{SE}_q^2 + \text{SE}_v^2}\), so a small true advantage drowns. Here returns have a standard deviation of 17–19, so 300 samples give standard errors near 1, comparable to the advantage gaps in the middle of the grid.</li>
+      <li><b>Acting greedily on v without a model.</b> \(\argmax_a\) needs \(\sum_{s'} p(s' \mid s, a)\, v(s')\). If all you have is \(v\) and samples, you cannot choose actions with it.</li>
+      <li><b>Misreading \(q_\pi(s, a)\).</b> It is “do \(a\) once, then follow \(\pi\)”, not “always do \(a\)”. The latter is the value of a different policy altogether.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the snippet. Plot the mean absolute error of \(\hat v\) against the exact table for \(n\) = 30, 100, 300, 1000, and check the \(1/\sqrt n\) rate.</li>
+      <li>Using the exact \(v_\pi\) table, compute the exact \(q_\pi\) and \(A_\pi\) for all 56 state–action pairs with \(q_\pi(s, a) = -1 + v_\pi(s')\). Compare with your estimates.</li>
+      <li>Verify \(\sum_a \pi(a \mid s)\, A_\pi(s, a) = 0\) analytically and on your estimates. How far from 0 are the estimated sums?</li>
+      <li>Write an every-visit version: run 2,000 episodes from random start cells and credit every \((s, a)\) visited with the return that follows it. Compare its accuracy per environment step with the forced-start version.</li>
+      <li>For the machine with \(\pi_{\text{mix}}\) (Day 21), compute \(q_\pi\) and \(A_\pi\) from \(v_\pi\) (use the Day 23 code) and list the actions with positive advantage.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.5–3.6 and Example 4.1 · Baird 1993, “Advantage Updating” (technical report) · Wang et al. 2016, “Dueling Network Architectures for Deep Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 23 -->
+<article class="day" id="d23">
+  <header class="day-head">
+    <span class="day-no">DAY 23</span>
+    <h2>Bellman Expectation Equations</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Taking the expectation of \(G_t = R_{t+1} + \gamma G_{t+1}\) turns the definition of value into a set of linear equations, one per state, that \(v_\pi\) must satisfy. Every prediction algorithm in this course is a way of solving them, exactly, iteratively, or from samples.</p>
+
+  <h3>Deriving v<sub>π</sub> recursively from the return</h3>
+  <div class="box deriv"><span class="tag">Derivation · Bellman expectation equation for v<sub>π</sub></span>
+    $$\begin{aligned}
+    v_\pi(s) &amp;= \E_\pi[G_t \mid S_t = s] = \E_\pi[R_{t+1} + \gamma G_{t+1} \mid S_t = s] \\
+    &amp;= \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a)\, \Big[r + \gamma\, \E_\pi\big[G_{t+1} \mid S_t{=}s, A_t{=}a, R_{t+1}{=}r, S_{t+1}{=}s'\big]\Big] \\
+    &amp;= \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a)\, \big[r + \gamma\, v_\pi(s')\big].
+    \end{aligned}$$
+    <p>Line 1 is the recursive identity of Day 19 and linearity. Line 2 is the tower rule, conditioning on the first action and transition, whose joint probability is \(\pi(a \mid s)\, p(s', r \mid s, a)\). Line 3 uses two facts: the Markov property (given \(S_{t+1} = s'\), the future doesn't depend on \(s, a, r\)), and stationarity (the expected return from \(s'\) at time \(t+1\) is the same function \(v_\pi\) as at time \(t\)).</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · v<sub>π</sub> is the unique solution</span>
+    <p>For \(\gamma &lt; 1\) and a finite MDP, \(v_\pi\) satisfies the equation above, and it is the only function that does. Day 25 proves this by showing the linear system is invertible; Day 32 proves it again by showing the right-hand side is a contraction.</p>
+  </div>
+
+  <h3>Deriving q<sub>π</sub></h3>
+  <p>The same argument, conditioning additionally on the next action \(A_{t+1}\), gives the Bellman equation for action values:</p>
+  $$q_\pi(s, a) = \sum_{s', r} p(s', r \mid s, a)\Big[r + \gamma \sum_{a'} \pi(a' \mid s')\, q_\pi(s', a')\Big].$$
+  <p>Here the expectation over the next action sits <em>inside</em> the bracket, and that placement is the whole difference between SARSA, which samples \(a'\), and Expected SARSA, which averages it (Days 44 and 46).</p>
+
+  <h3>The four-way relationship</h3>
+  <p>Day 22's two half-relations compose into two full ones:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Relation</th><th>Depth</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td>(1)&nbsp;v&nbsp;←&nbsp;q</td><td>\(v_\pi(s) = \sum_a \pi(a \mid s)\, q_\pi(s, a)\)</td><td>half step</td><td>reading a state value off a Q-table</td></tr>
+      <tr><td>(2)&nbsp;q&nbsp;←&nbsp;v</td><td>\(q_\pi(s, a) = \sum_{s', r} p(s', r \mid s, a)[r + \gamma v_\pi(s')]\)</td><td>half step</td><td>actor–critic targets, policy improvement (Day 29)</td></tr>
+      <tr><td>(3)&nbsp;v&nbsp;←&nbsp;v</td><td>(2) substituted into (1)</td><td>one full step</td><td>iterative policy evaluation (Day 28), TD(0) (Day 42)</td></tr>
+      <tr><td>(4)&nbsp;q&nbsp;←&nbsp;q</td><td>(1) substituted into (2)</td><td>one full step</td><td>SARSA and Expected SARSA (Days 44, 46)</td></tr>
+    </tbody>
+  </table></div>
+  <figure class="fig">
+    <svg viewBox="0 0 690 290" role="img" aria-label="Backup diagrams for the four Bellman expectation relations">
+      <line x1="82" y1="56" x2="39.3" y2="113.6" class="s-ln"/>
+      <line x1="88" y1="58" x2="88" y2="112.5" class="s-ln"/>
+      <line x1="94" y1="56" x2="136.7" y2="113.6" class="s-ln"/>
+      <circle cx="88" cy="48" r="10" class="s-ln-ink"/>
+      <circle cx="36" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="88" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="140" cy="118" r="5.5" class="s-ink"/>
+      <text x="88" y="20" class="s-ttl s-mid">(1) v ← q</text>
+      <text x="88" y="228" class="s-sm s-mid">v_π(s) =</text>
+      <text x="88" y="243" class="s-sm s-mid">Σₐ π(a|s) q_π(s,a)</text>
+      <line x1="256.7" y1="52.4" x2="214" y2="110" class="s-ln"/>
+      <line x1="260" y1="53.5" x2="260" y2="108" class="s-ln"/>
+      <line x1="263.3" y1="52.4" x2="306" y2="110" class="s-ln"/>
+      <circle cx="260" cy="48" r="5.5" class="s-ink"/>
+      <circle cx="208" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="260" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="312" cy="118" r="10" class="s-ln-ink"/>
+      <text x="260" y="20" class="s-ttl s-mid">(2) q ← v</text>
+      <text x="260" y="228" class="s-sm s-mid">q_π(s,a) = Σ p(s′,r|s,a)</text>
+      <text x="260" y="243" class="s-sm s-mid">· [r + γ v_π(s′)]</text>
+      <line x1="426.5" y1="56.4" x2="389" y2="113.4" class="s-ln"/>
+      <line x1="437.5" y1="56.4" x2="475" y2="113.4" class="s-ln"/>
+      <line x1="384.2" y1="123.2" x2="365.2" y2="178.5" class="s-ln"/>
+      <line x1="387.8" y1="123.2" x2="406.8" y2="178.5" class="s-ln"/>
+      <line x1="476.2" y1="123.2" x2="457.2" y2="178.5" class="s-ln"/>
+      <line x1="479.8" y1="123.2" x2="498.8" y2="178.5" class="s-ln"/>
+      <circle cx="432" cy="48" r="10" class="s-ln-ink"/>
+      <circle cx="386" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="478" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="362" cy="188" r="10" class="s-ln-ink"/>
+      <circle cx="410" cy="188" r="10" class="s-ln-ink"/>
+      <circle cx="454" cy="188" r="10" class="s-ln-ink"/>
+      <circle cx="502" cy="188" r="10" class="s-ln-ink"/>
+      <text x="432" y="20" class="s-ttl s-mid">(3) v ← v</text>
+      <text x="432" y="228" class="s-sm s-mid">v_π(s) = Σₐ π(a|s) Σ p</text>
+      <text x="432" y="243" class="s-sm s-mid">· [r + γ v_π(s′)]</text>
+      <line x1="601" y1="52.6" x2="563.5" y2="109.6" class="s-ln"/>
+      <line x1="607" y1="52.6" x2="644.5" y2="109.6" class="s-ln"/>
+      <line x1="554.8" y1="127.5" x2="535.8" y2="182.8" class="s-ln"/>
+      <line x1="561.2" y1="127.5" x2="580.2" y2="182.8" class="s-ln"/>
+      <line x1="646.8" y1="127.5" x2="627.8" y2="182.8" class="s-ln"/>
+      <line x1="653.2" y1="127.5" x2="672.2" y2="182.8" class="s-ln"/>
+      <circle cx="604" cy="48" r="5.5" class="s-ink"/>
+      <circle cx="558" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="650" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="534" cy="188" r="5.5" class="s-ink"/>
+      <circle cx="582" cy="188" r="5.5" class="s-ink"/>
+      <circle cx="626" cy="188" r="5.5" class="s-ink"/>
+      <circle cx="674" cy="188" r="5.5" class="s-ink"/>
+      <text x="604" y="20" class="s-ttl s-mid">(4) q ← q</text>
+      <text x="604" y="228" class="s-sm s-mid">q_π(s,a) = Σ p · [r +</text>
+      <text x="604" y="243" class="s-sm s-mid">γ Σₐ′ π(a′|s′) q_π(s′,a′)]</text>
+      <text x="345" y="280" class="s-ink3 s-sm s-mid">open = state · filled = action · every fork is an expectation</text>
+    </svg>
+    <figcaption><b>The four Bellman expectation backups.</b> (1) and (2) are half steps between the two kinds of node; (3) and (4) are full steps that start and end on the same kind. Iterative policy evaluation uses (3); SARSA and Expected SARSA use a sample or the expectation of (4).</figcaption>
+  </figure>
+
+  <h3>Matrix form</h3>
+  <p>Write (3) for every state at once, with \(P^\pi\) and \(R^\pi\) from Day 21:</p>
+  $$v_\pi = R^\pi + \gamma P^\pi v_\pi \qquad\Longleftrightarrow\qquad (I - \gamma P^\pi)\, v_\pi = R^\pi .$$
+  <p>That is \(|\mathcal S|\) linear equations in \(|\mathcal S|\) unknowns, and Day 25 solves it directly. The right-hand side defines the <b>Bellman expectation operator</b> \(T^\pi v = R^\pi + \gamma P^\pi v\), whose fixed point is \(v_\pi\); Day 28 finds it by applying \(T^\pi\) repeatedly. Action values have a matrix form too. Stack the rows \(p(\cdot \mid s, a)\) into a \(|\mathcal S||\mathcal A| \times |\mathcal S|\) matrix \(P\), and let \(\Pi\) be the \(|\mathcal S| \times |\mathcal S||\mathcal A|\) matrix with \(\Pi_{s, (s, a)} = \pi(a \mid s)\). Then \(P^\pi = \Pi P\), and relation (4) reads \(q_\pi = r + \gamma P \Pi\, q_\pi\): an MRP on state–action pairs.</p>
+
+  <h3>Worked example: evaluating run-to-failure by hand</h3>
+  <p>The machine of Day 20 with \(\gamma = 0.9\), under the policy run in G, run in W, fix in B. Each state has one action, so equation (3) has one term per next state:</p>
+  $$\begin{aligned}
+  v(\text{G}) &amp;= 3 + 0.9\,\big[0.5\, v(\text{G}) + 0.5\, v(\text{W})\big] \\
+  v(\text{W}) &amp;= 0.6\,\big[2 + 0.9\, v(\text{W})\big] + 0.4\,\big[1 + 0.9\, v(\text{B})\big] = 1.6 + 0.54\, v(\text{W}) + 0.36\, v(\text{B}) \\
+  v(\text{B}) &amp;= -8 + 0.9\, v(\text{G})
+  \end{aligned}$$
+  <div class="box deriv"><span class="tag">Solution by substitution</span>
+    <ol>
+      <li>Put the B equation into the W equation: \(v(\text{W}) = 1.6 + 0.54\, v(\text{W}) + 0.36\,(-8 + 0.9\, v(\text{G}))\), so \(0.46\, v(\text{W}) = -1.28 + 0.324\, v(\text{G})\).</li>
+      <li>The G equation is \(0.55\, v(\text{G}) = 3 + 0.45\, v(\text{W})\). Multiply it by 0.46 and substitute step 1: \(0.253\, v(\text{G}) = 1.38 + 0.45\,(-1.28 + 0.324\, v(\text{G})) = 0.804 + 0.1458\, v(\text{G})\).</li>
+      <li>So \(0.1072\, v(\text{G}) = 0.804\), giving \(v(\text{G}) = 7.5\). Back-substitute: \(v(\text{W}) = (-1.28 + 2.43)/0.46 = 2.5\) and \(v(\text{B}) = -8 + 6.75 = -1.25\).</li>
+      <li>Check every equation: \(3 + 0.9(3.75 + 1.25) = 7.5\); \(1.6 + 1.35 - 0.45 = 2.5\); \(-8 + 6.75 = -1.25\).</li>
+    </ol>
+  </div>
+  <p>A broken machine is worth less than nothing under this policy: the repair costs 8, and the future it buys, running the machine into the ground again, is worth only \(0.9 \times 7.5 = 6.75\). Relation (2) now gives the q-table of Day 22, and the code below checks all four relations at once.</p>
+  <pre><code>import numpy as np
+from machine import P, R, gamma
+
+pi = np.array([[1, 0], [1, 0], [0, 1]], dtype=float)   # run-to-failure: run, run, fix
+P_pi = np.einsum("sa,sat-&gt;st", pi, P)
+R_pi = (pi * R).sum(axis=1)
+
+# apply v &lt;- R^pi + gamma P^pi v until it stops changing
+v = np.zeros(3)
+for k in range(300):
+    v = R_pi + gamma * P_pi @ v
+q = R + gamma * P @ v      # q from v: r(s,a) + gamma sum_s' p(s'|s,a) v(s')
+print(v)                   # [ 7.5    2.5   -1.25 ]
+print(q)                   # [[ 7.5  5.75] [ 2.5  5.75] [-1.125 -1.25]]
+
+assert np.allclose(v, (pi * q).sum(axis=1))                  # (1) v from q
+assert np.allclose(v, R_pi + gamma * P_pi @ v)               # (3) v from v: matrix form
+assert np.allclose(q, R + gamma * P @ (pi * q).sum(axis=1))  # (4) q from q</code></pre>
+  <p class="code-cap">Iterating \(v \leftarrow R^\pi + \gamma P^\pi v\) from zero converges to the hand solution, since the error shrinks by a factor \(\gamma\) per sweep (300 sweeps leave \(0.9^{300} \approx 2 \times 10^{-14}\) of it). This loop is iterative policy evaluation, Day 28's algorithm, in four lines.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Terminal states.</b> \(v(\text{terminal}) = 0\) must be imposed, not estimated. Modelling a terminal state as an ordinary state with a zero-reward self-loop is equivalent; giving that self-loop a non-zero reward is not.</li>
+      <li><b>Reward timing.</b> Mixing the leave-state and enter-state conventions of Day 18 produces values shifted by one step, which pass every sanity check except the one against a correct solver.</li>
+      <li><b>\(\gamma = 1\).</b> If the policy never terminates, \(I - P^\pi\) is singular and the equations have no solution or infinitely many. For run-to-failure, weighting the equations by the stationary distribution \(d^\pi\) gives \(0 = d^\pi R^\pi = 4/11\): no solution. Episodic tasks are fine if every policy you evaluate terminates with probability 1; restrict the system to the non-terminal states.</li>
+      <li><b>Residual is not error.</b> An approximate \(v\) that nearly satisfies the equation can still be far from \(v_\pi\): \(\|v - v_\pi\|_\infty \le \|v - T^\pi v\|_\infty / (1-\gamma)\), and with \(\gamma = 0.99\) that factor is 100.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Evaluate \(\pi_{\text{mix}}\) (fix a worn machine half the time) by hand, then check with the code. You should get \(v_\pi \approx (13.30, 9.59, 3.97)\).</li>
+      <li>Derive the \(q_\pi\) equation in full, justifying each step as in the \(v_\pi\) derivation.</li>
+      <li>Build \(P\) (6×3) and \(\Pi\) (3×6) for the machine, solve \((I - \gamma P \Pi)\, q = r\) with <code>np.linalg.solve</code>, and check against <code>R + gamma * P @ v</code>.</li>
+      <li>Reproduce Sutton &amp; Barto's Figure 4.1: solve the 14×14 system for the random policy on the 4×4 gridworld (\(\gamma = 1\), non-terminal states only) and compare with your Day 22 Monte Carlo estimates.</li>
+      <li>Prove that with \(\gamma = 1\) the run-to-failure equations have no solution, using \(d^\pi P^\pi = d^\pi\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.5 · Bellman 1957, <i>Dynamic Programming</i> · David Silver, UCL RL Lecture 2</p>
+</article>
+
+<!-- ================================================================ DAY 24 -->
+<article class="day" id="d24">
+  <header class="day-head">
+    <span class="day-no">DAY 24</span>
+    <h2>Optimality &amp; Bellman Optimality Equations</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">There is a single policy that is best in every state at once, and its values satisfy a fixed-point equation with a max where the policy's average used to be. Solve that equation and optimal behaviour becomes a one-step look-ahead or, with \(q_*\), a table lookup.</p>
+
+  <h3>A partial order on policies</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>\(\pi \ge \pi'\) if and only if \(v_\pi(s) \ge v_{\pi'}(s)\) for every \(s \in \mathcal S\).</p>
+  </div>
+  <p>The relation is reflexive and transitive, but only partial: two policies can each be better somewhere. All eight deterministic policies of the machine show both behaviours (Day 25's code produces this table):</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>policy (G, W, B)</th><th>v(G)</th><th>v(W)</th><th>v(B)</th><th>note</th></tr></thead>
+    <tbody>
+      <tr><td>run, run, run</td><td class="num">8.30</td><td class="num">3.48</td><td class="num">0</td><td>dominates run-to-failure</td></tr>
+      <tr><td>run, run, fix</td><td class="num">7.50</td><td class="num">2.50</td><td class="num">−1.25</td><td>run-to-failure (Day 23)</td></tr>
+      <tr><td>run, fix, run</td><td class="num">17.59</td><td class="num">14.83</td><td class="num">0</td><td></td></tr>
+      <tr><td><b>run, fix, fix</b></td><td class="num"><b>17.59</b></td><td class="num"><b>14.83</b></td><td class="num"><b>7.83</b></td><td><b>dominates every policy</b></td></tr>
+      <tr><td>fix, run, run</td><td class="num">−10</td><td class="num">3.48</td><td class="num">0</td><td>incomparable with run-to-failure</td></tr>
+      <tr><td>fix, run, fix</td><td class="num">−10</td><td class="num">−9.83</td><td class="num">−17</td><td></td></tr>
+      <tr><td>fix, fix, run</td><td class="num">−10</td><td class="num">−10</td><td class="num">0</td><td></td></tr>
+      <tr><td>fix, fix, fix</td><td class="num">−10</td><td class="num">−10</td><td class="num">−17</td><td></td></tr>
+    </tbody>
+  </table></div>
+  <p>Fixing a good machine forever is worth \(-1/(1 - 0.9) = -10\). (fix, run, run) beats run-to-failure in W and loses in G, so neither dominates the other. And never repairing beats run-to-failure in every state: repairing only pays if the policy can make use of a repaired machine.</p>
+
+  <h3>Existence of an optimal policy</h3>
+  <div class="box thm"><span class="tag">Theorem · existence of an optimal policy</span>
+    <p>In a finite MDP with \(\gamma &lt; 1\) there is a policy \(\pi_*\) with \(v_{\pi_*}(s) \ge v_\pi(s)\) for every state \(s\) and every policy \(\pi\), history-dependent and randomised policies included. It can be taken deterministic and stationary. (Proof sketch: Day 25.)</p>
+  </div>
+  <p>This is not obvious. It says a vector-valued objective has a single maximiser in every coordinate at once, which for most vector problems is false. The MDP structure makes it true: the decision taken in state \(s\) only affects what happens from \(s\) onwards, so choices in different states never trade off against each other. Bellman's principle of optimality puts it this way: “An optimal policy has the property that whatever the initial state and initial decision are, the remaining decisions must constitute an optimal policy with regard to the state resulting from the first decision.”</p>
+  <div class="box def"><span class="tag">Definition · optimal value functions</span>
+    $$v_*(s) = \max_\pi v_\pi(s), \qquad q_*(s, a) = \max_\pi q_\pi(s, a).$$
+    <p>Every optimal policy has the same values, \(v_{\pi_*} = v_*\) and \(q_{\pi_*} = q_*\).</p>
+  </div>
+
+  <h3>v<sub>*</sub> and q<sub>*</sub>, and how they relate</h3>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    <p><b>q from v.</b> Take action \(a\), then behave optimally. An optimal policy achieves \(v_*\) from every next state at once, so</p>
+    $$q_*(s, a) = \E\big[R_{t+1} + \gamma\, v_*(S_{t+1}) \mid S_t = s, A_t = a\big] = \sum_{s', r} p(s', r \mid s, a)\big[r + \gamma\, v_*(s')\big].$$
+    <p><b>v from q.</b> \(v_*(s) = v_{\pi_*}(s) = \sum_a \pi_*(a \mid s)\, q_*(s, a) \le \max_a q_*(s, a)\), because an average never exceeds the maximum. Conversely, the policy “take \(\argmax_a q_*(s, a)\) now, then follow \(\pi_*\)” earns \(\max_a q_*(s, a)\) from \(s\), and \(v_*(s)\) is at least the value of any policy. Hence</p>
+    $$v_*(s) = \max_a q_*(s, a).$$
+  </div>
+
+  <h3>The Bellman optimality equations</h3>
+  <p>Substitute each relation into the other:</p>
+  $$v_*(s) = \max_a \sum_{s', r} p(s', r \mid s, a)\big[r + \gamma\, v_*(s')\big],$$
+  $$q_*(s, a) = \sum_{s', r} p(s', r \mid s, a)\Big[r + \gamma \max_{a'} q_*(s', a')\Big].$$
+  <p>Compared with Day 23, the policy's weighted average over actions has become a maximum. In a backup diagram the max is drawn as an arc across the branches:</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Backup diagrams for the Bellman optimality equations, with arcs marking a maximum">
+      <line x1="164.5" y1="56.4" x2="127" y2="113.4" class="s-ln"/>
+      <line x1="175.5" y1="56.4" x2="213" y2="113.4" class="s-ln"/>
+      <path d="M158.5,65.5 A21,21 0 0 0 181.5,65.5" class="s-ln-ink"/>
+      <line x1="122.2" y1="123.2" x2="103.2" y2="178.5" class="s-ln"/>
+      <line x1="125.8" y1="123.2" x2="144.8" y2="178.5" class="s-ln"/>
+      <line x1="214.2" y1="123.2" x2="195.2" y2="178.5" class="s-ln"/>
+      <line x1="217.8" y1="123.2" x2="236.8" y2="178.5" class="s-ln"/>
+      <circle cx="170" cy="48" r="10" class="s-ln-ink"/>
+      <circle cx="124" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="216" cy="118" r="5.5" class="s-ink"/>
+      <circle cx="100" cy="188" r="10" class="s-ln-ink"/>
+      <circle cx="148" cy="188" r="10" class="s-ln-ink"/>
+      <circle cx="192" cy="188" r="10" class="s-ln-ink"/>
+      <circle cx="240" cy="188" r="10" class="s-ln-ink"/>
+      <text x="170" y="20" class="s-ttl s-mid">v*: max over actions</text>
+      <text x="186" y="52" class="s-sm">s</text>
+      <text x="130" y="76" class="s-mod s-sm s-end">max</text>
+      <text x="170" y="222" class="s-sm s-mid">v*(s) = maxₐ Σ p(s′,r|s,a)</text>
+      <text x="170" y="238" class="s-sm s-mid">· [r + γ v*(s′)]</text>
+      <line x1="467" y1="52.6" x2="429.5" y2="109.6" class="s-ln"/>
+      <line x1="473" y1="52.6" x2="510.5" y2="109.6" class="s-ln"/>
+      <line x1="420.8" y1="127.5" x2="401.8" y2="182.8" class="s-ln"/>
+      <line x1="427.2" y1="127.5" x2="446.2" y2="182.8" class="s-ln"/>
+      <line x1="512.8" y1="127.5" x2="493.8" y2="182.8" class="s-ln"/>
+      <line x1="519.2" y1="127.5" x2="538.2" y2="182.8" class="s-ln"/>
+      <path d="M417.2,137.9 A21,21 0 0 0 430.8,137.9" class="s-ln-ink"/>
+      <path d="M509.2,137.9 A21,21 0 0 0 522.8,137.9" class="s-ln-ink"/>
+      <circle cx="470" cy="48" r="5.5" class="s-ink"/>
+      <circle cx="424" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="516" cy="118" r="10" class="s-ln-ink"/>
+      <circle cx="400" cy="188" r="5.5" class="s-ink"/>
+      <circle cx="448" cy="188" r="5.5" class="s-ink"/>
+      <circle cx="492" cy="188" r="5.5" class="s-ink"/>
+      <circle cx="540" cy="188" r="5.5" class="s-ink"/>
+      <text x="470" y="20" class="s-ttl s-mid">q*: max at the next state</text>
+      <text x="482" y="52" class="s-sm">s, a</text>
+      <text x="436" y="88" class="s-mod s-sm s-end">p</text>
+      <text x="402" y="140" class="s-mod s-sm s-end">max</text>
+      <text x="470" y="222" class="s-sm s-mid">q*(s,a) = Σ p(s′,r|s,a)</text>
+      <text x="470" y="238" class="s-sm s-mid">· [r + γ maxₐ′ q*(s′,a′)]</text>
+      <text x="320" y="263" class="s-ink3 s-sm s-mid">the arc means: take the best branch instead of averaging</text>
+    </svg>
+    <figcaption><b>Optimality backups.</b> An arc under a node means “take the maximum over these branches”. For \(v_*\) the max is over the first action. For \(q_*\) the first action is given and the max is over the next one, inside the expectation over \(s'\), which is what lets Q-learning estimate it from single samples.</figcaption>
+  </figure>
+  <p>The right-hand side of the first equation defines the <b>Bellman optimality operator</b> \((Tv)(s) = \max_a \big[r(s, a) + \gamma \sum_{s'} p(s' \mid s, a)\, v(s')\big]\), and \(v_* = Tv_*\). It is again a \(\gamma\)-contraction in the sup norm. Day 4's one-line proof extends because \(|\max_a f(a) - \max_a g(a)| \le \max_a |f(a) - g(a)|\), so \(v_*\) is its unique fixed point. Day 32 does this properly.</p>
+
+  <h3>Why they're nonlinear</h3>
+  <p>For a fixed deterministic policy, \(T^\pi v = R^\pi + \gamma P^\pi v\) is affine in \(v\). The optimality operator is the componentwise maximum of all of them,</p>
+  $$Tv = \max_{\pi \text{ deterministic}} T^\pi v,$$
+  <p>and a single policy attains the maximum in every component at once, by choosing the best action in each state separately. So \(T\) is convex and piecewise affine, with one affine piece per deterministic policy, and no single matrix inversion solves \(v = Tv\). The solution \(v_*\) does satisfy the linear system of whichever policy is greedy with respect to \(v_*\), but you only learn which system that is after solving. There are three ways out, all coming up: iterate \(T\) (value iteration, Day 31), alternate between solving one linear system and re-choosing the piece (policy iteration, Day 30, which is Newton's method on \(v - Tv = 0\)), or turn the max into inequality constraints and solve a linear program (Day 25).</p>
+
+  <h3>Extracting π<sub>*</sub> greedily, from v<sub>*</sub> and from q<sub>*</sub></h3>
+  <ul>
+    <li><b>From \(v_*\):</b> \(\pi_*(s) \in \argmax_a \sum_{s', r} p(s', r \mid s, a)\,[r + \gamma v_*(s')]\). This is a one-step look-ahead, and it needs the model.</li>
+    <li><b>From \(q_*\):</b> \(\pi_*(s) \in \argmax_a q_*(s, a)\). This is a table lookup, with no model at all.</li>
+  </ul>
+  <p>Any policy greedy with respect to \(v_*\) is optimal: Day 25 shows \(T^\pi v_* = Tv_* = v_*\) forces \(v_\pi = v_*\). It is striking that a myopic, one-step choice is optimal, but \(v_*\) has already priced in every long-term consequence. When several actions tie, any tie-break, or any mixture over the tied actions, is optimal too.</p>
+  <p>\(q_*\) is the more convenient object for three reasons. Acting needs no model. The max sits <em>inside</em> the expectation, so one sampled transition \((s, a, r, s')\) gives an unbiased sample \(r + \gamma \max_{a'} q_*(s', a')\) of the right-hand side, which is exactly the Q-learning target (Day 45); in the \(v_*\) equation the max is outside, and a sample of one action says nothing about the others. The price is \(|\mathcal S||\mathcal A|\) numbers and a max over actions at every step, trivial for four actions and an optimisation problem for continuous ones (Day 93).</p>
+
+  <h3>Worked example: the optimal machine policy</h3>
+  <p>Day 22's advantage table suggested servicing worn machines. Guess \(\pi = (\text{run}, \text{fix}, \text{fix})\) and evaluate it by hand:</p>
+  $$v(\text{W}) = -1 + 0.9\, v(\text{G}), \qquad v(\text{B}) = -8 + 0.9\, v(\text{G}), \qquad v(\text{G}) = 3 + 0.45\, v(\text{G}) + 0.45\, v(\text{W}).$$
+  <p>Substituting the first into the third gives \(v(\text{G}) = 2.55 + 0.855\, v(\text{G})\), so \(v(\text{G}) = 2.55/0.145 = 510/29 \approx 17.586\), then \(v(\text{W}) = 430/29 \approx 14.828\) and \(v(\text{B}) = 227/29 \approx 7.828\). To confirm the guess, check the optimality equation by computing every action value from these numbers:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>s</th><th>q(s, run)</th><th>q(s, fix)</th><th>max = v(s)?</th></tr></thead>
+    <tbody>
+      <tr><td>G</td><td class="num">3 + 0.9(0.5·17.586 + 0.5·14.828) = 17.586</td><td class="num">−1 + 0.9·17.586 = 14.828</td><td>17.586 ✓</td></tr>
+      <tr><td>W</td><td class="num">1.6 + 0.9(0.6·14.828 + 0.4·7.828) = 12.425</td><td class="num">−1 + 0.9·17.586 = 14.828</td><td>14.828 ✓</td></tr>
+      <tr><td>B</td><td class="num">0 + 0.9·7.828 = 7.045</td><td class="num">−8 + 0.9·17.586 = 7.828</td><td>7.828 ✓</td></tr>
+    </tbody>
+  </table></div>
+  <p>The values satisfy \(v = Tv\), and the fixed point is unique, so \(v = v_*\) and \(\pi_* = (\text{run}, \text{fix}, \text{fix})\). The table is \(q_*\). Servicing a worn machine is worth 10 more in G than run-to-failure, and with this policy in place a repair is worth doing after all.</p>
+  <pre><code>import numpy as np
+from machine import P, R, gamma
+
+# iterate q &lt;- r + gamma E[max_a' q(S', a')]; Day 31 does this properly
+q = np.zeros((3, 2))
+for k in range(500):
+    q = R + gamma * P @ q.max(axis=1)
+v = q.max(axis=1)
+print(np.round(q, 3))                    # [[17.586 14.828] [12.425 14.828] [ 7.045  7.828]]
+print(np.round(v, 3), q.argmax(axis=1))  # v* = [17.586 14.828 7.828], pi* = [run fix fix]
+
+assert np.allclose(v, (R + gamma * P @ v).max(axis=1))   # v* = T v*
+pi_from_q = q.argmax(axis=1)                             # model-free: a lookup
+pi_from_v = (R + gamma * P @ v).argmax(axis=1)           # needs P and R: a lookahead
+assert (pi_from_q == pi_from_v).all()</code></pre>
+  <p class="code-cap">Iterating \(q \leftarrow r + \gamma P \max_{a'} q\) is value iteration on action values, which Day 31 develops properly. The two greedy extractions agree, but only the one from \(v_*\) touches <code>P</code> and <code>R</code>.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Greedy with respect to the wrong values.</b> Acting greedily on \(v_\pi\) for a non-optimal \(\pi\) improves the policy (Day 29) but need not make it optimal. Acting greedily on an approximation with \(\|v - v_*\|_\infty \le \varepsilon\) loses at most \(2\gamma\varepsilon/(1-\gamma)\) (Singh &amp; Yee 1994). With \(\gamma = 0.99\), a value error of 0.01 can cost up to 1.98.</li>
+      <li><b>Comparing policies action by action.</b> \(v_*\) and \(q_*\) are unique, \(\pi_*\) need not be. Two correct solvers can return different policies wherever actions tie, so compare values, not actions.</li>
+      <li><b>Forgetting what “optimal” is relative to.</b> Change \(\gamma\) (Day 19) or the reward (Day 26) and \(\pi_*\) can change.</li>
+      <li><b>Maximising over noisy estimates.</b> \(\max_a \hat q(s, a)\) is biased upwards (Day 3), and an algorithm that bootstraps from it compounds the bias (Day 47).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Verify by hand, in exact fractions (510/29, 430/29, 227/29), that \((\text{run}, \text{fix}, \text{fix})\) satisfies the optimality equation in all three states.</li>
+      <li>Let the repair cost be \(c\). Argue that \(v_*(\text{G})\) does not depend on \(c\) (an optimal policy never reaches B from G), so repairing is optimal exactly when \(-c + 0.9\, v_*(\text{G}) &gt; 0\), i.e. \(c &lt; 15.83\). Check with the snippet at \(c = 15\) and \(c = 16\).</li>
+      <li>Show that \(Tv = \max_\pi T^\pi v\) over deterministic policies, componentwise, and that one policy attains the maximum in every state simultaneously.</li>
+      <li>Prove \(|\max_a f(a) - \max_a g(a)| \le \max_a |f(a) - g(a)|\) and conclude that \(T\) is a \(\gamma\)-contraction in \(\|\cdot\|_\infty\).</li>
+      <li>Build a two-state MDP with two different optimal deterministic policies. What does \(q_*\) look like where they disagree?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.6 · Bellman 1957, <i>Dynamic Programming</i>, Ch. III · Puterman 1994, §6.2 · Singh &amp; Yee 1994, “An Upper Bound on the Loss from Approximate Optimal-Value Functions”</p>
+</article>
+
+<!-- ================================================================ DAY 25 -->
+<article class="day" id="d25">
+  <header class="day-head">
+    <span class="day-no">DAY 25</span>
+    <h2>Solving MDPs Exactly</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">For a fixed policy, value is the solution of a linear system; for the optimal policy, of a linear program. Both are exact, both need the model, and both cost time polynomial in the number of states, which is fine for thousands of states and hopeless for the problems RL is actually for.</p>
+
+  <h3>Solving v<sub>π</sub> = (I − γP<sup>π</sup>)<sup>−1</sup> R<sup>π</sup></h3>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    <p>Rearrange the matrix form of Day 23: \((I - \gamma P^\pi)\, v_\pi = R^\pi\). Every eigenvalue of the stochastic matrix \(P^\pi\) has modulus at most 1 (Day 4), so \(\rho(\gamma P^\pi) = \gamma &lt; 1\), the Neumann series converges, and</p>
+    $$v_\pi = (I - \gamma P^\pi)^{-1} R^\pi = \sum_{k=0}^{\infty} \gamma^k (P^\pi)^k R^\pi .$$
+    <p>The \(k\)-th term is the expected reward \(k\) steps ahead, discounted, so the series is the definition of value again. Invertibility also proves the uniqueness claimed on Day 23: the system has exactly one solution.</p>
+  </div>
+  <p>The inverse has a meaning of its own. Its entries are</p>
+  $$M^\pi_{ss'} = \big[(I - \gamma P^\pi)^{-1}\big]_{ss'} = \sum_{k \ge 0} \gamma^k \Pr(S_k = s' \mid S_0 = s) = \E\Big[\sum_{k \ge 0} \gamma^k\, \mathbb 1\{S_k = s'\} \,\Big|\, S_0 = s\Big],$$
+  <p>the expected discounted number of visits to \(s'\) starting from \(s\). Each row sums to \(\sum_k \gamma^k = 1/(1-\gamma)\), and \(v_\pi = M^\pi R^\pi\) reads “discounted visits times reward per visit”. This matrix is the successor representation (Dayan 1993), which returns on Day 116. For run-to-failure on the machine:</p>
+  $$M^\pi = \begin{pmatrix} 4.29 &amp; 4.20 &amp; 1.51 \\ 3.02 &amp; 5.13 &amp; 1.85 \\ 3.86 &amp; 3.78 &amp; 2.36 \end{pmatrix}, \qquad M^\pi R^\pi = \begin{pmatrix} 7.5 \\ 2.5 \\ -1.25 \end{pmatrix}.$$
+  <p>Every row sums to 10. Starting from a good machine, this policy spends a discounted 1.51 shifts broken, at −8 each, and that term is most of the gap to the optimal policy.</p>
+
+  <h3>Computational cost: O(n³)</h3>
+  <p>Gaussian elimination (an LU factorisation) costs about \(\tfrac23 n^3\) floating-point operations for \(n\) states and stores \(n^2\) numbers:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>states n</th><th>≈ ⅔ n³ flops</th><th>dense matrix (float64)</th></tr></thead>
+    <tbody>
+      <tr><td class="num">10³</td><td class="num">7 × 10⁸</td><td class="num">8 MB</td></tr>
+      <tr><td class="num">10⁴</td><td class="num">7 × 10¹¹</td><td class="num">800 MB</td></tr>
+      <tr><td class="num">10⁵</td><td class="num">7 × 10¹⁴</td><td class="num">80 GB</td></tr>
+      <tr><td class="num">10⁶</td><td class="num">7 × 10¹⁷</td><td class="num">8 TB</td></tr>
+    </tbody>
+  </table></div>
+  <p>Ten thousand states is a few seconds to a minute on a laptop; a million is out of reach. Iterative evaluation (Day 28) costs one sparse matrix–vector product per sweep, proportional to the number of non-zero transitions, and needs on the order of \(\log(1/\varepsilon)/(1-\gamma)\) sweeps. That is far cheaper when each state has only a few successors, which is why DP uses sweeps rather than solves.</p>
+
+  <h3>Solving the optimality equations</h3>
+  <p>\(v_* = Tv_*\) is nonlinear (Day 24), but each of its affine pieces is a policy's linear system. The brute-force method solves all \(|\mathcal A|^{|\mathcal S|}\) of them and keeps the policy that dominates: 8 solves for the machine, exponentially many in general. Policy iteration (Day 30) visits only a short sequence of pieces, each better than the last. Puterman &amp; Brumelle (1979) showed it is exactly Newton's method applied to \(v - Tv = 0\), which is why it typically converges in a handful of iterations. The third route turns the max into inequalities.</p>
+
+  <h3>The LP formulation</h3>
+  <div class="box thm"><span class="tag">Theorem · MDP as a linear program</span>
+    <p>For any weights \(\mu(s) &gt; 0\), the unique solution of</p>
+    $$\min_{v \in \R^{|\mathcal S|}} \ \sum_s \mu(s)\, v(s) \quad \text{subject to} \quad v(s) \ge r(s, a) + \gamma \sum_{s'} p(s' \mid s, a)\, v(s') \quad \text{for all } s, a$$
+    <p>is \(v = v_*\). It has \(|\mathcal S|\) variables and \(|\mathcal S||\mathcal A|\) constraints.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <ol>
+      <li><b>Feasible means \(v \ge Tv\).</b> The constraints for every \(a\) at state \(s\) together say \(v(s) \ge \max_a[\dots] = (Tv)(s)\).</li>
+      <li><b>\(T\) is monotone.</b> If \(u \ge w\) componentwise then \(Tu \ge Tw\), since \(p(s' \mid s, a) \ge 0\) and the max preserves order.</li>
+      <li><b>Every feasible \(v\) is at least \(v_*\).</b> From \(v \ge Tv\), monotonicity gives \(Tv \ge T^2 v\), and by induction \(v \ge Tv \ge T^2 v \ge \cdots\). The contraction property (Day 32) gives \(T^k v \to v_*\), so \(v \ge v_*\).</li>
+      <li><b>\(v_*\) is feasible and optimal.</b> \(v_* = Tv_*\) satisfies every constraint. Any other feasible \(v\) has \(v \ge v_*\) with at least one strict inequality, and because every \(\mu(s) &gt; 0\), its objective is strictly larger. ∎</li>
+    </ol>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 620 340" role="img" aria-label="Feasible region of the MDP linear program for a two-state MDP, with the optimal value at its lowest corner">
+      <defs><marker id="ah-d25" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <line x1="60" y1="300" x2="580" y2="300" class="s-ln"/><line x1="60" y1="20" x2="60" y2="300" class="s-ln"/>
+      <text x="575" y="318" class="s-ink3 s-end s-sm">v(1)</text><text x="54" y="28" class="s-ink3 s-end s-sm">v(2)</text>
+      <text x="60" y="314" class="s-ink3 s-mid s-sm">0</text>
+      <text x="54" y="304" class="s-ink3 s-end s-sm">0</text>
+      <text x="210" y="314" class="s-ink3 s-mid s-sm">10</text>
+      <text x="54" y="220" class="s-ink3 s-end s-sm">10</text>
+      <text x="360" y="314" class="s-ink3 s-mid s-sm">20</text>
+      <text x="54" y="136" class="s-ink3 s-end s-sm">20</text>
+      <text x="510" y="314" class="s-ink3 s-mid s-sm">30</text>
+      <text x="54" y="52" class="s-ink3 s-end s-sm">30</text>
+      <polygon points="289.1,157.5 296.6,154.8 304.1,152.1 311.6,149.4 319.1,146.7 326.6,144.0 334.1,141.3 341.6,138.6 349.1,135.9 356.6,133.2 364.1,130.5 371.6,127.8 379.1,125.1 386.6,122.4 394.1,119.7 401.6,117.0 409.1,114.3 416.6,111.6 424.1,108.9 431.6,106.2 439.1,103.5 446.6,100.8 454.1,98.1 461.6,95.4 469.1,92.7 476.6,90.0 484.1,86.2 491.6,82.5 499.1,78.7 506.6,74.9 514.1,71.1 521.6,67.3 529.1,63.6 536.6,59.8 544.1,56.0 551.6,52.2 559.1,48.4 566.6,44.7 566.2,22.8 558.8,22.8 551.2,22.8 543.8,22.8 536.2,22.8 528.8,22.8 521.2,22.8 513.8,22.8 506.2,22.8 498.8,27.0 491.2,31.7 483.8,36.3 476.2,41.0 468.8,45.7 461.2,50.3 453.8,55.0 446.2,59.7 438.8,64.3 431.2,69.0 423.8,73.7 416.2,78.3 408.8,83.0 401.2,87.7 393.8,92.3 386.2,97.0 378.8,101.7 371.2,106.3 363.8,111.0 356.2,115.7 348.8,120.3 341.2,125.0 333.8,129.7 326.2,134.3 318.8,139.0 311.2,143.7 303.8,148.3 296.2,153.0 289.1,157.4" class="s-node-mod"/>
+      <line x1="113.7" y1="299.9" x2="431.7" y2="22.9" class="s-ln s-dash"/>
+      <line x1="60.0" y1="300.0" x2="505.5" y2="22.8" class="s-ln-ink"/>
+      <line x1="60.0" y1="240.0" x2="570.0" y2="56.4" class="s-ln-ink"/>
+      <line x1="60.0" y1="300.0" x2="570.0" y2="43.0" class="s-ln s-dash"/>
+      <line x1="60.0" y1="29.5" x2="543.1" y2="300.0" class="s-ln-acc s-dash"/>
+      <circle cx="288.8" cy="157.6" r="5" class="s-acc"/>
+      <text x="340" y="178" class="s-sm">◂ v* = (15.3, 16.9)</text>
+      <text x="512" y="20" class="s-sm">s₁, b</text>
+      <text x="436" y="20" class="s-ink3 s-sm">s₁, a</text>
+      <text x="574" y="64" class="s-sm">s₂, a</text>
+      <text x="574" y="42" class="s-ink3 s-sm">s₂, b</text>
+      <text x="428" y="100" class="s-mod s-sm">feasible: v ≥ Tv</text>
+      <text x="128" y="44" class="s-acc s-sm">level set of Σ μ(s) v(s)</text>
+      <line x1="458" y1="250" x2="428" y2="267" class="s-ln-acc" marker-end="url(#ah-d25)"/>
+      <text x="420" y="282" class="s-acc s-end s-sm">objective decreases</text>
+    </svg>
+    <figcaption><b>The LP for a two-state, two-action MDP</b> (\(\gamma = 0.9\)). Each action in each state contributes one half-plane \(v(s) \ge r(s, a) + \gamma \sum_{s'} p(s' \mid s, a)\, v(s')\), and the feasible set (shaded) is where all four hold. Its lowest corner is \(v_*\): there the constraints of the optimal actions (solid) are tight and the others (dashed) are slack. Minimising any positive combination \(\sum_s \mu(s) v(s)\) lands on that corner. In this example the best action in state 1 is to move to state 2 for nothing, and the best in state 2 is to collect 2 and mostly stay.</figcaption>
+  </figure>
+  <p>The dual LP is just as useful. Attach a multiplier \(x(s, a) \ge 0\) to each constraint; the dual is</p>
+  $$\max_{x \ge 0} \sum_{s, a} x(s, a)\, r(s, a) \quad \text{subject to} \quad \sum_a x(s', a) = \mu(s') + \gamma \sum_{s, a} p(s' \mid s, a)\, x(s, a) \quad \text{for all } s'.$$
+  <p>The equality constraints are flow conservation: discounted time spent in \(s'\) equals the probability of starting there plus the discounted flow into it. Their solutions are exactly the discounted state–action <b>occupancy measures</b> \(x(s, a) = \sum_t \gamma^t \Pr(S_t = s, A_t = a)\) of policies started from \(S_0 \sim \mu\), and the policy is recovered as \(\pi(a \mid s) = x(s, a) / \sum_b x(s, b)\). The objective is the expected discounted return, now <em>linear</em> in the decision variables. That makes the dual the natural place to add constraints (constrained MDPs, Days 27 and 122) and the basis of imitation by occupancy matching (GAIL, Day 108). By complementary slackness, \(x(s, a) &gt; 0\) only where the primal constraint is tight, that is, on optimal actions. Since linear programs are solvable in polynomial time, so are finite MDPs; Papadimitriou &amp; Tsitsiklis (1987) showed the problem is P-complete.</p>
+  <pre><code>import itertools
+import numpy as np
+from scipy.optimize import linprog
+from machine import P, R, gamma
+
+nS, nA = R.shape
+
+def evaluate(policy):                       # policy: one action index per state
+    P_pi = P[np.arange(nS), policy]         # [nS, nS]
+    R_pi = R[np.arange(nS), policy]         # [nS]
+    return np.linalg.solve(np.eye(nS) - gamma * P_pi, R_pi)   # solve, don't invert
+
+policies = itertools.product(range(nA), repeat=nS)
+values = {pol: evaluate(np.array(pol)) for pol in policies}
+best = max(values, key=lambda pol: values[pol].sum())
+# the best policy is at least as good as every other one, in every state
+assert all((values[best] &gt;= v - 1e-9).all() for v in values.values())
+print(best, np.round(values[best], 3))      # (0, 1, 1) [17.586 14.828  7.828]
+
+# LP: minimise sum_s mu(s) v(s)  s.t.  v(s) &gt;= r(s,a) + gamma sum_s' p(s'|s,a) v(s')
+mu = np.full(nS, 1 / nS)
+# row (s, a) of A_ub is gamma p(. | s, a) - e_s
+A_ub = (gamma * P - np.eye(nS)[:, None, :]).reshape(nS * nA, nS)
+b_ub = -R.reshape(nS * nA)
+res = linprog(mu, A_ub=A_ub, b_ub=b_ub, bounds=[(None, None)] * nS, method="highs")
+print(np.round(res.x, 3))                   # v* again
+
+# HiGHS reports the duals of &lt;= constraints as non-positive marginals
+x = -res.ineqlin.marginals.reshape(nS, nA)  # discounted occupancy x(s, a)
+print(np.round(x, 3), x.sum())              # nonzero on (G,run) (W,fix) (B,fix); sum 10</code></pre>
+  <p class="code-cap">Requires SciPy. Enumeration and the LP agree on \(v_* = (17.586, 14.828, 7.828)\). HiGHS reports the dual values as non-positive marginals for \(\le\) constraints, hence the minus sign. The occupancy is non-zero only on (G, run), (W, fix) and (B, fix), and \(x(\text{B}, \text{fix}) = \mu(\text{B}) = 1/3\) exactly: under the optimal policy a broken machine is only ever seen at time 0.</p>
+
+  <h3>Why exact solutions don't scale</h3>
+  <p>Bellman named the problem: the curse of dimensionality. A state made of \(d\) variables with \(m\) values each has \(m^d\) states, so ten variables with a hundred values each give \(10^{20}\), roughly the number of backgammon positions. Go has about \(10^{170}\) legal positions. Exact methods also need \(p\) itself, which you rarely have. The rest of the course is three responses to these two problems: sample instead of summing over successors (Modules 4–5), approximate instead of tabulating (Module 7 onwards), and spend computation only on the states that matter (Day 33, Day 59).</p>
+
+  <h3>Existence of a deterministic optimal policy (proof sketch)</h3>
+  <div class="box thm"><span class="tag">Theorem · deterministic stationary optimal policies</span>
+    <p>For a finite MDP with bounded rewards and \(\gamma &lt; 1\), there is a deterministic stationary policy \(\pi\) with \(v_\pi = v_*\), and \(v_* \ge v_{\pi'}\) for every policy \(\pi'\), including history-dependent randomised ones.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof sketch</span>
+    <ol>
+      <li><b>\(v_*\) exists.</b> \(T\) is a \(\gamma\)-contraction on \((\R^{|\mathcal S|}, \|\cdot\|_\infty)\), so by Banach's fixed-point theorem it has a unique fixed point; call it \(v_*\) (Days 4 and 32).</li>
+      <li><b>A greedy policy attains it.</b> Let \(\pi(s) \in \argmax_a [r(s, a) + \gamma \sum_{s'} p(s' \mid s, a)\, v_*(s')]\). The argmax exists because \(\mathcal A\) is finite, and \(\pi\) is deterministic and stationary by construction. Then \(T^\pi v_* = Tv_* = v_*\). But \(T^\pi\) is also a contraction, whose unique fixed point is \(v_\pi\). Hence \(v_\pi = v_*\).</li>
+      <li><b>No Markov policy does better.</b> Let \(\pi' = (d_0, d_1, \dots)\) be any Markov policy, randomised and non-stationary allowed. For each decision rule, \(T^{d} u \le T u\), since an average over actions is at most the max, and \(T^d\) is monotone. By induction, \(T^{d_0} T^{d_1} \cdots T^{d_{k-1}} \mathbf 0 \le T^k \mathbf 0\). The left side is the expected discounted reward of \(\pi'\) over the first \(k\) steps, and as \(k \to \infty\) it tends to \(v_{\pi'}\), while the right side tends to \(v_*\). So \(v_{\pi'} \le v_*\).</li>
+      <li><b>History doesn't help either.</b> For any history-dependent randomised policy and start state there is a Markov randomised policy with the same state–action probabilities \(\Pr(S_t = s, A_t = a)\) at every \(t\) (Puterman §5.5), and therefore the same value. Step 3 covers it. ∎</li>
+    </ol>
+  </div>
+  <p>Each assumption matters. Add constraints and randomisation can be required (Day 27). Hide the state and memory helps (POMDPs, Day 27). Add an adversary and mixed strategies are needed (Day 118). Make the horizon finite and the optimal policy becomes non-stationary (Day 21).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Forming the inverse.</b> <code>np.linalg.inv(A) @ b</code> is slower and less accurate than <code>np.linalg.solve(A, b)</code>. Only compute \(M^\pi\) when you want the matrix itself.</li>
+      <li><b>Conditioning as \(\gamma \to 1\).</b> \(\|(I - \gamma P^\pi)^{-1}\|_\infty = 1/(1-\gamma)\), so the condition number in the \(\infty\)-norm can reach \((1+\gamma)/(1-\gamma)\): 19 for the machine at \(\gamma = 0.9\), about 2000 at \(\gamma = 0.999\). Values and their errors grow together.</li>
+      <li><b>\(\gamma = 1\).</b> \(I - P^\pi\) is singular. For episodic tasks, drop the terminal states and solve on the transient ones, which works only if the policy terminates with probability 1.</li>
+      <li><b>LP bounds.</b> <code>scipy.optimize.linprog</code> defaults to non-negative variables. Values are often negative, so pass <code>bounds=[(None, None)] * nS</code>, or the solver returns a wrong answer with a success flag.</li>
+      <li><b>The model is never exact.</b> Errors in \(p\) propagate into \(v\), amplified by up to \(1/(1-\gamma)\). Jiang et al. (2015) show that a smaller planning \(\gamma\) can give better policies when the model is estimated from data.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Compute \(M^\pi\) for run-to-failure, verify that its rows sum to \(1/(1-\gamma)\) and that \(v = M^\pi R^\pi\). Then estimate \(M^\pi_{\text{G},\text{B}} \approx 1.51\) by simulation, as average discounted visits to B.</li>
+      <li>Time <code>np.linalg.solve</code> on random dense stochastic matrices with \(n\) = 500, 1000, 2000 and 4000, and fit the exponent of the running time.</li>
+      <li>Run the enumeration-and-LP snippet. Put all of \(\mu\) on G: does \(v_*\) change? Does \(x\)? Explain both answers.</li>
+      <li>Solve the dual LP directly with <code>linprog</code> (equality constraints via <code>A_eq</code>, maximise by negating \(r\)) and recover \(\pi_*\) from \(x\).</li>
+      <li>Write out step 3 of the existence proof explicitly for a two-step non-stationary policy \((d_0, d_1)\) followed by \(\pi_*\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §3.6, §4.1 · Puterman 1994, Ch. 6 (and §5.5 for the reduction to Markov policies) · Manne 1960, “Linear Programming and Sequential Decisions” · de Farias &amp; Van Roy 2003, “The Linear Programming Approach to Approximate Dynamic Programming”</p>
+</article>
+
+<!-- ================================================================ DAY 26 -->
+<article class="day" id="d26">
+  <header class="day-head">
+    <span class="day-no">DAY 26</span>
+    <h2>Reward Design &amp; Shaping</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">The reward is the only channel through which you tell the agent what you want, and agents are very good at satisfying its letter. Potential-based shaping is the one provably safe way to add guidance: it shifts every action value in a state by the same amount, so no preference between actions can change.</p>
+
+  <h3>Sparse and dense rewards</h3>
+  <p>A <b>sparse</b> reward, such as +1 on reaching the goal and 0 everywhere else, says exactly what you want and nothing more. Its problem is that the agent may never see it. A random walk on a corridor of length \(N\), started at the closed end, needs about \(N^2\) steps on average to reach the far end, and in Montezuma's Revenge (Day 102) random play essentially never scores. A <b>dense</b> reward pays at every step for progress (distance covered, speed, height of a block) and learns much faster, but the agent then optimises the proxy, and the proxy is never quite the goal.</p>
+  <p>The middle ground is to keep the true sparse reward as the specification and add help that provably doesn't change the answer (potential-based shaping, below), or help that changes what the agent experiences rather than what it is rewarded for: curricula, intrinsic motivation (Day 104), hindsight relabelling for goal-reaching tasks (Day 114), demonstrations (Module 12).</p>
+
+  <h3>Reward hacking, with real examples</h3>
+  <ul>
+    <li><b>CoastRunners</b> (Amodei &amp; Clark 2016). A boat-racing agent rewarded for hitting targets along the course found a lagoon where three targets respawned, and circled it forever, crashing and catching fire, without finishing. It outscored human players.</li>
+    <li><b>The bicycle</b> (Randløv &amp; Alstrøm 1998). An agent learning to ride to a goal was given a bonus for progress towards it and nothing for moving away. It learned to ride in small circles, collecting the bonus on every lap. This is the example that motivated Ng et al.'s theorem.</li>
+    <li><b>Lego stacking</b> (Popov et al. 2017). Rewarded for the height of the bottom face of a red block, a simulated arm learned to flip the block over instead of stacking it on the blue one.</li>
+    <li><b>Tetris</b> (Murphy 2013). A program trained to avoid losing learned to pause the game indefinitely just before it would lose.</li>
+    <li><b>Reward models in RLHF</b> (Gao, Schulman &amp; Hilton 2023). Optimising a language model against a learned reward model raises the proxy reward steadily, while a held-out “gold” reward first rises and then falls. Goodhart's law, measured (Day 123).</li>
+  </ul>
+  <p>Krakovna et al. (2020) keep a list of dozens more. The common thread is that the optimiser finds the gap between what you rewarded and what you meant, and the better the optimiser, the more reliably it finds it.</p>
+
+  <h3>Potential-based reward shaping</h3>
+  <div class="box def"><span class="tag">Definition · potential-based shaping</span>
+    <p>Pick a bounded <b>potential</b> \(\Phi: \mathcal S \to \R\) and add to every transition the shaping reward</p>
+    $$F(s, a, s') = \gamma\, \Phi(s') - \Phi(s),$$
+    <p>using the agent's own \(\gamma\). The shaped MDP \(M'\) has reward \(R + F\). In episodic tasks, set \(\Phi(\text{terminal}) = 0\).</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · Ng, Harada &amp; Russell 1999</span>
+    <p><b>Sufficiency:</b> if \(F\) is potential-based, every optimal policy of \(M'\) is optimal in \(M\), and vice versa. <b>Necessity:</b> if \(F\) is not potential-based, there exist dynamics and a base reward for which no optimal policy of \(M'\) is optimal in \(M\). Potential-based shaping is the only additive shaping that is safe for every MDP.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof · shaping shifts Q by −Φ(s)</span>
+    <p>Take any trajectory and add up the shaped rewards from time \(t\). The shaping terms telescope:</p>
+    $$\begin{aligned}
+    \sum_{k=0}^{K-1} \gamma^k \big[\gamma\Phi(S_{t+k+1}) - \Phi(S_{t+k})\big] &amp;= \sum_{k=0}^{K-1} \big[\gamma^{k+1}\Phi(S_{t+k+1}) - \gamma^k\Phi(S_{t+k})\big] \\
+    &amp;= \gamma^K \Phi(S_{t+K}) - \Phi(S_t).
+    \end{aligned}$$
+    <p>As \(K \to \infty\) the first term vanishes, since \(\Phi\) is bounded and \(\gamma &lt; 1\); in an episodic task it is \(\gamma^{T-t}\Phi(S_T) = 0\) because \(\Phi(\text{terminal}) = 0\). So on <em>every</em> trajectory,</p>
+    $$G'_t = G_t - \Phi(S_t).$$
+    <p>Condition on \(S_t = s, A_t = a\) and take expectations under any policy \(\pi\). Because \(\Phi(S_t) = \Phi(s)\) is fixed by the conditioning,</p>
+    $$q'_\pi(s, a) = q_\pi(s, a) - \Phi(s), \qquad v'_\pi(s) = v_\pi(s) - \Phi(s).$$
+    <p>Maximise over \(\pi\) to get \(q'_*(s, a) = q_*(s, a) - \Phi(s)\). The shift depends on \(s\) but not on \(a\), so \(\argmax_a q'_*(s, a) = \argmax_a q_*(s, a)\) in every state. ∎</p>
+    <p>Ng et al.'s original argument checks the same thing through the Bellman equation: \(\hat q(s, a) = q_*(s, a) - \Phi(s)\) satisfies the optimality equation of \(M'\),</p>
+    $$\sum_{s', r} p(s', r \mid s, a)\Big[r + \gamma\Phi(s') - \Phi(s) + \gamma \max_{a'}\big(q_*(s', a') - \Phi(s')\big)\Big] = q_*(s, a) - \Phi(s),$$
+    <p>because the \(\gamma\Phi(s')\) terms cancel. The fixed point is unique, so \(\hat q = q'_*\).</p>
+  </div>
+  <p>The result is stronger than “same optimal policy”. Since \(q'_\pi - v'_\pi = q_\pi - v_\pi\), every policy's advantages are unchanged, so rankings of actions and near-optimality gaps are all preserved. The ideal potential is \(\Phi = v_*\). Then \(v'_* = 0\), and the expected shaped reward of an action, \(r(s, a) + \gamma\,\E[v_*(S')] - v_*(s) = A_*(s, a)\), is its optimal advantage: a one-step greedy choice on the shaped reward is already optimal. You never have \(v_*\), but a decent guess at it, such as negative distance to the goal, is the usual potential. Wiewiora (2003) showed that tabular Q-learning with potential-based shaping behaves identically to Q-learning without shaping whose table is initialised to \(\Phi\), which tells you what shaping really buys: a better starting point.</p>
+
+  <h3>Why arbitrary shaping changes the optimal policy</h3>
+  <p>A bonus that is not potential-based can usually be farmed. “+0.1 for every step towards the goal” has no matching penalty for steps away, so a two-step loop that goes back and forth collects +0.1 per lap forever. With potential-based shaping a loop that returns to \(s\) after \(k\) steps collects exactly \(\gamma^k\Phi(s) - \Phi(s)\), which is part of the same telescoping sum and so cannot change any comparison between policies. Here is the bicycle in a six-cell corridor, solved exactly:</p>
+  <pre><code>import numpy as np
+
+N, gamma = 6, 0.99  # cells 0..5, start at 0; cell 5 is the goal (terminal)
+GOAL = N - 1
+
+def q_star(bonus, sweeps=3000):
+    """Value iteration. Reward: +1 for entering the goal,
+    plus bonus(s, s2) on every transition."""
+    q = np.zeros((N, 2))               # actions: 0 = left, 1 = right; q[GOAL] stays 0
+    for _ in range(sweeps):
+        v = q.max(axis=1)
+        new = np.zeros_like(q)
+        for s in range(GOAL):
+            for a, s2 in enumerate([max(s - 1, 0), s + 1]):
+                r = (1.0 if s2 == GOAL else 0.0) + bonus(s, s2)
+                # no bootstrap from the terminal
+                new[s, a] = r + gamma * v[s2] * (s2 != GOAL)
+        q = new
+    return q
+
+phi = np.arange(N) / GOAL  # potential = progress towards the goal ...
+phi[GOAL] = 0.0            # ... and 0 at the terminal state (see the trap box)
+
+base   = q_star(lambda s, s2: 0.0)
+naive  = q_star(lambda s, s2: 0.1 if s2 &gt; s else 0.0)    # "+0.1 for moving right"
+shaped = q_star(lambda s, s2: gamma * phi[s2] - phi[s])  # F = gamma Phi(s') - Phi(s)
+
+for name, q in [("base", base), ("naive", naive), ("shaped", shaped)]:
+    print(f"{name:6}", "".join("&lt;&gt;"[a] for a in q[:GOAL].argmax(axis=1)))
+# Q' = Q - Phi(s), every (s, a)
+assert np.allclose(shaped[:GOAL], base[:GOAL] - phi[:GOAL, None])</code></pre>
+  <p class="code-cap">The policies print as <code>&gt;&gt;&gt;&gt;&gt;</code> (base), <code>&gt;&gt;&gt;&gt;&lt;</code> (naive) and <code>&gt;&gt;&gt;&gt;&gt;</code> (shaped). The assertion checks the theorem numerically: every shaped action value is the base one minus \(\Phi(s)\).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 250" role="img" aria-label="Greedy policies in a six-cell corridor under a naive progress bonus and under potential-based shaping">
+      <defs><marker id="ah-d26" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker><marker id="ah-d26m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker></defs>
+      <text x="40" y="28" class="s-ttl">naive bonus: +0.1 for every step right</text>
+      <rect x="40" y="40" width="86" height="40" rx="5" class="s-node"/>
+      <text x="48" y="54" class="s-ink3 s-sm">0</text>
+      <line x1="66" y1="64" x2="102" y2="64" class="s-ln" marker-end="url(#ah-d26)"/>
+      <rect x="138" y="40" width="86" height="40" rx="5" class="s-node"/>
+      <text x="146" y="54" class="s-ink3 s-sm">1</text>
+      <line x1="164" y1="64" x2="200" y2="64" class="s-ln" marker-end="url(#ah-d26)"/>
+      <rect x="236" y="40" width="86" height="40" rx="5" class="s-node"/>
+      <text x="244" y="54" class="s-ink3 s-sm">2</text>
+      <line x1="262" y1="64" x2="298" y2="64" class="s-ln" marker-end="url(#ah-d26)"/>
+      <rect x="334" y="40" width="86" height="40" rx="5" class="s-node"/>
+      <text x="342" y="54" class="s-ink3 s-sm">3</text>
+      <line x1="360" y1="64" x2="396" y2="64" class="s-ln" marker-end="url(#ah-d26)"/>
+      <rect x="432" y="40" width="86" height="40" rx="5" class="s-node"/>
+      <text x="440" y="54" class="s-ink3 s-sm">4</text>
+      <line x1="494" y1="64" x2="458" y2="64" class="s-ln-bad" marker-end="url(#ah-d26)"/>
+      <rect x="530" y="40" width="86" height="40" rx="5" class="s-node-mod"/>
+      <text x="573" y="65" class="s-mid s-sm">goal +1</text>
+      <path d="M345,86 C365,112 435,112 455,86" class="s-ln-bad s-dash"/>
+      <text x="400" y="124" class="s-bad s-mid s-sm">3 ⇄ 4 forever: q(4, ←) ≈ 4.97 &gt; q(4, →) = 1.1</text>
+      <text x="40" y="158" class="s-ttl">potential-based: F = γΦ(s′) − Φ(s)</text>
+      <rect x="40" y="170" width="86" height="40" rx="5" class="s-node"/>
+      <text x="48" y="184" class="s-ink3 s-sm">0</text>
+      <line x1="66" y1="194" x2="102" y2="194" class="s-ln-mod" marker-end="url(#ah-d26m)"/>
+      <rect x="138" y="170" width="86" height="40" rx="5" class="s-node"/>
+      <text x="146" y="184" class="s-ink3 s-sm">1</text>
+      <line x1="164" y1="194" x2="200" y2="194" class="s-ln-mod" marker-end="url(#ah-d26m)"/>
+      <rect x="236" y="170" width="86" height="40" rx="5" class="s-node"/>
+      <text x="244" y="184" class="s-ink3 s-sm">2</text>
+      <line x1="262" y1="194" x2="298" y2="194" class="s-ln-mod" marker-end="url(#ah-d26m)"/>
+      <rect x="334" y="170" width="86" height="40" rx="5" class="s-node"/>
+      <text x="342" y="184" class="s-ink3 s-sm">3</text>
+      <line x1="360" y1="194" x2="396" y2="194" class="s-ln-mod" marker-end="url(#ah-d26m)"/>
+      <rect x="432" y="170" width="86" height="40" rx="5" class="s-node"/>
+      <text x="440" y="184" class="s-ink3 s-sm">4</text>
+      <line x1="458" y1="194" x2="494" y2="194" class="s-ln-mod" marker-end="url(#ah-d26m)"/>
+      <rect x="530" y="170" width="86" height="40" rx="5" class="s-node-mod"/>
+      <text x="573" y="195" class="s-mid s-sm">goal +1</text>
+      <text x="83" y="228" class="s-mod s-mid s-sm">Φ = 0</text>
+      <text x="181" y="228" class="s-mod s-mid s-sm">Φ = 0.2</text>
+      <text x="279" y="228" class="s-mod s-mid s-sm">Φ = 0.4</text>
+      <text x="377" y="228" class="s-mod s-mid s-sm">Φ = 0.6</text>
+      <text x="475" y="228" class="s-mod s-mid s-sm">Φ = 0.8</text>
+      <text x="573" y="228" class="s-mod s-mid s-sm">Φ = 0 (terminal)</text>
+    </svg>
+    <figcaption><b>Greedy policies in the corridor.</b> Top: the naive progress bonus makes the loop between cells 3 and 4 worth more than the goal. Bottom: the potential-based bonus with \(\Phi(s) = s/5\) (and \(\Phi = 0\) at the terminal) leaves the optimal policy exactly as it was without shaping.</figcaption>
+  </figure>
+  <p>With \(\gamma = 0.99\), shuttling between cells 3 and 4 is worth \(0.1\gamma / (1 - \gamma^2) \approx 4.97\) from cell 4, against \(1 + 0.1 = 1.1\) for stepping into the goal. The naive agent walks to the cell next to the goal and never enters it.</p>
+
+  <h3>Designing rewards for a custom environment</h3>
+  <div class="box note"><span class="tag">Checklist</span>
+    <ol>
+      <li><b>Write the true objective first</b>, usually as a sparse terminal reward. That is the specification; everything else is shaping and should be justified against it.</li>
+      <li><b>Make shaping potential-based.</b> For the Day 8 GridWorld, \(\Phi(s) = -\text{Manhattan distance to the goal} / (2(\text{size} - 1))\), which is 0 at the goal, as it must be.</li>
+      <li><b>Mind the sign of per-step rewards.</b> A negative step reward makes the agent want the episode to end, by any means, including failing early if failure ends it. A positive “alive” bonus makes it avoid ending the episode, including by stalling.</li>
+      <li><b>Keep the scale sensible.</b> Returns of order 1–100 suit default hyperparameters. Clipping or normalising rewards changes the objective (DQN's clipping to [−1, 1], Day 73).</li>
+      <li><b>Don't reward what the agent can directly manipulate:</b> a sensor it can block, a score counter it can reset, a judge it can flatter.</li>
+      <li><b>Watch behaviour, not just return.</b> Record videos (Day 8) and log a true-objective metric separately from the shaped training reward. Hard limits on side effects are often better expressed as constraints (Day 122) than as penalties.</li>
+    </ol>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>\(\Phi(\text{terminal}) \ne 0\).</b> The telescoping leaves \(\gamma^{T-t}\Phi(S_T)\), which depends on when and where the episode ends, and policy invariance can fail (Grześ 2017). Computing \(\Phi\) from a formula like “progress” often gives the goal the largest potential; override it to 0.</li>
+      <li><b>The wrong \(\gamma\).</b> \(F = \Phi(s') - \Phi(s)\) with a \(\gamma &lt; 1\) agent does not telescope, and a loop then collects \((1-\gamma)\) times a potential difference per lap.</li>
+      <li><b>Action-dependent potentials.</b> \(\Phi(s, a)\) is not covered by the theorem; Wiewiora, Cottrell &amp; Elkan (2003) give the look-ahead and look-back variants that are.</li>
+      <li><b>Invariance is not speed.</b> The theorem guarantees the same optimum, not faster learning. A bad potential slows learning down, and with function approximation and finite data the policy you actually learn can still differ.</li>
+      <li><b>Truncation.</b> A time-limit cut-off leaves the last \(\gamma^k\Phi\) term un-telescoped. Bootstrapping correctly through truncation (Day 8) cancels it in expectation; treating truncation as termination does not.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Run the corridor code. Then set <code>phi[GOAL] = 1.0</code>: does the assertion still hold? Print <code>shaped - base + phi[:, None]</code> and explain the pattern you see.</li>
+      <li>Replace \(F\) with \(\Phi(s') - \Phi(s)\) (no \(\gamma\)) and measure how far <code>shaped - base + phi[:, None]</code> is from zero. Scale \(\Phi\) up until the greedy policy changes, if it does.</li>
+      <li>Prove the Bellman-equation version of the theorem in full, including the uniqueness step.</li>
+      <li>For the Day 8 GridWorld with \(\Phi = -\text{distance}/(2(\text{size} - 1))\), compute \(F\) for a move into a wall. Why is it positive, and why does that not change the optimal policy? Verify invariance with the \(q\)-iteration loop of Day 24.</li>
+      <li>Read five entries in Krakovna et al.'s specification-gaming list and classify each as a misspecified reward, an exploitable simulator, or a farmable shaping term.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Ng, Harada &amp; Russell 1999, “Policy Invariance Under Reward Transformations: Theory and Application to Reward Shaping” · Wiewiora 2003, “Potential-Based Shaping and Q-Value Initialization are Equivalent” · Sutton &amp; Barto §17.4 · Amodei &amp; Clark 2016, “Faulty Reward Functions in the Wild” · Krakovna et al. 2020, “Specification Gaming: The Flip Side of AI Ingenuity”</p>
+</article>
+
+<!-- ================================================================ DAY 27 -->
+<article class="day" id="d27">
+  <header class="day-head">
+    <span class="day-no">DAY 27</span>
+    <h2>Beyond the Standard MDP</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">The finite discounted MDP is the right model surprisingly often, but not always. Four extensions cover most of the exceptions (hidden state, actions that take time, objectives without discounting, and hard constraints), and each one changes exactly one assumption of Days 18–26.</p>
+
+  <h3>POMDPs and belief states</h3>
+  <div class="box def"><span class="tag">Definition · partially observable MDP</span>
+    <p>A tuple \(\langle \mathcal S, \mathcal A, p, r, \Omega, O, \gamma \rangle\): an MDP whose state the agent never sees. After each transition it receives an observation \(o \in \Omega\) with probability \(O(o \mid s', a)\). The agent's information at time \(t\) is the history \(h_t = (o_0, a_0, o_1, \dots, a_{t-1}, o_t)\).</p>
+  </div>
+  <p>Histories are Markov but grow without bound. The <b>belief</b> \(b_t(s) = \Pr(S_t = s \mid h_t)\) compresses a history into a distribution over states, and it is a sufficient statistic: the future depends on the history only through \(b_t\) (Åström 1965).</p>
+  <div class="box deriv"><span class="tag">Derivation · belief update (Bayes' rule)</span>
+    <p>Predict through the dynamics, then correct with the likelihood of the observation:</p>
+    $$b'(s') = \Pr(s' \mid b, a, o) = \frac{O(o \mid s', a) \sum_s p(s' \mid s, a)\, b(s)}{\Pr(o \mid b, a)},$$
+    $$\Pr(o \mid b, a) = \sum_{s'} O(o \mid s', a) \sum_s p(s' \mid s, a)\, b(s).$$
+  </div>
+  <p>Beliefs turn a POMDP into a fully observable <b>belief MDP</b>, whose states are points of the probability simplex, with reward \(r(b, a) = \sum_s b(s)\, r(s, a)\) and Bellman equation \(V(b) = \max_a \big[r(b, a) + \gamma \sum_o \Pr(o \mid b, a)\, V(b')\big]\). Everything in this module applies to it, except that the state space is now continuous. For finite horizons the optimal value function is piecewise linear and convex in \(b\) (Smallwood &amp; Sondik 1973), but exact solution is PSPACE-complete (Papadimitriou &amp; Tsitsiklis 1987). Deep RL approximates the belief with memory instead: frame stacks (Day 74), recurrent networks such as DRQN and R2D2 (Day 121), and transformers.</p>
+  <p>The tiger problem (Kaelbling, Littman &amp; Cassandra 1998) is the standard toy. A tiger is behind one of two doors. Listening costs 1 and reports the correct side with probability 0.85; opening the tiger's door costs 100, opening the other pays 10.</p>
+  <pre><code>import numpy as np
+
+# Tiger POMDP (Kaelbling, Littman &amp; Cassandra 1998).
+# Hidden state: the tiger is behind the left (0) or the right (1) door.
+O = np.array([[0.85, 0.15],       # O[s', o] = Pr(hear o | tiger at s') after "listen"
+              [0.15, 0.85]])
+T_listen = np.eye(2)              # listening doesn't move the tiger
+
+def belief_update(b, o):
+    """b'(s') is proportional to O(o | s') * sum_s p(s' | s, listen) b(s)."""
+    b_pred = T_listen.T @ b       # predict: push the belief through the dynamics
+    b_new = O[:, o] * b_pred      # correct: weight by the likelihood of what was heard
+    return b_new / b_new.sum()    # normalise (the denominator is Pr(o | b, listen))
+
+b = np.array([0.5, 0.5])
+for o in [0, 0, 1, 0]:            # hear: left, left, right, left
+    b = belief_update(b, o)
+    open_right = 10 * b[0] - 100 * b[1]   # expected reward of opening the right door
+    print(o, np.round(b, 3), round(open_right, 2))</code></pre>
+  <p class="code-cap">Opening the right door has expected reward \(10\,b(\text{left}) - 100\,b(\text{right}) = 110\, b(\text{left}) - 100\), which is positive only when \(b(\text{left}) &gt; 10/11 \approx 0.91\). One “left” (0.85) is not enough; two consistent ones (0.97) are; a contradicting observation cancels one out exactly.</p>
+
+  <h3>SMDPs and temporal abstraction</h3>
+  <p>In a semi-Markov decision process an action takes a random number of steps \(\tau\) to complete. Group the return's terms by action: the reward accumulated while it runs is \(R^{(\tau)} = \sum_{k=0}^{\tau-1} \gamma^k R_{t+k+1}\), and the next decision is discounted by \(\gamma^\tau\), so</p>
+  $$q(s, o) = \E\Big[R^{(\tau)} + \gamma^\tau \max_{o'} q(S_{t+\tau}, o') \,\Big|\, S_t = s,\, O_t = o\Big].$$
+  <p>The only change from Day 24 is that \(\gamma\) has become the random \(\gamma^\tau\) inside the expectation. In the options framework (Sutton, Precup &amp; Singh 1999) an option is a triple of an initiation set, an internal policy and a termination condition, and an MDP together with a set of options is an SMDP. Options are how hierarchical RL plans with skills such as “walk to the door” rather than with joint torques (Day 113).</p>
+
+  <h3>Average reward and differential value functions</h3>
+  <div class="box def"><span class="tag">Definition · average-reward criterion</span>
+    <p>For a continuing task, rank policies by their long-run reward rate</p>
+    $$r(\pi) = \lim_{h \to \infty} \frac1h \sum_{t=1}^{h} \E_\pi[R_t] = \sum_s d_\pi(s) \sum_a \pi(a \mid s)\, r(s, a),$$
+    <p>where the second form holds when \(P^\pi\) has a unique stationary distribution \(d_\pi\) (Day 6). The <b>differential value</b> \(h_\pi(s) = \E_\pi\big[\sum_{k \ge 0} (R_{t+k+1} - r(\pi)) \mid S_t = s\big]\) measures how much better than average it is to start in \(s\), and it satisfies</p>
+    $$h_\pi(s) = \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a)\big[r - r(\pi) + h_\pi(s')\big],$$
+    <p>which determines \(h_\pi\) only up to an additive constant. Pin it down with \(d_\pi h_\pi = 0\) or \(h_\pi(s_0) = 0\).</p>
+  </div>
+  <p>Discounting and average reward are tightly linked. Multiplying \(v_\gamma = \sum_k \gamma^k (P^\pi)^k R^\pi\) on the left by \(d_\pi\), and using \(d_\pi P^\pi = d_\pi\), gives exactly</p>
+  $$\sum_s d_\pi(s)\, v_\gamma(s) = \frac{r(\pi)}{1 - \gamma},$$
+  <p>and more finely \(v_\gamma = \frac{r(\pi)}{1-\gamma}\mathbf 1 + h_\pi + O(1-\gamma)\) (Puterman, Ch. 8). Averaged over the states the policy visits, the discounted objective ranks policies exactly as the average reward does, whatever \(\gamma\) is. That is Sutton &amp; Barto's argument (§10.4) that discounting is futile as a problem formulation for continuing tasks with function approximation, and Day 68 builds the differential algorithms. A policy that is optimal for every \(\gamma\) sufficiently close to 1 is called Blackwell optimal (Blackwell 1962), and it is also average-reward optimal.</p>
+  <pre><code>import numpy as np
+from machine import P, R
+
+pi = np.array([[1, 0], [1, 0], [0, 1]], dtype=float)   # run-to-failure again
+P_pi = np.einsum("sa,sat-&gt;st", pi, P)
+R_pi = (pi * R).sum(axis=1)
+
+w, V = np.linalg.eig(P_pi.T)                            # stationary distribution (Day 6)
+d = np.real(V[:, np.argmin(abs(w - 1))]); d /= d.sum()
+rho = d @ R_pi                                          # average reward r(pi)
+
+# differential values: h = R^pi - rho + P^pi h, pinned down by d @ h = 0
+A = np.vstack([np.eye(3) - P_pi, d])
+h = np.linalg.lstsq(A, np.r_[R_pi - rho, 0.0], rcond=None)[0]
+# d = [0.364 0.455 0.182], rho = 0.3636, h = [ 3.917 -1.355 -4.446]
+print(np.round(d, 3), round(rho, 4), np.round(h, 3))
+
+for g in [0.9, 0.99, 0.999]:                            # v = rho/(1-g) + h + O(1-g)
+    v = np.linalg.solve(np.eye(3) - g * P_pi, R_pi)
+    print(g, np.round(v - rho / (1 - g), 3))</code></pre>
+  <p class="code-cap">Run-to-failure earns \(r(\pi) = 4/11 \approx 0.36\) per shift; the optimal discounted policy (run, fix, fix) spends 2/3 of its time in G and earns \(5/3\). As \(\gamma \to 1\), \(v_\gamma - r(\pi)/(1-\gamma)\) converges to the differential values.</p>
+
+  <h3>Continuing tasks without discounting</h3>
+  <p>With \(\gamma = 1\) a continuing task has infinite returns, so “maximise the sum” stops making sense. The options are to maximise the average reward (above), to fix a finite horizon and maximise the total (which needs a non-stationary policy, Day 21), or to keep \(\gamma &lt; 1\) and treat it as an algorithmic device rather than part of the problem, which is what most deep RL code does, usually without saying so.</p>
+
+  <h3>Constrained MDPs (preview)</h3>
+  <p>A constrained MDP adds a cost signal \(C_{t+1}\) with a budget \(d\): maximise \(J_r(\pi) = \E_\pi[\sum_t \gamma^t R_{t+1}]\) subject to \(J_c(\pi) = \E_\pi[\sum_t \gamma^t C_{t+1}] \le d\) (Altman 1999). In the occupancy-measure form of Day 25's dual LP the objective and the constraint are both linear in \(x\), so a CMDP is still a linear program, with one extra inequality per constraint. What changes is that optimal policies may need to randomise. With one state and two actions, a safe one (reward 0, cost 0) and a risky one (reward 1, cost 1), and an average-cost budget of 0.5, the best deterministic policy earns 0, while choosing the risky action half the time earns 0.5. In general an optimal policy needs to randomise in at most as many states as there are constraints. The Lagrangian relaxation, \(\max_\pi \min_{\lambda \ge 0} J_r(\pi) - \lambda\,(J_c(\pi) - d)\), turns this into an ordinary RL problem with an adaptive penalty, and is the basis of the safe-RL methods of Day 122.</p>
+
+  <h3>A map of which extension you need when</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 300" role="img" aria-label="Map of extensions of the standard MDP and the lessons that cover them">
+      <rect x="250" y="122" width="180" height="56" rx="8" class="s-node-mod"/>
+      <text x="340" y="145" class="s-ttl s-mid">finite MDP</text>
+      <text x="340" y="164" class="s-mid s-sm">⟨S, A, p, r, γ⟩ · Days 18–26</text>
+      <rect x="14" y="14" width="210" height="60" rx="6" class="s-node"/>
+      <text x="119" y="33" class="s-ttl s-mid">POMDP</text>
+      <text x="119" y="50" class="s-ink2 s-mid s-sm">you see oₜ, not the state</text>
+      <text x="119" y="66" class="s-mod s-mid s-sm">→ belief MDP · Day 121</text>
+      <rect x="456" y="14" width="210" height="60" rx="6" class="s-node"/>
+      <text x="561" y="33" class="s-ttl s-mid">SMDP / options</text>
+      <text x="561" y="50" class="s-ink2 s-mid s-sm">actions last τ steps</text>
+      <text x="561" y="66" class="s-mod s-mid s-sm">→ γ^τ backups · Day 113</text>
+      <rect x="14" y="226" width="210" height="60" rx="6" class="s-node"/>
+      <text x="119" y="245" class="s-ttl s-mid">average reward</text>
+      <text x="119" y="262" class="s-ink2 s-mid s-sm">continuing, no discount</text>
+      <text x="119" y="278" class="s-mod s-mid s-sm">→ differential v · Day 68</text>
+      <rect x="456" y="226" width="210" height="60" rx="6" class="s-node"/>
+      <text x="561" y="245" class="s-ttl s-mid">constrained MDP</text>
+      <text x="561" y="262" class="s-ink2 s-mid s-sm">costs with budgets</text>
+      <text x="561" y="278" class="s-mod s-mid s-sm">→ Lagrangian · Day 122</text>
+      <rect x="14" y="120" width="210" height="60" rx="6" class="s-node"/>
+      <text x="119" y="139" class="s-ttl s-mid">Markov game</text>
+      <text x="119" y="156" class="s-ink2 s-mid s-sm">other learning agents</text>
+      <text x="119" y="172" class="s-mod s-mid s-sm">→ Day 118</text>
+      <rect x="456" y="120" width="210" height="60" rx="6" class="s-node"/>
+      <text x="561" y="139" class="s-ttl s-mid">finite horizon H</text>
+      <text x="561" y="156" class="s-ink2 s-mid s-sm">the clock matters</text>
+      <text x="561" y="172" class="s-mod s-mid s-sm">→ non-stationary π</text>
+      <line x1="250" y1="130" x2="224" y2="74" class="s-ln"/>
+      <line x1="430" y1="130" x2="456" y2="74" class="s-ln"/>
+      <line x1="250" y1="170" x2="224" y2="226" class="s-ln"/>
+      <line x1="430" y1="170" x2="456" y2="226" class="s-ln"/>
+      <line x1="250" y1="150" x2="224" y2="150" class="s-ln"/>
+      <line x1="430" y1="150" x2="456" y2="150" class="s-ln"/>
+    </svg>
+    <figcaption><b>Where the standard MDP stops, and which lesson picks it up.</b> Each extension relaxes one assumption: full observability (POMDP), single-step actions (SMDP), discounting (average reward), a single objective (constrained MDP), a single agent (Markov game), an infinite horizon (finite-horizon problems).</figcaption>
+  </figure>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Symptom</th><th>Formulation</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>the observation doesn't determine what happens next (occlusion, missing velocity, hidden opponent cards)</td><td>POMDP: beliefs or memory</td><td>Day 74 (frame stacks), <a href="m13.html#d121">Day 121</a></td></tr>
+      <tr><td>actions are skills or macro-actions of varying length</td><td>SMDP / options</td><td><a href="m13.html#d113">Day 113</a></td></tr>
+      <tr><td>a continuing task where the long-run rate is what matters and any \(\gamma\) is arbitrary</td><td>average reward</td><td><a href="m07.html#d68">Day 68</a></td></tr>
+      <tr><td>hard limits on safety, cost or resources that must not be traded for reward</td><td>constrained MDP</td><td><a href="m14.html#d122">Day 122</a></td></tr>
+      <tr><td>other learning agents in the environment</td><td>Markov game</td><td><a href="m13.html#d118">Day 118</a></td></tr>
+      <tr><td>a fixed deadline</td><td>finite horizon: time in the state, or a non-stationary policy</td><td>Day 21</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Treating observations as states.</b> On aliased observations, tabular methods can converge to poor policies or fail to converge at all (Singh, Jaakkola &amp; Jordan 1994), and the best memoryless policy may be stochastic (Day 21).</li>
+      <li><b>Frame stacking as memory.</b> Four frames recover velocity, not a key picked up two minutes ago. Long-range dependencies need recurrent or attention-based memory.</li>
+      <li><b>Multichain policies.</b> The policy (run, fix, run) services worn machines but never repairs broken ones. Started in G it earns 5/3 per shift; started in B it earns 0 forever. Its average reward depends on the start state, and average-reward algorithms usually assume this can't happen, i.e. that every policy induces a single recurrent class.</li>
+      <li><b>Fixed penalties instead of constraints.</b> A hand-picked cost weight either violates the budget or over-satisfies it at a loss of reward, and the right weight changes as the policy changes. The multiplier must be adapted (Day 122).</li>
+      <li><b>Approximating average reward with \(\gamma \to 1\).</b> It works in principle, but values grow like \(1/(1-\gamma)\) and learning slows down in proportion.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Run the tiger belief update. If the listening accuracy drops to 0.7, how many consistent observations are needed before opening a door has positive expected reward?</li>
+      <li>Compute \(r(\pi)\), \(d_\pi\) and \(h_\pi\) for \(\pi_{\text{mix}}\) on the machine, and check numerically that \((1 - \gamma)\, v_\gamma \to r(\pi)\mathbf 1\) as \(\gamma \to 1\).</li>
+      <li>Write the one-state CMDP above as a linear program in \(x(\text{safe}), x(\text{risky})\) and solve it with <code>linprog</code>. Then solve the Lagrangian version for \(\lambda\) = 0.5, 1 and 2 and see which \(\lambda\) recovers the constrained optimum.</li>
+      <li>For three tasks you know (heads-up poker, a datacentre cooling controller, a robot reaching for an object behind an obstacle), say which extensions apply and why.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §10.3–10.4, §17.3 · Kaelbling, Littman &amp; Cassandra 1998, “Planning and Acting in Partially Observable Stochastic Domains” · Sutton, Precup &amp; Singh 1999, “Between MDPs and Semi-MDPs” · Altman 1999, <i>Constrained Markov Decision Processes</i> · Puterman 1994, Ch. 8</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m01.html"><small>Previous · Days 10–17</small>◂ Module 1 — Multi-Armed Bandits</a>
+  <a class="next" href="m03.html"><small>Next · Days 28–34</small>Module 3 — Dynamic Programming ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

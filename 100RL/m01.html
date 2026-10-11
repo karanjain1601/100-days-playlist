@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 1 — Multi-Armed Bandits · 130 Days of RL</title>
+<meta name="description" content="Days 10–17: the k-armed bandit and regret, action-value estimation with ε-greedy, incremental and constant-step-size updates, optimistic initial values, UCB, gradient bandits, Thompson sampling, contextual bandits with LinUCB, and Project 1, the 10-armed testbed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m1">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 1 · Multi-Armed Bandits · Days 10–17</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 1 · Bandits</h4>
+  <nav>
+    <a href="#d10"><span class="n">D10</span>The k-Armed Bandit</a>
+    <a href="#d11"><span class="n">D11</span>ε-Greedy &amp; the Testbed</a>
+    <a href="#d12"><span class="n">D12</span>Incremental Updates</a>
+    <a href="#d13"><span class="n">D13</span>Optimistic Initial Values</a>
+    <a href="#d14"><span class="n">D14</span>Upper Confidence Bound</a>
+    <a href="#d15"><span class="n">D15</span>Gradient Bandits</a>
+    <a href="#d16"><span class="n">D16</span>Thompson Sampling</a>
+    <a href="#d17"><span class="n">D17</span>Contextual Bandits · P1</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="1"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m00.html">◂ Module 0</a><a href="m02.html">Module 2 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 1 · Days 10–17 · Weeks 2–4</p>
+<h1>Multi-Armed Bandits</h1>
+<p class="dek">Eight lessons on the simplest problem that still contains the exploration–exploitation dilemma: one situation, k actions, noisy rewards, and nothing to learn from except the rewards of the actions you chose. You will estimate action values incrementally, then meet the main ideas for exploring well (random dithering, optimism, confidence bounds, policy gradients and posterior sampling) and race them on the 10-armed testbed in Project 1. Module 0 supplied the probability and stochastic approximation these methods run on; Module 2 puts the state back in, so that actions change what happens next.</p>
+<ul class="chips">
+  <li><b>8</b> lessons</li>
+  <li><b>4h 50m</b> video</li>
+  <li><b>11h 00m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto Ch. 2</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Define a stochastic k-armed bandit and its regret, prove the regret decomposition, and explain why constant-ε exploration has linear regret.</li>
+    <li>Build a vectorized 10-armed testbed and reproduce Sutton &amp; Barto's ε-greedy, optimistic-initialization and UCB learning curves, spikes included.</li>
+    <li>Derive the incremental mean update and the weights of the exponential recency-weighted average, and say when a constant step size beats \(1/n\).</li>
+    <li>Derive the UCB bonus from Hoeffding's inequality and the gradient-bandit update as stochastic gradient ascent, including why the baseline leaves it unbiased.</li>
+    <li>Update Beta–Bernoulli and Gaussian posteriors by hand and implement Thompson sampling.</li>
+    <li>Derive LinUCB from the confidence ellipsoid of ridge regression, and say exactly where contextual bandits end and full RL begins.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 10 -->
+<article class="day" id="d10">
+  <header class="day-head">
+    <span class="day-no">DAY 10</span>
+    <h2>The k-Armed Bandit Problem</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A bandit is reinforcement learning with the state taken away: one situation, k actions, noisy rewards, and no consequences beyond the next reward. What remains is the exploration–exploitation dilemma in its purest form, and regret is the yardstick for how well an agent resolves it.</p>
+
+  <h3>Formal setup</h3>
+  <p>You face the same choice over and over. On each step \(t = 1, 2, \dots, T\) you pick one of \(k\) actions, or <em>arms</em> (after the slot machine, the “one-armed bandit”), \(A_t \in \{1, \dots, k\}\), and receive a reward \(R_t\) drawn from a distribution that depends only on the arm you pulled. Only the chosen arm's reward is revealed. The arms don't interact, and for now their distributions don't change.</p>
+  <p>A note on indexing: Chapter 2 of Sutton &amp; Barto writes the reward for \(A_t\) as \(R_t\), not \(R_{t+1}\), because there is no next state for it to arrive with. This module follows that convention; Module 2 returns to \(R_{t+1}\).</p>
+  <div class="box def"><span class="tag">Definition · stochastic k-armed bandit</span>
+    <ul>
+      <li>A bandit is a tuple of reward distributions \(\nu = (P_1, \dots, P_k)\). Choosing \(A_t = a\) yields \(R_t \sim P_a\), independently of everything else that has happened.</li>
+      <li><b>True action value:</b> \(q_*(a) \doteq \E[R_t \mid A_t = a]\). <b>Optimal value:</b> \(q_* \doteq \max_a q_*(a)\), attained by an optimal arm \(a^*\).</li>
+      <li><b>Gap:</b> \(\Delta_a \doteq q_* - q_*(a) \ge 0\), the expected cost of pulling \(a\) once instead of \(a^*\).</li>
+      <li><b>Estimate:</b> \(Q_t(a)\), the agent's estimate of \(q_*(a)\) before step \(t\); \(N_t(a)\), the number of times \(a\) was chosen before step \(t\).</li>
+      <li><b>Policy:</b> a rule mapping the history \(\mathcal H_{t-1} = (A_1, R_1, \dots, A_{t-1}, R_{t-1})\) to a distribution over the next arm.</li>
+    </ul>
+  </div>
+  <p>The agent never sees \(q_*\). If it did, the problem would be trivial: pull \(a^*\) forever. Everything interesting comes from having to estimate \(q_*\) from the rewards of the arms you happened to choose, while those same choices are what earn you reward.</p>
+
+  <h3>The exploration–exploitation dilemma, stated precisely</h3>
+  <p>At step \(t\) the greedy action is \(\argmax_a Q_t(a)\). Choosing it is <b>exploiting</b>: it maximises this step's expected reward under your current beliefs. Choosing any other arm \(a\) is <b>exploring</b>: by your own estimates it costs \(\max_b Q_t(b) - Q_t(a)\) now, and it buys one more sample of \(a\), which shrinks the uncertainty in \(Q_t(a)\) and might reveal that \(a\) is better than you thought, changing every later decision. A single pull cannot do both, and the value of the information depends on three things the one-step view ignores:</p>
+  <ul>
+    <li><b>Horizon.</b> With \(T - t\) steps left, a discovery can pay off at most \(T - t\) times. On the last step, always exploit.</li>
+    <li><b>Uncertainty.</b> An arm sampled 3 times has a lot left to reveal; one sampled 3,000 times has almost nothing.</li>
+    <li><b>Gap.</b> An arm whose estimate is far below the leader's needs a very lucky truth to matter.</li>
+  </ul>
+  <div class="box note"><span class="tag">Is there an optimal answer?</span>
+    <p>Yes, in a Bayesian sense. Put a prior on the unknown values; the posterior after each step is then the state of an MDP whose transitions are Bayesian updates, and planning in that MDP gives the Bayes-optimal exploration policy. For infinite-horizon discounted bandits with independent arms, Gittins (1979) showed this policy has a beautiful form: compute one number per arm from that arm's own posterior (its Gittins index) and pull the largest. In general the planning problem is intractable, which is why this module studies cheap strategies with strong guarantees rather than exact Bayes-optimality.</p>
+  </div>
+
+  <h3>Regret and cumulative regret</h3>
+  <div class="box def"><span class="tag">Definition · regret</span>
+    <p>The (pseudo-)regret of a policy after \(T\) steps is the expected reward lost by not pulling \(a^*\) every time:</p>
+    $$\mathcal R_T \doteq T\,q_* - \E\Big[\sum_{t=1}^{T} R_t\Big] = \sum_{t=1}^{T} \E\big[q_* - q_*(A_t)\big].$$
+    <p>The per-step term \(q_* - q_*(A_t)\) is the instantaneous regret; the running sum is the cumulative regret, which is what learning-curve plots of regret show.</p>
+  </div>
+  <p>Maximising total reward and minimising regret are the same objective. Regret is more informative to plot because it is zero for a perfect agent, and its <em>growth rate</em> separates algorithms that eventually stop paying for exploration from those that never do.</p>
+  <div class="box deriv"><span class="tag">Derivation · the regret decomposition</span>
+    <p>By the tower rule (<a href="m00.html#d3">Day 3</a>), \(\E[R_t] = \E\big[\E[R_t \mid A_t]\big] = \E[q_*(A_t)]\). Write \(n_T(a) = \sum_{t=1}^T \mathbb 1\{A_t = a\}\) for the number of pulls of \(a\) in the first \(T\) steps. Then</p>
+    $$\mathcal R_T = \sum_{t=1}^{T} \E\big[q_* - q_*(A_t)\big] = \E\Big[\sum_{t=1}^{T} \sum_{a} \mathbb 1\{A_t = a\}\,\Delta_a\Big] = \sum_{a} \Delta_a\, \E\big[n_T(a)\big].$$
+    <p>Regret is a gap-weighted count of mistakes. To keep it small, pull every suboptimal arm rarely, and the arms with large gaps most rarely of all.</p>
+  </div>
+  <p>The decomposition explains the three growth rates you will see in this module:</p>
+  <ul>
+    <li><b>Linear regret, \(\Theta(T)\).</b> ε-greedy with a fixed ε pulls each arm with probability at least \(\varepsilon/k\) forever, so \(\mathcal R_T \ge \varepsilon T \frac1k \sum_a \Delta_a\). Pure greedy also has linear regret, because with positive probability it locks onto a suboptimal arm and never leaves (Day 11).</li>
+    <li><b>Logarithmic regret, \(O\big(\sum_{a:\Delta_a &gt; 0} \ln T / \Delta_a\big)\).</b> Achieved by UCB (Day 14) and Thompson sampling (Day 16): suboptimal arms are pulled only \(O(\ln T / \Delta_a^2)\) times.</li>
+    <li><b>No better than logarithmic.</b> The lower bound below says no reasonable algorithm can do better.</li>
+  </ul>
+  <div class="box thm"><span class="tag">Theorem · Lai &amp; Robbins (1985) lower bound</span>
+    <p>For one-parameter families of reward distributions (Bernoulli, or Gaussian with known variance), any policy whose regret is \(o(T^p)\) for every \(p &gt; 0\) on every bandit in the family must satisfy, for every suboptimal arm, \(\liminf_{T\to\infty} \E[n_T(a)] / \ln T \ge 1/\KL(P_a \,\|\, P_{a^*})\). Consequently</p>
+    $$\liminf_{T \to \infty} \frac{\mathcal R_T}{\ln T} \;\ge \sum_{a:\,\Delta_a &gt; 0} \frac{\Delta_a}{\KL(P_a \,\|\, P_{a^*})}.$$
+    <p>For unit-variance Gaussian arms, \(\KL = \Delta_a^2 / 2\), so the constant is \(\sum_a 2/\Delta_a\): arms that are nearly as good as the best are the expensive ones, because they take many samples to tell apart.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 690 280" role="img" aria-label="Cumulative regret over 10,000 steps on the 10-armed testbed: greedy and epsilon-greedy grow linearly, UCB and Thompson sampling flatten">
+      <line x1="60" y1="190" x2="640" y2="190" class="s-grid"/><line x1="60" y1="140" x2="640" y2="140" class="s-grid"/>
+      <line x1="60" y1="90" x2="640" y2="90" class="s-grid"/><line x1="60" y1="40" x2="640" y2="40" class="s-grid"/>
+      <line x1="60" y1="240" x2="640" y2="240" class="s-ln"/><line x1="60" y1="40" x2="60" y2="240" class="s-ln"/>
+      <g class="s-sm s-ink3">
+        <text x="54" y="243" class="s-end">0</text><text x="54" y="193" class="s-end">500</text><text x="54" y="143" class="s-end">1,000</text>
+        <text x="54" y="93" class="s-end">1,500</text><text x="54" y="43" class="s-end">2,000</text>
+        <text x="60" y="256" class="s-mid">0</text><text x="205" y="256" class="s-mid">2,500</text><text x="350" y="256" class="s-mid">5,000</text>
+        <text x="495" y="256" class="s-mid">7,500</text><text x="640" y="256" class="s-mid">10,000</text>
+        <text x="350" y="273" class="s-mid">step t</text><text x="66" y="30">cumulative regret</text>
+      </g>
+      <polyline points="60,240 74,227.1 89,215.0 104,202.8 118,190.6 132,178.4 147,166.3 162,154.1 176,141.9 190,129.8 205,117.6 220,105.4 234,93.2 248,81.1 263,68.9 278,56.7 292,44.6 297,40" class="s-ln"/>
+      <polyline points="60,240 74,230.8 89,225.8 104,221.3 118,217.2 132,213.0 147,208.9 162,204.8 176,200.7 190,196.7 205,192.6 220,188.6 234,184.7 248,180.7 263,176.8 278,172.9 292,169.0 306,165.0 321,161.1 336,157.1 350,153.1 364,149.2 379,145.2 394,141.3 408,137.4 422,133.5 437,129.7 452,125.7 466,121.8 480,117.9 495,114.0 510,110.1 524,106.2 538,102.2 553,98.3 568,94.4 582,90.5 596,86.6 611,82.7 626,78.8 640,74.8" class="s-ln-acc"/>
+      <polyline points="60,240 74,231.2 89,228.4 104,226.7 118,225.3 132,224.3 147,223.4 162,222.7 176,222.0 190,221.4 205,220.8 220,220.3 234,219.9 248,219.5 263,219.1 278,218.7 292,218.4 306,218.0 321,217.7 336,217.4 350,217.2 364,216.8 379,216.6 394,216.3 408,216.1 422,215.8 437,215.6 452,215.4 466,215.2 480,215.0 495,214.8 510,214.7 524,214.5 538,214.3 553,214.2 568,214.0 582,213.8 596,213.7 611,213.5 626,213.4 640,213.2" class="s-ln-warn"/>
+      <polyline points="60,240 74,234.9 89,233.9 104,233.3 118,232.9 132,232.6 147,232.3 162,232.0 176,231.8 190,231.7 205,231.5 220,231.3 234,231.2 248,231.0 263,230.9 278,230.8 292,230.7 306,230.6 321,230.5 336,230.4 350,230.3 364,230.3 379,230.2 394,230.1 408,230.0 422,230.0 437,229.9 452,229.9 466,229.8 480,229.7 495,229.7 510,229.6 524,229.6 538,229.5 553,229.5 568,229.4 582,229.4 596,229.4 611,229.3 626,229.3 640,229.2" class="s-ln-mod"/>
+      <g class="s-sm">
+        <text x="646" y="78">1,652</text><text x="646" y="216">268</text><text x="646" y="233">108</text>
+        <line x1="380" y1="47" x2="402" y2="47" class="s-ln"/><text x="410" y="50">greedy (ε = 0)</text>
+        <line x1="380" y1="62" x2="402" y2="62" class="s-ln-acc"/><text x="410" y="65">ε-greedy, ε = 0.1</text>
+        <line x1="380" y1="77" x2="402" y2="77" class="s-ln-warn"/><text x="410" y="80">UCB, c = 2</text>
+        <line x1="380" y1="92" x2="402" y2="92" class="s-ln-mod"/><text x="410" y="95">Thompson sampling</text>
+      </g>
+    </svg>
+    <figcaption><b>Linear vs logarithmic regret.</b> Averages over 500 runs of the 10-armed testbed you will build tomorrow. Greedy leaves the chart at about step 4,100 and reaches roughly 4,900 by step 10,000; ε-greedy pays a roughly constant tax of about 0.16 per step, forever. UCB and Thompson sampling pay most of their regret in the first few hundred steps and then flatten, which is the signature of \(\ln T\) growth. These are the algorithms of Days 11, 14 and 16.</figcaption>
+  </figure>
+  <p>One variant is worth knowing by name. <b>Simple regret</b> scores only the arm you recommend at the end, \(q_* - q_*(\hat a_T)\), ignoring what exploration cost along the way. It is the right objective for <em>best-arm identification</em>, when the experiment is a means to a decision (ship one website variant, pick one hyperparameter setting) and the reward collected during it doesn't matter.</p>
+
+  <h3>Why bandits are RL with one state</h3>
+  <p>Read as an MDP (Day 20), a bandit has a single state \(s\) that every action returns to: \(p(s, r \mid s, a) = P_a(r)\). The action value \(q_*(s, a)\) is just \(q_*(a)\) with the state dropped, and since the next state is always the same, the Bellman optimality equation collapses to \(q_*(a) = \E[R \mid a]\). Once \(q_*\) is known, the optimal policy is “pull \(a^*\)” for every discount factor. Sutton &amp; Barto call this setting <em>nonassociative</em>: there is no need to associate different actions with different situations.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Bandit (today)</th><th>Contextual bandit (Day 17)</th><th>Full RL (Module 2 on)</th></tr></thead>
+    <tbody>
+      <tr><td><b>State</b></td><td>one, so effectively none</td><td>a context observed each round, unaffected by actions</td><td>depends on the previous state and action</td></tr>
+      <tr><td><b>An action affects</b></td><td>the immediate reward</td><td>the immediate reward</td><td>the reward and the next state</td></tr>
+      <tr><td><b>Credit assignment</b></td><td>none</td><td>none</td><td>across time</td></tr>
+      <tr><td><b>Exploration</b></td><td>needed</td><td>needed, per context</td><td>needed, deep in the state space</td></tr>
+      <tr><td><b>Core difficulty</b></td><td>exploration</td><td>exploration + generalisation</td><td>exploration + generalisation + delayed credit</td></tr>
+    </tbody>
+  </table></div>
+  <p>Day 1 named two difficulties that make RL hard: evaluative feedback and delayed consequences. A bandit keeps the first and removes the second, which is exactly why it is the right place to study exploration on its own.</p>
+
+  <h3>Real applications</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Application</th><th>Arms</th><th>Reward</th><th>What regret means</th></tr></thead>
+    <tbody>
+      <tr><td><b>A/B(/n) testing</b></td><td>page or product variants</td><td>click or conversion (0/1)</td><td>visitors shown a worse variant during the test</td></tr>
+      <tr><td><b>Clinical trials</b></td><td>treatments</td><td>patient outcome</td><td>patients given the inferior treatment</td></tr>
+      <tr><td><b>Ad and news selection</b></td><td>ads or articles in the pool</td><td>click</td><td>clicks lost; arms appear and expire constantly</td></tr>
+      <tr><td><b>Hyperparameter search</b></td><td>configurations</td><td>validation score</td><td>compute spent on bad configurations (simple regret)</td></tr>
+    </tbody>
+  </table></div>
+  <p>A classic A/B test splits traffic 50/50 for a fixed period and then commits: pure exploration followed by pure exploitation. A bandit shifts traffic toward the better variant as evidence accumulates, which earns more during the test. Clinical trials are the historical origin of the subject: Thompson's 1933 paper, which introduced the algorithm of Day 16, was motivated by the ethics of continuing to assign patients to a treatment that the evidence already disfavours. News recommendation at Yahoo! (Li et al. 2010) is the canonical industrial case, and it needs context about the user, which is Day 17.</p>
+  <div class="box note"><span class="tag">Regret vs a clean experiment</span>
+    <p>Adaptive allocation makes ordinary statistics harder. The sample mean of an arm you stopped pulling after a run of bad luck is biased downward, and p-values from fixed-sample tests no longer apply to adaptively collected data. If the goal is to <em>measure</em> an effect precisely (science, regulation), a fixed-allocation experiment may be the right tool. If the goal is reward collected while learning, a bandit is.</p>
+  </div>
+
+  <pre><code>import numpy as np
+
+class GaussianBandit:
+    """k arms; arm a pays N(q_star[a], 1). One state, so there are no transitions."""
+    def __init__(self, k=10, rng=None):
+        self.rng = rng if rng is not None else np.random.default_rng()
+        self.k = k
+        self.q_star = self.rng.normal(0.0, 1.0, k)    # true action values, hidden from the agent
+
+    def pull(self, a):
+        return self.rng.normal(self.q_star[a], 1.0)
+
+def pseudo_regret(bandit, actions):
+    """sum_t [q* - q*(A_t)] = sum_a Delta_a n_T(a), the regret decomposition."""
+    gaps = bandit.q_star.max() - bandit.q_star
+    return gaps @ np.bincount(actions, minlength=bandit.k)
+
+rng = np.random.default_rng(0)
+env, T, m = GaussianBandit(rng=rng), 1000, 5
+uniform = rng.integers(0, env.k, T)                       # explore forever
+
+etc = np.zeros(T, dtype=int)                              # explore-then-commit:
+etc[:m * env.k] = np.repeat(np.arange(env.k), m)          # m pulls of every arm...
+samples = np.array([env.pull(a) for a in etc[:m * env.k]]).reshape(env.k, m)
+etc[m * env.k:] = samples.mean(axis=1).argmax()           # ...then the best sample mean forever
+
+print(pseudo_regret(env, uniform), pseudo_regret(env, etc))   # about 1229 and 61 on this seed</code></pre>
+  <p class="code-cap">Uniform exploration pays the average gap on every step. Explore-then-commit pays for 50 exploratory pulls and is cheap on this seed, but on some bandits five samples per arm pick the wrong winner and the commitment phase then pays linear regret. That gamble is what the rest of the module tries to avoid.</p>
+
+  <div class="box trap"><span class="tag">What breaks · the assumptions behind the model</span>
+    <ul>
+      <li><b>Stationarity.</b> Real click-through rates drift with novelty, seasonality and competitors. Day 12 handles drift.</li>
+      <li><b>Independent rounds.</b> If showing an ad changes whether the user comes back, actions affect future situations, and a bandit is optimising the wrong objective (Day 17's bridge to RL).</li>
+      <li><b>Immediate feedback.</b> Conversions arrive hours later and decisions are made in batches. Deterministic algorithms such as UCB repeat the same choice for a whole batch; randomised ones such as Thompson sampling cope better (Day 16).</li>
+      <li><b>The comparator.</b> Regret is measured against the best <em>single</em> arm. If the best arm depends on who the user is, that comparator is too weak and you need contextual regret.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Run the snippet over 1,000 seeds. For \(m \in \{1, 2, 5, 10, 20, 50\}\), estimate the mean regret of explore-then-commit and how often it commits to a suboptimal arm. Plot mean regret against \(m\): the U-shape is the exploration–exploitation trade-off in a single curve.</li>
+      <li>Prove the regret decomposition yourself, then prove \(\mathcal R_T \ge \varepsilon T \frac1k \sum_a \Delta_a\) for ε-greedy with constant ε.</li>
+      <li>For each application in the table, write down the arms, the reward distribution, the horizon, and whether stationarity is plausible. Which would you run as a fixed A/B test instead, and why?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §2.1 · Lattimore &amp; Szepesvári, <i>Bandit Algorithms</i>, Ch. 1, 4 (regret decomposition) and 6 (explore-then-commit) · Lai &amp; Robbins 1985, “Asymptotically Efficient Adaptive Allocation Rules” · Thompson 1933, “On the Likelihood that One Unknown Probability Exceeds Another in View of the Evidence of Two Samples”</p>
+</article>
+
+<!-- ================================================================ DAY 11 -->
+<article class="day" id="d11">
+  <header class="day-head">
+    <span class="day-no">DAY 11</span>
+    <h2>Action-Value Estimation &amp; ε-Greedy</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Estimate each arm's value by averaging its rewards, then mostly act greedily on the estimates. The “mostly” matters: a purely greedy agent locks onto whatever looked good first, and a small, permanent dose of random exploration fixes that at a price you can compute exactly.</p>
+
+  <h3>Sample-average estimation</h3>
+  <p>The natural estimate of \(q_*(a) = \E[R_t \mid A_t = a]\) is the average of the rewards actually received from \(a\):</p>
+  $$Q_t(a) \doteq \frac{\sum_{i=1}^{t-1} R_i\, \mathbb 1\{A_i = a\}}{\sum_{i=1}^{t-1} \mathbb 1\{A_i = a\}} = \frac{\text{sum of rewards from } a \text{ before } t}{N_t(a)},$$
+  <p>with some default \(Q_1(a)\), usually 0, while \(N_t(a) = 0\). If \(a\) is chosen infinitely often, \(Q_t(a) \to q_*(a)\) by the law of large numbers (<a href="m00.html#d3">Day 3</a>), and its standard error is \(\sigma / \sqrt{N_t(a)}\): the uncertainty shrinks only as the square root of the number of pulls. Sutton &amp; Barto call methods built on such estimates <em>action-value methods</em>.</p>
+
+  <h3>Greedy selection and why it fails</h3>
+  $$A_t \doteq \argmax_a Q_t(a), \qquad \text{ties broken uniformly at random.}$$
+  <p>Greedy only ever samples the arm it currently believes is best. If the best arm's first rewards come in low, its estimate stays low forever, because an estimate only changes when its arm is pulled. Concretely, with \(Q_1 = 0\) everywhere: suppose the first pull lands on an arm with \(q_*(a) = 0.5\) and the reward is positive, which happens about 69% of the time. Now \(Q(a) &gt; 0 = Q(b)\) for every other arm, so greedy pulls \(a\) again, and because its average drifts toward \(0.5 &gt; 0\) there is a good chance it never drops below the untried arms' 0. In those runs the arm with \(q_* = 1.5\) is never tried at all. On the testbed below, greedy ends up on the optimal arm in only about a third of runs.</p>
+
+  <h3>ε-greedy</h3>
+  <div class="box algo"><span class="tag">Algorithm · ε-greedy with sample averages</span>
+    <ol>
+      <li>Initialise, for every arm \(a\): \(Q(a) \leftarrow 0\), \(N(a) \leftarrow 0\).</li>
+      <li>Loop for \(t = 1, 2, \dots\):
+        <ol>
+          <li>With probability \(1 - \varepsilon\): \(A \leftarrow \argmax_a Q(a)\) <span class="step">(random tie-breaking)</span>; otherwise \(A \leftarrow\) an arm chosen uniformly at random.</li>
+          <li>\(R \leftarrow \text{bandit}(A)\)</li>
+          <li>\(N(A) \leftarrow N(A) + 1\); \(\;Q(A) \leftarrow Q(A) + \frac{1}{N(A)}\big[R - Q(A)\big]\) <span class="step">(the running average; Day 12 derives it)</span></li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>The random arm can be the greedy one, so the greedy arm is chosen with probability \(1 - \varepsilon + \varepsilon/k\) and every other arm with probability \(\varepsilon/k\).</p>
+  <div class="box thm"><span class="tag">Result · ε-greedy in the limit</span>
+    <p>Every arm is chosen with probability at least \(\varepsilon / k\) on every step, so each is chosen infinitely often and \(Q_t(a) \to q_*(a)\) for all \(a\) almost surely. Hence \(\Pr(A_t = a^*) \to 1 - \varepsilon + \varepsilon/k\) (0.91 for \(\varepsilon = 0.1\), 0.991 for \(\varepsilon = 0.01\), with \(k = 10\)), and the expected reward per step tends to</p>
+    $$\Big(1 - \varepsilon + \frac{\varepsilon}{k}\Big) q_* + \frac{\varepsilon}{k}\sum_{a \ne a^*} q_*(a) = (1 - \varepsilon)\, q_* + \frac{\varepsilon}{k} \sum_{a} q_*(a).$$
+  </div>
+  <p>On the testbed below, \(\E[q_*]\), the expected maximum of ten standard normals, is about 1.54, and the expected mean of the ten values is 0. So the long-run reward is about \(0.9 \times 1.54 \approx 1.39\) for \(\varepsilon = 0.1\) and \(0.99 \times 1.54 \approx 1.52\) for \(\varepsilon = 0.01\). The gap to 1.54 is paid on every step forever: constant-ε exploration has linear regret.</p>
+
+  <h3>The 10-armed testbed</h3>
+  <div class="box def"><span class="tag">Definition · the testbed (Sutton &amp; Barto §2.3)</span>
+    <p>Generate 2,000 independent 10-armed bandits. In each, draw \(q_*(a) \sim \mathcal N(0, 1)\) for \(a = 1, \dots, 10\); pulling \(a\) returns \(R_t \sim \mathcal N(q_*(a), 1)\). Run each method for 1,000 steps on every bandit, and at each step \(t\) average two quantities over the 2,000 runs: the reward \(R_t\), and the indicator that \(A_t\) was the optimal arm (“% optimal action”).</p>
+  </div>
+  <p>Averaging across runs, not across time, is what turns noisy single trajectories into a learning curve. Note the scale: the reward noise (σ = 1) is as large as the spread of the true values, so one sample of an arm says very little about whether it is the best.</p>
+  <p>The demo below runs this testbed in your browser for greedy, ε = 0.01, ε = 0.1 and UCB with c = 2 (Day 14). Press Run with the default 300 runs, then again with the slider at 2,000 for smooth curves. On the average-reward view, greedy rises fastest for the first few steps and then flattens near 1.0; ε = 0.1 climbs quickly and is clearly ahead by step 1,000; ε = 0.01 starts like greedy and is still climbing slowly at the end; UCB has a sharp spike at step 11 and finishes on top. Switch to “% optimal action”: greedy stays stuck near one third, while ε = 0.1 approaches its ceiling of 91%.</p>
+
+  <div class="demo" data-demo="bandit"><p class="demo-loading">Loading demo…</p></div>
+
+  <p>The readout under the plot is each method's mean reward over the last 100 steps. With 2,000 runs expect roughly 1.0 for greedy, 1.3 for ε = 0.01, 1.35–1.4 for ε = 0.1 and about 1.5 for UCB. Days 13 and 14 come back to this demo to explain the spike.</p>
+
+  <h3>Building the testbed yourself</h3>
+  <p>Don't loop over runs in Python. Hold every per-arm quantity in an array of shape <code>[runs, k]</code> and advance all 2,000 bandits in one vectorized step; each method then takes a few seconds rather than minutes.</p>
+  <pre><code>import numpy as np
+
+def testbed(eps, k=10, steps=1000, runs=2000, seed=0):
+    """eps-greedy with sample averages on `runs` independent 10-armed bandits at once."""
+    rng = np.random.default_rng(seed)
+    q_star = rng.normal(0.0, 1.0, (runs, k))         # a fresh bandit for every run
+    best = q_star.argmax(axis=1)
+    sums, counts = np.zeros((runs, k)), np.zeros((runs, k))
+    rows = np.arange(runs)
+    reward, optimal = np.zeros(steps), np.zeros(steps)
+    for t in range(steps):
+        Q = np.where(counts &gt; 0, sums / np.maximum(counts, 1), 0.0)   # sample averages, Q_1 = 0
+        is_max = Q == Q.max(axis=1, keepdims=True)
+        greedy = np.argmax(rng.random((runs, k)) * is_max, axis=1)    # random tie-breaking
+        explore = rng.random(runs) &lt; eps
+        A = np.where(explore, rng.integers(0, k, runs), greedy)
+        R = rng.normal(q_star[rows, A], 1.0)
+        sums[rows, A] += R
+        counts[rows, A] += 1
+        reward[t], optimal[t] = R.mean(), (A == best).mean()
+    return reward, optimal
+
+for eps in [0.0, 0.01, 0.1]:
+    r, o = testbed(eps)
+    print(f"eps={eps:&lt;5} reward(last 100)={r[-100:].mean():.2f}  optimal(last 100)={o[-100:].mean():.0%}")</code></pre>
+  <p class="code-cap">The tie-breaking line multiplies uniform noise by a 0/1 mask of the maximal entries, so <code>argmax</code> picks uniformly among the tied maxima. Fancy indexing with <code>rows, A</code> updates exactly one arm per run.</p>
+
+  <h3>Comparing ε = 0, 0.01 and 0.1</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Method</th><th>Reward, last 100 steps</th><th>% optimal, last 100 steps</th><th>Long-run % optimal</th><th>Long-run reward</th></tr></thead>
+    <tbody>
+      <tr><td>greedy (ε = 0)</td><td class="num">1.02</td><td class="num">35%</td><td>whatever it locked onto</td><td class="num">≈ 1.0</td></tr>
+      <tr><td>ε = 0.01</td><td class="num">1.29</td><td class="num">58%</td><td class="num">99.1%</td><td class="num">≈ 1.52</td></tr>
+      <tr><td>ε = 0.1</td><td class="num">1.37</td><td class="num">80%</td><td class="num">91%</td><td class="num">≈ 1.39</td></tr>
+    </tbody>
+  </table></div>
+  <p>The first two columns are the snippet's output on seed 0 with 2,000 runs; the last two are the limits derived above. Which method is best depends on when you look.</p>
+
+  <h3>Asymptotic vs early performance</h3>
+  <div class="box intuition"><span class="tag">Intuition · count the exploratory samples</span>
+    <p>After \(t\) steps, ε-greedy has given each arm about \(\varepsilon t / k\) exploratory pulls. At \(t = 1{,}000\) that is about 10 per arm for \(\varepsilon = 0.1\), enough to separate arms whose values differ by roughly \(2\sigma/\sqrt{10} \approx 0.6\). For \(\varepsilon = 0.01\) it is about one pull per arm: the agent is still mostly guessing. But ε = 0.1 keeps paying for its 10% exploration forever, while ε = 0.01 eventually knows almost as much and wastes ten times less. Over a long enough horizon, ε = 0.01 wins on both measures.</p>
+  </div>
+  <p>The right amount of exploration therefore depends on the horizon and on the noise. With reward variance 10 instead of 1, every estimate needs ten times as many samples, and heavier exploration pays off. With zero noise, one pull per arm reveals its value exactly; try each arm once, then exploit, and any further exploration is pure waste. Nonstationarity (Day 12) pushes the other way: if the values drift, exploration never stops being useful.</p>
+  <p>The usual way to get both early exploration and late exploitation is to decay ε over time. Auer, Cesa-Bianchi &amp; Fischer (2002) analysed \(\varepsilon_t = \min\{1, ck/(d^2 t)\}\), which achieves logarithmic regret when \(d\) is a lower bound on the smallest gap. That requires knowing \(d\), and with a wrong choice the decay is either too slow (wasted pulls) or too fast (lock-in). Day 38 formalises the requirement as GLIE: greedy in the limit, with infinite exploration.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b><code>np.argmax(Q)</code> without random tie-breaking</b> returns the first maximal index. At the start every \(Q\) is 0, so “greedy” always opens with arm 0, and every later tie is resolved toward low indices. Curves change, and with optimistic initialisation (Day 13) the agent's exploration order becomes fixed.</li>
+      <li><b>Uniform exploration is blind.</b> ε-greedy spends as many exploratory pulls on an arm estimated at −2 after 200 samples as on one estimated at 1.4 after 3. UCB (Day 14) and Thompson sampling (Day 16) direct exploration where it can still change the decision.</li>
+      <li><b>Constant ε means linear regret.</b> The cost \(\varepsilon\big(q_* - \tfrac1k \sum_a q_*(a)\big)\) is paid every step, forever.</li>
+      <li><b>Single runs.</b> One bandit's learning curve is mostly noise. The 2,000-run average exists for the same reasons as multi-seed RL experiments (<a href="m00.html#d7">Day 7</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Build the testbed from scratch without looking at the snippet, and reproduce both panels of Sutton &amp; Barto's Figure 2.2 for ε ∈ {0, 0.01, 0.1}. Compare your curves with the demo.</li>
+      <li>Replace the random tie-breaking with plain <code>np.argmax(Q, axis=1)</code> and rerun greedy. What changes, and why?</li>
+      <li>Run 20,000 steps with 500 runs and find where ε = 0.01 overtakes ε = 0.1, in % optimal and in average reward. Compare the final values with the limits in the table.</li>
+      <li>Keep \(q_* \sim \mathcal N(0, 1)\) but set the reward noise to σ = 0 and σ = 3. Re-rank the three methods in each case and explain the new ranking.</li>
+      <li>Implement \(\varepsilon_t = \min(1, c/t)\) for \(c \in \{5, 50, 500\}\) and compare with constant ε at 1,000 and 10,000 steps.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §2.2–2.3 · Auer, Cesa-Bianchi &amp; Fischer 2002, “Finite-time Analysis of the Multiarmed Bandit Problem” (the ε<sub>n</sub>-greedy analysis)</p>
+</article>
+
+<!-- ================================================================ DAY 12 -->
+<article class="day" id="d12">
+  <header class="day-head">
+    <span class="day-no">DAY 12</span>
+    <h2>Incremental Updates &amp; Nonstationarity</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">A running average can be updated in constant time and memory, and the update has a shape you will meet in every module of this course: move the estimate a step toward a target. Replace the shrinking step \(1/n\) with a constant \(\alpha\) and the estimate stops converging, which is exactly what you want when the world is drifting.</p>
+
+  <h3>The incremental mean update</h3>
+  <p>Storing every reward and re-averaging costs memory and time that grow without bound. Focus on one arm and let \(Q_n\) be its estimate after \(n - 1\) rewards \(R_1, \dots, R_{n-1}\) from that arm.</p>
+  <div class="box deriv"><span class="tag">Derivation</span>
+    $$\begin{aligned}
+    Q_{n+1} &amp;= \frac1n \sum_{i=1}^{n} R_i = \frac1n \Big( R_n + \sum_{i=1}^{n-1} R_i \Big) = \frac1n \Big( R_n + (n - 1)\, Q_n \Big) \\
+            &amp;= \frac1n \big( R_n + n Q_n - Q_n \big) = Q_n + \frac1n \big[ R_n - Q_n \big].
+    \end{aligned}$$
+    <p>The identity holds for \(n = 1\) too: \(Q_2 = Q_1 + (R_1 - Q_1) = R_1\), whatever \(Q_1\) was. One float and one counter per arm, and \(O(1)\) work per step.</p>
+  </div>
+  <p>Here \(n\) counts pulls of <em>this arm</em>, \(N(a)\) in the algorithm of Day 11, not the global time step \(t\). Mixing them up is a common bug.</p>
+
+  <h3>The universal update form</h3>
+  $$\text{NewEstimate} \;\leftarrow\; \text{OldEstimate} + \text{StepSize}\,\big[\,\text{Target} - \text{OldEstimate}\,\big].$$
+  <p>The bracket is the <em>error</em> in the estimate. The target is a noisy indication of where the estimate should go: here a single reward, later a return or a bootstrapped guess. Learn to read every algorithm in the course through this template; most of them differ only in what they plug in for the target and the step size.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Method</th><th>Estimate</th><th>Target</th><th>Step size</th></tr></thead>
+    <tbody>
+      <tr><td>Sample average (today)</td><td>\(Q(a)\)</td><td>\(R_t\)</td><td>\(1/N(a)\)</td></tr>
+      <tr><td>Constant-α bandit (today)</td><td>\(Q(a)\)</td><td>\(R_t\)</td><td>\(\alpha\)</td></tr>
+      <tr><td>Monte Carlo prediction (<a href="m04.html#d35">Day 35</a>)</td><td>\(V(S_t)\)</td><td>\(G_t\)</td><td>\(1/N(S_t)\) or \(\alpha\)</td></tr>
+      <tr><td>TD(0) (<a href="m05.html#d42">Day 42</a>)</td><td>\(V(S_t)\)</td><td>\(R_{t+1} + \gamma V(S_{t+1})\)</td><td>\(\alpha\)</td></tr>
+      <tr><td>Q-learning (<a href="m05.html#d45">Day 45</a>)</td><td>\(Q(S_t, A_t)\)</td><td>\(R_{t+1} + \gamma \max_{a} Q(S_{t+1}, a)\)</td><td>\(\alpha\)</td></tr>
+      <tr><td>Semi-gradient TD (<a href="m07.html#d62">Day 62</a>)</td><td>weights \(\mathbf w\)</td><td>\(R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf w)\)</td><td>\(\alpha \nabla \hat v(S_t, \mathbf w)\)</td></tr>
+    </tbody>
+  </table></div>
+  <p>The last row generalises the template to parameters: \(\mathbf w \leftarrow \mathbf w + \alpha\,[\text{Target} - \hat v(S_t, \mathbf w)]\,\nabla \hat v(S_t, \mathbf w)\). With one-hot features it reduces to the tabular update.</p>
+
+  <h3>Constant step size</h3>
+  <p>The sample average weights a reward from long ago exactly as much as yesterday's. That is optimal when \(q_*(a)\) never changes and wrong when it does. If the problem is <em>nonstationary</em>, recent rewards say more about the current value than old ones, and the simplest fix is a constant step size \(\alpha \in (0, 1]\):</p>
+  $$Q_{n+1} = Q_n + \alpha \big[ R_n - Q_n \big].$$
+
+  <h3>The exponential recency-weighted average</h3>
+  <div class="box deriv"><span class="tag">Derivation · unrolling the recursion</span>
+    $$\begin{aligned}
+    Q_{n+1} &amp;= \alpha R_n + (1 - \alpha)\, Q_n \\
+            &amp;= \alpha R_n + (1 - \alpha)\big[\alpha R_{n-1} + (1 - \alpha)\, Q_{n-1}\big] \\
+            &amp;= \alpha R_n + (1 - \alpha)\,\alpha R_{n-1} + (1 - \alpha)^2\, Q_{n-1} \\
+            &amp;= \cdots = (1 - \alpha)^n\, Q_1 + \sum_{i=1}^{n} \alpha (1 - \alpha)^{n - i} R_i .
+    \end{aligned}$$
+    <p>The weights sum to one, using the geometric series \(\sum_{j=0}^{n-1} (1-\alpha)^j = \frac{1 - (1-\alpha)^n}{\alpha}\):</p>
+    $$(1 - \alpha)^n + \alpha \sum_{i=1}^{n} (1 - \alpha)^{n-i} = (1 - \alpha)^n + \alpha \cdot \frac{1 - (1 - \alpha)^n}{\alpha} = 1.$$
+    <p>So \(Q_{n+1}\) is a weighted average of \(Q_1\) and the rewards, and a reward that is \(j\) pulls old carries weight \(\alpha(1 - \alpha)^j\), decaying exponentially with age.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 232" role="img" aria-label="Weights on the initial estimate and on each of 20 rewards: constant step size 0.1 decays geometrically with age, the sample average weights every reward equally">
+      <line x1="60" y1="190" x2="605" y2="190" class="s-ln"/><line x1="60" y1="40" x2="60" y2="190" class="s-ln"/>
+      <line x1="60" y1="130" x2="605" y2="130" class="s-grid"/><line x1="60" y1="70" x2="605" y2="70" class="s-grid"/>
+      <g class="s-sm s-ink3">
+        <text x="54" y="193" class="s-end">0</text><text x="54" y="133" class="s-end">0.05</text><text x="54" y="73" class="s-end">0.10</text>
+      </g>
+      <rect x="72" y="44.1" width="16" height="145.9" class="s-warn"/>
+      <g class="s-acc">
+        <rect x="102" y="173.8" width="16" height="16.2"/><rect x="127" y="172.0" width="16" height="18.0"/><rect x="152" y="170.0" width="16" height="20.0"/>
+        <rect x="177" y="167.8" width="16" height="22.2"/><rect x="202" y="165.3" width="16" height="24.7"/><rect x="227" y="162.6" width="16" height="27.4"/>
+        <rect x="252" y="159.5" width="16" height="30.5"/><rect x="277" y="156.1" width="16" height="33.9"/><rect x="302" y="152.3" width="16" height="37.7"/>
+        <rect x="327" y="148.2" width="16" height="41.8"/><rect x="352" y="143.5" width="16" height="46.5"/><rect x="377" y="138.3" width="16" height="51.7"/>
+        <rect x="402" y="132.6" width="16" height="57.4"/><rect x="427" y="126.2" width="16" height="63.8"/><rect x="452" y="119.1" width="16" height="70.9"/>
+        <rect x="477" y="111.3" width="16" height="78.7"/><rect x="502" y="102.5" width="16" height="87.5"/><rect x="527" y="92.8" width="16" height="97.2"/>
+        <rect x="552" y="82.0" width="16" height="108.0"/><rect x="577" y="70.0" width="16" height="120.0"/>
+      </g>
+      <line x1="98" y1="130" x2="597" y2="130" class="s-ln-info s-dash"/>
+      <g class="s-sm">
+        <text x="80" y="206" class="s-mid">Q₁</text><text x="110" y="206" class="s-mid">R₁</text><text x="210" y="206" class="s-mid">R₅</text>
+        <text x="335" y="206" class="s-mid">R₁₀</text><text x="460" y="206" class="s-mid">R₁₅</text><text x="585" y="206" class="s-mid">R₂₀</text>
+        <text x="335" y="225" class="s-ink3 s-mid">weight of each term in Q₂₁, after 20 pulls of one arm</text>
+        <rect x="150" y="42" width="16" height="10" class="s-acc"/><text x="174" y="51">α = 0.1: weight α(1 − α)²⁰⁻ⁱ on Rᵢ</text>
+        <line x1="150" y1="65" x2="166" y2="65" class="s-ln-info s-dash"/><text x="174" y="69">sample average: 1/20 on every Rᵢ, 0 on Q₁</text>
+        <rect x="150" y="78" width="16" height="10" class="s-warn"/><text x="174" y="87">α = 0.1: (1 − α)²⁰ ≈ 0.12 left on Q₁</text>
+      </g>
+    </svg>
+    <figcaption><b>Where the weight goes.</b> With \(\alpha = 0.1\) the latest reward counts for 0.1, one from 10 pulls ago for about 0.035, and the initial guess \(Q_1\) still holds 12% of the weight after 20 pulls. The sample average spreads its weight evenly and forgets \(Q_1\) after the first pull.</figcaption>
+  </figure>
+  <p>Three properties follow from the unrolled form:</p>
+  <ul>
+    <li><b>Memory.</b> Since \((1 - \alpha)^{1/\alpha} \approx e^{-1}\), weights fall by a factor of \(e\) every \(1/\alpha\) pulls, and the rewards older than \(m\) pulls share total weight \((1 - \alpha)^m\). The effective window is about \(1/\alpha\) samples: 10 for \(\alpha = 0.1\), 100 for \(\alpha = 0.01\).</li>
+    <li><b>Bias.</b> \(Q_1\) keeps weight \((1 - \alpha)^n\), so the estimate is biased toward the initial value, with the bias decaying geometrically. Day 13 turns this bias into an exploration strategy.</li>
+    <li><b>Variance floor.</b> For i.i.d. rewards with variance \(\sigma^2\), \(\Var[Q_{n+1}] = (1 - \alpha)^2 \Var[Q_n] + \alpha^2 \sigma^2\). Its fixed point \(v\) solves \(v\,\big(1 - (1-\alpha)^2\big) = \alpha^2 \sigma^2\), so \(v = \alpha \sigma^2 / (2 - \alpha)\). With \(\alpha = 0.1\) and \(\sigma = 1\) the estimate's standard deviation never falls below about 0.23, however many samples you take. The sample average's variance \(\sigma^2 / n\) goes to zero.</li>
+  </ul>
+
+  <h3>Tracking a drifting bandit</h3>
+  <p>Sutton &amp; Barto's Exercise 2.5 makes the testbed nonstationary: all ten \(q_*(a)\) start equal and each takes an independent random-walk step \(\mathcal N(0, 0.01^2)\) after every time step. Compare sample averages with \(\alpha = 0.1\), both with \(\varepsilon = 0.1\), over 10,000 steps.</p>
+  <pre><code>import numpy as np
+
+def drifting(alpha=None, eps=0.1, k=10, steps=10_000, runs=500, walk=0.01, seed=0):
+    """Nonstationary testbed: alpha=None means sample averages (1/n), else constant alpha."""
+    rng = np.random.default_rng(seed)
+    q_star = np.zeros((runs, k))                          # all arms start equal...
+    Q, N = np.zeros((runs, k)), np.zeros((runs, k))
+    rows = np.arange(runs)
+    optimal = np.zeros(steps)
+    for t in range(steps):
+        is_max = Q == Q.max(axis=1, keepdims=True)
+        greedy = np.argmax(rng.random((runs, k)) * is_max, axis=1)
+        A = np.where(rng.random(runs) &lt; eps, rng.integers(0, k, runs), greedy)
+        R = rng.normal(q_star[rows, A], 1.0)
+        N[rows, A] += 1
+        step = 1.0 / N[rows, A] if alpha is None else alpha
+        Q[rows, A] += step * (R - Q[rows, A])             # NewEstimate &lt;- Old + step [Target - Old]
+        optimal[t] = (A == q_star.argmax(axis=1)).mean()
+        q_star += rng.normal(0.0, walk, (runs, k))        # ...then drift as independent random walks
+    return optimal
+
+for alpha in [None, 0.1]:
+    o = drifting(alpha)
+    print(f"alpha={alpha}: optimal over last 1000 steps = {o[-1000:].mean():.0%}")</code></pre>
+  <p class="code-cap">Seed 0, 500 runs: about 46% optimal over the last 1,000 steps for sample averages against about 75% for α = 0.1. By then the sample-average agent's step sizes for its favourite arms have shrunk to a few thousandths, and its estimates can no longer keep up with the walk.</p>
+  <div class="box intuition"><span class="tag">Intuition · α trades noise for lag</span>
+    <p>A small α averages over a long window: low noise (variance \(\alpha\sigma^2/(2-\alpha)\)) but a lag of roughly \(1/\alpha\) pulls behind a moving target. A large α follows the target closely but jitters. The best α balances the drift rate against the reward noise. This is not just an analogy: for a Gaussian random walk observed through Gaussian noise, the steady-state Kalman filter is exactly a constant-α average, with α set by the ratio of drift variance to noise variance.</p>
+  </div>
+
+  <h3>Robbins–Monro conditions, and why constant α violates them</h3>
+  <div class="box thm"><span class="tag">Theorem · convergence of the sample estimates</span>
+    <p>Let \(\alpha_n(a)\) be the step size used on the \(n\)-th selection of arm \(a\). For a stationary arm with finite reward variance, \(Q_n(a) \to q_*(a)\) with probability 1 if</p>
+    $$\sum_{n=1}^{\infty} \alpha_n(a) = \infty \qquad\text{and}\qquad \sum_{n=1}^{\infty} \alpha_n^2(a) &lt; \infty.$$
+  </div>
+  <p>These are the stochastic-approximation conditions of <a href="m00.html#d5">Day 5</a>. The first makes the steps large enough, in total, to overcome the initial condition and any early noise; the second makes them shrink fast enough for the noise to average out. The sample average's \(\alpha_n = 1/n\) passes both: the harmonic series diverges and \(\sum 1/n^2 = \pi^2/6\). A constant α fails the second, since \(\sum \alpha^2 = \infty\): the estimate never converges, and keeps fluctuating with variance \(\alpha\sigma^2/(2-\alpha)\). That failure is precisely what lets it track. Step-size sequences that satisfy the conditions tend to converge slowly or need careful tuning, so they appear mostly in theory; practical RL, deep RL included, runs on constant or slowly decayed step sizes.</p>
+  <div class="box note"><span class="tag">Exercise 2.7 · recency weighting without initial bias</span>
+    <p>Use step size \(\beta_n = \alpha / \bar o_n\), where \(\bar o_n = \bar o_{n-1} + \alpha(1 - \bar o_{n-1})\) and \(\bar o_0 = 0\). Then \(\bar o_1 = \alpha\), so \(\beta_1 = 1\) and the first reward replaces \(Q_1\) entirely; and \(\bar o_n = 1 - (1-\alpha)^n \to 1\), so \(\beta_n \to \alpha\). The result is an exponential recency-weighted average with no weight on \(Q_1\) at all. Keep it in mind for tomorrow: it removes the bias that optimistic initialisation relies on.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Global \(t\) instead of \(N(a)\)</b> in a \(1/n\) step: every arm's step shrinks with time even if it is rarely pulled, so rarely pulled arms barely learn from the samples they do get.</li>
+      <li><b>\(1/n\) in a drifting world.</b> The estimate freezes on the past. Nothing in the learning curve announces it except a slow decay in % optimal.</li>
+      <li><b>α too large.</b> At \(\alpha = 1\) the estimate is just the last reward, and with σ = 1 noise the agent chases noise.</li>
+      <li><b>Constant α in a stationary world.</b> You pay the variance floor forever, and \(Q_1\) never quite washes out. Whether that is harmful depends on \(Q_1\), which is tomorrow's lesson.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Prove that the weights sum to one and that the steady-state variance is \(\alpha\sigma^2/(2 - \alpha)\). Check the variance by simulation for \(\alpha \in \{0.01, 0.1, 0.5\}\).</li>
+      <li>Reproduce Exercise 2.5: average-reward and % optimal curves over 10,000 steps for sample averages and \(\alpha \in \{0.01, 0.1, 0.3\}\). Which α is best for this drift rate? Halve and double the drift and repeat.</li>
+      <li>Implement the unbiased constant-step-size trick, confirm its first update ignores \(Q_1\), and add it to the comparison.</li>
+      <li>Make the drift abrupt instead: every 2,000 steps, randomly permute the ten \(q_*\) values. Plot % optimal around each change point for each α and measure how long recovery takes.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §2.4–2.5 (with Exercises 2.4, 2.5 and 2.7) · Robbins &amp; Monro 1951, “A Stochastic Approximation Method”</p>
+</article>
+
+<!-- ================================================================ DAY 13 -->
+<article class="day" id="d13">
+  <header class="day-head">
+    <span class="day-no">DAY 13</span>
+    <h2>Optimistic Initial Values</h2>
+    <p class="day-meta"><span class="vid">25m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Start every estimate above any plausible true value and even a purely greedy agent explores: each arm it tries disappoints it, so it moves on, until the estimates have been pulled down to reality. It is a cheap trick, it leaves a distinctive spike in the learning curve, and it explores only once.</p>
+
+  <h3>Optimism as implicit exploration</h3>
+  <p>Every method so far depends on the initial estimates \(Q_1(a)\); with a constant step size that bias never fully disappears (Day 12). Use it on purpose. On the testbed \(q_*(a) \sim \mathcal N(0, 1)\), so \(Q_1(a) = +5\) is wildly optimistic. A greedy agent picks an arm, the reward (around \(q_*(a) \pm 1\)) is far below 5, the estimate falls, and some untried arm, still at 5, now looks better. Exploration emerges from greed plus disappointment, without any randomness in the action choice.</p>
+  <p>The principle has a name, <em>optimism in the face of uncertainty</em>: act as if each uncertain option is as good as it could plausibly be. Either the optimism is justified and you gain reward, or it isn't and you learn that quickly. UCB (Day 14) turns the principle into a rule with guarantees; today's version is the crude one.</p>
+
+  <h3>The effect of the initial value</h3>
+  <div class="box deriv"><span class="tag">Derivation · how long optimism lasts</span>
+    <p>Ignore the noise for a moment. Under a constant step size, after \(n\) pulls the arm's estimate is \(q_*(a) + (1 - \alpha)^n \big(Q_1 - q_*(a)\big)\). The excess optimism falls below \(\delta\) once</p>
+    $$n \;\ge\; \frac{\ln\!\big((Q_1 - q_*(a))/\delta\big)}{-\ln(1 - \alpha)} \;\approx\; \frac{1}{\alpha}\,\ln\frac{Q_1 - q_*(a)}{\delta}.$$
+    <p>For \(Q_1 = 5\), \(\alpha = 0.1\), \(q_*(a) \approx 0\) and \(\delta = 0.5\), that is about 22 pulls per arm, roughly 220 steps on ten arms, before the agent stops being driven by its prior. The exploration budget grows with \(1/\alpha\) but only logarithmically with the amount of optimism.</p>
+  </div>
+  <p>With sample averages the picture is completely different. The first update sets \(Q_2 = R_1\) whatever \(Q_1\) was (Day 12), so under \(1/n\) an optimistic start means exactly “try every arm once, then be greedy”. That is a sensible opening, the same one UCB uses, but it is not lasting exploration.</p>
+  <p>How optimistic should you be? Too little and nothing happens; too much and the agent spends hundreds of steps disappointing itself. Average reward over the first 1,000 testbed steps for greedy with \(\alpha = 0.1\) (2,000 runs, seed 0):</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>\(Q_1\)</th><th>0.25</th><th>0.5</th><th>1</th><th>2</th><th>4</th></tr></thead>
+    <tbody><tr><td>Average reward, steps 1–1,000</td><td class="num">1.31</td><td class="num">1.40</td><td class="num">1.45</td><td class="num">1.41</td><td class="num">1.32</td></tr></tbody>
+  </table></div>
+  <p>The best value, about 1, is not even optimistic about the best arm (the largest of ten standard normals averages about 1.54). It only has to exceed the arms you want the agent to abandon, which are most of them, while costing little time on the arms worth keeping. The optimum depends on the reward scale, which is the method's main practical weakness: you need to know roughly how large rewards can be.</p>
+
+  <h3>Spike-then-settle learning curves</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 232" role="img" aria-label="Percent optimal action over the first 300 steps: optimistic greedy spikes at step 11, dips, then overtakes realistic epsilon-greedy around step 160">
+      <line x1="60" y1="150" x2="640" y2="150" class="s-grid"/><line x1="60" y1="110" x2="640" y2="110" class="s-grid"/>
+      <line x1="60" y1="70" x2="640" y2="70" class="s-grid"/><line x1="60" y1="30" x2="640" y2="30" class="s-grid"/>
+      <line x1="60" y1="190" x2="640" y2="190" class="s-ln"/><line x1="60" y1="30" x2="60" y2="190" class="s-ln"/>
+      <g class="s-sm s-ink3">
+        <text x="54" y="193" class="s-end">0%</text><text x="54" y="153" class="s-end">25%</text><text x="54" y="113" class="s-end">50%</text>
+        <text x="54" y="73" class="s-end">75%</text><text x="54" y="33" class="s-end">100%</text>
+        <text x="60" y="206" class="s-mid">1</text><text x="155" y="206" class="s-mid">50</text><text x="252" y="206" class="s-mid">100</text>
+        <text x="349" y="206" class="s-mid">150</text><text x="446" y="206" class="s-mid">200</text><text x="543" y="206" class="s-mid">250</text><text x="640" y="206" class="s-mid">300</text>
+        <text x="350" y="224" class="s-mid">step (first 300 of 1,000)</text>
+      </g>
+      <line x1="368" y1="190" x2="368" y2="62" class="s-ln s-dash"/>
+      <polyline points="60.0,174.7 61.9,170.1 63.9,164.3 65.8,160.6 67.8,157.7 69.7,155.5 71.6,152.2 73.6,150.7 75.5,148.9 77.5,147.4 79.4,146.8 81.3,143.7 83.3,143.1 85.2,142.2 87.2,140.4 89.1,140.6 91.0,139.1 93.0,138.4 94.9,137.4 96.9,137.4 98.8,136.2 100.7,135.3 102.7,135.4 104.6,135.9 106.6,134.6 108.5,134.2 110.4,133.3 112.4,132.9 114.3,132.9 116.3,132.6 126.0,131.3 135.7,129.3 145.4,127.7 155.1,126.5 164.7,125.8 174.4,124.9 184.1,123.9 193.8,123.2 203.5,122.7 213.2,122.0 222.9,121.8 232.6,120.6 242.3,120.0 252.0,119.9 261.7,119.7 271.4,118.9 281.1,118.1 290.8,117.2 300.5,116.4 310.2,116.2 319.9,115.3 329.6,114.8 339.3,114.6 349.0,113.3 358.7,113.0 368.4,112.5 378.1,111.9 387.8,112.6 397.5,112.3 407.2,111.5 416.9,110.7 426.6,110.3 436.3,110.6 446.0,109.1 455.7,109.0 465.4,108.9 475.1,107.8 484.8,107.1 494.5,107.0 504.2,106.7 513.9,105.7 523.6,105.3 533.3,105.5 543.0,104.0 552.7,103.0 562.4,102.6 572.1,103.2 581.8,102.6 591.5,101.9 601.2,100.6 610.9,100.9 620.6,100.7 630.3,99.6 640.0,99.0" class="s-ln-acc"/>
+      <polyline points="60.0,174.7 61.9,174.7 63.9,172.8 65.8,173.5 67.8,173.7 69.7,174.5 71.6,173.2 73.6,173.5 75.5,174.3 77.5,175.0 79.4,121.4 81.3,152.8 83.3,162.0 85.2,169.2 87.2,172.2 89.1,176.2 91.0,174.4 93.0,174.8 94.9,173.1 96.9,166.8 98.8,159.2 100.7,159.8 102.7,162.9 104.6,160.2 106.6,165.6 108.5,165.4 110.4,165.8 112.4,162.3 114.3,166.0 116.3,165.8 126.0,164.3 135.7,163.4 145.4,161.5 155.1,161.4 164.7,159.3 174.4,157.2 184.1,156.2 193.8,156.1 203.5,153.9 213.2,152.7 222.9,151.9 232.6,148.2 242.3,146.2 252.0,143.6 261.7,140.0 271.4,138.7 281.1,135.5 290.8,133.6 300.5,130.2 310.2,125.7 319.9,125.1 329.6,122.6 339.3,119.9 349.0,117.9 358.7,115.5 368.4,112.4 378.1,110.1 387.8,107.8 397.5,105.0 407.2,102.1 416.9,99.5 426.6,98.4 436.3,95.5 446.0,92.8 455.7,90.0 465.4,89.8 475.1,89.1 484.8,86.8 494.5,84.9 504.2,83.9 513.9,82.9 523.6,80.2 533.3,79.1 543.0,77.9 552.7,78.3 562.4,77.7 572.1,76.2 581.8,75.8 591.5,73.9 601.2,73.0 610.9,72.4 620.6,71.4 630.3,72.1 640.0,71.4" class="s-ln-mod"/>
+      <g class="s-sm">
+        <text x="90" y="116" class="s-mod">43% at step 11</text>
+        <text x="100" y="185" class="s-mod">9% at step 16</text>
+        <text x="374" y="58" class="s-ink2">curves cross near step 160</text>
+        <line x1="440" y1="150" x2="462" y2="150" class="s-ln-mod"/><text x="470" y="154">optimistic greedy, Q₁ = 5</text>
+        <line x1="440" y1="168" x2="462" y2="168" class="s-ln-acc"/><text x="470" y="172">realistic ε = 0.1, Q₁ = 0</text>
+      </g>
+    </svg>
+    <figcaption><b>The optimistic spike.</b> Sutton &amp; Barto's Figure 2.3 setting, both with α = 0.1, averaged over 2,000 runs (steps 1–30 unsmoothed, later points smoothed over a few steps). Optimistic greedy is worse for the first 160 or so steps and better afterwards; at step 1,000 it is optimal 86% of the time against 76% for realistic ε-greedy.</figcaption>
+  </figure>
+  <p>The curve looks bizarre until you trace one run (this is Sutton &amp; Barto's Exercise 2.6):</p>
+  <ol>
+    <li><b>Steps 1–10.</b> All estimates are 5. Each pull drops the pulled arm to \(5 + 0.1(R - 5) = 4.5 + 0.1R\), below every untouched arm, so the agent pulls each arm exactly once, in random order. % optimal is about 10%.</li>
+    <li><b>Step 11.</b> Every arm now has one sample, and the estimates \(4.5 + 0.1 R_1(a)\) rank the arms by their single reward. The arm with the highest first sample is the optimal one in about 43% of runs: the spike.</li>
+    <li><b>Steps 12–20.</b> The arm just pulled drops again, by about \(0.1 \times (4.5 - q_*) \approx 0.4\), far below the others, whose estimates differ only by a tenth of their sample differences. So the agent avoids the optimal arm precisely because it just chose it: % optimal dips below the 10% baseline, to about 9% at step 16.</li>
+    <li><b>After that.</b> The rounds blur as estimates spread out, optimism drains away as derived above, and the curve climbs past realistic ε-greedy, which keeps paying for random exploration.</li>
+  </ol>
+  <p>The UCB curve in the <a href="#d11">Day 11 demo</a> has a spike at exactly the same step, for a closely related reason: UCB also opens with one pull of every arm and then briefly favours the best first sample. Day 14 works through it.</p>
+  <pre><code>import numpy as np
+
+def constant_alpha_testbed(Q1, eps, alpha=0.1, k=10, steps=1000, runs=2000, seed=0):
+    rng = np.random.default_rng(seed)
+    q_star = rng.normal(0.0, 1.0, (runs, k))
+    best, rows = q_star.argmax(axis=1), np.arange(runs)
+    Q = np.full((runs, k), float(Q1))                     # the only change: where Q starts
+    optimal = np.zeros(steps)
+    for t in range(steps):
+        is_max = Q == Q.max(axis=1, keepdims=True)
+        greedy = np.argmax(rng.random((runs, k)) * is_max, axis=1)
+        A = np.where(rng.random(runs) &lt; eps, rng.integers(0, k, runs), greedy)
+        R = rng.normal(q_star[rows, A], 1.0)
+        Q[rows, A] += alpha * (R - Q[rows, A])
+        optimal[t] = (A == best).mean()
+    return optimal
+
+opt = constant_alpha_testbed(Q1=5.0, eps=0.0)            # optimistic, greedy
+real = constant_alpha_testbed(Q1=0.0, eps=0.1)           # realistic, eps-greedy
+print("step 11:", f"{opt[10]:.0%}", " steps 12-20:", np.round(100 * opt[11:20]).astype(int))
+print("last 100 steps:", f"optimistic {opt[-100:].mean():.0%}, realistic {real[-100:].mean():.0%}")</code></pre>
+  <p class="code-cap">Seed 0 output: step 11 at 43%; steps 12–20 at 23, 18, 13, 11, 9, 10, 10, 11, 14%; last 100 steps 86% vs 76%. Random tie-breaking matters here: with plain <code>argmax</code> the first round always visits the arms in index order.</p>
+  <div class="box intuition"><span class="tag">Intuition · systematic, not random</span>
+    <p>Optimistic exploration is a round-robin sweep, not a dice roll. Early on that is more efficient than ε-greedy, which wastes pulls on repeats, and it is why the optimistic curve is so jagged: thousands of runs march in lockstep through the same phases. It is also deterministic given the rewards, which matters for batched feedback (Day 16).</p>
+  </div>
+
+  <h3>Why it only works for stationary problems</h3>
+  <p>The drive to explore is a transient, spent at the start. Once the estimates have come down to reality, an optimistic greedy agent is simply greedy. If the values change at step 5,000, because the best arm gets worse or another improves, nothing makes the agent look again: an arm's estimate only moves when the arm is pulled. In Sutton &amp; Barto's words, the beginning of time occurs only once, so a method that relies on the initial conditions cannot help with the general nonstationary case. Practice task 4 shows it.</p>
+
+  <h3>Interaction with constant α</h3>
+  <ul>
+    <li><b>\(1/n\) steps:</b> the optimism lasts one pull per arm and then vanishes.</li>
+    <li><b>Constant α:</b> it lasts about \(\frac1\alpha \ln\frac{Q_1 - q_*}{\delta}\) pulls per arm. Smaller α means longer, more thorough exploration, but also slower learning once it is over.</li>
+    <li><b>The unbiased step size of Day 12:</b> \(\beta_1 = 1\) wipes \(Q_1\) on the first pull, so optimism disappears too. You can have no initial bias or a useful optimistic bias, not both.</li>
+  </ul>
+  <p>Optimistic initialisation with a constant step size remains a standard trick in tabular RL: initialise \(Q(s, a)\) high and a greedy agent sweeps a gridworld systematically. R-MAX (<a href="m11.html#d102">Day 102</a>) makes it principled for MDPs, treating every insufficiently visited state–action pair as maximally rewarding. In deep RL it barely works, because a network has no per-state initial value to set and generalisation spreads the disappointment from visited states to unvisited ones.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>\(Q_1\) below the best arm's value</b> gives no exploration at all: you need an upper bound on rewards, and if rewards can reach 100, \(Q_1 = 5\) is pessimistic.</li>
+      <li><b>\(Q_1\) far too high with small α</b> wastes hundreds of pulls disappointing every arm many times over.</li>
+      <li><b>Noise large relative to \(Q_1 - q_*\)</b> makes the ranking after each sweep mostly noise.</li>
+      <li><b>Nonstationarity:</b> exploration happens once, at the start, and never again.</li>
+      <li><b>Function approximation:</b> there is no table to initialise, and optimism leaks away through generalisation.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Reproduce Sutton &amp; Barto's Figure 2.3 with the snippet and plot % optimal for the first 50 steps without smoothing. Locate the spike and the dip.</li>
+      <li>Write down your explanation of the spike, then test it: predict, then measure, the spike's height with reward noise σ = 0.1 and σ = 3, and with α = 0.5.</li>
+      <li>Sweep \(Q_1 \in \{1/4, 1/2, 1, 2, 4\}\) at α = 0.1 and plot average reward over the first 1,000 steps. This is one curve of the Project 1 parameter study.</li>
+      <li>Add the Day 12 random-walk drift and compare optimistic greedy with ε-greedy (both α = 0.1) over 10,000 steps.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §2.6 (and Exercise 2.6) · Brafman &amp; Tennenholtz 2002, “R-MAX — A General Polynomial Time Algorithm for Near-Optimal Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 14 -->
+<article class="day" id="d14">
+  <header class="day-head">
+    <span class="day-no">DAY 14</span>
+    <h2>Upper Confidence Bound (UCB)</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Explore where you are uncertain, not at random. UCB adds to each estimate a bonus that is large when an arm has been tried rarely and shrinks as evidence accumulates, then acts greedily on the sum. The bonus is the half-width of a confidence interval, and Hoeffding's inequality says how wide it must be.</p>
+
+  <h3>Uncertainty-aware selection</h3>
+  <p>ε-greedy's exploratory pulls are uniform: an arm estimated at −2 after 200 samples gets the same share as one estimated at 1.4 after 3. Two things should matter instead: how close an arm's estimate is to the best one, and how uncertain that estimate still is. An arm deserves a pull if it might <em>plausibly</em> be the best. Optimistic initialisation (Day 13) applied that idea once, at the start; UCB applies it at every step, with an optimism that is recomputed from the data.</p>
+
+  <h3>The UCB rule, term by term</h3>
+  $$A_t \doteq \argmax_a \left[\, Q_t(a) + c \sqrt{\frac{\ln t}{N_t(a)}} \,\right], \qquad \text{an arm with } N_t(a) = 0 \text{ counts as maximal.}$$
+  <ul>
+    <li><b>\(Q_t(a)\)</b>: the exploitation term, the current sample-average estimate.</li>
+    <li><b>\(1/\sqrt{N_t(a)}\)</b>: the uncertainty, shrinking like the standard error. Pulling \(a\) narrows its own bonus.</li>
+    <li><b>\(\ln t\)</b>: grows slowly but without bound, so the bonus of an arm that is <em>not</em> being pulled creeps upward. Every arm is eventually revisited, infinitely often, but a bad arm only logarithmically often.</li>
+    <li><b>\(c &gt; 0\)</b>: the confidence level, which must match the reward scale and noise. \(c = 0\) is greedy after the first round.</li>
+  </ul>
+  <p>Because untried arms count as maximal, the first \(k\) steps pull every arm once. After that the rule is deterministic: the same history always produces the same action.</p>
+
+  <h3>Confidence-interval intuition</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Five arms with estimates and confidence intervals; greedy picks the arm with the highest estimate, UCB picks the arm with the highest upper bound">
+      <line x1="70" y1="210" x2="600" y2="210" class="s-grid"/><line x1="70" y1="160" x2="600" y2="160" class="s-grid"/>
+      <line x1="70" y1="110" x2="600" y2="110" class="s-grid"/><line x1="70" y1="60" x2="600" y2="60" class="s-grid"/>
+      <line x1="70" y1="40" x2="70" y2="235" class="s-ln"/>
+      <g class="s-sm s-ink3">
+        <text x="64" y="213" class="s-end">−1</text><text x="64" y="163" class="s-end">0</text>
+        <text x="64" y="113" class="s-end">1</text><text x="64" y="63" class="s-end">2</text>
+      </g>
+      <line x1="70" y1="63.5" x2="600" y2="63.5" class="s-ln-mod s-dash"/>
+      <line x1="70" y1="92.5" x2="600" y2="92.5" class="s-ln s-dash"/>
+      <g class="s-ln-ink">
+        <line x1="140" y1="89.6" x2="140" y2="110.4"/><line x1="132" y1="89.6" x2="148" y2="89.6"/><line x1="132" y1="110.4" x2="148" y2="110.4"/>
+        <line x1="340" y1="77.6" x2="340" y2="107.4"/><line x1="332" y1="77.6" x2="348" y2="77.6"/><line x1="332" y1="107.4" x2="348" y2="107.4"/>
+        <line x1="440" y1="133" x2="440" y2="227"/><line x1="432" y1="133" x2="448" y2="133"/><line x1="432" y1="227" x2="448" y2="227"/>
+        <line x1="540" y1="98" x2="540" y2="192"/><line x1="532" y1="98" x2="548" y2="98"/><line x1="532" y1="192" x2="548" y2="192"/>
+      </g>
+      <g class="s-ln-mod">
+        <line x1="240" y1="63.5" x2="240" y2="166.5"/><line x1="230" y1="63.5" x2="250" y2="63.5"/><line x1="232" y1="166.5" x2="248" y2="166.5"/>
+      </g>
+      <g class="s-ink">
+        <circle cx="140" cy="100" r="4.5"/><circle cx="340" cy="92.5" r="4.5"/><circle cx="440" cy="180" r="4.5"/><circle cx="540" cy="145" r="4.5"/>
+      </g>
+      <circle cx="240" cy="115" r="4.5" class="s-mod"/>
+      <g class="s-sm">
+        <text x="630" y="57" class="s-mod s-end">max upper bound: UCB picks a₂ (1.93)</text>
+        <text x="630" y="87" class="s-ink2 s-end">max estimate: greedy picks a₃ (1.35)</text>
+        <text x="78" y="26" class="s-ink2">● estimate Qₜ(a)   │ Qₜ(a) ± c√(ln t / Nₜ(a)),  t = 200, c = 1</text>
+        <text x="140" y="252" class="s-mid">a₁</text><text x="240" y="252" class="s-mid s-mod">a₂</text><text x="340" y="252" class="s-mid">a₃</text>
+        <text x="440" y="252" class="s-mid">a₄</text><text x="540" y="252" class="s-mid">a₅</text>
+        <g class="s-ink3">
+          <text x="140" y="267" class="s-mid">N = 123</text><text x="240" y="267" class="s-mid">N = 5</text><text x="340" y="267" class="s-mid">N = 60</text>
+          <text x="440" y="267" class="s-mid">N = 6</text><text x="540" y="267" class="s-mid">N = 6</text>
+        </g>
+      </g>
+    </svg>
+    <figcaption><b>Optimism, arm by arm.</b> Greedy would pull \(a_3\), the best estimate. UCB pulls \(a_2\): its estimate is lower, but after only 5 pulls it could plausibly be as high as 1.93. If \(a_2\) really is that good, UCB has found it; if not, one more pull shrinks the interval and the overestimate gets corrected. Either way the agent earns or learns. \(a_4\) is unlikely to be best even optimistically and is left alone, although it has been tried as rarely as \(a_5\).</figcaption>
+  </figure>
+
+  <h3>Hoeffding's inequality, sketched</h3>
+  <div class="box thm"><span class="tag">Theorem · Hoeffding's inequality</span>
+    <p>Let \(X_1, \dots, X_n\) be i.i.d. with values in \([0, 1]\), mean \(\mu\) and sample mean \(\hat\mu_n\). For every \(u &gt; 0\),</p>
+    $$\Pr\big(\hat\mu_n \ge \mu + u\big) \le e^{-2nu^2} \qquad\text{and}\qquad \Pr\big(\hat\mu_n \le \mu - u\big) \le e^{-2nu^2}.$$
+  </div>
+  <div class="box deriv"><span class="tag">Proof sketch · the Chernoff method</span>
+    <p>For any \(\lambda &gt; 0\), exponentiate and apply Markov's inequality, then use independence:</p>
+    $$\Pr\big(\hat\mu_n - \mu \ge u\big) = \Pr\Big(e^{\lambda \sum_i (X_i - \mu)} \ge e^{\lambda n u}\Big) \le e^{-\lambda n u}\, \E\Big[e^{\lambda \sum_i (X_i - \mu)}\Big] = e^{-\lambda n u} \prod_{i=1}^{n} \E\big[e^{\lambda (X_i - \mu)}\big].$$
+    <p><b>Hoeffding's lemma</b> bounds each factor: a variable confined to \([a, b]\) satisfies \(\E\big[e^{\lambda(X - \E X)}\big] \le e^{\lambda^2 (b-a)^2/8}\). With \([a, b] = [0, 1]\) the bound becomes \(\exp(-\lambda n u + n\lambda^2/8)\). The exponent is minimised at \(\lambda = 4u\), giving \(\exp(-4nu^2 + 2nu^2) = e^{-2nu^2}\). The lower tail is the same argument applied to \(-X_i\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · from the tail bound to the bonus</span>
+    <p>Fix a failure probability \(\delta\) and solve \(\delta = e^{-2nu^2}\) for the deviation: \(u = \sqrt{\ln(1/\delta) / (2n)}\). So with probability at least \(1 - \delta\),</p>
+    $$\mu \;\le\; \hat\mu_n + \sqrt{\frac{\ln(1/\delta)}{2n}},$$
+    <p>an <em>upper confidence bound</em> on the arm's true value from \(n\) samples. The agent consults its bounds at every step, so the failure probability has to shrink over time for the total number of failures to stay small. Choosing \(\delta = t^{-4}\) gives</p>
+    $$u = \sqrt{\frac{4 \ln t}{2n}} = \sqrt{\frac{2 \ln t}{n}},$$
+    <p>which is exactly the bonus of <b>UCB1</b> (Auer, Cesa-Bianchi &amp; Fischer 2002): the rule above with \(c = \sqrt 2\), for rewards in \([0, 1]\). For Gaussian noise with standard deviation σ the tail is \(e^{-nu^2/(2\sigma^2)}\) and the bonus becomes \(\sigma \sqrt{2 \ln(1/\delta)/n}\); a δ shrinking like \(1/t\) gives \(c = \sqrt 2\, \sigma \approx 1.4\) for the testbed's unit noise.</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · UCB1 regret (Auer et al. 2002)</span>
+    <p>With rewards in \([0, 1]\) and bonus \(\sqrt{2 \ln t / N_t(a)}\), for every horizon \(T\) and every suboptimal arm \(a\),</p>
+    $$\E\big[n_T(a)\big] \le \frac{8 \ln T}{\Delta_a^2} + 1 + \frac{\pi^2}{3}, \qquad\text{so}\qquad \mathcal R_T \le \sum_{a:\,\Delta_a &gt; 0} \frac{8 \ln T}{\Delta_a} + \Big(1 + \frac{\pi^2}{3}\Big) \sum_a \Delta_a .$$
+  </div>
+  <p>The proof idea fits in a paragraph. Once a suboptimal arm has \(N \ge 8 \ln T / \Delta_a^2\) samples, its bonus is at most \(\Delta_a / 2\). UCB can then prefer it over \(a^*\) only if \(a\)'s estimate is more than \(\Delta_a / 2\) too high, or \(a^*\)'s upper bound has fallen below \(q_*\). By Hoeffding each event has probability at most \(t^{-4}\), and summing over steps and sample counts gives the finite constant \(\pi^2/3\). So beyond about \(8 \ln T / \Delta_a^2\) pulls, further pulls of \(a\) are rare accidents. The \(\ln T\) rate matches the Lai–Robbins lower bound of Day 10; the constant does not, and refinements such as KL-UCB close most of that gap.</p>
+
+  <h3>Sweeping c</h3>
+  <pre><code>import numpy as np
+
+def ucb_testbed(c, k=10, steps=1000, runs=2000, seed=0):
+    rng = np.random.default_rng(seed)
+    q_star = rng.normal(0.0, 1.0, (runs, k))
+    best, rows = q_star.argmax(axis=1), np.arange(runs)
+    Q, N = np.zeros((runs, k)), np.zeros((runs, k))
+    reward = np.zeros(steps)
+    for t in range(steps):
+        bonus = c * np.sqrt(np.log(t + 1) / np.maximum(N, 1))
+        U = np.where(N == 0, np.inf, Q + bonus)           # untried arms are maximal
+        is_max = U == U.max(axis=1, keepdims=True)
+        A = np.argmax(rng.random((runs, k)) * is_max, axis=1)
+        R = rng.normal(q_star[rows, A], 1.0)
+        N[rows, A] += 1
+        Q[rows, A] += (R - Q[rows, A]) / N[rows, A]
+        reward[t] = R.mean()
+    return reward
+
+for c in [0.25, 0.5, 1.0, 2.0, 4.0]:
+    r = ucb_testbed(c)
+    print(f"c={c:&lt;4}  mean reward, steps 1-1000: {r.mean():.3f}   reward at step 11: {r[10]:.2f}")</code></pre>
+  <p class="code-cap">Steps are 0-indexed in code, so <code>log(t + 1)</code> is \(\ln t\) for the 1-indexed step. The <code>np.maximum(N, 1)</code> only avoids a division warning; untried arms are overwritten with <code>inf</code>.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>c</th><th>0.25</th><th>0.5</th><th>1</th><th>2</th><th>4</th></tr></thead>
+    <tbody><tr><td>Average reward, steps 1–1,000 (seed 0, 2,000 runs)</td><td class="num">1.446</td><td class="num">1.473</td><td class="num">1.474</td><td class="num">1.385</td><td class="num">1.160</td></tr></tbody>
+  </table></div>
+  <p>The curve is flat across \(c \in [0.5, 1]\) and falls off for large c, which over-explores: at \(c = 4\) the bonus dwarfs the spread of the true values for hundreds of steps. Even \(c = 0.25\) does well here, because the forced first round and the slowly growing \(\ln t\) still rescue arms with unlucky early samples. The theory-motivated \(c \approx 1.4\) is on the conservative side of the empirical optimum, as worst-case bounds usually are. For comparison, the best ε-greedy on the same measure is about 1.32, at ε ≈ 1/16.</p>
+
+  <h3>UCB vs ε-greedy, empirically</h3>
+  <p>On the testbed, UCB with \(c = 2\) ends with about 1.49 average reward and 86% optimal action over the last 100 steps, against 1.36 and 79% for ε = 0.1, and over 10,000 steps its regret is about 270 against about 1,650 (the Day 10 figure). Open the <a href="#d11">Day 11 demo</a> with 2,000 runs to watch the curves separate.</p>
+  <p>The demo also shows UCB's spike, Sutton &amp; Barto's Exercise 2.8. Average reward jumps to about 1.09 at step 11 (ε-greedy is near 0.8 there) and then drops back for several steps. Steps 1–10 pull each arm once. At step 11 every \(N = 1\), so every bonus is equal and UCB picks the arm with the highest single sample, which is the optimal arm in about 44% of runs. That pull raises the arm's count to \(N = 2\) and cuts its bonus by a factor of \(\sqrt 2\), while every other arm still has \(N = 1\) and a bonus growing with \(\ln t\). With \(c = 2\) the bonus difference (about 0.9 at step 12) usually outweighs the gap in estimates, so UCB spends the next several steps on the other arms and reward falls. With smaller \(c\) the dip is shallower. The step-11 reward is identical for every c, since all bonuses are equal at that step, as the snippet's output confirms.</p>
+
+  <div class="box trap"><span class="tag">What breaks · large and nonstationary problems</span>
+    <ul>
+      <li><b>Many arms.</b> UCB must pull every arm once before its formula is even defined. With \(k\) comparable to \(T\), or a continuous action set, that is impossible without structure linking the arms: linear models (LinUCB, Day 17) or Gaussian processes (GP-UCB).</li>
+      <li><b>Nonstationarity.</b> \(N_t(a)\) only grows. An arm pulled 5,000 times has a tiny bonus and a sample average that moves at a rate of 1/5,000, so a change in its value goes unnoticed for a long time. Discounted UCB and sliding-window UCB (Garivier &amp; Moulines 2011) compute counts and means over recent data only.</li>
+      <li><b>No counts in large state spaces.</b> In full RL with function approximation, states rarely repeat and \(N(s, a)\) is meaningless; pseudo-counts (<a href="m11.html#d103">Day 103</a>) approximate them. Where counts do exist, at the nodes of a search tree, UCB thrives: UCT in Monte Carlo tree search is UCB1 at every node (<a href="m06.html#d59">Day 59</a>).</li>
+      <li><b>Determinism under batched feedback.</b> If you must choose 1,000 actions before seeing any result, UCB picks the same arm 1,000 times. Thompson sampling randomises naturally (Day 16).</li>
+      <li><b>Scale.</b> c must match the reward scale. Hoeffding bounds assume a known range; with Gaussian or heavy-tailed rewards the right c is a modelling choice, not a constant.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Implement UCB and reproduce Sutton &amp; Barto's Figure 2.4 (UCB, c = 2, against ε = 0.1). Log which arm is chosen at steps 10–15 in a few runs and check the explanation of the spike against them.</li>
+      <li>Sweep \(c \in \{1/16, 1/8, \dots, 4\}\) and plot average reward over the first 1,000 steps on a log₂ axis next to your ε-greedy and optimistic sweeps.</li>
+      <li>Check Hoeffding numerically: for Bernoulli(0.3) samples with \(n = 10\) and \(n = 100\), estimate \(\Pr(\hat\mu_n - \mu \ge u)\) by simulation over a grid of \(u\) and plot it against \(e^{-2nu^2}\). How loose is the bound?</li>
+      <li>Implement sliding-window UCB (window 500: counts and means over the last 500 steps) and compare it with standard UCB on the drifting bandit of Day 12.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §2.7 (and Exercise 2.8) · Auer, Cesa-Bianchi &amp; Fischer 2002, “Finite-time Analysis of the Multiarmed Bandit Problem” · Lattimore &amp; Szepesvári Ch. 5 (concentration) and Ch. 7–8 (UCB) · Garivier &amp; Moulines 2011, “On Upper-Confidence Bound Policies for Switching Bandit Problems”</p>
+</article>
+
+<!-- ================================================================ DAY 15 -->
+<article class="day" id="d15">
+  <header class="day-head">
+    <span class="day-no">DAY 15</span>
+    <h2>Gradient Bandit Algorithms</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Instead of estimating values and acting greedily on them, learn a policy directly: keep a numerical preference for each arm, turn preferences into probabilities with a softmax, and climb the gradient of expected reward. The update you derive is REINFORCE in miniature, and the baseline that makes it work is the same baseline that rescues every policy-gradient method in Module 9.</p>
+
+  <h3>Action preferences</h3>
+  <p>Each arm has a preference \(H_t(a) \in \R\), initially \(H_1(a) = 0\). Preferences are not estimates of reward and have no units; only their differences matter. Adding the same constant to every preference leaves the policy unchanged.</p>
+
+  <h3>The softmax (Boltzmann) distribution</h3>
+  $$\pi_t(a) \doteq \Pr(A_t = a) = \frac{e^{H_t(a)}}{\sum_{b=1}^{k} e^{H_t(b)}}.$$
+  <p>At the start all preferences are zero and the policy is uniform. Every arm always keeps a positive probability, so exploration comes from the policy's own randomness and fades only as the preferences spread apart. The name comes from the Boltzmann distribution of statistical physics, usually written with a temperature, \(e^{H(a)/\tau}\): as \(\tau \to 0\) it approaches the greedy argmax, as \(\tau \to \infty\) it approaches uniform. Here there is no explicit τ; the scale of the learned preferences plays its role. Shift invariance is also the numerically safe way to compute it: subtract \(\max_b H(b)\) before exponentiating.</p>
+  <div class="box deriv"><span class="tag">Derivation · the softmax derivative</span>
+    <p>Write \(Z = \sum_b e^{H(b)}\), so \(\partial Z / \partial H(a) = e^{H(a)}\). For \(x = a\), the quotient rule gives \(\frac{e^{H(a)}}{Z} - \frac{e^{H(a)} e^{H(a)}}{Z^2} = \pi(a) - \pi(a)^2\); for \(x \ne a\), it gives \(-\frac{e^{H(x)} e^{H(a)}}{Z^2} = -\pi(x)\pi(a)\). Both cases at once:</p>
+    $$\frac{\partial \pi(x)}{\partial H(a)} = \pi(x)\,\big(\mathbb 1\{a = x\} - \pi(a)\big).$$
+  </div>
+
+  <h3>The update rule</h3>
+  <p>After choosing \(A_t\) and receiving \(R_t\), update every preference:</p>
+  $$\begin{aligned}
+  H_{t+1}(A_t) &amp;= H_t(A_t) + \alpha\,(R_t - \bar R_t)\,\big(1 - \pi_t(A_t)\big), \\
+  H_{t+1}(a)   &amp;= H_t(a) - \alpha\,(R_t - \bar R_t)\,\pi_t(a) \qquad \text{for all } a \ne A_t,
+  \end{aligned}$$
+  <p>or in one line, \(H_{t+1}(a) = H_t(a) + \alpha (R_t - \bar R_t)\big(\mathbb 1\{a = A_t\} - \pi_t(a)\big)\). Here \(\bar R_t\) is the average of the rewards received before step \(t\), the <em>baseline</em>. A reward above the baseline raises the chosen arm's preference and lowers every other arm's in proportion to its probability; a reward below the baseline does the reverse.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 245" role="img" aria-label="Softmax probabilities of five arms before and after one gradient-bandit update in which the chosen arm's reward beat the baseline">
+      <line x1="70" y1="160" x2="580" y2="160" class="s-grid"/><line x1="70" y1="120" x2="580" y2="120" class="s-grid"/>
+      <line x1="70" y1="80" x2="580" y2="80" class="s-grid"/><line x1="70" y1="40" x2="580" y2="40" class="s-grid"/>
+      <line x1="70" y1="200" x2="580" y2="200" class="s-ln"/><line x1="70" y1="40" x2="70" y2="200" class="s-ln"/>
+      <g class="s-sm s-ink3">
+        <text x="64" y="203" class="s-end">0</text><text x="64" y="163" class="s-end">0.1</text><text x="64" y="123" class="s-end">0.2</text>
+        <text x="64" y="83" class="s-end">0.3</text><text x="64" y="43" class="s-end">0.4</text>
+      </g>
+      <g class="s-ink3">
+        <rect x="94" y="110" width="24" height="90"/><rect x="194" y="139.6" width="24" height="60.4"/><rect x="294" y="51.6" width="24" height="148.4"/>
+        <rect x="394" y="159.6" width="24" height="40.4"/><rect x="494" y="139.6" width="24" height="60.4"/>
+      </g>
+      <g class="s-acc">
+        <rect x="122" y="128.8" width="24" height="71.2"/><rect x="222" y="60.4" width="24" height="139.6"/><rect x="322" y="98.4" width="24" height="101.6"/>
+        <rect x="422" y="163.6" width="24" height="36.4"/><rect x="522" y="148.4" width="24" height="51.6"/>
+      </g>
+      <g class="s-sm">
+        <text x="120" y="102" class="s-mid s-ink2">ΔH −0.23</text><text x="220" y="52" class="s-mid s-mod">ΔH +0.85</text>
+        <text x="320" y="44" class="s-mid s-ink2">ΔH −0.37</text><text x="420" y="152" class="s-mid s-ink2">ΔH −0.10</text>
+        <text x="520" y="132" class="s-mid s-ink2">ΔH −0.15</text>
+        <text x="120" y="216" class="s-mid">a₁</text><text x="220" y="216" class="s-mid s-mod">a₂ = Aₜ</text><text x="320" y="216" class="s-mid">a₃</text>
+        <text x="420" y="216" class="s-mid">a₄</text><text x="520" y="216" class="s-mid">a₅</text>
+        <text x="320" y="238" class="s-mid s-ink3">H before = (0.4, 0, 0.9, −0.4, 0);  Rₜ − R̄ₜ = +1;  α = 1 (large, for visibility)</text>
+        <rect x="456" y="22" width="14" height="10" class="s-ink3"/><text x="476" y="31">πₜ before</text>
+        <rect x="546" y="22" width="14" height="10" class="s-acc"/><text x="566" y="31">after</text>
+      </g>
+    </svg>
+    <figcaption><b>One update.</b> Arm \(a_2\) was chosen with probability 0.15 and beat the baseline. Its preference rises by \(\alpha(1 - 0.15) = 0.85\), every other arm's falls by \(\alpha\pi(a)\), and its probability more than doubles, mostly at the expense of the arm that was most likely before. Had the reward been below the baseline, every arrow would reverse.</figcaption>
+  </figure>
+
+  <h3>Stochastic gradient ascent on expected reward</h3>
+  <p>The quantity we want to increase is the expected reward under the current policy,</p>
+  $$\E[R_t] = \sum_x \pi_t(x)\, q_*(x).$$
+  <p>Exact gradient ascent would update \(H_{t+1}(a) = H_t(a) + \alpha\, \partial \E[R_t] / \partial H_t(a)\). We can't compute that gradient, because it involves the unknown \(q_*\). The claim is that the gradient-bandit update equals it <em>in expectation</em>, which makes the algorithm an instance of stochastic gradient ascent (<a href="m00.html#d5">Day 5</a>).</p>
+
+  <h3>The full derivation</h3>
+  <div class="box deriv"><span class="tag">Derivation · the gradient-bandit update is SGA</span>
+    <p><b>Step 1: insert a baseline for free.</b> Since the probabilities sum to one, \(\sum_x \partial \pi_t(x)/\partial H_t(a) = \partial 1 / \partial H_t(a) = 0\). So for any scalar \(B_t\) that does not depend on \(x\),</p>
+    $$\frac{\partial \E[R_t]}{\partial H_t(a)} = \sum_x q_*(x)\, \frac{\partial \pi_t(x)}{\partial H_t(a)} = \sum_x \big(q_*(x) - B_t\big)\, \frac{\partial \pi_t(x)}{\partial H_t(a)}.$$
+    <p><b>Step 2: turn the sum into an expectation.</b> Multiply and divide each term by \(\pi_t(x)\); the sum over \(x\) weighted by \(\pi_t(x)\) is an expectation over \(A_t \sim \pi_t\):</p>
+    $$= \sum_x \pi_t(x)\, \big(q_*(x) - B_t\big)\, \frac{\partial \pi_t(x) / \partial H_t(a)}{\pi_t(x)} = \E\left[ \big(q_*(A_t) - B_t\big)\, \frac{\partial \pi_t(A_t)/\partial H_t(a)}{\pi_t(A_t)} \right].$$
+    <p><b>Step 3: replace the unknown value by the observed reward.</b> Given \(A_t\), the reward has mean \(q_*(A_t)\), and nothing else in the bracket depends on \(R_t\), so by the tower rule we may substitute \(R_t\):</p>
+    $$= \E\left[ \big(R_t - B_t\big)\, \frac{\partial \pi_t(A_t)/\partial H_t(a)}{\pi_t(A_t)} \right].$$
+    <p><b>Step 4: use the softmax derivative.</b> With \(x = A_t\), \(\frac{\partial \pi_t(A_t)/\partial H_t(a)}{\pi_t(A_t)} = \mathbb 1\{a = A_t\} - \pi_t(a)\), so</p>
+    $$\frac{\partial \E[R_t]}{\partial H_t(a)} = \E\Big[ \big(R_t - B_t\big)\big(\mathbb 1\{a = A_t\} - \pi_t(a)\big) \Big].$$
+    <p>The quantity inside the expectation is computable from one step of experience. Using it as the update, with \(B_t = \bar R_t\), is exactly the rule above: the expected update is the true gradient.</p>
+  </div>
+  <p>The derivation needs only that \(B_t\) not depend on the action or reward of step \(t\). \(\bar R_t\), built from earlier rewards, qualifies; a baseline computed from \(R_t\) itself, or one that depends on which arm was chosen, would bias the gradient. Step 2 is the log-derivative trick of <a href="m00.html#d4">Day 4</a>: \(\frac{\partial \pi / \partial H}{\pi} = \frac{\partial \log \pi}{\partial H}\), and the update is \(\alpha\,(R_t - B_t)\, \nabla_H \log \pi_t(A_t)\). That is REINFORCE with a baseline (<a href="m09.html#d84">Days 84</a>–<a href="m09.html#d85">85</a>) for a problem with one state and episodes of length one, and the softmax-over-preferences policy is the same parameterisation that <a href="m09.html#d82">Day 82</a> uses for discrete actions.</p>
+
+  <h3>The baseline and its variance reduction</h3>
+  <p>Step 1 shows the baseline doesn't change the <em>expected</em> update. It changes the update's variance, which decides how fast the algorithm learns in practice. Write the update direction as a vector, \(g = (R - b)(e_A - \pi)\), where \(e_A\) is the one-hot vector of the chosen arm. Its mean is the gradient whatever \(b\) is, so its total variance \(\E\|g\|^2 - \|\E g\|^2\) is minimised by minimising \(\E\|g\|^2\):</p>
+  $$\frac{d}{db}\, \E\big[(R - b)^2\, w_A\big] = -2\,\E\big[(R - b)\, w_A\big] = 0 \quad\Longrightarrow\quad b^* = \frac{\E[R\, w_A]}{\E[w_A]}, \qquad w_A = \|e_A - \pi\|^2 .$$
+  <p>The variance-optimal baseline is a weighted average of the reward. The plain average reward \(\bar R_t\) is a cheap, close approximation, which is why it is the standard choice; Day 85 makes the same argument for policy gradients in MDPs, where the baseline becomes a learned state-value function.</p>
+  <div class="box intuition"><span class="tag">Intuition · rewards centred on +4</span>
+    <p>Shift the testbed so that \(q_*(a) \sim \mathcal N(4, 1)\). Without a baseline every reward is positive, so <em>every</em> pull raises the pulled arm's preference: a good arm is distinguished only by being pushed up slightly more. The common offset of 4 dominates the size of each update but carries no information about which arm is better, and early random choices get reinforced simply because they were made. With \(b = \bar R_t\), the update is centred: above-average arms go up, below-average arms go down, and the algorithm becomes essentially invariant to adding a constant to every reward.</p>
+  </div>
+
+  <h3>The effect of removing the baseline</h3>
+  <pre><code>import numpy as np
+
+def gradient_bandit(alpha, baseline=True, mean=4.0, k=10, steps=1000, runs=2000, seed=0):
+    rng = np.random.default_rng(seed)
+    q_star = rng.normal(mean, 1.0, (runs, k))            # true values centred on +4, not 0
+    best, rows = q_star.argmax(axis=1), np.arange(runs)
+    H = np.zeros((runs, k))                               # preferences: uniform policy at start
+    r_bar = np.zeros(runs)                                # average of rewards before step t
+    optimal = np.zeros(steps)
+    for t in range(steps):
+        z = np.exp(H - H.max(axis=1, keepdims=True))      # subtract the max: no overflow
+        pi = z / z.sum(axis=1, keepdims=True)
+        A = (rng.random((runs, 1)) &gt; pi.cumsum(axis=1)).sum(axis=1).clip(max=k - 1)  # A ~ pi
+        R = rng.normal(q_star[rows, A], 1.0)
+        b = r_bar if baseline else 0.0
+        one_hot = np.zeros((runs, k))
+        one_hot[rows, A] = 1.0
+        H += alpha * (R - b)[:, None] * (one_hot - pi)    # H(a) += alpha (R - b)(1{a=A} - pi(a))
+        r_bar += (R - r_bar) / (t + 1)
+        optimal[t] = (A == best).mean()
+    return optimal
+
+for baseline in [True, False]:
+    for alpha in [0.1, 0.4]:
+        o = gradient_bandit(alpha, baseline)
+        print(f"baseline={baseline!s:&lt;5} alpha={alpha}: optimal over last 100 steps = {o[-100:].mean():.0%}")</code></pre>
+  <p class="code-cap">Sampling from π: count how many cumulative probabilities a uniform draw exceeds (the clip guards against round-off in the last cumulative sum). The baseline is updated after the preferences, so it never contains the current reward.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>% optimal, last 100 of 1,000 steps (\(q_* \sim \mathcal N(4, 1)\))</th><th>α = 0.1</th><th>α = 0.4</th></tr></thead>
+    <tbody>
+      <tr><td>with baseline \(\bar R_t\)</td><td class="num">83%</td><td class="num">68%</td></tr>
+      <tr><td>without baseline</td><td class="num">50%</td><td class="num">27%</td></tr>
+    </tbody>
+  </table></div>
+  <p>This is Sutton &amp; Barto's Figure 2.5. The no-baseline update is still an unbiased gradient estimate; all the damage is done by variance, and by what variance leads to. Once some arm's probability approaches 1, the factor \(\mathbb 1\{a = A_t\} - \pi_t(a)\) approaches 0 for every arm and learning stalls. A noisy update that pushes the policy toward a near-deterministic choice early, before the evidence supports it, can leave it stuck there. Larger α makes this premature commitment more likely, which is why α = 0.4 is worse in both rows.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>No baseline, or a poor one:</b> high variance and premature convergence, as in the table.</li>
+      <li><b>A baseline that depends on the current action or reward</b> biases the gradient. State-dependent baselines are safe in MDPs; action-dependent ones need corrections (Day 85).</li>
+      <li><b>Softmax saturation.</b> With a large α or a long run, π becomes nearly one-hot and the gradient vanishes. That is the right end state in a stationary problem and a trap in a drifting one, because the policy can no longer explore.</li>
+      <li><b>Overflow.</b> <code>np.exp(H)</code> overflows once preferences reach the hundreds; always subtract the row maximum first.</li>
+      <li><b>Reward scale.</b> Each update is proportional to \(R_t - \bar R_t\), so multiplying rewards by 100 multiplies the effective step size by 100. Value-based updates such as the sample average are scale-free in this respect; policy gradients are not, which is one reason Module 9 normalises advantages.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Close the notes and derive \(\partial \pi(x) / \partial H(a)\) and the full gradient-bandit update. State where the baseline's independence from \(A_t\) and \(R_t\) is used.</li>
+      <li>Reproduce Figure 2.5: \(q_* \sim \mathcal N(4, 1)\), α ∈ {0.1, 0.4}, with and without baseline, % optimal over 1,000 steps.</li>
+      <li>At a fixed policy (say \(H = (0, 0.5, 1, 0, 0, 0, 0, 0, 0, 0)\) on one testbed bandit), estimate the mean and total variance of the update vector \(g\) by Monte Carlo for \(b \in \{0, 2, 4, \E_\pi[R], b^*\}\). Confirm the mean is the same in every case and find which \(b\) minimises the variance.</li>
+      <li>Add the gradient bandit to your parameter study on the standard testbed (\(q_* \sim \mathcal N(0, 1)\)) with \(\alpha \in \{1/32, \dots, 2\}\). Expect a peak somewhere around α ≈ 1/4.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §2.8 · Williams 1992, “Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning” · Greensmith, Bartlett &amp; Baxter 2004, “Variance Reduction Techniques for Gradient Estimates in Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 16 -->
+<article class="day" id="d16">
+  <header class="day-head">
+    <span class="day-no">DAY 16</span>
+    <h2>Bayesian Bandits &amp; Thompson Sampling</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Keep a full probability distribution over each arm's value, not just a point estimate. To act, draw one plausible value for every arm from its posterior and pull the arm whose draw is largest. Uncertain arms win some draws and get explored; clearly bad arms almost never do. That is Thompson sampling, the oldest bandit algorithm and often the best.</p>
+
+  <h3>Beliefs instead of estimates</h3>
+  <p>The methods so far summarise each arm by a number, \(Q_t(a)\), and bolt uncertainty on afterwards: a count, a bonus, a schedule. The Bayesian alternative treats the unknown mean of arm \(a\) as a random variable \(\theta_a\) with a <em>prior</em> distribution, and conditions on the observed rewards to get a <em>posterior</em> \(p(\theta_a \mid \mathcal H_{t-1})\), which encodes the estimate and its uncertainty at once. With independent arms and independent priors, the posteriors stay independent, and each arm's posterior is updated only when that arm is pulled.</p>
+
+  <h3>Beta–Bernoulli conjugacy</h3>
+  <div class="box def"><span class="tag">Definition · Bernoulli arms and the Beta distribution</span>
+    <p>A Bernoulli arm pays \(R \in \{0, 1\}\) with \(\Pr(R = 1) = \theta_a\): a click, a cure, a conversion. The Beta distribution on \([0, 1]\) has density</p>
+    $$p(\theta) = \frac{\theta^{\alpha - 1} (1 - \theta)^{\beta - 1}}{B(\alpha, \beta)}, \qquad \E[\theta] = \frac{\alpha}{\alpha + \beta}, \qquad \Var[\theta] = \frac{\alpha\beta}{(\alpha+\beta)^2(\alpha + \beta + 1)},$$
+    <p>where \(B\) is the normalising Beta function. \(\text{Beta}(1, 1)\) is uniform. (The Beta parameters α, β have nothing to do with the step size α; for arm \(a\) we write \(\alpha_a, \beta_a\).)</p>
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · the posterior after s successes and f failures</span>
+    <p>By Bayes' rule the posterior is proportional to likelihood times prior. The likelihood of a particular sequence with \(s\) ones and \(f\) zeros is \(\theta^s (1 - \theta)^f\), whatever the order, so</p>
+    $$p(\theta \mid s, f) \;\propto\; \underbrace{\theta^{s}(1 - \theta)^{f}}_{\text{likelihood}} \; \underbrace{\theta^{\alpha - 1}(1 - \theta)^{\beta - 1}}_{\text{prior}} \;=\; \theta^{\alpha + s - 1}(1 - \theta)^{\beta + f - 1},$$
+    <p>which is the kernel of \(\text{Beta}(\alpha + s, \beta + f)\); the normaliser is forced, since the density must integrate to 1. The posterior is in the same family as the prior, which is what <em>conjugate</em> means, and the update is counting: after reward \(r \in \{0, 1\}\) from arm \(a\),</p>
+    $$\alpha_a \leftarrow \alpha_a + r, \qquad \beta_a \leftarrow \beta_a + (1 - r).$$
+  </div>
+  <p>The prior parameters act as pseudo-counts: relative to the uniform prior, \(\text{Beta}(\alpha, \beta)\) behaves as if \(\alpha - 1\) successes and \(\beta - 1\) failures had already been seen. The posterior mean \((\alpha + s)/(\alpha + \beta + s + f)\) approaches the sample mean as data accumulate, and the posterior variance shrinks like \(1/n\), the Bayesian twin of the standard error.</p>
+
+  <h3>A posterior over each arm</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 272" role="img" aria-label="Three Beta posteriors: a narrow one centred near 0.68, a wide one centred at 0.5, and a narrow one centred near 0.22">
+      <line x1="60" y1="230" x2="620" y2="230" class="s-ln"/>
+      <g class="s-sm s-ink3">
+        <text x="60" y="246" class="s-mid">0</text><text x="200" y="246" class="s-mid">0.25</text><text x="340" y="246" class="s-mid">0.5</text>
+        <text x="480" y="246" class="s-mid">0.75</text><text x="620" y="246" class="s-mid">1</text>
+        <text x="340" y="264" class="s-mid">θ, the arm's success probability</text>
+      </g>
+      <polyline points="60,230.0 71,230.0 82,230.0 94,230.0 105,230.0 116,230.0 127,230.0 138,230.0 150,230.0 161,230.0 172,230.0 183,230.0 194,230.0 206,230.0 217,229.9 228,229.9 239,229.7 250,229.4 262,228.9 273,228.1 284,226.7 295,224.7 306,221.8 318,217.7 329,212.3 340,205.2 351,196.3 362,185.8 374,173.6 385,160.3 396,146.4 407,132.7 418,120.3 430,110.3 441,103.6 452,101.2 463,103.7 474,111.2 486,123.2 497,138.9 508,156.7 519,174.9 530,191.9 542,206.3 553,217.0 564,224.0 575,227.9 586,229.5 598,229.9 609,230.0 620,230.0" class="s-ln-mod"/>
+      <polyline points="60,230.0 71,226.2 82,222.6 94,219.2 105,215.9 116,212.7 127,209.7 138,206.9 150,204.2 161,201.7 172,199.3 183,197.1 194,195.0 206,193.1 217,191.3 228,189.7 239,188.2 250,186.9 262,185.8 273,184.8 284,183.9 295,183.2 306,182.7 318,182.3 329,182.1 340,182.0 351,182.1 362,182.3 374,182.7 385,183.2 396,183.9 407,184.8 418,185.8 430,186.9 441,188.2 452,189.7 463,191.3 474,193.1 486,195.0 497,197.1 508,199.3 519,201.7 530,204.2 542,206.9 553,209.7 564,212.7 575,215.9 586,219.2 598,222.6 609,226.2 620,230.0" class="s-ln-warn"/>
+      <polyline points="60,230.0 71,228.1 82,218.5 94,200.6 105,177.2 116,152.6 127,130.1 138,112.3 150,100.6 161,95.4 172,96.0 183,101.7 194,111.2 206,123.2 217,136.5 228,150.3 239,163.6 250,176.0 262,187.0 273,196.6 284,204.5 295,211.0 306,216.2 318,220.2 329,223.2 340,225.4 351,226.9 362,228.0 374,228.8 385,229.2 396,229.6 407,229.7 418,229.9 430,229.9 441,230.0 452,230.0 463,230.0 474,230.0 486,230.0 497,230.0 508,230.0 519,230.0 530,230.0 542,230.0 553,230.0 564,230.0 575,230.0 586,230.0 598,230.0 609,230.0 620,230.0" class="s-ln-info"/>
+      <g class="s-sm">
+        <text x="452" y="94" class="s-mid s-mod">A</text><text x="340" y="175" class="s-mid s-warn">B</text><text x="161" y="88" class="s-mid s-info">C</text>
+        <line x1="66" y1="20" x2="88" y2="20" class="s-ln-mod"/><text x="96" y="24">A  Beta(15, 7)   14 of 20 succeeded   mean 0.68   P(best) ≈ 0.75</text>
+        <line x1="66" y1="38" x2="88" y2="38" class="s-ln-warn"/><text x="96" y="42">B  Beta(2, 2)     1 of 2 succeeded    mean 0.50   P(best) ≈ 0.25</text>
+        <line x1="66" y1="56" x2="88" y2="56" class="s-ln-info"/><text x="96" y="60">C  Beta(4, 14)    3 of 16 succeeded   mean 0.22   P(best) &lt; 0.001</text>
+      </g>
+    </svg>
+    <figcaption><b>Three posteriors, uniform prior.</b> B has the lower mean but so wide a posterior that it is the best arm with probability about 0.25 (estimated from 400,000 joint draws), so Thompson sampling pulls it about a quarter of the time. C's posterior lies almost entirely below A's, and it is essentially never pulled again. A greedy agent would never touch B; ε-greedy would keep wasting pulls on C.</figcaption>
+  </figure>
+
+  <h3>Probability matching</h3>
+  <div class="box thm"><span class="tag">Theorem · Thompson sampling matches probabilities</span>
+    <p>If at each step the agent draws \(\tilde\theta_a \sim p(\theta_a \mid \mathcal H_{t-1})\) for every arm and plays \(A_t = \argmax_a \tilde\theta_a\), then</p>
+    $$\Pr\big(A_t = a \mid \mathcal H_{t-1}\big) = \Pr\big(\theta_a = \textstyle\max_b \theta_b \,\big|\, \mathcal H_{t-1}\big).$$
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Given the history, the sampled vector \(\tilde\theta\) has exactly the posterior distribution of the true \(\theta\). So the event “\(\tilde\theta_a\) is the largest” has the same probability as “\(\theta_a\) is the largest”, which is the posterior probability that \(a\) is the optimal arm. (Ties have probability zero under continuous posteriors.) ∎</p>
+  </div>
+  <p>Exploration is allocated in proportion to the probability that you are wrong about which arm is best. That is the property behind the name <em>probability matching</em>, and behind Thompson's original 1933 proposal for allocating patients between two treatments.</p>
+
+  <h3>The Thompson sampling algorithm</h3>
+  <div class="box algo"><span class="tag">Algorithm · Thompson sampling, Bernoulli arms</span>
+    <ol>
+      <li>For every arm \(a\): \(\alpha_a \leftarrow 1\), \(\beta_a \leftarrow 1\) <span class="step">(uniform prior)</span>.</li>
+      <li>Loop for \(t = 1, 2, \dots\):
+        <ol>
+          <li>For every arm, sample \(\tilde\theta_a \sim \text{Beta}(\alpha_a, \beta_a)\).</li>
+          <li>\(A_t \leftarrow \argmax_a \tilde\theta_a\); observe \(R_t \in \{0, 1\}\).</li>
+          <li>\(\alpha_{A_t} \leftarrow \alpha_{A_t} + R_t\); \(\;\beta_{A_t} \leftarrow \beta_{A_t} + 1 - R_t\).</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>For the 10-armed testbed the rewards are Gaussian, so the conjugate pair is Gaussian–Gaussian, and you will need it in Project 1.</p>
+  <div class="box deriv"><span class="tag">Derivation · Gaussian rewards with known noise variance</span>
+    <p>Let rewards be \(\mathcal N(\theta, \sigma^2)\) with σ known, and put a prior \(\theta \sim \mathcal N(\mu_0, \sigma_0^2)\). After \(n\) rewards with sum \(S\), the log posterior is, up to a constant,</p>
+    $$-\frac{(\theta - \mu_0)^2}{2\sigma_0^2} - \sum_{i=1}^{n} \frac{(r_i - \theta)^2}{2\sigma^2} = -\frac12 \Big(\frac{1}{\sigma_0^2} + \frac{n}{\sigma^2}\Big)\theta^2 + \Big(\frac{\mu_0}{\sigma_0^2} + \frac{S}{\sigma^2}\Big)\theta + \text{const}.$$
+    <p>A quadratic in θ is a Gaussian log density; matching it with \(-\frac{(\theta - \mu_n)^2}{2\sigma_n^2}\) reads off</p>
+    $$\frac{1}{\sigma_n^2} = \frac{1}{\sigma_0^2} + \frac{n}{\sigma^2}, \qquad \mu_n = \sigma_n^2 \Big(\frac{\mu_0}{\sigma_0^2} + \frac{S}{\sigma^2}\Big).$$
+    <p>Precisions add, and the posterior mean is a precision-weighted average of the prior mean and the sample mean. On the testbed the bandits really are drawn from \(\mathcal N(0, 1)\), so \(\mu_0 = 0\), \(\sigma_0 = \sigma = 1\) is the correct prior, and the posterior is \(\mathcal N\big(S/(n+1),\, 1/(n+1)\big)\).</p>
+  </div>
+  <p>For rewards in \([0, 1]\) that are not binary, Agrawal &amp; Goyal (2012) use a neat trick: on observing \(r\), flip a coin with success probability \(r\) and update the Beta posterior with the coin's outcome. The expected update is unchanged, and the Beta–Bernoulli machinery applies to any bounded reward.</p>
+
+  <h3>Posterior-sampling intuition</h3>
+  <div class="box intuition"><span class="tag">Intuition · one plausible world per step</span>
+    <p>Each step, Thompson sampling imagines one world consistent with everything it has seen and acts optimally in that world. An arm gets pulled exactly when some plausible world says it is the best. A narrow posterior far below the leader almost never wins a draw; a wide posterior overlapping the leader often does. As data accumulate the posteriors narrow, the overlaps disappear, and exploration fades on its own: no ε, no schedule, no c to tune, only a prior. Because it randomises, it also behaves sensibly when many decisions must be made from the same posterior. A batch of 1,000 choices spreads across the plausible arms instead of piling onto a single one, which is a large part of why Chapelle &amp; Li (2011) recommended it for display advertising.</p>
+  </div>
+
+  <h3>Bayesian vs frequentist exploration</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>UCB (Day 14)</th><th>Thompson sampling</th></tr></thead>
+    <tbody>
+      <tr><td><b>Uncertainty is</b></td><td>a confidence interval, valid for every fixed \(q_*\)</td><td>a posterior distribution under a prior</td></tr>
+      <tr><td><b>Action rule</b></td><td>deterministic: argmax of the upper bound</td><td>randomised: argmax of a posterior sample</td></tr>
+      <tr><td><b>You tune</b></td><td>c, the confidence level</td><td>the prior and the likelihood model</td></tr>
+      <tr><td><b>Guarantee</b></td><td>frequentist \(O(\sum_a \ln T / \Delta_a)\) on every bandit</td><td>Bayesian regret bounds, and frequentist \(O(\ln T)\); for Bernoulli arms it attains the Lai–Robbins constant</td></tr>
+      <tr><td><b>Batched or delayed feedback</b></td><td>repeats one arm</td><td>spreads naturally</td></tr>
+      <tr><td><b>Cost per step</b></td><td>\(O(k)\) arithmetic</td><td>one posterior sample per arm: cheap when conjugate, hard otherwise</td></tr>
+    </tbody>
+  </table></div>
+  <p>The two schools ask different questions. A frequentist guarantee says: for <em>every</em> fixed bandit, regret is at most this much. A Bayesian guarantee averages over bandits drawn from the prior, \(\E_{\theta \sim \text{prior}}[\mathcal R_T(\theta)]\), which is literally what the testbed measures, since it draws its 2,000 bandits from \(\mathcal N(0, 1)\). Thompson sampling turns out to be good in both senses: Agrawal &amp; Goyal (2012) and Kaufmann, Korda &amp; Munos (2012) proved frequentist logarithmic regret, the latter with the optimal Lai–Robbins constant for Bernoulli arms.</p>
+  <p>Thompson sampling is not the Bayes-optimal policy of Day 10, which would plan over how future posteriors evolve. It is myopic in a useful way. The cost of that myopia shows on problems where the most informative action is one known to be suboptimal: an arm that pays nothing but reveals which of the others is best would never be chosen by Thompson sampling, because no plausible world makes it the best arm. Information-directed sampling (Russo &amp; Van Roy) addresses exactly that case.</p>
+
+  <h3>Comparison against UCB</h3>
+  <pre><code>import numpy as np
+
+def bernoulli_race(T=10_000, runs=200, k=10, seed=0):
+    """Cumulative pseudo-regret of Thompson sampling vs UCB1 on Bernoulli arms."""
+    rng = np.random.default_rng(seed)
+    p = rng.uniform(0.0, 1.0, (runs, k))                  # true success probabilities
+    gaps, rows = p.max(axis=1, keepdims=True) - p, np.arange(runs)
+    regret = {}
+    for name in ["thompson", "ucb1"]:
+        S, F = np.zeros((runs, k)), np.zeros((runs, k))   # successes, failures per arm
+        total = np.zeros(runs)
+        for t in range(T):
+            if name == "thompson":
+                theta = rng.beta(S + 1, F + 1)            # one draw from each Beta posterior
+                A = theta.argmax(axis=1)
+            else:
+                N = S + F
+                mean = S / np.maximum(N, 1)
+                U = np.where(N == 0, np.inf, mean + np.sqrt(2 * np.log(t + 1) / np.maximum(N, 1)))
+                A = U.argmax(axis=1)
+            r = rng.random(runs) &lt; p[rows, A]
+            S[rows, A] += r
+            F[rows, A] += ~r
+            total += gaps[rows, A]
+        regret[name] = total.mean()
+    return regret
+
+print(bernoulli_race())    # about {'thompson': 46, 'ucb1': 357} on this seed</code></pre>
+  <p class="code-cap">Ten Bernoulli arms with success probabilities drawn uniformly from [0, 1], 10,000 steps, 200 runs; the race takes a few seconds. Both methods see the same bandits, because <code>p</code> is drawn once.</p>
+  <p>Thompson sampling's regret is roughly an eighth of UCB1's here. UCB1's Hoeffding bonus is built for the worst case on \([0, 1]\), which is a variance-¼ coin; for arms far from ½ the true variance is much smaller and the bonus is loose. KL-UCB (Garivier &amp; Cappé 2011), which uses a Bernoulli-specific confidence bound, closes most of the gap. On the Gaussian testbed the ordering holds but the margin is smaller: with the correct \(\mathcal N(0, 1)\) prior, Thompson sampling averages about 1.47 reward over the first 1,000 steps against 1.385 for UCB with \(c = 2\) and 1.474 for the tuned \(c = 1\), and its 10,000-step regret is about 110 against about 270 (the Day 10 figure). Chapelle &amp; Li (2011) found the same picture on simulated problems and on real advertising and news-recommendation data: Thompson sampling was competitive with or better than UCB-style methods, and robust to delayed feedback.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>An overconfident or wrong prior.</b> \(\text{Beta}(100, 1)\) on a bad arm takes around a hundred failures to overturn. On the testbed, shrinking the Gaussian prior to \(\sigma_0 = 1/16\) cuts average reward over the first 1,000 steps from about 1.47 to about 1.37, while anything from \(\sigma_0 = 1/2\) to 4 performs almost identically. Err wide.</li>
+      <li><b>A wrong likelihood.</b> A Gaussian model with σ set too small is overconfident in exactly the same way; Beta–Bernoulli on unbounded rewards is simply invalid.</li>
+      <li><b>Nonstationarity.</b> Posteriors only narrow, so exploration dies out even when the world keeps changing. Discount the pseudo-counts (\(\alpha_a \leftarrow \gamma\alpha_a + r\), and likewise β) or use a sliding window.</li>
+      <li><b>Intractable posteriors.</b> With complex models (neural networks, the deep RL setting) there is no exact posterior to sample. Approximations such as ensembles, bootstrapping or Laplace approximations work to the extent that they capture uncertainty; bootstrapped DQN (<a href="m11.html#d105">Day 105</a>) is this idea at scale, and poor approximations under-explore.</li>
+      <li><b>Run-to-run variance.</b> A randomised policy adds variance between runs. Average over many, as always.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Derive the Beta posterior update and the Gaussian posterior (precision and mean) by completing the square, without the notes.</li>
+      <li>Run the Bernoulli race and plot cumulative regret against \(t\) on a log-\(t\) axis for both methods. Both curves should be close to straight lines for large \(t\); compare their slopes with the Lai–Robbins constant \(\sum_a \Delta_a / \KL(\text{Ber}(p_a) \,\|\, \text{Ber}(p^*))\) for one of the bandits.</li>
+      <li>Add Gaussian Thompson sampling to your 10-armed testbed with prior \(\mathcal N(0, \sigma_0^2)\) for \(\sigma_0 \in \{1/16, 1/4, 1, 4\}\). Which prior is correct, and how much does each misspecification cost?</li>
+      <li>Check probability matching: freeze the three posteriors of the figure, make 100,000 Thompson decisions, and compare the frequencies with a Monte Carlo estimate of \(\Pr(\text{arm is best})\).</li>
+      <li>Batched feedback: update the posteriors (and UCB's statistics) only every 50 steps. Compare Thompson sampling and UCB1 on the Bernoulli race.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Russo, Van Roy, Kazerouni, Osband &amp; Wen 2018, “A Tutorial on Thompson Sampling” · Chapelle &amp; Li 2011, “An Empirical Evaluation of Thompson Sampling” · Agrawal &amp; Goyal 2012, “Analysis of Thompson Sampling for the Multi-armed Bandit Problem” · Kaufmann, Korda &amp; Munos 2012, “Thompson Sampling: An Asymptotically Optimal Finite-Time Analysis” · Lattimore &amp; Szepesvári Ch. 35–36 · Sutton &amp; Barto §2.10 · Thompson 1933</p>
+</article>
+
+<!-- ================================================================ DAY 17 -->
+<article class="day project" id="d17">
+  <header class="day-head">
+    <span class="day-no">DAY 17</span>
+    <h2>Contextual Bandits + Project 1</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">180m practice</span><span class="proj">Project 1</span></p>
+  </header>
+
+  <p class="thesis">Show the bandit a context before each choice (a user, a patient, a page) and the best arm can depend on it. LinUCB learns a linear model of reward for each arm and adds an optimism bonus shaped by the confidence ellipsoid of ridge regression. The project then races the five context-free algorithms of this module on the 10-armed testbed.</p>
+
+  <h3>Contexts and features per round</h3>
+  <div class="box def"><span class="tag">Definition · contextual bandit</span>
+    <p>On each round \(t\): the environment reveals a context \(X_t\), drawn i.i.d. from a fixed distribution and unaffected by past actions; the agent chooses \(A_t\); it observes \(R_t\) with \(\E[R_t \mid X_t = x, A_t = a] = \mu(x, a)\). A policy maps the context (and the history) to an arm, and regret is measured against the best <em>context-dependent</em> choice:</p>
+    $$\mathcal R_T = \E\Big[\sum_{t=1}^{T} \big(\max_a \mu(X_t, a) - \mu(X_t, A_t)\big)\Big].$$
+  </div>
+  <p>Sutton &amp; Barto call this <em>associative search</em> (§2.9): it is associative, because different situations call for different actions, but each action still affects only its immediate reward. The naive solution, an independent bandit for every distinct context, fails as soon as contexts are continuous or rarely repeat. The agent must generalise across contexts, and that requires a model.</p>
+  <p>Each round, every arm is described by a feature vector \(\mathbf x_{t,a} \in \R^d\) built from the context and the arm. Two standard designs:</p>
+  <ul>
+    <li><b>Disjoint:</b> user features only, with a separate parameter vector \(\theta_a\) per arm. Arms share nothing; each needs its own data.</li>
+    <li><b>Shared (or hybrid):</b> joint user × item features with one parameter vector for all arms, possibly plus per-arm terms. A brand-new arm with known features can be scored before it has ever been shown, which is what makes cold start workable.</li>
+  </ul>
+
+  <h3>Ridge regression per arm</h3>
+  <p>Assume the expected reward is linear in the features, \(\E[R_t \mid \mathbf x_{t,a}] = \mathbf x_{t,a}^\top \theta^*_a\). For one arm, with the features it was pulled on stacked as rows of a design matrix \(D\) and the rewards in a vector \(\mathbf r\):</p>
+  <div class="box deriv"><span class="tag">Derivation · the ridge estimate</span>
+    <p>Minimise \(L(\theta) = \sum_i (r_i - \mathbf x_i^\top \theta)^2 + \lambda \|\theta\|^2\). Setting the gradient to zero,</p>
+    $$-2 \sum_i \mathbf x_i \big(r_i - \mathbf x_i^\top \theta\big) + 2\lambda\theta = 0 \;\Longrightarrow\; \Big(\lambda I + \sum_i \mathbf x_i \mathbf x_i^\top\Big)\theta = \sum_i r_i \mathbf x_i \;\Longrightarrow\; \hat\theta = A^{-1}\mathbf b,$$
+    <p>with \(A = \lambda I + D^\top D\) and \(\mathbf b = D^\top \mathbf r\). Both are running sums, so one pull updates them in \(O(d^2)\): \(A \leftarrow A + \mathbf x\mathbf x^\top\), \(\mathbf b \leftarrow \mathbf b + r\mathbf x\). The \(\lambda I\) term makes \(A\) invertible from the first round; Li et al. use \(\lambda = 1\), initialising \(A_a = I_d\).</p>
+  </div>
+
+  <h3>The confidence ellipsoid, and where the LinUCB bonus comes from</h3>
+  <div class="box deriv"><span class="tag">Derivation · a confidence bound for \(\mathbf x^\top\theta^*\)</span>
+    <p><b>Step 1: the error of the estimate.</b> Write each reward as \(r_i = \mathbf x_i^\top\theta^* + \eta_i\) with zero-mean noise that is σ-sub-Gaussian (Gaussian with standard deviation σ, or anything with lighter tails). Substituting into \(\hat\theta = A^{-1}\sum_i \mathbf x_i r_i\) and using \(\sum_i \mathbf x_i \mathbf x_i^\top = A - \lambda I\),</p>
+    $$\hat\theta - \theta^* = A^{-1} \sum_i \mathbf x_i \eta_i \;-\; \lambda A^{-1}\theta^* .$$
+    <p><b>Step 2: one query direction, fixed design.</b> Treat the \(\mathbf x_i\) as fixed and take any query \(\mathbf x\). The noise term \(\mathbf x^\top A^{-1}\sum_i \mathbf x_i \eta_i\) is a weighted sum of independent noise with variance \(\sigma^2\, \mathbf x^\top A^{-1} \big(\sum_i \mathbf x_i\mathbf x_i^\top\big) A^{-1}\mathbf x \le \sigma^2\, \mathbf x^\top A^{-1}\mathbf x\), because \(\sum_i \mathbf x_i\mathbf x_i^\top \preceq A\). The bias term satisfies \(\lambda\,|\mathbf x^\top A^{-1}\theta^*| \le \lambda \|\mathbf x\|_{A^{-1}} \|\theta^*\|_{A^{-1}} \le \sqrt\lambda\, \|\mathbf x\|_{A^{-1}}\|\theta^*\|\), by Cauchy–Schwarz and \(A \succeq \lambda I\). Here \(\|\mathbf v\|_M = \sqrt{\mathbf v^\top M \mathbf v}\). Applying the sub-Gaussian tail bound to the noise term, with probability at least \(1 - \delta\),</p>
+    $$\big|\mathbf x^\top\hat\theta - \mathbf x^\top\theta^*\big| \;\le\; \Big(\sigma\sqrt{2\ln(2/\delta)} + \sqrt\lambda\,\|\theta^*\|\Big)\, \sqrt{\mathbf x^\top A^{-1}\mathbf x}.$$
+    <p>The width is a constant times \(\|\mathbf x\|_{A^{-1}}\): large in directions of feature space the arm has rarely been pulled in, small where it has plenty of data. With one-hot features this is the familiar \(1/\sqrt{N(a)}\).</p>
+    <p><b>Step 3: all directions at once.</b> Bounds of this form for every \(\mathbf x\) amount to saying that \(\theta^*\) lies in the ellipsoid \(C = \{\theta : \|\theta - \hat\theta\|_A \le \beta\}\), centred on \(\hat\theta\) and longest along the directions with least data. Optimism means scoring each arm by the most favourable parameter in \(C\):</p>
+    $$\max_{\theta \in C} \mathbf x^\top\theta = \mathbf x^\top\hat\theta + \beta \sqrt{\mathbf x^\top A^{-1}\mathbf x},$$
+    <p>because \(\mathbf x^\top(\theta - \hat\theta) = (A^{-1/2}\mathbf x)^\top \big(A^{1/2}(\theta - \hat\theta)\big) \le \|\mathbf x\|_{A^{-1}}\, \|\theta - \hat\theta\|_A \le \beta\, \|\mathbf x\|_{A^{-1}}\), with equality at \(\theta = \hat\theta + \beta A^{-1}\mathbf x / \|\mathbf x\|_{A^{-1}}\).</p>
+    <p><b>Step 4: adaptivity.</b> The agent chooses which features it sees, so the fixed-design argument doesn't strictly apply. Abbasi-Yadkori, Pál &amp; Szepesvári (2011) proved a self-normalised bound that does: if \(\|\mathbf x\| \le L\) and \(\|\theta^*\| \le S\), then with probability \(1 - \delta\), simultaneously for all \(t\), \(\theta^*\) lies in the ellipsoid with radius</p>
+    $$\beta_t = \sigma\sqrt{2\ln(1/\delta) + d\ln\!\big(1 + tL^2/(\lambda d)\big)} + \sqrt\lambda\, S .$$
+    <p>The radius grows like \(\sqrt{d \ln t}\): the price of \(d\) dimensions and of choosing your own data. In practice β is replaced by a single tuned constant α.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 250" role="img" aria-label="Confidence ellipsoid around the ridge estimate; the optimistic parameter is where a line perpendicular to the query direction touches the ellipsoid">
+      <defs>
+        <marker id="ah-d17" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d17w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <ellipse cx="330" cy="135" rx="165" ry="52" transform="rotate(-25 330 135)" class="s-node-mod"/>
+      <line x1="269.4" y1="100" x2="420.9" y2="187.5" class="s-ln s-dash"/>
+      <line x1="410.7" y1="21.8" x2="531.9" y2="91.8" class="s-ln-acc"/>
+      <line x1="402.1" y1="176.7" x2="471.3" y2="56.8" class="s-ln-mod" marker-start="url(#ah-d17w)" marker-end="url(#ah-d17w)"/>
+      <line x1="80" y1="120" x2="115" y2="59.4" class="s-ln-ink" marker-end="url(#ah-d17)"/>
+      <circle cx="330" cy="135" r="4" class="s-ink"/>
+      <circle cx="290" cy="120" r="3.5" class="s-ink3"/>
+      <circle cx="471.3" cy="56.8" r="4.5" class="s-acc"/>
+      <g class="s-sm">
+        <text x="122" y="66" class="s-ink2">query direction x</text>
+        <text x="322" y="153" class="s-end">θ̂</text>
+        <text x="282" y="117" class="s-end s-ink3">θ*</text>
+        <text x="482" y="46" class="s-acc">θ̃ (optimistic)</text>
+        <text x="538" y="99">xᵀθ̂ + β√(xᵀA⁻¹x)</text>
+        <text x="428" y="198" class="s-ink2">level of xᵀθ̂</text>
+        <text x="446" y="124" class="s-mod">bonus</text>
+        <text x="90" y="238" class="s-ink2">confidence set C: (θ − θ̂)ᵀ A (θ − θ̂) ≤ β²</text>
+      </g>
+    </svg>
+    <figcaption><b>Optimism in parameter space.</b> The ellipsoid is long in the directions where the arm has little data. Lines perpendicular to \(\mathbf x\) are level sets of \(\mathbf x^\top\theta\); the optimistic parameter \(\tilde\theta\) is where the highest such line touches the ellipsoid, and the distance between the two level lines is the bonus \(\beta\sqrt{\mathbf x^\top A^{-1}\mathbf x}\). A query pointing along the long axis gets a large bonus; one along the short axis, a small one.</figcaption>
+  </figure>
+
+  <h3>LinUCB</h3>
+  <div class="box algo"><span class="tag">Algorithm · LinUCB with disjoint linear models (Li et al. 2010)</span>
+    <ol>
+      <li>Input \(\alpha &gt; 0\). For every arm \(a\): \(A_a \leftarrow I_d\), \(\mathbf b_a \leftarrow \mathbf 0_d\).</li>
+      <li>Loop for \(t = 1, 2, \dots\):
+        <ol>
+          <li>Observe the features \(\mathbf x_{t,a}\) of every available arm.</li>
+          <li>For every arm: \(\hat\theta_a \leftarrow A_a^{-1}\mathbf b_a\); \(\;p_{t,a} \leftarrow \hat\theta_a^\top \mathbf x_{t,a} + \alpha\sqrt{\mathbf x_{t,a}^\top A_a^{-1}\mathbf x_{t,a}}\).</li>
+          <li>\(A_t \leftarrow \argmax_a p_{t,a}\) <span class="step">(ties at random)</span>; observe \(R_t\).</li>
+          <li>With \(\mathbf x = \mathbf x_{t,A_t}\): \(A_{A_t} \leftarrow A_{A_t} + \mathbf x\mathbf x^\top\); \(\;\mathbf b_{A_t} \leftarrow \mathbf b_{A_t} + R_t\,\mathbf x\).</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>Inverting \(A_a\) every round costs \(O(d^3)\). The Sherman–Morrison identity updates the inverse directly in \(O(d^2)\):</p>
+  $$\big(A + \mathbf x\mathbf x^\top\big)^{-1} = A^{-1} - \frac{A^{-1}\mathbf x\,\mathbf x^\top A^{-1}}{1 + \mathbf x^\top A^{-1}\mathbf x}.$$
+  <p>Li et al. give \(\alpha = 1 + \sqrt{\ln(2/\delta)/2}\) as a theoretically motivated value; in practice α is tuned, and good values are often well below that. One sanity check connects LinUCB back to Day 14: with \(d = 1\) and \(\mathbf x = 1\) for every arm, \(A_a = 1 + N(a)\), \(\hat\theta_a\) is a slightly shrunk sample mean, and the bonus is \(\alpha/\sqrt{1 + N(a)}\). That is UCB without the \(\ln t\), a reminder that LinUCB's α carries the confidence schedule and has to be chosen.</p>
+  <pre><code>import numpy as np
+
+class LinUCB:
+    """Disjoint LinUCB (Li et al. 2010): one ridge regression per arm."""
+    def __init__(self, n_arms, d, alpha=1.0, lam=1.0):
+        self.alpha = alpha
+        self.A_inv = np.stack([np.eye(d) / lam for _ in range(n_arms)])   # (A_a)^-1
+        self.b = np.zeros((n_arms, d))
+
+    def select(self, X):                                  # X[a] = feature vector x_{t,a}
+        theta = np.einsum("aij,aj-&gt;ai", self.A_inv, self.b)               # ridge estimates
+        width = np.sqrt(np.einsum("ai,aij,aj-&gt;a", X, self.A_inv, X))      # ||x||_{A^-1}
+        return int(np.argmax(np.einsum("ai,ai-&gt;a", X, theta) + self.alpha * width))
+
+    def update(self, a, x, r):
+        Ax = self.A_inv[a] @ x                            # Sherman-Morrison: O(d^2), no inverse
+        self.A_inv[a] -= np.outer(Ax, Ax) / (1.0 + x @ Ax)
+        self.b[a] += r * x
+
+rng = np.random.default_rng(0)
+n_arms, d, T = 5, 8, 5000
+theta_star = rng.normal(0, 1, (n_arms, d)) / np.sqrt(d)   # hidden per-arm weights
+agent, regret = LinUCB(n_arms, d, alpha=1.0), 0.0
+for t in range(T):
+    X = rng.normal(0, 1, (n_arms, d))                     # this round's context, per arm
+    means = np.einsum("ai,ai-&gt;a", X, theta_star)
+    a = agent.select(X)
+    agent.update(a, X[a], means[a] + rng.normal(0, 0.5))
+    regret += means.max() - means[a]
+print(f"cumulative regret after {T} rounds: {regret:.0f}")   # about 63 on this seed</code></pre>
+  <p class="code-cap">On the same 5,000 rounds, always playing the best single arm would cost about 4,500 in regret: the context-free comparator from Days 10–16 is simply too weak when the best arm changes from round to round. In <code>update</code>, <code>np.outer(Ax, Ax)</code> is \(A^{-1}\mathbf x\mathbf x^\top A^{-1}\) because \(A^{-1}\) is symmetric.</p>
+
+  <h3>Personalisation and recommendation</h3>
+  <p>The canonical deployment is Li et al.'s (2010) news recommender for the Yahoo! front page. The arms were the articles in the current pool, which changed throughout the day; the context was a handful of user features (from demographics and behaviour, compressed by clustering) together with article features; the reward was a click. They evaluated offline on traffic that had been served uniformly at random, using the <em>replay</em> method: step through the log, and keep only the rounds where the logged article matches the one your policy would have chosen. Because the logging policy was uniform, the kept rounds are an unbiased sample of what your policy would have experienced (Li et al. 2011). LinUCB reported a click lift of about 12.5% over a context-free bandit.</p>
+  <p>The same structure appears in choosing which notification to send and when, ranking products or content (where the action is a slate, a combinatorial arm), dynamic pricing (arms are prices), mobile-health interventions that adapt to a person's current state, and cold start for new users or items. Three engineering habits carry over to all of them: normalise the features, let arms appear and disappear (a new arm starts at \(A = I\)), and <b>log the probability of every action you took</b>, so that future policies can be evaluated offline with importance weighting (<a href="m14.html#d128">Day 128</a>). A deterministic policy such as LinUCB logs probabilities of 0 and 1, which makes that evaluation impossible for any policy that would have acted differently.</p>
+
+  <h3>From bandits to full RL</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 690 222" role="img" aria-label="Three dependency diagrams over two time steps: bandit, contextual bandit, and MDP, where the action also influences the next state">
+      <defs>
+        <marker id="ah-d17g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d17gm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <line x1="228" y1="12" x2="228" y2="214" class="s-grid s-dash"/><line x1="456" y1="12" x2="456" y2="214" class="s-grid s-dash"/>
+      <text x="117" y="24" class="s-ttl s-mid">Bandit</text>
+      <text x="345" y="24" class="s-ttl s-mid">Contextual bandit</text>
+      <text x="573" y="24" class="s-ttl s-mid">MDP</text>
+      <g class="s-sm s-ink3">
+        <text x="117" y="40" class="s-mid">one state, never changes</text>
+        <text x="345" y="40" class="s-mid">context drawn fresh each round</text>
+        <text x="573" y="40" class="s-mid">actions move the state</text>
+      </g>
+      <g class="s-ln">
+        <line x1="70" y1="139" x2="70" y2="157" marker-end="url(#ah-d17g)"/>
+        <line x1="165" y1="139" x2="165" y2="157" marker-end="url(#ah-d17g)"/>
+        <line x1="298" y1="87" x2="298" y2="105" marker-end="url(#ah-d17g)"/>
+        <line x1="298" y1="139" x2="298" y2="157" marker-end="url(#ah-d17g)"/>
+        <path d="M283,78 C262,105 262,139 283,166" marker-end="url(#ah-d17g)"/>
+        <line x1="393" y1="87" x2="393" y2="105" marker-end="url(#ah-d17g)"/>
+        <line x1="393" y1="139" x2="393" y2="157" marker-end="url(#ah-d17g)"/>
+        <path d="M408,78 C429,105 429,139 408,166" marker-end="url(#ah-d17g)"/>
+        <line x1="526" y1="87" x2="526" y2="105" marker-end="url(#ah-d17g)"/>
+        <line x1="526" y1="139" x2="526" y2="157" marker-end="url(#ah-d17g)"/>
+        <path d="M511,78 C490,105 490,139 511,166" marker-end="url(#ah-d17g)"/>
+        <line x1="621" y1="87" x2="621" y2="105" marker-end="url(#ah-d17g)"/>
+        <line x1="621" y1="139" x2="621" y2="157" marker-end="url(#ah-d17g)"/>
+        <path d="M636,78 C657,105 657,139 636,166" marker-end="url(#ah-d17g)"/>
+      </g>
+      <line x1="543" y1="70" x2="604" y2="70" class="s-ln-mod" marker-end="url(#ah-d17gm)"/>
+      <line x1="540.9" y1="113.8" x2="606.1" y2="78.2" class="s-ln-mod" marker-end="url(#ah-d17gm)"/>
+      <g>
+        <circle cx="117" cy="70" r="17" class="s-node s-dash"/>
+        <circle cx="70" cy="122" r="17" class="s-node-mod"/><circle cx="70" cy="174" r="17" class="s-node"/>
+        <circle cx="165" cy="122" r="17" class="s-node-mod"/><circle cx="165" cy="174" r="17" class="s-node"/>
+        <circle cx="298" cy="70" r="17" class="s-node"/><circle cx="298" cy="122" r="17" class="s-node-mod"/><circle cx="298" cy="174" r="17" class="s-node"/>
+        <circle cx="393" cy="70" r="17" class="s-node"/><circle cx="393" cy="122" r="17" class="s-node-mod"/><circle cx="393" cy="174" r="17" class="s-node"/>
+        <circle cx="526" cy="70" r="17" class="s-node"/><circle cx="526" cy="122" r="17" class="s-node-mod"/><circle cx="526" cy="174" r="17" class="s-node"/>
+        <circle cx="621" cy="70" r="17" class="s-node"/><circle cx="621" cy="122" r="17" class="s-node-mod"/><circle cx="621" cy="174" r="17" class="s-node"/>
+      </g>
+      <g class="s-sm s-mid">
+        <text x="117" y="74" class="s-mid s-ink3">s</text>
+        <text x="70" y="126" class="s-mid">Aₜ</text><text x="70" y="178" class="s-mid">Rₜ</text>
+        <text x="165" y="126" class="s-mid">Aₜ₊₁</text><text x="165" y="178" class="s-mid">Rₜ₊₁</text>
+        <text x="298" y="74" class="s-mid">Xₜ</text><text x="298" y="126" class="s-mid">Aₜ</text><text x="298" y="178" class="s-mid">Rₜ</text>
+        <text x="393" y="74" class="s-mid">Xₜ₊₁</text><text x="393" y="126" class="s-mid">Aₜ₊₁</text><text x="393" y="178" class="s-mid">Rₜ₊₁</text>
+        <text x="526" y="74" class="s-mid">Sₜ</text><text x="526" y="126" class="s-mid">Aₜ</text><text x="526" y="178" class="s-mid">Rₜ₊₁</text>
+        <text x="621" y="74" class="s-mid">Sₜ₊₁</text><text x="621" y="126" class="s-mid">Aₜ₊₁</text><text x="621" y="178" class="s-mid">Rₜ₊₂</text>
+      </g>
+      <g class="s-sm s-ink2">
+        <text x="117" y="212" class="s-mid">reward depends on Aₜ only</text>
+        <text x="345" y="212" class="s-mid">Xₜ₊₁ ignores Aₜ</text>
+        <text x="573" y="212" class="s-mid s-mod">Aₜ shapes Sₜ₊₁</text>
+      </g>
+    </svg>
+    <figcaption><b>Two time steps of each problem.</b> In a bandit, rounds are linked by nothing but what the agent has learned. A contextual bandit adds a context that shapes the reward, but each round's context is drawn fresh. In an MDP the highlighted arrows appear: the action influences the next state, so an action's value includes the value of where it leads, and credit assignment across time returns.</figcaption>
+  </figure>
+  <p>Contexts become states, and actions start to affect which state comes next. Formally, a contextual bandit is an MDP whose transitions ignore the action, \(p(s' \mid s, a) = p(s')\). Conversely, any MDP solved with \(\gamma = 0\) is a contextual bandit as far as the optimal policy is concerned, since only the immediate reward counts. As soon as \(\gamma &gt; 0\) and actions move the state, choosing greedily on immediate reward is wrong: the value of an action is \(q_\pi(s, a) = \E[R_{t+1} + \gamma\, v_\pi(S_{t+1}) \mid S_t = s, A_t = a]\), which is the subject of Module 2 (<a href="m02.html#d22">Days 22</a>–<a href="m02.html#d23">23</a>).</p>
+  <p>Almost everything from this module carries over. Action-value estimates become \(Q(s, a)\); the incremental update of Day 12 becomes TD learning; ε-greedy remains the default behaviour policy through Module 8; UCB reappears inside tree search (Day 59) and as optimism in MDPs (Day 102); softmax preferences with a baseline become the policy-gradient methods of Module 9; and posterior sampling returns as randomised value functions (Day 105). What is new is that exploration must now reach states, not just try actions, and that rewards arrive late.</p>
+  <div class="box trap"><span class="tag">What breaks · contextual bandits in the wild</span>
+    <ul>
+      <li><b>A misspecified model.</b> If reward is not linear in the features, the ellipsoid is a confidence set for the wrong model, and LinUCB can be confidently wrong. Richer features, or ensembles of nonlinear models, are the usual fixes.</li>
+      <li><b>Drift.</b> \(A_a\) only grows, so old behaviour is never forgotten; add discounting or windows, as on Day 12.</li>
+      <li><b>Delayed and batched feedback</b> hurts the deterministic LinUCB for the reasons of Day 16. Linear Thompson sampling, which samples \(\tilde\theta_a \sim \mathcal N(\hat\theta_a, v^2 A_a^{-1})\), is the randomised alternative (Agrawal &amp; Goyal 2013).</li>
+      <li><b>Actions that do affect the future.</b> A recommender that maximises clicks per round can learn to show clickbait that erodes long-term engagement. If today's action changes tomorrow's user, the problem is RL, and a bandit is optimising the wrong objective.</li>
+    </ul>
+  </div>
+
+  <h3>Project 1 — the 10-armed testbed, five ways</h3>
+  <p><b>Goal.</b> One small codebase that runs every algorithm of this module on the Sutton &amp; Barto testbed, with enough runs that differences are real, the classic figures reproduced, and a short written comparison saying which algorithm you would use when. The context-free testbed is the core; LinUCB is a stretch goal.</p>
+  <pre><code class="plain">project1-bandits/
+├── bandits/
+│   ├── env.py           # testbed: q* ~ N(mean, 1), rewards ~ N(q*, 1), vectorized over runs; optional drift
+│   ├── agents.py        # EpsGreedy, Optimistic, UCB, GradientBandit, GaussianThompson (LinUCB: stretch)
+│   └── run.py           # run(make_agent, runs, steps, seed) -&gt; per-run reward, optimal, cumulative regret
+├── experiments/
+│   ├── e1_curves.py     # one file per experiment, each writes results/eN.npz
+│   ├── e2_param_study.py
+│   ├── e3_regret.py
+│   ├── e4_baseline.py
+│   └── e5_nonstationary.py
+├── results/             # raw arrays only, never edited by hand
+├── figures/             # produced by plot.py from results/
+├── tests/test_agents.py
+├── plot.py
+└── README.md            # one command per figure, seeds, runtimes, results table</code></pre>
+  <p>Give every agent the same two-method interface and vectorize over runs, as on Day 11. Here is the interface, one agent, and the runner:</p>
+  <pre><code>import numpy as np
+
+class Agent:
+    """Acts on `runs` independent bandits at once; every per-arm array is [runs, k]."""
+    def __init__(self, runs, k, rng):
+        self.runs, self.k, self.rng, self.rows = runs, k, rng, np.arange(runs)
+
+    def act(self, t):                      # -> int array [runs]
+        raise NotImplementedError
+
+    def update(self, A, R):                # A, R: arrays [runs]
+        raise NotImplementedError
+
+    def argmax_random(self, X):            # row-wise argmax, ties broken uniformly
+        return np.argmax(self.rng.random(X.shape) * (X == X.max(axis=1, keepdims=True)), axis=1)
+
+class GaussianThompson(Agent):
+    def __init__(self, runs, k, rng, mu0=0.0, sigma0=1.0, sigma=1.0):
+        super().__init__(runs, k, rng)
+        self.prec = np.full((runs, k), 1 / sigma0**2)          # posterior precision
+        self.num = np.full((runs, k), mu0 / sigma0**2)         # precision x posterior mean
+        self.noise_prec = 1 / sigma**2
+
+    def act(self, t):
+        theta = self.rng.normal(self.num / self.prec, 1 / np.sqrt(self.prec))
+        return self.argmax_random(theta)
+
+    def update(self, A, R):
+        self.prec[self.rows, A] += self.noise_prec
+        self.num[self.rows, A] += self.noise_prec * R
+
+def run(make_agent, runs=2000, steps=1000, k=10, mean=0.0, seed=0):
+    rng = np.random.default_rng(seed)
+    q_star = rng.normal(mean, 1.0, (runs, k))        # same seed -&gt; same bandits for every method
+    best, rows = q_star.argmax(axis=1), np.arange(runs)
+    agent = make_agent(runs, k, rng)
+    reward = np.zeros((steps, runs), dtype=np.float32)
+    optimal = np.zeros((steps, runs), dtype=bool)
+    regret = np.zeros((steps, runs), dtype=np.float32)
+    for t in range(steps):
+        A = agent.act(t)
+        R = rng.normal(q_star[rows, A], 1.0)
+        agent.update(A, R)
+        reward[t], optimal[t] = R, A == best
+        regret[t] = q_star[rows, best] - q_star[rows, A]
+    return reward, optimal, regret.cumsum(axis=0)     # keep per-run arrays for bootstrap bands
+
+reward, optimal, regret = run(lambda runs, k, rng: GaussianThompson(runs, k, rng))</code></pre>
+  <p class="code-cap">The runner keeps per-run arrays so that you can draw bootstrap confidence bands (Day 7). Drawing <code>q_star</code> first from the seeded generator gives every method the same 2,000 bandits, a cheap variance reduction for comparisons (common random numbers). For 10,000-step experiments, use fewer runs or store only running sums.</p>
+
+  <h3>The experiments</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>#</th><th>Experiment</th><th>Exact settings</th></tr></thead>
+    <tbody>
+      <tr><td class="num">E1</td><td>Learning curves (Figures 2.2–2.4, plus Thompson)</td><td>\(k = 10\), \(q_* \sim \mathcal N(0, 1)\), \(R \sim \mathcal N(q_*, 1)\), 2,000 runs × 1,000 steps. Greedy and ε-greedy ε = 0.1 (sample averages); optimistic greedy \(Q_1 = 5\), α = 0.1; UCB c = 2; gradient bandit α = 0.1 with baseline; Gaussian Thompson with prior \(\mathcal N(0, 1)\) and σ = 1.</td></tr>
+      <tr><td class="num">E2</td><td>Parameter study (Figure 2.6, extended)</td><td>Same testbed, 2,000 runs; metric = average reward over steps 1–1,000. Grids in powers of 2: ε ∈ {1/128 … 1/4}; gradient α ∈ {1/32 … 2}; UCB c ∈ {1/16 … 4}; optimistic \(Q_1\) ∈ {1/4 … 4} with α = 0.1; Thompson prior σ₀ ∈ {1/16 … 4}.</td></tr>
+      <tr><td class="num">E3</td><td>Regret growth</td><td>E1's settings (without greedy if you like), 500 runs × 10,000 steps; cumulative regret against t on linear and log-t axes.</td></tr>
+      <tr><td class="num">E4</td><td>Baseline ablation (Figure 2.5)</td><td>\(q_* \sim \mathcal N(4, 1)\); gradient bandit α ∈ {0.1, 0.4}, with and without baseline; 2,000 runs × 1,000 steps; % optimal.</td></tr>
+      <tr><td class="num">E5</td><td>Stretch: nonstationary parameter study (Exercise 2.11)</td><td>All \(q_*\) start at 0 and random-walk by \(\mathcal N(0, 0.01^2)\) per step; 200,000 steps; metric = average reward over the last 100,000 steps; include constant-step ε-greedy with α = 0.1; 50–100 runs per point.</td></tr>
+      <tr><td class="num">E6</td><td>Stretch: LinUCB</td><td>The synthetic linear problem above (5 arms, d = 8, noise σ = 0.5), α ∈ {0.1, 0.3, 1, 3}, 50 seeds; compare with UCB that ignores the context.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Plots to produce</h3>
+  <ol>
+    <li><b>E1:</b> two stacked panels, average reward and % optimal against step, one line per method, with 95% bootstrap bands over runs and a dashed line at the best achievable reward (about 1.54).</li>
+    <li><b>E2:</b> average reward over the first 1,000 steps against the parameter on a log₂ x-axis, all five methods on one set of axes.</li>
+    <li><b>E3:</b> cumulative regret, linear and log-t panels side by side.</li>
+    <li><b>E4:</b> % optimal curves for the four gradient-bandit variants.</li>
+    <li><b>E5/E6 (stretch):</b> the nonstationary parameter study; LinUCB's regret against the context-free baseline.</li>
+  </ol>
+
+  <h3>Expected results</h3>
+  <p>Ranges below are from runs with seeds 0–2 (2,000 runs each; regret from 500 runs, one seed). Your numbers should land inside or very near them; with 2,000 runs the bands are tight, so a gross mismatch is a bug, not noise.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>E1 method</th><th>Avg reward, steps 1–1,000</th><th>Avg reward, last 100</th><th>% optimal, last 100</th><th>Regret at 10⁴ steps</th></tr></thead>
+    <tbody>
+      <tr><td>greedy</td><td class="num">1.01–1.04</td><td class="num">1.02–1.05</td><td class="num">34–38%</td><td class="num">≈ 4,900</td></tr>
+      <tr><td>ε-greedy, ε = 0.1</td><td class="num">1.29–1.31</td><td class="num">1.35–1.38</td><td class="num">78–81%</td><td class="num">≈ 1,650</td></tr>
+      <tr><td>optimistic, \(Q_1 = 5\), α = 0.1</td><td class="num">1.29–1.31</td><td class="num">1.49–1.52</td><td class="num">85–88%</td><td class="num">≈ 380</td></tr>
+      <tr><td>UCB, c = 2</td><td class="num">1.38–1.40</td><td class="num">1.48–1.50</td><td class="num">85–87%</td><td class="num">≈ 270</td></tr>
+      <tr><td>gradient, α = 0.1, baseline</td><td class="num">1.35–1.37</td><td class="num">1.49–1.51</td><td class="num">83–86%</td><td class="num">≈ 375</td></tr>
+      <tr><td>Thompson, prior \(\mathcal N(0, 1)\)</td><td class="num">1.46–1.48</td><td class="num">1.51–1.53</td><td class="num">91–93%</td><td class="num">≈ 110</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><b>E1 shapes:</b> the optimistic spike at step 11 and dip around step 16 (Day 13); UCB's spike at step 11 (Day 14); the gradient bandit's reward starts near zero, since its policy begins uniform and moves by small steps, then catches up and passes ε-greedy within a few hundred steps.</li>
+    <li><b>E2:</b> inverted-U curves for everything except Thompson sampling. Approximate peaks: ε-greedy ≈ 1.32 near ε = 1/16; gradient ≈ 1.39 near α = 1/4; optimistic ≈ 1.45 at \(Q_1 = 1\); UCB ≈ 1.47 for c between 1/2 and 1; Thompson ≈ 1.46–1.47 and nearly flat for σ₀ ≥ 1/2, falling to about 1.37 at σ₀ = 1/16. UCB and Thompson sampling are close at their best; Thompson's advantage is that it hardly needs tuning.</li>
+    <li><b>E3:</b> greedy and ε-greedy grow linearly; the other four bend over. On the log-t axis, UCB's and Thompson's curves become roughly straight lines.</li>
+    <li><b>E4:</b> about 83% and 68% optimal with the baseline (α = 0.1, 0.4) against about 50% and 27% without, give or take a few points.</li>
+    <li><b>E5:</b> no reference numbers. Write down a predicted ranking before running it: which methods depend on the beginning of time, and which estimates can still move after 100,000 steps?</li>
+  </ul>
+  <div class="box note"><span class="tag">Pitfalls that produce wrong curves</span>
+    <ul>
+      <li>Missing random tie-breaking: every greedy-family curve changes, and optimistic exploration becomes index order.</li>
+      <li>Off-by-one in \(\ln t\): with 0-indexed steps, use <code>log(t + 1)</code>; <code>log(0)</code> breaks UCB on its first step.</li>
+      <li>Using the global step count instead of \(N(a)\) in the sample average (Day 12).</li>
+      <li>Including the current reward in the gradient bandit's baseline before the update.</li>
+      <li>Tuning on the seeds you report. Pick parameters with seed 0 and report seeds 1 and up (Day 7).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 180 min</h4>
+    <ol>
+      <li>(30 min) Run the LinUCB snippet; sweep α ∈ {0.1, 0.3, 1, 3}, plot cumulative regret, and add the best-fixed-arm baseline. Then rewrite the select step with an explicit <code>np.linalg.inv</code> and check it gives identical choices.</li>
+      <li>(45 min) Build <code>env.py</code>, <code>agents.py</code> and <code>run.py</code> with all five agents and the unit tests listed below.</li>
+      <li>(60 min) Run E1–E4 and produce their figures.</li>
+      <li>(45 min) Fill in the results table with your numbers, write the one-page comparison, and attempt E5 or E6 if time remains.</li>
+    </ol>
+  </div>
+
+  <ul class="deliverables">
+    <li>A package with all five agents behind one <code>act</code> / <code>update</code> interface, vectorized over runs.</li>
+    <li>Unit tests: incremental average equals <code>np.mean</code>; softmax probabilities sum to 1 and survive preferences of ±1,000; the Gaussian posterior matches the closed form; UCB pulls every arm exactly once in its first \(k\) steps.</li>
+    <li>E1 figure (two panels, 95% bands) and E2 parameter-study figure with all five methods on one log₂ axis.</li>
+    <li>E3 regret figure, with one sentence per method classifying its growth as linear or logarithmic.</li>
+    <li>E4 baseline-ablation figure and a two-sentence explanation in your own words.</li>
+    <li>A README with the exact command for every figure, the seeds, the runtime, and your filled-in results table.</li>
+    <li>A one-page write-up: which algorithm you would deploy for (a) a stationary A/B test with immediate feedback, (b) decisions made in daily batches, and (c) slowly drifting click-through rates, each justified from your own plots.</li>
+    <li>Stretch: E5 and/or E6, with figures.</li>
+  </ul>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §2.9–2.10 (and Exercise 2.11) · Li, Chu, Langford &amp; Schapire 2010, “A Contextual-Bandit Approach to Personalized News Article Recommendation” · Abbasi-Yadkori, Pál &amp; Szepesvári 2011, “Improved Algorithms for Linear Stochastic Bandits” · Li, Chu, Langford &amp; Wang 2011, “Unbiased Offline Evaluation of Contextual-bandit-based News Article Recommendation Algorithms” · Agrawal &amp; Goyal 2013, “Thompson Sampling for Contextual Bandits with Linear Payoffs” · Lattimore &amp; Szepesvári Ch. 18–20</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m00.html"><small>Previous · Days 1–9</small>◂ Module 0 — Foundations &amp; Tooling</a>
+  <a class="next" href="m02.html"><small>Next · Days 18–27</small>Module 2 — Markov Decision Processes ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

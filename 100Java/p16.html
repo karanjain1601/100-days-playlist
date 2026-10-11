@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 16 — Transaction Management · 365 Days of Java Backend</title>
+<meta name="description" content="365 Days of Java Backend, phase 16: Transaction Management (lessons 329–334).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+</head>
+<body class="m16" data-lang="java">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>365 Days</b> of Java</a>
+  <span class="meta">Phase 16 · Transaction Management · Days 329–334</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 16 · Transaction Management</h4>
+  <nav>
+    <a href="#l329"><span class="n">L329</span>Spring&#x27;s Transaction Abstraction</a>
+    <a href="#l330"><span class="n">L330</span>@Transactional Propagation</a>
+    <a href="#l331"><span class="n">L331</span>Isolation, Timeout, readOnly &amp; Ro…</a>
+    <a href="#l332"><span class="n">L332</span>Programmatic Transactions &amp; Synch…</a>
+    <a href="#l333"><span class="n">L333</span>Transaction Pitfalls: The Complet…</a>
+    <a href="#l334"><span class="n">L334</span>Distributed Transactions, Sagas &amp;…</a>
+  </nav>
+  <h4>All 480 lessons</h4>
+  <div class="spine" data-spine data-module="16" style="grid-template-columns:repeat(20,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p15.html">◂ Phase 15</a><a href="p17.html">Phase 17 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 16 · Days 329–334 · Lessons 329–334</p>
+<h1>Transaction Management</h1>
+<p class="dek">Phase 16 takes <code>@Transactional</code> apart: the transaction-manager abstraction and proxy underneath it, the exact semantics of propagation, isolation, timeouts, read-only and rollback rules, and the pitfalls that make annotated code silently non-transactional. It builds on the JDBC, JPA and Spring Data phases before it, and ends where single-database ACID ends, with the outbox, idempotent consumers and sagas that the microservices phases rely on.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Explain how a call to a <code>@Transactional</code> method reaches <code>PlatformTransactionManager</code> through a proxy, and how the connection is bound to the thread.</li>
+    <li>Predict the physical transactions and connections used by any combination of the seven propagation modes, and diagnose <code>UnexpectedRollbackException</code>.</li>
+    <li>Choose isolation, timeout, read-only and rollback settings deliberately, including retries around SERIALIZABLE transactions.</li>
+    <li>Use <code>TransactionTemplate</code> and after-commit callbacks to keep remote calls and side effects out of open transactions.</li>
+    <li>Recognize and fix self-invocation, private/final methods, swallowed exceptions, lazy-loading failures, <code>@Async</code> races and misleading rollback-only tests.</li>
+    <li>Replace dual writes with a transactional outbox, an at-least-once relay and an inbox-deduplicating consumer.</li>
+    <li>Ship a money-transfer service with correct propagation, retries, idempotency keys and an outbox, tested against real databases.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>6</b> lessons</li><li><b>4h 40m</b> video</li><li><b>4h 50m</b> practice</li><li>Days <b>329–334</b></li>
+</ul>
+
+<!-- ================================================================ L329 -->
+<article class="day" id="l329">
+  <header class="day-head">
+    <span class="day-no">L329 · DAY 329</span>
+    <h2>Spring's Transaction Abstraction</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Spring puts one interface, <code>PlatformTransactionManager</code>, in front of every transactional resource, and implements <code>@Transactional</code> as a proxy that calls that interface around your method while parking the open connection in a thread-local. Once you can picture the proxy and the thread-bound resource holder, every propagation rule and every pitfall in this phase follows from it.</p>
+
+  <h3>One abstraction over many transaction APIs</h3>
+  <p>Each resource has its own way to demarcate a transaction: JDBC uses <code>Connection.setAutoCommit(false)</code> / <code>commit()</code>; JPA uses <code>EntityManager.getTransaction()</code>; JTA uses <code>UserTransaction</code>; JMS uses a transacted <code>Session</code>; Kafka uses producer transactions. Code written against one cannot move to another. Spring's answer is a strategy interface whose implementations adapt each API:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Implementation</th><th>Resource</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>DataSourceTransactionManager</code> / <code>JdbcTransactionManager</code></td><td>One JDBC <code>DataSource</code></td><td>Boot auto-configures <code>JdbcTransactionManager</code> (a subclass that also translates commit exceptions) for plain JDBC apps. Supports savepoints, so NESTED works.</td></tr>
+      <tr><td><code>JpaTransactionManager</code></td><td>One <code>EntityManagerFactory</code></td><td>Boot's choice when JPA is on the classpath. Also exposes the underlying JDBC connection, so <code>JdbcTemplate</code> on the same <code>DataSource</code> joins the same transaction.</td></tr>
+      <tr><td><code>JtaTransactionManager</code></td><td>Any XA resources via a JTA provider</td><td>Delegates to an application server or a standalone manager (Atomikos, Narayana). The only one that gives real two-phase commit (L334).</td></tr>
+      <tr><td><code>KafkaTransactionManager</code></td><td>A Kafka producer factory</td><td>From Spring for Apache Kafka; wraps producer <code>beginTransaction</code>/<code>commitTransaction</code>.</td></tr>
+      <tr><td><code>ChainedTransactionManager</code></td><td>Several managers in sequence</td><td>From Spring Data; deprecated since Spring Data 2.5. Starts each transaction in order and commits in reverse order. Not atomic.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box note"><span class="tag">Why chaining is not 2PC</span><p>A chained manager commits the database, then commits Kafka. If the process dies, or the second commit fails, after the first succeeded, the first is already durable and cannot be undone. There is no prepare phase and no recovery log. It is "best-effort one-phase commit": it narrows the failure window, it does not close it. The honest fix for database-plus-broker is the transactional outbox in <a href="#l334">L334</a>.</p></div>
+
+  <h3>TransactionDefinition, TransactionStatus and the three calls</h3>
+  <p>The interface is tiny: <code>getTransaction(TransactionDefinition)</code> returns a <code>TransactionStatus</code>; <code>commit(status)</code> and <code>rollback(status)</code> finish it. The definition carries propagation, isolation, timeout, read-only flag and a name. The status says whether this call actually started a new physical transaction (<code>isNewTransaction()</code>), lets you mark it <code>setRollbackOnly()</code>, and (as a <code>SavepointManager</code>) create savepoints. Using it raw is what <code>@Transactional</code> does for you:</p>
+<pre><code>@Service
+public class LedgerService {
+    private final PlatformTransactionManager txManager;
+    private final JdbcTemplate jdbc;
+
+    public LedgerService(PlatformTransactionManager txManager, JdbcTemplate jdbc) {
+        this.txManager = txManager;
+        this.jdbc = jdbc;
+    }
+
+    public void post(long accountId, long cents) {
+        var def = new DefaultTransactionDefinition();
+        def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+        def.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        def.setTimeout(5); // seconds
+        TransactionStatus status = txManager.getTransaction(def);
+        try {
+            jdbc.update("update account set balance = balance + ? where id = ?", cents, accountId);
+            jdbc.update("insert into ledger(account_id, cents) values (?, ?)", accountId, cents);
+            txManager.commit(status);
+        } catch (RuntimeException | Error ex) {
+            txManager.rollback(status);
+            throw ex;
+        }
+    }
+}</code></pre>
+  <p>Note that <code>commit</code> does not always commit: if the status was only a participant in an outer transaction, it does nothing physical, and if someone marked it rollback-only, it rolls back instead (the root of the trap in <a href="#l330">L330</a>).</p>
+
+  <h3>How @Transactional actually works</h3>
+  <p><code>@EnableTransactionManagement</code> (applied for you by Boot's <code>TransactionAutoConfiguration</code>) registers three infrastructure beans: an <code>AnnotationTransactionAttributeSource</code> that reads <code>@Transactional</code> into a <code>TransactionAttribute</code>, a <code>TransactionInterceptor</code>, and an advisor that matches beans having such annotations. A bean post-processor then replaces each matching bean with an <b>AOP proxy</b> (CGLIB subclass by default in Boot). Other beans receive the proxy, not your object.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 250" role="img" aria-label="A caller invokes a proxy; the TransactionInterceptor asks the transaction manager to begin, which binds a connection to the current thread; the target method runs and its repository finds the bound connection; then commit or rollback">
+      <defs><marker id="ah-l329" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="40" width="90" height="40" rx="6" class="s-node"/><text x="55" y="64" class="s-mid">Caller</text>
+      <rect x="130" y="20" width="230" height="110" rx="8" class="s-node-mod"/><text x="245" y="38" class="s-mid s-ttl">CGLIB proxy</text>
+      <rect x="145" y="50" width="200" height="30" rx="5" class="s-node"/><text x="245" y="69" class="s-mid s-sm">TransactionInterceptor</text>
+      <rect x="145" y="90" width="200" height="30" rx="5" class="s-node"/><text x="245" y="109" class="s-mid s-sm">target.transfer(...)</text>
+      <line x1="100" y1="60" x2="143" y2="64" class="s-ln" marker-end="url(#ah-l329)"/>
+      <line x1="245" y1="80" x2="245" y2="88" class="s-ln" marker-end="url(#ah-l329)"/>
+      <rect x="400" y="20" width="250" height="40" rx="6" class="s-node"/><text x="525" y="44" class="s-mid s-sm">PlatformTransactionManager</text>
+      <line x1="345" y1="60" x2="398" y2="44" class="s-ln-acc" marker-end="url(#ah-l329)"/>
+      <text x="372" y="40" class="s-mid s-sm s-acc">1 begin</text>
+      <rect x="400" y="100" width="250" height="56" rx="6" class="s-node"/><text x="525" y="120" class="s-mid s-sm">TransactionSynchronizationManager</text><text x="525" y="140" class="s-mid s-sm s-ink2">ThreadLocal: DataSource → conn</text>
+      <line x1="525" y1="60" x2="525" y2="98" class="s-ln-acc" marker-end="url(#ah-l329)"/>
+      <text x="580" y="84" class="s-sm s-acc">2 bind</text>
+      <rect x="145" y="175" width="200" height="34" rx="5" class="s-node"/><text x="245" y="196" class="s-mid s-sm">Repository / JdbcTemplate</text>
+      <line x1="245" y1="120" x2="245" y2="173" class="s-ln" marker-end="url(#ah-l329)"/>
+      <line x1="345" y1="190" x2="460" y2="158" class="s-ln-info s-dash" marker-end="url(#ah-l329)"/>
+      <text x="420" y="196" class="s-mid s-sm s-info">3 look up bound conn</text>
+      <text x="245" y="236" class="s-mid s-sm s-ink2">4 return → commit · throw → rollback rules → rollback</text>
+    </svg>
+    <figcaption><b>The proxy does the work.</b> The interceptor begins a transaction, the manager binds the connection to the thread, data-access code finds it there, and the interceptor commits or rolls back when the method returns or throws.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · Transaction interceptor</span><ol>
+    <li>Look up the transaction attribute for the invoked method (method annotation beats class annotation).</li>
+    <li>Pick the transaction manager: the qualifier on the annotation, else the default bean.</li>
+    <li><code>getTransaction(attribute)</code>: join, create, suspend or throw according to propagation.</li>
+    <li>Invoke the target method.</li>
+    <li>On exception: if <code>rollbackOn(ex)</code> (by default: <code>RuntimeException</code> or <code>Error</code>) call <code>rollback</code>, otherwise <code>commit</code>; rethrow.</li>
+    <li>On normal return: <code>commit</code>, which may still roll back if the status is rollback-only.</li>
+  </ol></div>
+
+  <h3>Thread-bound resources and the shared EntityManager</h3>
+  <p><code>TransactionSynchronizationManager</code> keeps per-thread maps: resources keyed by factory (a <code>DataSource</code> maps to a <code>ConnectionHolder</code>, an <code>EntityManagerFactory</code> to an <code>EntityManagerHolder</code>), registered synchronizations, and the current transaction's name, read-only flag and isolation. <code>JdbcTemplate</code> obtains connections through <code>DataSourceUtils.getConnection(ds)</code>, which returns the bound connection if there is one. Spring Data repositories and <code>@PersistenceContext</code> fields hold a <b>shared EntityManager proxy</b> that, on every call, looks up the <code>EntityManager</code> bound to the current thread.</p>
+  <p>This is why every repository call inside one transaction sees the <b>same persistence context</b>: <code>findById(7)</code> twice returns the same instance without a second query, an entity modified in one repository call is flushed at commit without a <code>save</code>, and JPA and <code>JdbcTemplate</code> writes on the same <code>DataSource</code> commit or roll back together under <code>JpaTransactionManager</code>. It is also why the binding is invisible to any other thread.</p>
+
+  <h3>Declarative, programmatic and multiple managers</h3>
+  <p>Declarative (<code>@Transactional</code>) is the default: boundaries sit on service methods, and the policy is readable at a glance. Programmatic (<code>TransactionTemplate</code>, <a href="#l332">L332</a>) is for boundaries narrower than a method, settings decided at runtime, or code that is not a Spring bean. With two databases, define two managers and name the one you want; Boot's auto-configured manager backs off as soon as you declare your own.</p>
+<pre><code>@Configuration
+class TxConfig {
+    @Bean @Primary
+    PlatformTransactionManager ordersTx(DataSource ordersDs) {
+        return new JdbcTransactionManager(ordersDs);
+    }
+
+    @Bean
+    PlatformTransactionManager reportingTx(@Qualifier("reportingDs") DataSource ds) {
+        return new JdbcTransactionManager(ds);
+    }
+}
+
+@Service
+class ReportService {
+    @Transactional("reportingTx")   // same as transactionManager = "reportingTx"
+    public void rebuildDailyTotals() { /* writes through reportingDs */ }
+}</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Wrong manager, silent autocommit.</b> If the method's manager manages <code>ordersDs</code> but the code writes to <code>reportingDs</code>, those writes run in autocommit mode: each statement commits on its own and nothing rolls back.</li>
+    <li><b>Chained managers sold as atomic.</b> A crash between the two commits leaves the database committed and the message unsent, or the reverse.</li>
+    <li><b>New threads see no transaction.</b> Work handed to an executor gets a fresh thread with empty thread-locals, so it runs outside the caller's transaction and its persistence context.</li>
+    <li><b>Calling <code>this.method()</code>.</b> The call never reaches the proxy, so no transaction starts (full treatment in <a href="#l333">L333</a>).</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Rewrite <code>LedgerService.post</code> with <code>@Transactional</code>, then set <code>logging.level.org.springframework.transaction=TRACE</code> and <code>org.springframework.jdbc.datasource=DEBUG</code>. Find the "Creating new transaction" and "Committing" lines.</li>
+    <li>Inside a transactional method, print <code>TransactionSynchronizationManager.isActualTransactionActive()</code> and <code>getCurrentTransactionName()</code>; call the same code from a non-transactional method and compare.</li>
+    <li>With JPA, load the same entity through two different repositories in one transaction and assert the two references are <code>==</code>. Repeat without <code>@Transactional</code> and explain the difference.</li>
+    <li>Configure two H2 databases with two managers. Annotate a method with the wrong one, throw after the write, and prove the write survived.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework Reference, <i>Data Access › Transaction Management</i> (the abstraction, declarative and resource synchronization sections) · Javadoc: <code>PlatformTransactionManager</code>, <code>TransactionInterceptor</code>, <code>TransactionSynchronizationManager</code>, <code>DataSourceUtils</code> · Vlad Mihalcea, <i>High-Performance Java Persistence</i>, the transactions chapters</p>
+</article>
+<!-- ================================================================ L330 -->
+<article class="day" id="l330">
+  <header class="day-head">
+    <span class="day-no">L330 · DAY 330</span>
+    <h2>@Transactional Propagation</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Propagation answers one question each time a transactional method is entered: is there already a transaction on this thread, and if so, do I join it, suspend it, nest inside it, or refuse? Distinguish the <b>physical</b> transaction (one database connection's commit) from the <b>logical</b> scopes that share it, and all seven modes and the rollback-only trap become predictable.</p>
+
+  <h3>Physical and logical transactions</h3>
+  <div class="box def"><span class="tag">Definition</span><p>A <b>physical transaction</b> is a real resource transaction: one JDBC connection with autocommit off, ended by one <code>COMMIT</code> or <code>ROLLBACK</code>. A <b>logical transaction</b> is the scope of one <code>@Transactional</code> method invocation. Under REQUIRED, many logical scopes map onto one physical transaction; only the outermost scope (the one whose status has <code>isNewTransaction() == true</code>) actually commits. Inner scopes can only vote, by marking the shared transaction rollback-only.</p></div>
+
+  <h3>All seven modes</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Propagation</th><th>Transaction exists</th><th>No transaction</th></tr></thead>
+    <tbody>
+      <tr><td><code>REQUIRED</code> (default)</td><td>Join it</td><td>Create one</td></tr>
+      <tr><td><code>REQUIRES_NEW</code></td><td>Suspend it, create an independent one on a second connection</td><td>Create one</td></tr>
+      <tr><td><code>SUPPORTS</code></td><td>Join it</td><td>Run without (but with transaction synchronization, so a shared EntityManager still lives for the scope)</td></tr>
+      <tr><td><code>NOT_SUPPORTED</code></td><td>Suspend it, run without</td><td>Run without</td></tr>
+      <tr><td><code>MANDATORY</code></td><td>Join it</td><td>Throw <code>IllegalTransactionStateException</code></td></tr>
+      <tr><td><code>NEVER</code></td><td>Throw <code>IllegalTransactionStateException</code></td><td>Run without</td></tr>
+      <tr><td><code>NESTED</code></td><td>Set a savepoint in the same physical transaction</td><td>Create one (behaves like REQUIRED)</td></tr>
+    </tbody>
+  </table></div>
+  <p><b>Suspension</b> means the manager unbinds the outer connection from the thread-local, keeps it in a suspended-resources holder, and rebinds it after the inner scope completes. The outer connection stays open and keeps its locks the whole time. <b>REQUIRES_NEW</b> therefore needs a second pooled connection; under load with a pool of N connections, N threads each holding one and waiting for a second will starve the pool until <code>connectionTimeout</code> fires. <b>NESTED</b> issues <code>SAVEPOINT</code>; an inner failure runs <code>ROLLBACK TO SAVEPOINT</code> and the outer can continue and commit. It works with <code>DataSourceTransactionManager</code>/<code>JdbcTransactionManager</code>; <code>JtaTransactionManager</code> rejects it with <code>NestedTransactionNotSupportedException</code>; <code>JpaTransactionManager</code> only allows it when you set <code>nestedTransactionAllowed</code>, and then the savepoint rolls back JDBC state, not entities already changed in the persistence context.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 220" role="img" aria-label="Timelines for REQUIRED, REQUIRES_NEW and NESTED showing how many physical transactions and connections each uses">
+      <text x="10" y="40" class="s-sm s-ttl">REQUIRED</text>
+      <rect x="130" y="25" width="500" height="24" rx="4" class="s-node"/><text x="380" y="41" class="s-mid s-sm">conn A: outer + inner share one COMMIT</text>
+      <rect x="300" y="29" width="160" height="16" rx="3" class="s-node-mod"/><text x="380" y="41" class="s-mid s-sm">inner (joined)</text>
+      <text x="10" y="105" class="s-sm s-ttl">REQUIRES_NEW</text>
+      <rect x="130" y="90" width="500" height="24" rx="4" class="s-node"/><text x="215" y="106" class="s-mid s-sm">conn A: outer</text>
+      <rect x="300" y="90" width="160" height="24" rx="4" class="s-node-mod"/><text x="380" y="106" class="s-mid s-sm">A suspended</text>
+      <rect x="300" y="122" width="160" height="24" rx="4" class="s-node"/><text x="380" y="138" class="s-mid s-sm">conn B: own COMMIT</text>
+      <text x="10" y="190" class="s-sm s-ttl">NESTED</text>
+      <rect x="130" y="175" width="500" height="24" rx="4" class="s-node"/><text x="215" y="191" class="s-mid s-sm">conn A: outer</text>
+      <line x1="300" y1="170" x2="300" y2="204" class="s-ln-acc"/><text x="300" y="166" class="s-mid s-sm s-acc">SAVEPOINT</text>
+      <line x1="460" y1="170" x2="460" y2="204" class="s-ln-warn"/><text x="460" y="166" class="s-mid s-sm s-warn">ROLLBACK TO / RELEASE</text>
+    </svg>
+    <figcaption><b>Connections tell you the semantics.</b> REQUIRED and NESTED stay on one connection and one final commit; REQUIRES_NEW holds two connections at once and commits independently.</figcaption>
+  </figure>
+
+  <h3>The rollback-only trap</h3>
+  <p>The classic bug: a REQUIRED inner method on another bean throws a runtime exception, the outer method catches it and carries on, and the commit at the end blows up.</p>
+<pre><code>@Service
+class TransferService {
+    private final AccountRepository accounts;
+    private final FeeService fees;   // a different bean, so calls go through its proxy
+
+    TransferService(AccountRepository accounts, FeeService fees) {
+        this.accounts = accounts;
+        this.fees = fees;
+    }
+
+    @Transactional
+    public void transfer(long from, long to, long cents) {
+        accounts.debit(from, cents);
+        accounts.credit(to, cents);
+        try {
+            fees.charge(from);            // @Transactional (REQUIRED), throws FeeRuleException
+        } catch (FeeRuleException e) {   // extends RuntimeException
+            // "fee is optional, keep going"
+        }
+    }   // commit here throws UnexpectedRollbackException
+}</code></pre>
+  <div class="box deriv"><span class="tag">Why it happens</span><p>The inner interceptor sees a <code>RuntimeException</code>, so it calls <code>rollback(status)</code>. That status is a participant, not the owner, so the manager cannot roll back the physical transaction; instead it marks the shared transaction <b>global rollback-only</b> (<code>globalRollbackOnParticipationFailure</code> defaults to true). The outer method returns normally, its interceptor calls <code>commit</code>, the manager sees the mark, rolls back, and throws <code>UnexpectedRollbackException: Transaction silently rolled back because it has been marked as rollback-only</code>, so the caller cannot believe the transfer succeeded.</p></div>
+  <p>Fixes, by intent: if the fee is genuinely independent, make <code>charge</code> REQUIRES_NEW (its failure stays in its own transaction); if it must be undoable but optional, use NESTED on a JDBC manager; if the exception is an expected business outcome, declare <code>noRollbackFor = FeeRuleException.class</code> on <code>charge</code> or, better, return a result instead of throwing; otherwise, do not catch it.</p>
+
+  <h3>REQUIRES_NEW for audit records</h3>
+  <p>Audit and security logs often must survive the business rollback ("user 42 attempted a withdrawal of &#36;9,000 and was refused"). Put the write in a separate bean with its own transaction:</p>
+<pre><code>@Service
+class AuditService {
+    private final JdbcTemplate jdbc;
+    AuditService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void record(String actor, String action, String detail) {
+        jdbc.update("insert into audit_log(actor, action, detail, at) values (?, ?, ?, now())",
+                actor, action, detail);
+    }
+}
+
+// in a REQUIRED business method on another bean:
+//   audit.record(user, "WITHDRAW_ATTEMPT", id + ":" + cents);  // commits now, on connection B
+//   if (balance &lt; cents) throw new InsufficientFundsException(id);  // outer rolls back, audit row stays</code></pre>
+  <p>Two consequences: the audit row is visible to others before the outer transaction finishes, and an exception thrown by <code>record</code> propagates into the outer method like any other, so decide whether audit failure should abort the business operation.</p>
+
+  <h3>Deadlocking yourself with REQUIRES_NEW</h3>
+  <p>The outer transaction runs <code>UPDATE account SET … WHERE id = 1</code> and holds the row lock. It then calls a REQUIRES_NEW method that updates the same row. The inner transaction waits for the outer's lock; the outer is waiting, in Java, for the inner method to return. The database's deadlock detector sees only one transaction waiting for another that is not itself blocked on a lock, so it never breaks the cycle: the thread hangs until a lock timeout (MySQL's <code>innodb_lock_wait_timeout</code>, PostgreSQL's <code>lock_timeout</code>, which is off by default) or the transaction timeout. Rule: a REQUIRES_NEW scope must never touch rows the suspended outer transaction has written or locked.</p>
+
+  <h3>Decision guide</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Need</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td>Normal service method, all or nothing</td><td><code>REQUIRED</code></td></tr>
+      <tr><td>Must commit regardless of caller (audit, outbox sequence, failure counter)</td><td><code>REQUIRES_NEW</code>, separate bean, disjoint rows</td></tr>
+      <tr><td>Optional sub-step that may be undone alone, single JDBC database</td><td><code>NESTED</code></td></tr>
+      <tr><td>Helper that must only run inside a caller's transaction (repository-style code)</td><td><code>MANDATORY</code></td></tr>
+      <tr><td>Slow, non-transactional work you want off the caller's connection</td><td><code>NOT_SUPPORTED</code> (but the outer connection is still held)</td></tr>
+      <tr><td>Read that works either way</td><td><code>SUPPORTS</code> (rarely worth it; prefer explicit REQUIRED + readOnly)</td></tr>
+      <tr><td>Assert "never call me inside a transaction" (e.g. code that calls a remote API)</td><td><code>NEVER</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><code>UnexpectedRollbackException</code> in logs with no obvious cause: search for a caught runtime exception from a REQUIRED call on another bean.</li>
+    <li>REQUIRES_NEW in a loop or under high concurrency doubles connection demand and exhausts the pool.</li>
+    <li>Propagation on a method called via <code>this</code> is ignored entirely; there is no proxy in the path.</li>
+    <li>Assuming NESTED rolls back JPA entities: the savepoint undoes SQL, not managed objects in memory.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Build a demo with an outer and an inner bean and one test per propagation mode. Log <code>isNewTransaction()</code> and the connection's identity hash in each scope.</li>
+    <li>Reproduce <code>UnexpectedRollbackException</code>, then fix it three ways (REQUIRES_NEW, NESTED, <code>noRollbackFor</code>) and write down which one matches each business intent.</li>
+    <li>Implement the audit service and prove with a test that the audit row survives when the outer method throws.</li>
+    <li>Reproduce the REQUIRES_NEW self-deadlock against PostgreSQL in Testcontainers with <code>SET lock_timeout = '2s'</code>; observe the error, then remove the overlap.</li>
+    <li>Set the Hikari pool to 2 connections and run 4 concurrent outer transactions that each call REQUIRES_NEW. Explain the timeout you get.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework Reference, <i>Transaction Management › Transaction Propagation</i> · Javadoc: <code>Propagation</code>, <code>AbstractPlatformTransactionManager</code> (<code>setGlobalRollbackOnParticipationFailure</code>), <code>UnexpectedRollbackException</code> · JDBC <code>java.sql.Savepoint</code> Javadoc</p>
+</article>
+<!-- ================================================================ L331 -->
+<article class="day" id="l331">
+  <header class="day-head">
+    <span class="day-no">L331 · DAY 331</span>
+    <h2>Isolation, Timeout, readOnly &amp; Rollback Rules</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Besides propagation, a transaction definition carries isolation, timeout, a read-only flag and rollback rules. Each one is applied by the transaction manager at a specific moment and through a specific JDBC or Hibernate call, so each has exact limits: isolation applies only when a new transaction starts, timeout is checked only between statements, readOnly is an optimization rather than a lock, and checked exceptions commit.</p>
+
+  <h3>Isolation per transaction</h3>
+  <p><code>@Transactional(isolation = Isolation.REPEATABLE_READ)</code> makes the manager call <code>Connection.setTransactionIsolation(...)</code> after acquiring the connection and restore the previous level before returning it to the pool. <code>Isolation.DEFAULT</code> (the default) leaves the connection as the pool configured it, which normally means the database default. The levels and anomalies are the ones from <a href="p09.html#l217">L217</a>; what matters here is that databases implement them differently:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Database</th><th>Default</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>PostgreSQL</td><td>Read committed</td><td>Read uncommitted behaves as read committed. Repeatable read is snapshot isolation (no phantoms, write skew possible). Serializable is SSI: it aborts conflicting transactions with SQLSTATE 40001.</td></tr>
+      <tr><td>MySQL InnoDB</td><td>Repeatable read</td><td>Plain reads use a consistent snapshot; locking reads take next-key locks. Serializable turns plain selects into shared-lock reads when autocommit is off.</td></tr>
+      <tr><td>Oracle</td><td>Read committed</td><td>Supports only read committed and serializable (snapshot-based).</td></tr>
+      <tr><td>SQL Server</td><td>Read committed</td><td>Lock-based unless read committed snapshot is enabled; also offers a separate snapshot level.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Isolation is only applied when a scope <b>creates</b> the physical transaction. An inner REQUIRED method asking for SERIALIZABLE inside a READ_COMMITTED outer transaction silently gets READ_COMMITTED (set <code>validateExistingTransaction</code> on the manager to make that an error). With JPA, Boot's <code>HibernateJpaDialect</code> supports custom isolation; the plain <code>DefaultJpaDialect</code> rejects it.</p>
+  <p><b>The cost of SERIALIZABLE</b> is not just locking: on PostgreSQL and other optimistic implementations, correct code still fails at random under contention, and Spring surfaces the failure as a <code>ConcurrencyFailureException</code> subclass. Serializable code is only correct with a retry around the <b>whole</b> transaction, from outside it:</p>
+<pre><code>@Service
+class TransferFacade {
+    private final TransferService transfers;   // its method is @Transactional(isolation = SERIALIZABLE)
+
+    TransferFacade(TransferService transfers) { this.transfers = transfers; }
+
+    public void transfer(long from, long to, long cents) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                transfers.transfer(from, to, cents);   // each attempt is a fresh transaction
+                return;
+            } catch (ConcurrencyFailureException e) {
+                if (attempt == 3) throw e;
+                LockSupport.parkNanos(Duration.ofMillis(20L * attempt).toNanos());
+            }
+        }
+    }
+}</code></pre>
+  <p>Retrying inside the transactional method is useless: the transaction is already marked for rollback. Spring Retry's <code>@Retryable</code> works too, as long as it sits on a different bean from the <code>@Transactional</code> method so that the retry proxy is outermost.</p>
+
+  <h3>Timeout and the timeouts you also need</h3>
+  <p><code>timeout = 5</code> (seconds) sets a deadline on the transaction. It is enforced cooperatively: each time <code>JdbcTemplate</code> creates a statement, <code>DataSourceUtils.applyTransactionTimeout</code> sets <code>Statement.setQueryTimeout</code> to the remaining time, or throws <code>TransactionTimedOutException</code> if the deadline has passed; with JPA the remaining time is passed to Hibernate as a query timeout. Java code running between statements, such as a slow HTTP call, is never interrupted, and an idle open transaction is not killed. Three more limits belong in every production setup:</p>
+<pre><code class="plain"># application.yml
+spring:
+  datasource:
+    hikari:
+      connection-timeout: 3000      # ms to wait for a free pooled connection (default 30000)
+      max-lifetime: 1800000
+  transaction:
+    default-timeout: 10s            # applies when @Transactional sets no timeout
+
+-- PostgreSQL, per role or per database
+ALTER ROLE app SET statement_timeout = '5s';
+ALTER ROLE app SET idle_in_transaction_session_timeout = '30s';
+ALTER ROLE app SET lock_timeout = '3s';</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 660 190" role="img" aria-label="Timeline of one request: waiting for a pooled connection, then a transaction containing two statements and an HTTP call, with the timeout that bounds each part">
+      <rect x="10" y="40" width="110" height="30" rx="5" class="s-node"/><text x="65" y="59" class="s-mid s-sm">wait for conn</text>
+      <rect x="130" y="40" width="110" height="30" rx="5" class="s-node-mod"/><text x="185" y="59" class="s-mid s-sm">SQL 1</text>
+      <rect x="250" y="40" width="170" height="30" rx="5" class="s-node"/><text x="335" y="59" class="s-mid s-sm s-warn">HTTP call (no SQL)</text>
+      <rect x="430" y="40" width="110" height="30" rx="5" class="s-node-mod"/><text x="485" y="59" class="s-mid s-sm">SQL 2</text>
+      <rect x="550" y="40" width="100" height="30" rx="5" class="s-node"/><text x="600" y="59" class="s-mid s-sm">COMMIT</text>
+      <text x="65" y="92" class="s-mid s-sm s-info">Hikari</text><text x="65" y="106" class="s-mid s-sm s-info">connection-timeout</text>
+      <text x="185" y="92" class="s-mid s-sm s-acc">queryTimeout =</text><text x="185" y="106" class="s-mid s-sm s-acc">remaining time</text>
+      <text x="335" y="92" class="s-mid s-sm s-bad">Spring cannot interrupt</text><text x="335" y="106" class="s-mid s-sm">idle-in-tx timeout</text>
+      <text x="485" y="92" class="s-mid s-sm s-acc">or TransactionTimed-</text><text x="485" y="106" class="s-mid s-sm s-acc">OutException</text>
+      <line x1="130" y1="135" x2="650" y2="135" class="s-ln-acc"/><text x="390" y="152" class="s-mid s-sm s-acc">@Transactional(timeout) deadline, checked only when a statement starts</text>
+      <line x1="130" y1="170" x2="240" y2="170" class="s-ln-warn"/><line x1="430" y1="170" x2="540" y2="170" class="s-ln-warn"/><text x="335" y="174" class="s-mid s-sm s-warn">statement_timeout per SQL</text>
+    </svg>
+    <figcaption><b>Four timeouts, four jobs.</b> The pool bounds the wait, the database bounds each statement and idle gaps, and the Spring deadline bounds the transaction only at statement boundaries.</figcaption>
+  </figure>
+  <p>The pool timeout protects callers from a starved pool, the database timeouts protect the database from runaway queries and from transactions left open by a stuck application thread, and the Spring timeout bounds the work between them.</p>
+
+  <h3>readOnly = true</h3>
+  <div class="box def"><span class="tag">What readOnly actually does</span><p>Spring calls <code>Connection.setReadOnly(true)</code> on the new transaction's connection. With Hibernate, <code>HibernateJpaDialect</code> also sets the session's flush mode to <code>MANUAL</code> and makes loaded entities read-only by default, so Hibernate keeps no loaded-state snapshot and runs no dirty check at commit: a real saving in memory and CPU when a request reads thousands of entities. Some drivers and routing proxies send read-only connections to a replica; Spring's <code>AbstractRoutingDataSource</code> wrapped in <code>LazyConnectionDataSourceProxy</code> can do the same.</p></div>
+  <p>It is not an enforcement mechanism. Whether the database rejects writes depends on the driver: some turn the flag into a read-only database transaction, others treat it as a hint and ignore it. Under Hibernate, changing an entity in a read-only method is simply never flushed, so the change silently disappears. For hard guarantees, use a read-only database role or a replica, or set <code>enforceReadOnly</code> on <code>DataSourceTransactionManager</code>, which issues <code>SET TRANSACTION READ ONLY</code>.</p>
+
+  <h3>Rollback rules</h3>
+  <p>By default the interceptor rolls back on <code>RuntimeException</code> and <code>Error</code> and <b>commits on checked exceptions</b>. That mirrors the old EJB convention that checked exceptions are recoverable business outcomes, and it is the most surprising default in Spring: a method that throws <code>IOException</code> half-way through commits the half it did.</p>
+<pre><code>@Transactional(rollbackFor = Exception.class)                       // roll back on everything
+public Receipt importStatement(Path file) throws IOException { /* ... */ }
+
+@Transactional(noRollbackFor = DuplicatePaymentException.class)     // runtime, but commit anyway
+public void applyPayment(Payment p) { /* ... */ }
+
+@Transactional
+public void cancel(long orderId) {
+    if (!orders.cancellable(orderId)) {
+        // roll back without throwing (couples this code to Spring)
+        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+        return;
+    }
+    orders.markCancelled(orderId);
+}</code></pre>
+  <p>When several rules match, the one closest to the thrown type in the inheritance hierarchy wins. <code>rollbackForClassName</code> matches by substring, so <code>"Exception"</code> matches almost everything; prefer class literals. Spring Framework 6.2 also added a global switch, <code>@EnableTransactionManagement(rollbackOn = RollbackOn.ALL_EXCEPTIONS)</code>.</p>
+
+  <h3>Where the annotation lives</h3>
+  <p>The most specific location wins: a method annotation in the target class beats a class-level annotation, which beats an annotation on an interface method, which beats one on the interface. A method annotation <b>replaces</b> the class annotation entirely; attributes are not merged, so a class-level <code>readOnly = true</code> plus a method-level <code>@Transactional</code> gives a writable method. Annotations on interfaces have been honoured for both JDK and CGLIB proxies since Spring 5.0 (older articles saying CGLIB ignores them are out of date), but they are ignored by AspectJ weaving mode, so annotate concrete classes. The <code>label</code> attribute attaches free-form labels to the transaction definition that a custom manager or monitoring code may interpret; standard managers ignore them.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li>A checked exception thrown after three of five inserts commits the three.</li>
+    <li>A write method added to a class annotated <code>@Transactional(readOnly = true)</code> without its own annotation inherits readOnly, and its entity changes are never flushed.</li>
+    <li>SERIALIZABLE deployed without a retry turns ordinary contention into user-visible 500s.</li>
+    <li>A 5-second transaction timeout does not stop a 60-second HTTP call made inside the transaction.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Write a test that throws a checked exception after an insert and shows the row committed; fix it with <code>rollbackFor</code>.</li>
+    <li>On PostgreSQL (Testcontainers), run two concurrent SERIALIZABLE transfers that read each other's rows, catch the 40001 failure, and add the retry facade.</li>
+    <li>Load 50,000 entities in a readOnly and a normal transaction and compare heap with a profiler or <code>Runtime.totalMemory()</code> deltas.</li>
+    <li>Set <code>timeout = 1</code>, sleep 2 seconds between two queries, and show which statement throws <code>TransactionTimedOutException</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework Reference, <i>Transaction Management › @Transactional settings, Rollback rules</i> · Javadoc: <code>Isolation</code>, <code>RuleBasedTransactionAttribute</code>, <code>DataSourceUtils</code>, <code>HibernateJpaDialect</code> · PostgreSQL manual, <i>Transaction Isolation</i> chapter · HikariCP configuration documentation</p>
+</article>
+<!-- ================================================================ L332 -->
+<article class="day" id="l332">
+  <header class="day-head">
+    <span class="day-no">L332 · DAY 332</span>
+    <h2>Programmatic Transactions &amp; Synchronization Callbacks</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">When a transaction boundary must be narrower than a method, decided at runtime, or used outside a Spring bean, <code>TransactionTemplate</code> gives you the same manager calls as <code>@Transactional</code> in a lambda. Synchronization callbacks are the other half: they let side effects such as messages, emails and cache evictions run only once the database has actually committed.</p>
+
+  <h3>When declarative is not enough</h3>
+  <ul>
+    <li><b>Boundaries inside a method</b>: read in one transaction, call a slow service with no connection held, write in a second transaction.</li>
+    <li><b>Dynamic settings</b>: isolation or timeout chosen from configuration or per tenant.</li>
+    <li><b>Batch loops</b>: commit every 1,000 rows rather than once at the end.</li>
+    <li><b>Code that is not a proxied bean</b>: a static helper, a <code>Runnable</code> handed to an executor, a library callback, or a method that self-invokes.</li>
+  </ul>
+
+  <h3>TransactionTemplate</h3>
+  <div class="box def"><span class="tag">Definition</span><p><code>TransactionTemplate</code> extends <code>DefaultTransactionDefinition</code>, so the template <i>is</i> the definition: set propagation, isolation, timeout and read-only once, then reuse it from many threads (it is thread-safe after configuration). <code>execute(TransactionCallback&lt;T&gt;)</code> returns the callback's value; <code>executeWithoutResult(Consumer&lt;TransactionStatus&gt;)</code> is the void form. Any <code>RuntimeException</code> or <code>Error</code> from the callback rolls back and is rethrown; there are no rollback rules, and a callback cannot throw checked exceptions, so to roll back quietly you call <code>status.setRollbackOnly()</code>. Boot registers one default <code>TransactionTemplate</code> bean when there is a single transaction manager; build your own for other settings.</p></div>
+<pre><code>@Service
+class StatementImporter {
+    private final TransactionTemplate batchTx;
+    private final JdbcTemplate jdbc;
+
+    StatementImporter(PlatformTransactionManager tm, JdbcTemplate jdbc) {
+        this.batchTx = new TransactionTemplate(tm);
+        batchTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        batchTx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        batchTx.setTimeout(30);
+        this.jdbc = jdbc;
+    }
+
+    /** Commits every chunk separately; returns the number of rows imported. */
+    int importAll(List&lt;List&lt;Line&gt;&gt; chunks) {
+        int total = 0;
+        for (var chunk : chunks) {
+            Integer n = batchTx.execute(status -&gt; {
+                if (chunk.stream().anyMatch(Line::invalid)) {
+                    status.setRollbackOnly();          // skip this chunk, keep going
+                    return 0;
+                }
+                chunk.forEach(l -&gt; jdbc.update(
+                        "insert into statement_line(ref, cents) values (?, ?)", l.ref(), l.cents()));
+                return chunk.size();
+            });
+            total += n == null ? 0 : n;
+        }
+        return total;
+    }
+
+    record Line(String ref, long cents) { boolean invalid() { return cents == 0; } }
+}</code></pre>
+  <p><code>TransactionOperations</code> is the interface <code>TransactionTemplate</code> implements; depend on it and tests can pass <code>TransactionOperations.withoutTransaction()</code>. For reactive code, thread-locals do not work because a pipeline hops threads; Spring's <code>TransactionalOperator</code> (with a <code>ReactiveTransactionManager</code> such as <code>R2dbcTransactionManager</code>) stores the transaction in the Reactor <code>Context</code> instead: <code>repository.save(order).as(operator::transactional)</code>.</p>
+
+  <h3>Synchronization callbacks</h3>
+  <p>While a transaction is active, any code can register a <code>TransactionSynchronization</code> with <code>TransactionSynchronizationManager.registerSynchronization(...)</code>. All its methods are defaults, so implement only what you need. The manager calls them in a fixed order:</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 200" role="img" aria-label="Order of synchronization callbacks: beforeCommit, beforeCompletion, then commit, afterCommit, afterCompletion; on rollback, beforeCompletion, rollback, afterCompletion">
+      <defs><marker id="ah-l332" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="10" y="58" class="s-sm s-ttl">commit</text>
+      <rect x="80" y="40" width="100" height="28" rx="5" class="s-node"/><text x="130" y="58" class="s-mid s-sm">beforeCommit</text>
+      <rect x="200" y="40" width="120" height="28" rx="5" class="s-node"/><text x="260" y="58" class="s-mid s-sm">beforeCompletion</text>
+      <rect x="340" y="40" width="80" height="28" rx="5" class="s-node-mod"/><text x="380" y="58" class="s-mid s-sm">COMMIT</text>
+      <rect x="440" y="40" width="90" height="28" rx="5" class="s-node"/><text x="485" y="58" class="s-mid s-sm s-acc">afterCommit</text>
+      <rect x="545" y="40" width="110" height="28" rx="5" class="s-node"/><text x="600" y="58" class="s-mid s-sm">afterCompletion</text>
+      <line x1="180" y1="54" x2="198" y2="54" class="s-ln" marker-end="url(#ah-l332)"/>
+      <line x1="320" y1="54" x2="338" y2="54" class="s-ln" marker-end="url(#ah-l332)"/>
+      <line x1="420" y1="54" x2="438" y2="54" class="s-ln" marker-end="url(#ah-l332)"/>
+      <line x1="530" y1="54" x2="543" y2="54" class="s-ln" marker-end="url(#ah-l332)"/>
+      <text x="10" y="128" class="s-sm s-ttl">rollback</text>
+      <rect x="200" y="110" width="120" height="28" rx="5" class="s-node"/><text x="260" y="128" class="s-mid s-sm">beforeCompletion</text>
+      <rect x="340" y="110" width="80" height="28" rx="5" class="s-node-mod"/><text x="380" y="128" class="s-mid s-sm s-bad">ROLLBACK</text>
+      <rect x="545" y="110" width="110" height="28" rx="5" class="s-node"/><text x="600" y="128" class="s-mid s-sm">afterCompletion</text>
+      <line x1="320" y1="124" x2="338" y2="124" class="s-ln" marker-end="url(#ah-l332)"/>
+      <line x1="420" y1="124" x2="543" y2="124" class="s-ln" marker-end="url(#ah-l332)"/>
+      <text x="330" y="180" class="s-mid s-sm s-ink2">beforeCommit can still fail the transaction · afterCompletion gets STATUS_COMMITTED or STATUS_ROLLED_BACK</text>
+    </svg>
+    <figcaption><b>Only afterCommit is conditional on success.</b> Use it, or afterCompletion with a status check, for side effects that must not happen if the data was rolled back.</figcaption>
+  </figure>
+<pre><code>@Component
+class CacheEvictor {
+    private final Cache cache;
+    CacheEvictor(CacheManager cm) { this.cache = cm.getCache("accounts"); }
+
+    void evictAfterCommit(Object key) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            cache.evict(key);                       // no transaction: evict now
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() { cache.evict(key); }
+        });
+    }
+}</code></pre>
+  <div class="box note"><span class="tag">Three subtleties</span><ul>
+    <li><code>registerSynchronization</code> throws <code>IllegalStateException</code> when no synchronization is active; check first, as above.</li>
+    <li>In <code>afterCommit</code> the resources are still bound to the thread, so data access there "joins" a transaction that will never commit again. Any write from a callback must go through a REQUIRES_NEW method.</li>
+    <li>An exception from <code>afterCommit</code> reaches the caller even though the data is committed; exceptions from <code>afterCompletion</code> are logged and swallowed.</li>
+  </ul></div>
+  <p>The declarative version is <code>@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)</code> from <a href="p12.html#l277">L277</a>: publish an application event inside the transaction, and the listener runs as an <code>afterCommit</code> synchronization. If no transaction is active when the event is published, the listener does not run at all unless <code>fallbackExecution = true</code>.</p>
+
+  <h3>Shrinking transaction scope</h3>
+  <p>A transaction holds a pooled connection and any row locks for its whole duration. Never call an external HTTP API inside one: a 10-second provider stall becomes a 10-second lock and a missing connection for everyone else. Split the work into load, close, call, reopen and save, re-check the state in the second transaction, and keep a <code>@Version</code> column so two concurrent writers cannot both win:</p>
+<pre><code>public void capture(long paymentId) {
+    Payment p = tx.execute(s -&gt; payments.findById(paymentId).orElseThrow());       // tx 1
+    CaptureResult r = gateway.capture(p.providerRef(), p.amountCents(),
+                                      "capture-" + paymentId);                    // no tx, idempotency key
+    tx.executeWithoutResult(s -&gt; {                                                 // tx 2
+        Payment fresh = payments.findById(paymentId).orElseThrow();
+        fresh.markCaptured(r.captureId());   // throws unless still PENDING; @Version guards racers
+    });
+}</code></pre>
+  <p>The gap between the call and the second transaction is a real failure window: if the process dies there, the provider captured the money and you have no record. Idempotency keys make the retry safe, and a reconciliation job or the outbox pattern (<a href="#l334">L334</a>) closes the window.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li>Sending the "order confirmed" email inside the transaction, then rolling back: the customer is told about an order that does not exist.</li>
+    <li>Treating <code>afterCommit</code> as guaranteed delivery: a crash right after the commit loses the message. It gives "only if committed", not "always if committed".</li>
+    <li>A <code>TransactionTemplate</code> bean you declare yourself replaces Boot's default one, which other code may have relied on.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Rewrite a <code>@Transactional</code> method with <code>TransactionTemplate</code> and prove identical behavior on success, runtime exception and <code>setRollbackOnly</code>.</li>
+    <li>Implement chunked import with one transaction per 1,000 rows; kill the process mid-way and verify the committed chunks are intact.</li>
+    <li>Register all four callbacks and log their order for a commit and for a rollback.</li>
+    <li>Move an email send into a <code>@TransactionalEventListener(phase = AFTER_COMMIT)</code> and test that a rolled-back order sends nothing.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework Reference, <i>Transaction Management › Programmatic Transaction Management</i> and <i>Transaction-bound Events</i> · Javadoc: <code>TransactionTemplate</code>, <code>TransactionSynchronization</code>, <code>TransactionSynchronizationManager</code>, <code>TransactionalOperator</code></p>
+</article>
+<!-- ================================================================ L333 -->
+<article class="day" id="l333">
+  <header class="day-head">
+    <span class="day-no">L333 · DAY 333</span>
+    <h2>Transaction Pitfalls: The Complete List</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Almost every <code>@Transactional</code> bug has one of three causes: the call never went through the proxy, the thread that did the work was not the thread holding the transaction, or the transaction lived for the wrong length of time. Learn to classify a symptom into one of these and to read Spring's transaction log, and the fix is usually obvious.</p>
+
+  <h3>Self-invocation: the proxy is not in the path</h3>
+  <div class="box def"><span class="tag">Definition · self-invocation</span><p>The proxy wraps the bean from the outside. A call from one method of the bean to another is a plain Java call on <code>this</code>, the raw target, so the interceptor never runs and the annotation on the callee is ignored: no new transaction, no REQUIRES_NEW, no rollback rules, and no <code>@PreAuthorize</code> or <code>@Async</code> either.</p></div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 170" role="img" aria-label="An external call passes through the proxy and its interceptor; an internal call from importAll to importOne on this stays inside the target and skips the interceptor">
+      <defs><marker id="ah-l333" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="60" width="100" height="40" rx="6" class="s-node"/><text x="60" y="84" class="s-mid">Controller</text>
+      <rect x="150" y="20" width="140" height="120" rx="8" class="s-node-mod"/><text x="220" y="40" class="s-mid s-ttl">proxy</text><text x="220" y="84" class="s-mid s-sm">TxInterceptor</text>
+      <rect x="330" y="20" width="300" height="120" rx="8" class="s-node"/><text x="480" y="40" class="s-mid s-ttl">target OrderService</text>
+      <rect x="350" y="60" width="110" height="34" rx="5" class="s-node"/><text x="405" y="81" class="s-mid s-sm">importAll()</text>
+      <rect x="500" y="60" width="110" height="34" rx="5" class="s-node"/><text x="555" y="81" class="s-mid s-sm">importOne()</text>
+      <line x1="110" y1="80" x2="148" y2="80" class="s-ln" marker-end="url(#ah-l333)"/>
+      <line x1="290" y1="78" x2="348" y2="78" class="s-ln" marker-end="url(#ah-l333)"/>
+      <line x1="460" y1="77" x2="498" y2="77" class="s-ln-bad" marker-end="url(#ah-l333)"/>
+      <text x="480" y="120" class="s-mid s-sm s-bad">this.importOne(): no interceptor</text>
+    </svg>
+    <figcaption><b>Only calls that enter from outside are intercepted.</b> The arrow from importAll to importOne never leaves the target object.</figcaption>
+  </figure>
+<pre><code>@Service
+public class OrderService {
+    private final OrderRepository orders;
+    private final OrderService self;          // the proxy, resolved lazily
+
+    public OrderService(OrderRepository orders, @Lazy OrderService self) {
+        this.orders = orders;
+        this.self = self;
+    }
+
+    public void importAll(List&lt;OrderDto&gt; dtos) {
+        // dtos.forEach(this::importOne);     // BUG: one failure is not isolated, no tx per item
+        dtos.forEach(self::importOne);        // fix 2: call through the proxy
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void importOne(OrderDto dto) {
+        orders.save(Order.from(dto));
+    }
+}</code></pre>
+  <p>The four fixes, best first: (1) <b>move the method to another bean</b> (an <code>OrderImporter</code>) — the honest design fix; (2) <b>self-injection</b> as above; (3) <b>programmatic</b> boundaries with <code>TransactionTemplate</code> (<a href="#l332">L332</a>), which need no proxy; (4) <b>AspectJ mode</b>, <code>@EnableTransactionManagement(mode = AdviceMode.ASPECTJ)</code> with compile- or load-time weaving, which puts the advice inside the class itself. <code>AopContext.currentProxy()</code> with <code>exposeProxy = true</code> also works but ties business code to Spring AOP.</p>
+
+  <h3>Methods the proxy cannot see</h3>
+  <ul>
+    <li><b>private</b>: a CGLIB subclass cannot override it, so the annotation is silently ignored. Since Spring 6.0, protected and package-private methods are intercepted on class-based proxies; interface-based proxies only intercept public interface methods.</li>
+    <li><b>final</b>: cannot be overridden either. Worse, the call runs on the proxy instance itself, whose fields were never injected, so the usual symptom is a <code>NullPointerException</code> on a repository field. Kotlin classes are final by default, hence the <code>kotlin-spring</code> plugin.</li>
+    <li><b>static</b>: no instance, no proxy, no transaction.</li>
+    <li><b><code>@PostConstruct</code></b>: init callbacks run on the raw bean <i>before</i> the post-processor wraps it in a proxy, so a <code>@Transactional</code> init method has no transaction. Use a <code>TransactionTemplate</code> inside it, or do the work from an <code>@EventListener(ApplicationReadyEvent.class)</code> method, which is invoked through the proxy.</li>
+  </ul>
+
+  <h3>Exceptions that do not roll back</h3>
+  <p>Checked exceptions commit by default (<a href="#l331">L331</a>). The second variant is self-inflicted: catching inside the transactional method.</p>
+<pre><code>@Transactional
+public void settle(Batch b) {
+    try {
+        b.items().forEach(ledger::post);
+    } catch (RuntimeException e) {
+        log.error("settlement failed", e);   // swallowed: the posted half COMMITS
+    }
+}</code></pre>
+  <p>Either rethrow, or call <code>TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()</code> in the catch block. Note that the same pattern one level up, catching an exception thrown by a REQUIRED method of another bean, produces the opposite symptom, <code>UnexpectedRollbackException</code> (<a href="#l330">L330</a>).</p>
+
+  <h3>Wrong lifetime: lazy loading and long transactions</h3>
+  <p><b><code>LazyInitializationException</code></b> ("could not initialize proxy – no Session") appears when an entity leaves the service and something touches an unloaded association after the persistence context has closed, typically Jackson serializing a lazy collection. Spring Boot's default <code>spring.jpa.open-in-view=true</code> hides it by keeping the <code>EntityManager</code> open until the response is written, at the price of lazy queries issued from the web layer outside any transaction (each in autocommit), N+1 queries during serialization, and a connection that may stay checked out for the rest of the request. Boot logs a warning at startup for this reason. The better answer is to set it to false and load what the response needs inside the service: <code>JOIN FETCH</code>, <code>@EntityGraph</code>, or DTO projections.</p>
+  <p><b>Long transactions</b> hold a pooled connection and every row lock they took. On PostgreSQL an old open transaction also pins the oldest visible snapshot, so <code>VACUUM</code> cannot remove dead rows anywhere and tables bloat. A remote HTTP call, a file upload or a user "think time" inside a transaction is the usual culprit; split the work as in <a href="#l332">L332</a>.</p>
+
+  <h3>Other threads: @Async and concurrency</h3>
+  <p>The transaction lives in thread-locals, so it does not follow work onto another thread. An <code>@Async</code> method runs on an executor thread with no transaction (or a brand-new one if it is itself <code>@Transactional</code>), and it may start <b>before the caller commits</b>, so it cannot see the row the caller just inserted. The reliable pattern is to publish an event and handle it with <code>@TransactionalEventListener(phase = AFTER_COMMIT)</code> plus <code>@Async</code>. The same applies to <code>CompletableFuture</code>, parallel streams and virtual threads: each task must open its own transaction, and entities and the <code>EntityManager</code> must never be shared across threads, because neither is thread-safe.</p>
+
+  <h3>Testing transactions honestly</h3>
+  <p>A test class annotated <code>@Transactional</code> runs each test inside a transaction that the TestContext framework rolls back afterwards. That keeps the database clean but hides real behavior: nothing is flushed unless a query forces it, so constraint violations never fire; <code>afterCommit</code> callbacks and <code>AFTER_COMMIT</code> listeners never run; REQUIRES_NEW code cannot see the test's uncommitted data; lazy loading works in the test and fails in production. With <code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code> the server handles requests on other threads, so the test's transaction does not even cover them.</p>
+<pre><code>@SpringBootTest
+@Transactional
+class TransferServiceTest {
+    @Autowired TransferService transfers;
+
+    @Test
+    void commitsAndPublishes() {
+        transfers.transfer(1, 2, 500);
+        TestTransaction.flagForCommit();   // or annotate the test with @Commit
+        TestTransaction.end();             // real commit: flush, constraints, afterCommit
+        // assert on the outbox table here, then clean up explicitly
+    }
+}</code></pre>
+  <p>For commit-sensitive code, prefer a non-transactional test with explicit cleanup (<code>@Sql</code> scripts or truncation in <code>@AfterEach</code>).</p>
+
+  <h3>Reading what Spring actually did</h3>
+<pre><code class="plain">logging.level.org.springframework.transaction=DEBUG
+logging.level.org.springframework.orm.jpa.JpaTransactionManager=DEBUG
+
+# typical lines (abridged)
+Creating new transaction with name [com.acme.TransferService.transfer]: PROPAGATION_REQUIRED,ISOLATION_DEFAULT
+Participating in existing transaction
+Suspending current transaction, creating new transaction with name [com.acme.AuditService.record]
+Participating transaction failed - marking existing transaction as rollback-only
+Initiating transaction rollback</code></pre>
+  <p>If a method you annotated produces no "Creating new transaction" or "Participating" line, the proxy was bypassed.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li>A batch import with <code>this.importOne()</code> runs in one giant transaction or none at all, depending on the caller.</li>
+    <li>An <code>@Async</code> notifier reads an order that has not committed yet and sends "order not found".</li>
+    <li>A green test suite, all <code>@Transactional</code>, while production fails on a unique constraint at flush time.</li>
+    <li>Open-in-view plus a slow client keeps connections checked out while bytes trickle over the network.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Reproduce self-invocation with REQUIRES_NEW, confirm it in the DEBUG log, then apply fixes 1, 2 and 3 and compare the logs.</li>
+    <li>Make a <code>@Transactional</code> method <code>final</code> and observe the failure; then make it private and observe the silence.</li>
+    <li>Disable open-in-view, trigger a <code>LazyInitializationException</code> from a controller, and fix it with an entity graph and with a DTO projection.</li>
+    <li>Write an <code>@Async</code> listener that reads a just-inserted row, show the race, then fix it with an AFTER_COMMIT listener.</li>
+    <li>Find a bug that a <code>@Transactional</code> test hides (a deferred unique violation) and expose it with <code>TestTransaction</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework Reference, <i>Transaction Management › Using @Transactional</i> (proxy mode notes) and <i>Testing › Transaction Management</i> · Javadoc: <code>TestTransaction</code>, <code>AopContext</code> · Spring Boot Reference, <i>Data Access › JPA and Spring Data JPA</i> (open-in-view) · PostgreSQL manual, <i>Routine Vacuuming</i></p>
+</article>
+<!-- ================================================================ L334 -->
+<article class="day project" id="l334">
+  <header class="day-head">
+    <span class="day-no">L334 · DAY 334</span>
+    <h2>Distributed Transactions, Sagas &amp; the Outbox Pattern</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">55m practice</span><span class="tagx">milestone project</span></p>
+  </header>
+
+  <p class="thesis">A database can make its own writes atomic because one log and one lock manager decide the outcome; the moment a second system (another database, a broker, a remote service) is involved, no single commit exists. Modern backends stop pretending otherwise: they keep each step a local ACID transaction, record outgoing events in the same transaction (the outbox), and make every consumer idempotent.</p>
+
+  <h3>Two-phase commit and why services avoid it</h3>
+  <div class="box algo"><span class="tag">Algorithm · Two-phase commit (XA)</span><ol>
+    <li><b>Prepare.</b> The coordinator (the JTA transaction manager) asks every participant to prepare. Each one makes its changes durable enough to commit later, keeps its locks, and votes yes or no.</li>
+    <li><b>Decide.</b> If all vote yes, the coordinator writes "commit" to its own log; otherwise "rollback".</li>
+    <li><b>Complete.</b> The coordinator tells every participant the decision; each commits or rolls back and releases locks. After a crash, the coordinator replays its log to finish in-doubt transactions.</li>
+  </ol></div>
+  <p>2PC is correct but <b>blocking</b>: a participant that voted yes may not decide on its own, so if the coordinator dies between the phases, the participant holds its locks "in doubt" until the coordinator recovers or an operator forces a heuristic decision (which can break atomicity). In Spring, <code>JtaTransactionManager</code> drives XA through a provider such as Atomikos or Narayana; Boot 3 no longer auto-configures one itself, so you use the provider's own starter. Microservices rarely use it: Kafka and most HTTP APIs are not XA resources, each service owns its database, locks held across network round trips cut throughput, and the availability of every participant multiplies.</p>
+  <p><b>CAP</b> says that during a network partition a replicated system must give up either consistency (linearizable reads) or availability. Systems that choose availability adopt <b>BASE</b>: basically available, soft state, eventually consistent. The design job becomes making the inconsistent window short, visible and safe.</p>
+
+  <h3>The dual-write problem</h3>
+<pre><code>@Transactional
+public void transfer(TransferCommand cmd) {
+    accounts.debit(cmd.from(), cmd.cents());
+    accounts.credit(cmd.to(), cmd.cents());
+    kafka.send("transfers", cmd);   // BUG: not part of the DB transaction
+}</code></pre>
+  <p>If the commit fails after the send (constraint violation at flush, deadlock, lost connection), consumers act on a transfer that never happened. Moving the send after the commit (an <code>afterCommit</code> hook) fails the other way: a crash between commit and send loses the event forever. Kill the process with a debugger breakpoint between the two calls and both failure modes are easy to demonstrate. No ordering of two independent writes is atomic.</p>
+
+  <h3>The transactional outbox</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 210" role="img" aria-label="The service writes account rows and an outbox row in one local transaction; a relay or CDC reads the outbox and publishes to Kafka; the consumer deduplicates with an inbox table">
+      <defs><marker id="ah-l334" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="80" width="110" height="44" rx="6" class="s-node"/><text x="65" y="106" class="s-mid">Service</text>
+      <rect x="150" y="20" width="170" height="170" rx="8" class="s-node-mod"/><text x="235" y="40" class="s-mid s-ttl">one local tx</text>
+      <rect x="170" y="56" width="130" height="40" rx="5" class="s-node"/><text x="235" y="80" class="s-mid s-sm">account rows</text>
+      <rect x="170" y="116" width="130" height="40" rx="5" class="s-node"/><text x="235" y="140" class="s-mid s-sm s-acc">outbox row</text>
+      <line x1="120" y1="96" x2="168" y2="78" class="s-ln" marker-end="url(#ah-l334)"/>
+      <line x1="120" y1="108" x2="168" y2="134" class="s-ln" marker-end="url(#ah-l334)"/>
+      <rect x="350" y="116" width="110" height="40" rx="5" class="s-node"/><text x="405" y="134" class="s-mid s-sm">poller / CDC</text><text x="405" y="148" class="s-mid s-sm s-ink2">relay</text>
+      <line x1="300" y1="136" x2="348" y2="136" class="s-ln-acc" marker-end="url(#ah-l334)"/>
+      <rect x="490" y="116" width="70" height="40" rx="5" class="s-node"/><text x="525" y="140" class="s-mid s-sm">Kafka</text>
+      <line x1="460" y1="136" x2="488" y2="136" class="s-ln-acc" marker-end="url(#ah-l334)"/>
+      <rect x="580" y="50" width="72" height="106" rx="5" class="s-node"/><text x="616" y="80" class="s-mid s-sm">consumer</text><text x="616" y="110" class="s-mid s-sm s-info">inbox</text><text x="616" y="124" class="s-mid s-sm s-info">dedupe</text>
+      <line x1="560" y1="136" x2="578" y2="136" class="s-ln-acc" marker-end="url(#ah-l334)"/>
+      <text x="450" y="186" class="s-mid s-sm s-ink2">at-least-once: duplicates possible, loss impossible</text>
+    </svg>
+    <figcaption><b>Turn two writes into one.</b> The event is just another row in the same transaction; publishing becomes a retryable background job.</figcaption>
+  </figure>
+<pre><code>@Service
+class TransferService {
+    private final JdbcTemplate jdbc;
+    private final ObjectMapper mapper;
+
+    TransferService(JdbcTemplate jdbc, ObjectMapper mapper) { this.jdbc = jdbc; this.mapper = mapper; }
+
+    @Transactional
+    public UUID transfer(long from, long to, long cents) {
+        int debited = jdbc.update(
+            "update account set balance = balance - ? where id = ? and balance &gt;= ?", cents, from, cents);
+        if (debited == 0) throw new InsufficientFundsException(from);
+        jdbc.update("update account set balance = balance + ? where id = ?", cents, to);
+
+        UUID eventId = UUID.randomUUID();
+        jdbc.update("""
+            insert into outbox(id, aggregate_id, type, payload, created_at)
+            values (?, ?, 'TransferCompleted', ?, now())""",
+            eventId, String.valueOf(from), json(new TransferCompleted(eventId, from, to, cents)));
+        return eventId;
+    }
+
+    private String json(Object o) {
+        try { return mapper.writeValueAsString(o); }
+        catch (JsonProcessingException e) { throw new IllegalStateException(e); }
+    }
+}
+
+record TransferCompleted(UUID eventId, long from, long to, long cents) {}</code></pre>
+  <p>The relay is either a <b>poller</b> or <b>change data capture</b>. A poller selects unpublished rows with <code>FOR UPDATE SKIP LOCKED</code> (so several instances can share the work), publishes each with the aggregate id as the Kafka key (preserving per-account order), waits for the broker acknowledgment, and marks the row published. CDC (Debezium reading the PostgreSQL WAL or MySQL binlog, with its outbox event router) avoids polling load and adds infrastructure. Either way the relay can crash after publishing and before marking, so delivery is <b>at least once</b>.</p>
+<pre><code>@Scheduled(fixedDelay = 500)
+void relay() {
+    tx.executeWithoutResult(status -&gt; {
+        List&lt;OutboxRow&gt; rows = jdbc.query("""
+            select id, aggregate_id, payload from outbox
+            where published_at is null order by created_at limit 100
+            for update skip locked""",
+            (rs, i) -&gt; new OutboxRow(rs.getObject("id", UUID.class),
+                                     rs.getString("aggregate_id"), rs.getString("payload")));
+        for (OutboxRow r : rows) {
+            kafka.send("transfers", r.aggregateId(), r.payload()).join();   // wait for the ack
+            jdbc.update("update outbox set published_at = now() where id = ?", r.id());
+        }
+    });
+}</code></pre>
+
+  <h3>Idempotent consumers, inboxes and idempotency keys</h3>
+  <p>At-least-once delivery means every consumer must tolerate duplicates. The <b>inbox</b> pattern records each processed message id in the consumer's database, in the same local transaction as the effect, behind a unique constraint:</p>
+<pre><code>@Transactional
+public void onTransferCompleted(TransferCompleted e) {
+    int fresh = jdbc.update("insert into inbox(message_id) values (?) on conflict do nothing", e.eventId());
+    if (fresh == 0) return;                 // already applied: duplicate delivery
+    receipts.create(e.from(), e.cents());   // the effect commits together with the inbox row
+}</code></pre>
+  <p>The same idea protects HTTP endpoints from client retries. The client sends an <code>Idempotency-Key</code> header (an IETF draft standardizes it); the server stores the key, a hash of the request and the eventual response in a dedupe table with a unique key, and replays the stored response on a repeat. The draft suggests 409 when a request with the same key is still in flight and 422 when the key is reused with a different payload.</p>
+
+  <h3>Sagas and eventual consistency</h3>
+  <p>A <b>saga</b> is a sequence of local transactions, one per service, where each step has a <b>compensating action</b> that semantically undoes it: "reserve funds" is compensated by "release reservation", "charge card" by "refund". Compensations are new business operations, not rollbacks, and must themselves be idempotent and retryable. Orchestrated sagas have a coordinator that issues commands; choreographed sagas react to each other's events. Both are implemented in full on <a href="p21.html#l414">L414</a>–<a href="p21.html#l415">L415</a>.</p>
+  <p>To a product manager, eventual consistency is a set of visible states: "the transfer appears as <i>pending</i> immediately, becomes <i>completed</i> within a few seconds in normal operation, and if the receiving bank rejects it the money returns and the user is notified". Agree on those states, the expected delay and the failure messages before writing code.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li>Publishing from inside <code>@Transactional</code> and rolling back: downstream systems act on phantom events.</li>
+    <li>A consumer without deduplication double-credits an account the first time the relay restarts.</li>
+    <li>An outbox that is never pruned grows without bound and slows the poller's query; index <code>published_at</code> and delete old rows.</li>
+    <li>Compensations that assume the forward step completed, when it may have timed out half-done.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 55 min</h4><p><b>Milestone project:</b> a transactional money-transfer service with correct propagation, retries and an outbox. Done means every box is ticked.</p>
+  <ul class="deliverables">
+    <li><code>POST /transfers</code> debits and credits in one REQUIRED transaction with a conditional update that cannot overdraw.</li>
+    <li>A REQUIRES_NEW audit record that survives a rejected transfer, on disjoint rows (no self-deadlock).</li>
+    <li>SERIALIZABLE or optimistic-locking conflicts retried up to three times from a facade outside the transaction.</li>
+    <li>An <code>Idempotency-Key</code> dedupe table: a retried request returns the original response and moves money once.</li>
+    <li>An outbox row written in the same transaction, a <code>SKIP LOCKED</code> poller relaying to Kafka, and an inbox-deduplicating consumer.</li>
+    <li>A crash test: kill the relay between publish and mark, restart, and show exactly one effect downstream.</li>
+    <li>Integration tests on Testcontainers PostgreSQL and Kafka that commit for real (no rollback-only test transactions).</li>
+  </ul></div>
+  <p class="refs"><b>Read</b> Chris Richardson, <i>Microservices Patterns</i>, the sagas and transactional messaging chapters · Martin Kleppmann, <i>Designing Data-Intensive Applications</i>, ch. 9 (atomic commit and 2PC) · Spring Framework Reference, <i>Transaction Management › JTA</i> · Debezium documentation, <i>Outbox Event Router</i> · IETF draft, "The Idempotency-Key HTTP Header Field"</p>
+</article>
+
+<nav class="modnav">
+  <a href="p15.html"><small>Previous · Days 317–328</small>◂ Phase 15 — Spring Data</a>
+  <a class="next" href="p17.html"><small>Next · Days 335–356</small>Phase 17 — Spring Security ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

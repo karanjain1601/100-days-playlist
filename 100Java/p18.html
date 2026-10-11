@@ -1,0 +1,1861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 18 — Reactive Spring &amp; WebFlux · 365 Days of Java Backend</title>
+<meta name="description" content="365 Days of Java Backend, phase 18: Reactive Spring &amp; WebFlux (lessons 357–368).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+</head>
+<body class="m18" data-lang="java">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>365 Days</b> of Java</a>
+  <span class="meta">Phase 18 · Reactive Spring &amp; WebFlux · Days 357–368</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 18 · Reactive Spring &amp; WebFlux</h4>
+  <nav>
+    <a href="#l357"><span class="n">L357</span>Why Reactive: Blocking vs Non-Blo…</a>
+    <a href="#l358"><span class="n">L358</span>The Reactive Streams Specification</a>
+    <a href="#l359"><span class="n">L359</span>Reactor: Mono, Flux &amp; Subscriptio…</a>
+    <a href="#l360"><span class="n">L360</span>Reactor Operators I: Transform, C…</a>
+    <a href="#l361"><span class="n">L361</span>Reactor Operators II: Errors, Ret…</a>
+    <a href="#l362"><span class="n">L362</span>Schedulers, publishOn &amp; subscribe…</a>
+    <a href="#l363"><span class="n">L363</span>Spring WebFlux Architecture</a>
+    <a href="#l364"><span class="n">L364</span>Annotated Controllers in WebFlux</a>
+    <a href="#l365"><span class="n">L365</span>Functional Endpoints: RouterFunct…</a>
+    <a href="#l366"><span class="n">L366</span>WebClient In Depth</a>
+    <a href="#l367"><span class="n">L367</span>R2DBC &amp; Reactive Data Access</a>
+    <a href="#l368"><span class="n">L368</span>Testing Reactive Code &amp; the Final…</a>
+  </nav>
+  <h4>All 480 lessons</h4>
+  <div class="spine" data-spine data-module="18" style="grid-template-columns:repeat(20,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p17.html">◂ Phase 17</a><a href="p19.html">Phase 19 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 18 · Days 357–368 · Lessons 357–368</p>
+<h1>Reactive Spring &amp; WebFlux</h1>
+<p class="dek">Phase 18 teaches the reactive model end to end, from the Reactive Streams protocol and Project Reactor's operators to WebFlux, WebClient and R2DBC, and then measures it honestly against Spring MVC on virtual threads. It builds on the concurrency and virtual-thread work of Phase 5 and the Spring MVC phases, and its backpressure and non-blocking thinking carries straight into the messaging systems of Phase 19.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Explain the request-n protocol and write a <code>Publisher</code> that passes the core Reactive Streams rules.</li>
+    <li>Choose between <code>flatMap</code>, <code>concatMap</code>, <code>flatMapSequential</code> and <code>switchMap</code> by concurrency and ordering, and avoid eager-evaluation and double-subscription bugs.</li>
+    <li>Handle errors with filtered retry, backoff, jitter and timeouts, and propagate request data through the Reactor <code>Context</code> instead of thread-locals.</li>
+    <li>Keep blocking work off event loops with <code>subscribeOn(boundedElastic())</code>, and prove it with BlockHound.</li>
+    <li>Build WebFlux APIs with annotated controllers or functional routes, streaming NDJSON and SSE without buffering.</li>
+    <li>Configure <code>WebClient</code> pools and timeouts so a slow dependency cannot cascade, and access SQL with R2DBC transactions.</li>
+    <li>Test reactive code with <code>StepVerifier</code>, virtual time and <code>WebTestClient</code>, and run a fair load test of WebFlux against MVC on virtual threads.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>12</b> lessons</li><li><b>8h 35m</b> video</li><li><b>9h 25m</b> practice</li><li>Days <b>357–368</b></li>
+</ul>
+
+<!-- ================================================================ L357 -->
+<article class="day" id="l357">
+  <header class="day-head">
+    <span class="day-no">L357 · DAY 357</span>
+    <h2>Why Reactive: Blocking vs Non-Blocking &amp; Backpressure</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">35m practice</span></p>
+  </header>
+  <p class="thesis">Reactive programming swaps "one blocked thread per request" for a few event-loop threads that never block, plus a demand protocol (backpressure) that stops fast producers from drowning slow consumers. It pays off only when concurrency is high, the work is I/O-bound, and every link in the chain is non-blocking. In 2026, virtual threads cover most of the remaining cases with ordinary blocking code.</p>
+
+  <h3>What thread-per-request really costs</h3>
+  <p>Classic Spring MVC on Tomcat gives each request a platform thread (an OS thread) from a pool of 200 by default (<code>server.tomcat.threads.max</code>). The thread runs your controller, calls the database, and then <em>waits</em>. Each platform thread reserves its stack up front (1 MB by default on 64-bit Linux HotSpot, committed lazily as it is touched) and has kernel bookkeeping. When there are many more runnable threads than cores, the scheduler context-switches between them; each switch costs on the order of microseconds plus cache and TLB pollution.</p>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>Little's law: requests in flight = throughput × latency. A service doing 5,000 req/s with 100 ms latency, of which 95 ms is waiting on a downstream call, holds 5,000 × 0.1 = 500 requests in flight. Thread-per-request needs 500 threads, and each of them spends 95% of its life parked. The CPU is mostly idle while the pool runs out: the limit is the thread count, not the hardware.</p>
+  </div>
+
+  <h3>C10K, C10M and the event loop</h3>
+  <p>Dan Kegel's 1999 essay "The C10K problem" asked how one server could handle 10,000 concurrent connections. The answer was not more threads but <b>non-blocking sockets plus readiness notification</b> (<code>epoll</code> on Linux, <code>kqueue</code> on BSD/macOS): the kernel tells you which sockets are ready, and one thread services many of them. The later "C10M" discussion (Robert Graham, around 2013) pushed to ten million connections and moved the bottleneck into the kernel itself (kernel-bypass networking), which is beyond what a Java service needs, but the lesson is the same: waiting must not cost a thread.</p>
+  <div class="box def"><span class="tag">Definition · Event loop</span>
+    <p>A thread that repeatedly asks a selector for ready I/O events and runs the registered handler for each one. Handlers must return quickly: they read what is available, start the next asynchronous operation, register a callback for its completion, and return. Netty (and Reactor Netty under WebFlux) runs a small group of loops, by default one per CPU core with a minimum of four, each owning many connections. The single rule: <b>never block an event-loop thread</b>, because every connection it owns stalls with it.</p>
+  </div>
+  <figure class="fig" id="l357-fig">
+    <svg viewBox="0 0 640 245" role="img" aria-label="Left: five threads, each doing a little CPU work and then parked on I/O. Right: many connections feed an epoll selector that wakes a single event loop thread.">
+      <defs><marker id="ah-l357" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="20" y="24" class="s-ttl">Thread-per-request</text>
+      <text x="20" y="59" class="s-sm s-ink2">T1</text>
+      <rect x="50" y="48" width="18" height="14" class="s-node-mod"/><line x1="68" y1="55" x2="250" y2="55" class="s-ln-warn s-dash"/><rect x="250" y="48" width="18" height="14" class="s-node-mod"/>
+      <text x="20" y="89" class="s-sm s-ink2">T2</text>
+      <rect x="70" y="78" width="18" height="14" class="s-node-mod"/><line x1="88" y1="85" x2="270" y2="85" class="s-ln-warn s-dash"/><rect x="270" y="78" width="18" height="14" class="s-node-mod"/>
+      <text x="20" y="119" class="s-sm s-ink2">T3</text>
+      <rect x="60" y="108" width="18" height="14" class="s-node-mod"/><line x1="78" y1="115" x2="230" y2="115" class="s-ln-warn s-dash"/><rect x="230" y="108" width="18" height="14" class="s-node-mod"/>
+      <text x="20" y="149" class="s-sm s-ink2">T4</text>
+      <rect x="90" y="138" width="18" height="14" class="s-node-mod"/><line x1="108" y1="145" x2="280" y2="145" class="s-ln-warn s-dash"/><rect x="280" y="138" width="18" height="14" class="s-node-mod"/>
+      <text x="20" y="179" class="s-sm s-ink2">T5</text>
+      <rect x="55" y="168" width="18" height="14" class="s-node-mod"/><line x1="73" y1="175" x2="260" y2="175" class="s-ln-warn s-dash"/><rect x="260" y="168" width="18" height="14" class="s-node-mod"/>
+      <rect x="50" y="198" width="18" height="12" class="s-node-mod"/><text x="74" y="208" class="s-sm">CPU work</text>
+      <line x1="150" y1="204" x2="180" y2="204" class="s-ln-warn s-dash"/><text x="186" y="208" class="s-sm">parked on I/O</text>
+      <text x="20" y="232" class="s-sm s-ink2">500 in flight = 500 threads</text>
+      <text x="340" y="24" class="s-ttl">Event loop</text>
+      <rect x="340" y="40" width="36" height="22" class="s-node"/><text x="358" y="55" class="s-sm s-mid">c1</text>
+      <rect x="386" y="40" width="36" height="22" class="s-node"/><text x="404" y="55" class="s-sm s-mid">c2</text>
+      <rect x="432" y="40" width="36" height="22" class="s-node"/><text x="450" y="55" class="s-sm s-mid">c3</text>
+      <rect x="478" y="40" width="36" height="22" class="s-node"/><text x="496" y="55" class="s-sm s-mid">c4</text>
+      <rect x="524" y="40" width="36" height="22" class="s-node"/><text x="542" y="55" class="s-sm s-mid">c5</text>
+      <rect x="570" y="40" width="50" height="22" class="s-node"/><text x="595" y="55" class="s-sm s-mid">c10k</text>
+      <line x1="358" y1="62" x2="395" y2="108" class="s-ln" marker-end="url(#ah-l357)"/>
+      <line x1="404" y1="62" x2="400" y2="108" class="s-ln" marker-end="url(#ah-l357)"/>
+      <line x1="450" y1="62" x2="405" y2="108" class="s-ln" marker-end="url(#ah-l357)"/>
+      <line x1="496" y1="62" x2="410" y2="108" class="s-ln" marker-end="url(#ah-l357)"/>
+      <line x1="542" y1="62" x2="415" y2="108" class="s-ln" marker-end="url(#ah-l357)"/>
+      <line x1="595" y1="62" x2="420" y2="108" class="s-ln" marker-end="url(#ah-l357)"/>
+      <rect x="340" y="110" width="130" height="34" class="s-node-mod"/><text x="405" y="131" class="s-mid">epoll selector</text>
+      <line x1="470" y1="127" x2="488" y2="127" class="s-ln-acc" marker-end="url(#ah-l357)"/>
+      <rect x="490" y="110" width="130" height="34" class="s-node"/><text x="555" y="131" class="s-mid s-acc">event loop</text>
+      <text x="555" y="165" class="s-sm s-mid">runs handlers,</text>
+      <text x="555" y="180" class="s-sm s-mid">never blocks</text>
+      <text x="340" y="212" class="s-sm">ready events, not waiting threads</text>
+      <text x="340" y="232" class="s-sm s-ink2">loops = CPU cores (min 4)</text>
+    </svg>
+    <figcaption><b>Waiting is free on the right.</b> On the left every in-flight request pins a thread, mostly while parked. On the right the kernel reports which sockets are ready and one loop thread serves thousands of them.</figcaption>
+  </figure>
+
+  <h3>Asynchronous streams with non-blocking backpressure</h3>
+  <p>Reactive programming models a computation as an <b>asynchronous stream of signals</b>: zero or more <code>onNext</code> items, then one terminal <code>onComplete</code> or <code>onError</code>. Operators (<code>map</code>, <code>filter</code>, <code>flatMap</code>) build a pipeline that runs when data arrives instead of a thread that waits for it. The part that makes it more than callbacks is <b>backpressure</b>: the consumer tells the producer how much it can handle with <code>request(n)</code>, and the producer may never send more than has been requested.</p>
+  <p>A real example: a sensor feed emits 1,000 readings per second and the sink writes 100 per second to a database. Without backpressure the gap of 900 per second piles up in a buffer until the heap runs out. With it, the slow sink requests small batches, and the source must slow down, buffer within a bound, or drop by policy.</p>
+<pre><code>import java.time.Duration;
+import org.reactivestreams.Subscription;
+import reactor.core.publisher.BaseSubscriber;
+import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
+
+public class BackpressureDemo {
+    public static void main(String[] args) {
+        // Cold, demand-driven source: emits only what is requested.
+        Flux.range(1, 6)
+            .doOnRequest(n -&gt; System.out.println("request(" + n + ")"))
+            .subscribe(new BaseSubscriber&lt;Integer&gt;() {
+                @Override protected void hookOnSubscribe(Subscription s) { request(2); }
+                @Override protected void hookOnNext(Integer v) {
+                    System.out.println("got " + v);
+                    if (v % 2 == 0) request(2);          // ask for more only when ready
+                }
+            });
+
+        // Time-driven source that cannot slow down: choose an overflow policy.
+        Flux.interval(Duration.ofMillis(1))              // 1,000 ticks per second
+            .onBackpressureDrop(n -&gt; System.out.println("dropped " + n))
+            .publishOn(Schedulers.boundedElastic(), 16)  // demand in batches of 16
+            .doOnNext(n -&gt; sleep(10))                    // slow consumer: 100 per second
+            .take(30)
+            .blockLast();
+    }
+
+    static void sleep(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+    }
+}</code></pre>
+  <p>Remove <code>onBackpressureDrop</code> and <code>Flux.interval</code> fails with an <code>OverflowException</code> ("Could not emit tick … due to lack of requests"): Reactor refuses to buffer silently. The alternatives are <code>onBackpressureBuffer(maxSize)</code> and <code>onBackpressureLatest()</code>.</p>
+
+  <h3>Push, pull, and push-pull</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Model</th><th>Who sets the pace</th><th>Example</th><th>Failure mode</th></tr></thead>
+    <tbody>
+      <tr><td>Pull</td><td>Consumer</td><td><code>Iterator</code>, JDBC <code>ResultSet.next()</code></td><td>A thread blocks while waiting for the next item</td></tr>
+      <tr><td>Push</td><td>Producer</td><td>Listeners, callbacks, RxJava 1 <code>Observable</code></td><td>Slow consumer drowns; unbounded queues</td></tr>
+      <tr><td>Push-pull</td><td>Consumer's demand, producer's delivery</td><td>Reactive Streams <code>request(n)</code></td><td>Complexity; every operator must honour demand</td></tr>
+    </tbody>
+  </table></div>
+  <p>In push-pull the demand signal travels upstream asynchronously, so asking for more never blocks a thread. A fast consumer requests <code>Long.MAX_VALUE</code> and the stream behaves like pure push; a slow one requests a few at a time and it degrades smoothly towards pull.</p>
+
+  <h3>The honest cost</h3>
+  <ul>
+    <li><b>Debugging.</b> A stack trace shows Reactor operator internals on whatever thread delivered the signal, not the call path that assembled the pipeline. You need <code>checkpoint("name")</code>, <code>Hooks.onOperatorDebug()</code> (costly, dev only) or the <code>ReactorDebugAgent</code> from <code>reactor-tools</code>.</li>
+    <li><b>Learning curve.</b> Nothing happens until you subscribe; <code>map</code> vs <code>flatMap</code>; cold vs hot; operator threading. Code review gets harder.</li>
+    <li><b>The whole chain must be non-blocking.</b> One JDBC call, one <code>Thread.sleep</code>, one legacy SDK call on an event loop stalls every connection on that loop. Thread-local tools (MDC logging, <code>SecurityContextHolder</code>, <code>@Transactional</code> bound to a thread) need reactive replacements that use the subscriber <code>Context</code>.</li>
+  </ul>
+
+  <h3>When reactive wins, and the virtual-thread question</h3>
+  <p>Reactive genuinely wins for <b>high concurrency with I/O-bound work</b>, <b>streaming</b> where backpressure matters (large exports, event feeds), <b>SSE and WebSocket fan-out</b> to many idle clients, and <b>gateways</b> that mostly shuffle bytes (Spring Cloud Gateway is built on WebFlux). It does not help <b>CPU-bound work</b> (you need cores, not fewer threads), <b>simple CRUD</b> at modest load, or stacks with <b>blocking drivers</b>: wrapping JDBC in <code>Schedulers.boundedElastic()</code> just rebuilds a thread pool with extra steps.</p>
+  <p>Virtual threads (JDK 21, JEP 444; see <a href="p05.html#l151">L151</a>) change the default. A blocking call on a virtual thread unmounts it from its carrier thread, so a million mostly-waiting requests cost heap-allocated stack chunks, not OS threads. In Spring Boot 3.2+ one property, <code>spring.threads.virtual.enabled=true</code>, moves Tomcat request handling onto them, and you keep readable stack traces, <code>ThreadLocal</code>s and JDBC. What they do not give you is backpressure or stream composition; limiting concurrency towards a fragile downstream still needs a semaphore or a bulkhead. Pinning inside <code>synchronized</code> blocks was a real problem until JDK 24 (JEP 491).</p>
+  <div class="box note"><span class="tag">How to decide in 2026</span>
+    <p>Default to Spring MVC on virtual threads. Choose WebFlux when the problem is a stream (SSE, WebSocket, backpressured pipelines), when you are building a gateway, or when the whole stack is already non-blocking (WebClient, R2DBC, reactive Redis or MongoDB). Do not mix: a half-reactive service has the costs of both models and the benefits of neither.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>A blocking call on <code>reactor-http-nio-*</code>: latency spikes for every connection that loop owns. Run BlockHound in tests to turn this into a failure.</li>
+      <li>Calling <code>block()</code> inside a reactive handler: Reactor throws <code>IllegalStateException</code> ("block()/blockFirst()/blockLast() are blocking, which is not supported in thread reactor-http-nio-2").</li>
+      <li><code>onBackpressureBuffer()</code> with no bound: you have moved the overflow to the heap, then to an <code>OutOfMemoryError</code>.</li>
+      <li><code>publishOn(boundedElastic())</code> on every call: thread-per-request again, with worse stack traces.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 35 min</h4><ol>
+    <li>Run <code>BackpressureDemo</code>. Change the first subscriber to <code>request(Long.MAX_VALUE)</code> and compare the printed <code>request(n)</code> lines.</li>
+    <li>Delete <code>onBackpressureDrop</code> and observe the <code>OverflowException</code>. Then try <code>onBackpressureBuffer(100)</code> and <code>onBackpressureLatest()</code>; note which ticks survive.</li>
+    <li>A service handles 2,000 req/s at 150 ms latency, 140 ms of it waiting on a payment API. How many platform threads does thread-per-request need, and how much stack address space does that reserve at 1 MB each?
+      <details><summary>Answer</summary><p>2,000 × 0.15 = 300 in flight, so about 300 threads (above Tomcat's default 200, so requests queue) and roughly 300 MB of reserved stack. The CPU does about 2,000 × 10 ms = 20 core-seconds per second of real work, so 20 cores are the real bound, not threads.</p></details></li>
+    <li>Pick a model for: (a) image thumbnailing, (b) an internal CRUD admin app on JDBC, (c) a gateway holding 20,000 long-lived SSE connections.
+      <details><summary>Answer</summary><p>(a) CPU-bound: a bounded platform-thread pool sized to cores; reactive adds nothing. (b) Spring MVC, optionally on virtual threads. (c) WebFlux: mostly idle connections, fan-out and streaming are exactly where the event loop wins.</p></details></li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Reactive Streams specification (reactive-streams.org), README and rules · Project Reactor reference guide, "Introduction to Reactive Programming" · Spring Framework reference, "Web on Reactive Stack", Overview · JEP 444 "Virtual Threads" and JEP 491 · Dan Kegel, "The C10K problem" · Javadoc: <code>reactor.core.publisher.Flux</code>, <code>org.reactivestreams.Subscription</code></p>
+</article>
+<!-- ================================================================ L358 -->
+<article class="day" id="l358">
+  <header class="day-head">
+    <span class="day-no">L358 · DAY 358</span>
+    <h2>The Reactive Streams Specification</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">35m practice</span></p>
+  </header>
+  <p class="thesis">Reactive Streams is four tiny interfaces plus a set of rules, and the rule that matters is "never send more <code>onNext</code> signals than were requested". Every library you will use (Reactor, RxJava, Mutiny, Akka/Pekko Streams) implements this contract, which is why they interoperate and why you never write a <code>Publisher</code> by hand in production.</p>
+
+  <h3>Four interfaces</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Interface</th><th>Methods</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>Publisher&lt;T&gt;</code></td><td><code>subscribe(Subscriber&lt;? super T&gt;)</code></td><td>A possibly unbounded source of items. Does nothing until subscribed.</td></tr>
+      <tr><td><code>Subscriber&lt;T&gt;</code></td><td><code>onSubscribe</code>, <code>onNext</code>, <code>onError</code>, <code>onComplete</code></td><td>Receives signals. All four return <code>void</code>.</td></tr>
+      <tr><td><code>Subscription</code></td><td><code>request(long n)</code>, <code>cancel()</code></td><td>The link between one publisher and one subscriber; carries demand upstream.</td></tr>
+      <tr><td><code>Processor&lt;T,R&gt;</code></td><td>both of the above</td><td>A stage that is a subscriber upstream and a publisher downstream.</td></tr>
+    </tbody>
+  </table></div>
+  <p>The package is <code>org.reactivestreams</code> (artifact <code>org.reactivestreams:reactive-streams</code>, version 1.0.4). Nothing in it says how to build pipelines; that is the job of a library. The interfaces only define how two stages talk.</p>
+
+  <h3>The protocol and the request-n contract</h3>
+  <p>A subscription moves through a fixed sequence: <code>publisher.subscribe(s)</code>, then exactly one <code>s.onSubscribe(subscription)</code>, then any number of <code>subscription.request(n)</code> calls from the subscriber, each allowing up to <code>n</code> more <code>onNext</code> signals, and finally at most one terminal signal, <code>onComplete()</code> or <code>onError(t)</code>. Demand is cumulative: <code>request(2)</code> then <code>request(3)</code> means five outstanding.</p>
+  <figure class="fig" id="l358-fig">
+    <svg viewBox="0 0 640 285" role="img" aria-label="Sequence diagram of subscribe, onSubscribe, request(2), two onNext, request(2), one onNext and onComplete, with the outstanding demand counter beside each step">
+      <defs><marker id="ah-l358" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="90" y="18" width="120" height="30" class="s-node"/><text x="150" y="37" class="s-mid">Subscriber</text>
+      <rect x="370" y="18" width="120" height="30" class="s-node-mod"/><text x="430" y="37" class="s-mid">Publisher</text>
+      <text x="560" y="37" class="s-mid s-sm s-ink2">demand</text>
+      <line x1="150" y1="48" x2="150" y2="275" class="s-ln s-dash"/>
+      <line x1="430" y1="48" x2="430" y2="275" class="s-ln s-dash"/>
+      <line x1="150" y1="72" x2="428" y2="72" class="s-ln-ink" marker-end="url(#ah-l358)"/><text x="290" y="67" class="s-sm s-mid">subscribe(s)</text>
+      <line x1="430" y1="100" x2="152" y2="100" class="s-ln-mod" marker-end="url(#ah-l358)"/><text x="290" y="95" class="s-sm s-mid">onSubscribe(subscription)</text>
+      <text x="560" y="104" class="s-mid s-sm">0</text>
+      <line x1="150" y1="128" x2="428" y2="128" class="s-ln-acc" marker-end="url(#ah-l358)"/><text x="290" y="123" class="s-sm s-mid s-acc">request(2)</text>
+      <text x="560" y="132" class="s-mid s-sm">2</text>
+      <line x1="430" y1="154" x2="152" y2="154" class="s-ln-mod" marker-end="url(#ah-l358)"/><text x="290" y="149" class="s-sm s-mid">onNext(1)</text>
+      <text x="560" y="158" class="s-mid s-sm">1</text>
+      <line x1="430" y1="180" x2="152" y2="180" class="s-ln-mod" marker-end="url(#ah-l358)"/><text x="290" y="175" class="s-sm s-mid">onNext(2)</text>
+      <text x="560" y="184" class="s-mid s-sm s-warn">0: must stop</text>
+      <line x1="150" y1="206" x2="428" y2="206" class="s-ln-acc" marker-end="url(#ah-l358)"/><text x="290" y="201" class="s-sm s-mid s-acc">request(2)</text>
+      <text x="560" y="210" class="s-mid s-sm">2</text>
+      <line x1="430" y1="232" x2="152" y2="232" class="s-ln-mod" marker-end="url(#ah-l358)"/><text x="290" y="227" class="s-sm s-mid">onNext(3)</text>
+      <text x="560" y="236" class="s-mid s-sm">1</text>
+      <line x1="430" y1="260" x2="152" y2="260" class="s-ln-bad" marker-end="url(#ah-l358)"/><text x="290" y="255" class="s-sm s-mid s-bad">onComplete()</text>
+      <text x="560" y="264" class="s-mid s-sm s-bad">terminal</text>
+    </svg>
+    <figcaption><b>Demand flows up, data flows down.</b> The publisher may emit only while outstanding demand is positive. A terminal signal needs no demand and ends the conversation.</figcaption>
+  </figure>
+  <p>This is the whole backpressure mechanism: the subscriber cannot be overwhelmed because it controls the only counter that permits delivery, and asking for more is an ordinary non-blocking method call. <b><code>Long.MAX_VALUE</code> means unbounded demand</b>: the rules say demand of 2<sup>63</sup>−1 or more may be treated as "effectively infinite", and that is what Reactor's plain <code>subscribe(consumer)</code> requests. Accumulated demand that would overflow is capped at <code>Long.MAX_VALUE</code>.</p>
+
+  <h3>The rules implementations must obey</h3>
+  <div class="box def"><span class="tag">Definition · Key rules (spec 1.0.4)</span>
+    <ul>
+      <li><b>1.1</b> A publisher never signals more <code>onNext</code> than the total requested.</li>
+      <li><b>1.3</b> Signals to a subscriber are <b>serialized</b>: never two at once, even from different threads, and each happens-before the next.</li>
+      <li><b>1.7</b> After <code>onComplete</code> or <code>onError</code>, no further signals.</li>
+      <li><b>2.13</b> Subscriber methods must return normally; a subscriber reports trouble by cancelling, not throwing. Signals never carry <code>null</code>.</li>
+      <li><b>3.9</b> <code>request(n)</code> with <code>n &lt;= 0</code> must lead to <code>onError(IllegalArgumentException)</code>.</li>
+      <li><b>Cancellation</b> is idempotent and thread-safe, makes later <code>request</code> calls no-ops, and asks the publisher to <em>eventually</em> stop signalling and drop its reference to the subscriber. Items already in flight may still arrive.</li>
+      <li><b>Recursion</b>: <code>request</code> may be called from inside <code>onNext</code>, and the publisher must bound the resulting synchronous recursion.</li>
+    </ul>
+  </div>
+
+  <h3>java.util.concurrent.Flow</h3>
+  <p>JDK 9 (JEP 266) copied the same four interfaces, method for method, as nested types of <code>java.util.concurrent.Flow</code>: <code>Flow.Publisher</code>, <code>Flow.Subscriber</code>, <code>Flow.Subscription</code>, <code>Flow.Processor</code>, with the same rules. They are semantically equivalent but <b>different types</b>, so you need a bridge: <code>org.reactivestreams.FlowAdapters</code> (in the reactive-streams jar) or Reactor's <code>JdkFlowAdapter.flowPublisherToFlux</code> and <code>publisherToFlowPublisher</code>. The JDK ships one implementation, <code>SubmissionPublisher</code>, and the <code>java.net.http.HttpClient</code> body APIs are written against <code>Flow</code>.</p>
+
+  <h3>The implementation landscape</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Library</th><th>Main types</th><th>Where you meet it</th></tr></thead>
+    <tbody>
+      <tr><td>Project Reactor</td><td><code>Mono</code>, <code>Flux</code></td><td>Spring WebFlux, WebClient, R2DBC, Spring Data reactive</td></tr>
+      <tr><td>RxJava 3</td><td><code>Flowable</code> (backpressured), <code>Observable</code> (not)</td><td>Android, older services</td></tr>
+      <tr><td>Akka Streams / Apache Pekko Streams</td><td><code>Source</code>, <code>Flow</code>, <code>Sink</code></td><td>Scala and Akka systems (Pekko is the Apache-licensed fork)</td></tr>
+      <tr><td>SmallRye Mutiny</td><td><code>Uni</code>, <code>Multi</code></td><td>Quarkus; Mutiny 2 is built on <code>java.util.concurrent.Flow</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Because each side only needs a <code>Publisher</code>, conversion is a one-liner: <code>Flux.from(flowable)</code>, <code>Flowable.fromPublisher(flux)</code>, <code>Source.fromPublisher(flux)</code>. Spring's <code>ReactiveAdapterRegistry</code> uses this so a WebFlux controller can return an RxJava or Mutiny type.</p>
+
+  <h3>A publisher and subscriber by hand, once</h3>
+  <p>The publisher below emits a range of integers. The <code>AtomicLong</code> it extends is the outstanding demand, and also a lock-free "someone is already emitting" flag: only the call that moves demand from 0 to positive enters the drain loop, which gives serialized signals and no unbounded recursion.</p>
+<pre><code>import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicLong;
+
+public record RangePublisher(int start, int count) implements Flow.Publisher&lt;Integer&gt; {
+    @Override public void subscribe(Flow.Subscriber&lt;? super Integer&gt; s) {
+        s.onSubscribe(new RangeSubscription(s, start, start + count));
+    }
+
+    static final class RangeSubscription extends AtomicLong implements Flow.Subscription {
+        private final Flow.Subscriber&lt;? super Integer&gt; downstream;
+        private final int end;
+        private int index;                        // touched only by the draining thread
+        private volatile boolean cancelled, badRequest;
+
+        RangeSubscription(Flow.Subscriber&lt;? super Integer&gt; s, int from, int end) {
+            this.downstream = s; this.index = from; this.end = end;
+        }
+
+        @Override public void request(long n) {
+            if (n &lt;= 0) { badRequest = true; n = 1; }   // report rule 3.9 from the drain loop
+            long prev, next;
+            do {
+                prev = get();
+                next = prev + n &lt; 0 ? Long.MAX_VALUE : prev + n;   // cap overflow
+            } while (!compareAndSet(prev, next));
+            if (prev == 0) drain(next);           // 0 -&gt; n transition wins the right to emit
+        }
+
+        private void drain(long n) {
+            long e = 0;
+            while (true) {
+                while (e != n &amp;&amp; index != end) {
+                    if (cancelled) return;
+                    if (badRequest) {
+                        cancelled = true;
+                        downstream.onError(new IllegalArgumentException("request must be &gt; 0"));
+                        return;
+                    }
+                    downstream.onNext(index++);
+                    e++;
+                }
+                if (cancelled) return;
+                if (index == end) { cancelled = true; downstream.onComplete(); return; }
+                n = get();
+                if (n == e) {                     // no new demand arrived while emitting
+                    n = addAndGet(-e);
+                    if (n == 0) return;
+                    e = 0;
+                }
+            }
+        }
+
+        @Override public void cancel() { cancelled = true; }
+    }
+}</code></pre>
+<pre><code>import java.util.concurrent.Flow;
+
+final class TwoAtATime implements Flow.Subscriber&lt;Integer&gt; {
+    private Flow.Subscription subscription;
+    private int received;
+
+    @Override public void onSubscribe(Flow.Subscription s) {
+        if (subscription != null) { s.cancel(); return; }   // one active subscription only
+        subscription = s;
+        s.request(2);
+    }
+    @Override public void onNext(Integer item) {
+        System.out.println("onNext " + item);
+        if (++received % 2 == 0) subscription.request(2);   // re-entrant request is legal
+    }
+    @Override public void onError(Throwable t) { System.err.println("error " + t); }
+    @Override public void onComplete() { System.out.println("complete"); }
+
+    public static void main(String[] args) {
+        new RangePublisher(1, 5).subscribe(new TwoAtATime());
+    }
+}</code></pre>
+  <p>Now never do it again. <code>Flux.range(1, 5)</code> does the same thing, has been tested against the official TCK, and composes with every operator. If you ever must write a publisher (an adapter for some callback API), use <code>Flux.create</code> or <code>Flux.push</code>, and run the <code>reactive-streams-tck</code> verification against anything you hand-roll.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>Hand-rolled publishers that call <code>onNext</code> from two threads at once: corrupted operator state, lost items, heisenbugs. Rule 1.3 is the one people break.</li>
+      <li>Throwing from <code>onNext</code>: the exception escapes into the publisher's thread, often an event loop. Catch, cancel, and report.</li>
+      <li>"Backpressure" that is really unbounded: a plain <code>subscribe()</code> requests <code>Long.MAX_VALUE</code>, so a slow side effect inside it gets no protection.</li>
+      <li>Passing a <code>Flow.Publisher</code> where an <code>org.reactivestreams.Publisher</code> is expected: a compile error at best, a raw-type cast at worst. Use the adapters.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 35 min</h4><ol>
+    <li>Run <code>TwoAtATime</code>. Change it to request 1 per <code>onNext</code> and trace the outstanding demand on paper alongside the output.</li>
+    <li>Remove the <code>prev == 0</code> guard (always call <code>drain</code>), request 1 per item, and use a range of 100,000. Explain the <code>StackOverflowError</code> and the rule it violates.</li>
+    <li>Add a <code>println</code> in <code>cancel()</code>, wrap the publisher with <code>JdkFlowAdapter.flowPublisherToFlux(...)</code>, apply <code>.map(i -&gt; i * 10).take(3)</code>, and confirm that <code>take</code> cancels upstream after the third item.</li>
+    <li>Answer: why is a <code>Processor</code> rarely the right tool for a pipeline stage, compared with an operator?
+      <details><summary>Answer</summary><p>A processor is both a subscriber and a publisher, so it must implement every rule on both sides itself, including fan-out to multiple subscribers and demand reconciliation between them. Library operators are fused, tested implementations of the same idea. Reactor even deprecated its <code>FluxProcessor</code> family in favour of <code>Sinks</code>.</p></details></li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Reactive Streams for the JVM, specification 1.0.4, rules for Publisher (§1), Subscriber (§2) and Subscription (§3), and the TCK README · JEP 266 "More Concurrency Updates" · Javadoc: <code>java.util.concurrent.Flow</code>, <code>SubmissionPublisher</code>, <code>reactor.adapter.JdkFlowAdapter</code> · Project Reactor reference guide, "Introduction to Reactive Programming"</p>
+</article>
+<!-- ================================================================ L359 -->
+<article class="day" id="l359">
+  <header class="day-head">
+    <span class="day-no">L359 · DAY 359</span>
+    <h2>Reactor: Mono, Flux &amp; Subscription Lifecycle</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">A <code>Mono</code> or <code>Flux</code> is a recipe, not a running computation: nothing happens until something subscribes, and each subscription to a cold publisher runs the recipe again. Most Reactor bugs come from forgetting one of those two facts, either by doing work eagerly while building the recipe or by subscribing twice without noticing.</p>
+
+  <h3>Mono or Flux</h3>
+  <p><code>Mono&lt;T&gt;</code> emits zero or one item and then completes (or errors): a single HTTP response, <code>findById</code>, a computed result. <code>Flux&lt;T&gt;</code> emits 0..N items: query results, a message stream, ticks. <code>Mono&lt;Void&gt;</code> means "tell me when it is done". Choose <code>Flux&lt;T&gt;</code> when the consumer can process items as they arrive (streaming JSON, SSE); choose <code>Mono&lt;List&lt;T&gt;&gt;</code> only when the whole collection is needed at once, because it buffers everything in memory. Both implement <code>org.reactivestreams.Publisher</code>, and conversions are explicit: <code>flux.next()</code>, <code>flux.collectList()</code>, <code>mono.flux()</code>, <code>mono.flatMapMany(...)</code>.</p>
+
+  <h3>Creating publishers</h3>
+<pre><code>import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
+import reactor.core.publisher.Mono;
+
+public class Creation {
+    record Price(String symbol, double value) {}
+    interface PriceListener { void onPrice(Price p); }
+    interface Feed { void register(PriceListener l); void unregister(PriceListener l); }
+
+    static void catalogue(Path path) {
+        Mono&lt;String&gt; a = Mono.just("ready");                         // value already computed
+        Mono&lt;String&gt; b = Mono.empty();
+        Mono&lt;String&gt; c = Mono.error(new IllegalStateException("no stock"));
+        Mono&lt;String&gt; d = Mono.fromCallable(() -&gt; Files.readString(path)); // lazy, may throw checked
+        Mono&lt;Long&gt;   e = Mono.fromSupplier(System::nanoTime);
+        Flux&lt;String&gt; f = Flux.fromIterable(List.of("a", "b"));
+        Flux&lt;String&gt; g = Flux.fromStream(() -&gt; List.of("x", "y").stream()); // supplier: a Stream is single-use
+        Flux&lt;Integer&gt; h = Flux.range(1, 10);
+        Flux&lt;Long&gt;   i = Flux.interval(Duration.ofSeconds(1));         // runs on Schedulers.parallel()
+    }
+
+    static Flux&lt;Long&gt; fibonacci() {                 // generate: synchronous, one next() per call
+        return Flux.generate(() -&gt; new long[] {0, 1}, (st, sink) -&gt; {
+            sink.next(st[0]);
+            long n = st[0] + st[1]; st[0] = st[1]; st[1] = n;
+            return st;
+        });
+    }
+
+    static Flux&lt;Price&gt; prices(Feed feed) {          // create: bridge a callback API (any thread)
+        return Flux.create(sink -&gt; {
+            PriceListener l = sink::next;
+            feed.register(l);
+            sink.onDispose(() -&gt; feed.unregister(l)); // cancel or terminate unregisters
+        }, FluxSink.OverflowStrategy.LATEST);
+    }
+
+    static Flux&lt;String&gt; lines(Path p) {             // using: resource scoped to one subscription
+        return Flux.using(() -&gt; Files.newBufferedReader(p),
+                          r -&gt; Flux.fromStream(r.lines()),
+                          Creation::closeQuietly);
+    }
+
+    static void closeQuietly(BufferedReader r) {
+        try { r.close(); } catch (IOException e) { throw new UncheckedIOException(e); }
+    }
+}</code></pre>
+  <p><code>Mono.fromFuture(() -&gt; client.sendAsync(...))</code> takes a supplier so the future starts per subscription; the overload that takes a ready <code>CompletableFuture</code> has already started. <code>Flux.push</code> is <code>create</code> for a single producer thread. <code>generate</code> pulls one item per downstream request, so it honours backpressure naturally; <code>create</code> is push-based and needs an overflow strategy.</p>
+
+  <h3>defer vs just: the eager-evaluation bug</h3>
+<pre><code>Mono&lt;Quote&gt; eager = Mono.just(pricing.fetchQuote(id));               // runs NOW, on this thread
+Mono&lt;Quote&gt; lazy  = Mono.fromCallable(() -&gt; pricing.fetchQuote(id));  // runs per subscription
+Mono&lt;Quote&gt; lazy2 = Mono.defer(() -&gt; pricing.quoteMono(id));          // builds the inner Mono per subscription
+
+repo.findById(id).switchIfEmpty(Mono.just(createDefault(id)));       // createDefault ALWAYS runs
+repo.findById(id).switchIfEmpty(Mono.defer(() -&gt; Mono.just(createDefault(id)))); // only when empty</code></pre>
+  <p>Java evaluates arguments before the call, so <code>Mono.just(x())</code> calls <code>x()</code> while assembling, even if nobody subscribes, and <code>retry()</code> on it replays the same captured value instead of calling again. <code>just</code> is for values you already have; <code>defer</code>, <code>fromCallable</code> and <code>fromSupplier</code> are for work.</p>
+
+  <h3>Nothing happens until you subscribe</h3>
+  <p>Assembly builds a chain of operator objects. <code>subscribe</code> walks it upstream, creating a subscriber per operator, then demand flows up and data flows down. The variants: <code>subscribe()</code> requests unbounded and ignores values; <code>subscribe(onNext)</code>; <code>subscribe(onNext, onError, onComplete)</code>. Each returns a <code>Disposable</code> whose <code>dispose()</code> cancels. Without an error consumer, an error is logged as <code>ErrorCallbackNotImplemented</code>. For manual demand, extend <code>BaseSubscriber</code> and call <code>request(n)</code> from <code>hookOnSubscribe</code>/<code>hookOnNext</code> (see <a href="#l357">L357</a>). In WebFlux you almost never subscribe yourself: you return the publisher and the framework subscribes.</p>
+  <div class="box def"><span class="tag">Definition · Lifecycle hooks</span>
+    <p>Side-effect operators that observe signals without changing them: <code>doOnSubscribe</code>, <code>doOnRequest</code>, <code>doOnNext</code>, <code>doOnError</code>, <code>doOnComplete</code>, <code>doOnCancel</code>, and <code>doFinally(SignalType)</code>, which runs once after completion, error <em>or</em> cancellation, and so is the place for cleanup and metrics. <code>log()</code> prints every signal, including <code>request(n)</code>, which makes it the fastest way to see backpressure.</p>
+  </div>
+<pre><code>Flux.range(1, 3)
+    .doOnSubscribe(s -&gt; System.out.println("subscribed"))
+    .doOnNext(i -&gt; System.out.println("next " + i))
+    .doOnComplete(() -&gt; System.out.println("complete"))
+    .doOnCancel(() -&gt; System.out.println("cancel"))
+    .doFinally(sig -&gt; System.out.println("finally " + sig))
+    .take(2)
+    .subscribe();
+// subscribed, next 1, next 2, cancel, finally CANCEL   (take cancels upstream; no "complete")</code></pre>
+
+  <h3>Cold vs hot publishers</h3>
+  <p>A <b>cold</b> publisher starts fresh for each subscriber: two subscriptions to a <code>WebClient</code> <code>Mono</code> send two HTTP requests. A <b>hot</b> publisher emits whether or not you listen, and late subscribers see only what comes after they join.</p>
+  <figure class="fig" id="l359-fig">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Three rows comparing cold, share and cache when subscriber B joins after items 1 and 2 have been emitted to subscriber A">
+      <line x1="110" y1="40" x2="620" y2="40" class="s-ln-ink" marker-end="url(#ah-l359)"/>
+      <defs><marker id="ah-l359" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="110" y="30" class="s-sm s-ink2">time</text>
+      <line x1="300" y1="50" x2="300" y2="222" class="s-ln-warn s-dash"/>
+      <text x="300" y="240" class="s-sm s-mid s-warn">B subscribes</text>
+      <text x="20" y="85" class="s-ttl">cold</text>
+      <text x="20" y="145" class="s-ttl">share()</text>
+      <text x="20" y="205" class="s-ttl">cache()</text>
+      <text x="95" y="74" class="s-sm">A</text><text x="95" y="96" class="s-sm">B</text>
+      <text x="95" y="134" class="s-sm">A</text><text x="95" y="156" class="s-sm">B</text>
+      <text x="95" y="194" class="s-sm">A</text><text x="95" y="216" class="s-sm">B</text>
+      <circle cx="160" cy="70" r="9" class="s-node"/><text x="160" y="74" class="s-sm s-mid">1</text>
+      <circle cx="240" cy="70" r="9" class="s-node"/><text x="240" y="74" class="s-sm s-mid">2</text>
+      <circle cx="400" cy="70" r="9" class="s-node"/><text x="400" y="74" class="s-sm s-mid">3</text>
+      <circle cx="340" cy="92" r="9" class="s-node-mod"/><text x="340" y="96" class="s-sm s-mid">1</text>
+      <circle cx="420" cy="92" r="9" class="s-node-mod"/><text x="420" y="96" class="s-sm s-mid">2</text>
+      <circle cx="580" cy="92" r="9" class="s-node-mod"/><text x="580" y="96" class="s-sm s-mid">3</text>
+      <circle cx="160" cy="130" r="9" class="s-node"/><text x="160" y="134" class="s-sm s-mid">1</text>
+      <circle cx="240" cy="130" r="9" class="s-node"/><text x="240" y="134" class="s-sm s-mid">2</text>
+      <circle cx="400" cy="130" r="9" class="s-node"/><text x="400" y="134" class="s-sm s-mid">3</text>
+      <circle cx="400" cy="152" r="9" class="s-node-mod"/><text x="400" y="156" class="s-sm s-mid">3</text>
+      <circle cx="160" cy="190" r="9" class="s-node"/><text x="160" y="194" class="s-sm s-mid">1</text>
+      <circle cx="240" cy="190" r="9" class="s-node"/><text x="240" y="194" class="s-sm s-mid">2</text>
+      <circle cx="400" cy="190" r="9" class="s-node"/><text x="400" y="194" class="s-sm s-mid">3</text>
+      <circle cx="312" cy="212" r="9" class="s-node-mod"/><text x="312" y="216" class="s-sm s-mid">1</text>
+      <circle cx="336" cy="212" r="9" class="s-node-mod"/><text x="336" y="216" class="s-sm s-mid">2</text>
+      <circle cx="400" cy="212" r="9" class="s-node-mod"/><text x="400" y="216" class="s-sm s-mid">3</text>
+      <text x="470" y="156" class="s-sm s-ink2">missed 1 and 2</text>
+      <text x="440" y="216" class="s-sm s-ink2">1, 2 replayed at once</text>
+    </svg>
+    <figcaption><b>Same source, three behaviours.</b> Cold: B gets its own run from the start. <code>share()</code>: B joins the live stream. <code>cache()</code>: B gets history replayed, then live items.</figcaption>
+  </figure>
+  <ul>
+    <li><code>share()</code> is <code>publish().refCount()</code>: connects on the first subscriber, cancels the source when the last one leaves. <code>publish().refCount(2)</code> waits for two; <code>publish().autoConnect(n)</code> never disconnects.</li>
+    <li><code>cache()</code> replays everything (<code>cache(n)</code> or <code>cache(Duration)</code> to bound it). On a <code>Mono</code> it memoizes the result, including an error, unless you use the TTL overload <code>cache(valueTtl, errorTtl, emptyTtl)</code>.</li>
+    <li><code>Sinks</code> are the programmatic hot source: <code>Sinks.many().multicast().onBackpressureBuffer()</code>, <code>.replay().limit(100)</code>, <code>.unicast()</code>, plus <code>Sinks.one()</code>. Expose <code>sink.asFlux()</code>. <code>tryEmitNext</code> returns an <code>EmitResult</code>: two threads emitting at once gets <code>FAIL_NON_SERIALIZED</code>, which drops the item if you ignore the result.</li>
+  </ul>
+
+  <h3>block() and BlockHound</h3>
+  <p><code>block()</code>, <code>blockFirst()</code> and <code>blockLast()</code> subscribe and park the calling thread until a result arrives. They are fine in <code>main</code>, a batch job or a test. Inside a reactive chain they are a production-stopping mistake: on an event loop the thread that would deliver the result may be the one you just parked, so throughput collapses or the request deadlocks. Reactor marks its event-loop and <code>parallel()</code> threads as non-blocking and throws <code>IllegalStateException</code> if you call <code>block()</code> on them. For everything else (<code>Thread.sleep</code>, JDBC, file I/O) add <code>io.projectreactor.tools:blockhound</code> to tests: <code>BlockHound.install()</code> instruments JDK blocking methods and throws <code>BlockingOperationError</code> when one runs on a non-blocking thread (on JDK 13+ run with <code>-XX:+AllowRedefinitionToAddDeleteMethods</code>).</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><code>switchIfEmpty(Mono.just(save(...)))</code>: the save runs on every request, empty or not.</li>
+      <li>A cold <code>Mono</code> subscribed twice, for example once in a <code>doOnNext</code> side branch and once by the framework: duplicate HTTP calls or duplicate writes.</li>
+      <li><code>Mono.cache()</code> on a token fetch: the first transient error is cached forever.</li>
+      <li><code>Flux.fromStream(stream)</code> re-subscribed by <code>retry()</code>: "stream has already been operated upon or closed". Use the supplier overload.</li>
+      <li>A forgotten <code>subscribe()</code>: the code "runs" and nothing happens, with no error.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Write <code>Mono.just(log("called"))</code> without subscribing and watch it print. Fix it with <code>fromCallable</code> and with <code>defer</code>.</li>
+    <li>Build <code>Mono.fromCallable(counter::incrementAndGet)</code>, subscribe twice (prints 1, 2), then add <code>.cache()</code> (prints 1, 1). Make the callable throw once and show the cached error.</li>
+    <li>Take <code>Flux.interval(Duration.ofMillis(100)).take(10)</code>, subscribe A at once and B after 350 ms: compare cold, <code>share()</code>, <code>cache()</code> and <code>replay(2).autoConnect()</code>.</li>
+    <li>Emit into a <code>Sinks.many().multicast().onBackpressureBuffer()</code> from two threads, count the <code>FAIL_NON_SERIALIZED</code> results, then fix it by serializing emission.</li>
+    <li>In a JUnit test call <code>BlockHound.install()</code>, then <code>Mono.delay(Duration.ofMillis(10)).doOnNext(x -&gt; Thread.sleep(5))</code> (wrap the checked exception) and observe the <code>BlockingOperationError</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Reactor reference guide: "Reactor Core Features" (Flux, Mono, simple ways to create and subscribe), "Programmatically creating a sequence", "Hot Versus Cold", "Sinks", and Appendix "Which operator do I need?" · Javadoc: <code>Mono</code>, <code>Flux</code>, <code>Sinks</code>, <code>BaseSubscriber</code> · BlockHound README (github.com/reactor/BlockHound)</p>
+</article>
+<!-- ================================================================ L360 -->
+<article class="day" id="l360">
+  <header class="day-head">
+    <span class="day-no">L360 · DAY 360</span>
+    <h2>Reactor Operators I: Transform, Combine &amp; Flatten</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">55m practice</span></p>
+  </header>
+  <p class="thesis">The flattening operators decide two things at once: how many inner publishers run concurrently, and whether results keep the source order. <code>flatMap</code> is concurrent and unordered, <code>concatMap</code> is sequential and ordered, <code>flatMapSequential</code> is concurrent and ordered, and <code>switchMap</code> keeps only the latest. Pick by those two properties, not by habit.</p>
+
+  <h3>map vs the flattening family</h3>
+  <p><code>map(f)</code> is synchronous and 1:1: <code>f</code> returns a value and must not block. When <code>f</code> returns a publisher (a database call, an HTTP call), <code>map</code> would give you a <code>Flux&lt;Mono&lt;T&gt;&gt;</code> that nobody subscribes to. Flattening operators subscribe to each inner publisher and merge their outputs into one stream.</p>
+  <div class="box def"><span class="tag">Definition · Flattening</span>
+    <p>A flattening operator maps each source item to an inner publisher, subscribes to it, and forwards the inner items downstream as one sequence. The variants differ in three ways only: how many inners may be subscribed at once, whether the output follows source order, and what happens to a running inner when the next source item arrives. An error from any inner terminates the whole result unless you handle it inside the inner.</p>
+  </div>
+<pre><code>import java.time.Duration;
+import java.util.List;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+public class FlattenTimings {
+    static Mono&lt;String&gt; lookup(int id) {               // id 1 slowest (300 ms), id 3 fastest (100 ms)
+        return Mono.just("user-" + id).delayElement(Duration.ofMillis(400 - 100L * id));
+    }
+
+    static void time(String name, Flux&lt;String&gt; flux) {
+        long t0 = System.nanoTime();
+        List&lt;String&gt; out = flux.collectList().block();   // block() is fine in main
+        System.out.printf("%-18s %s in %d ms%n", name, out, (System.nanoTime() - t0) / 1_000_000);
+    }
+
+    public static void main(String[] args) {
+        var ids = Flux.range(1, 3);
+        time("flatMap",           ids.flatMap(FlattenTimings::lookup));           // [user-3, user-2, user-1] ~300
+        time("concatMap",         ids.concatMap(FlattenTimings::lookup));         // [user-1, user-2, user-3] ~600
+        time("flatMapSequential", ids.flatMapSequential(FlattenTimings::lookup)); // [user-1, user-2, user-3] ~300
+        time("switchMap",         ids.switchMap(FlattenTimings::lookup));         // [user-3] ~100
+        time("flatMap(f, 1)",     ids.flatMap(FlattenTimings::lookup, 1));        // like concatMap ~600
+    }
+}</code></pre>
+  <figure class="fig" id="l360-fig">
+    <svg viewBox="0 0 640 285" role="img" aria-label="Timelines for three lookups taking 300, 200 and 100 ms under flatMap, concatMap, flatMapSequential and switchMap, showing when each result is emitted">
+      <text x="20" y="62" class="s-sm s-acc">flatMap</text><text x="20" y="76" class="s-sm s-ink2">300 ms, any order</text>
+      <rect x="150" y="44" width="225" height="5" class="s-node-mod"/><rect x="150" y="52" width="150" height="5" class="s-node-mod"/><rect x="150" y="60" width="75" height="5" class="s-node-mod"/>
+      <circle cx="225" cy="80" r="8" class="s-node"/><text x="225" y="84" class="s-sm s-mid">3</text>
+      <circle cx="300" cy="80" r="8" class="s-node"/><text x="300" y="84" class="s-sm s-mid">2</text>
+      <circle cx="375" cy="80" r="8" class="s-node"/><text x="375" y="84" class="s-sm s-mid">1</text>
+      <text x="20" y="118" class="s-sm s-acc">concatMap</text><text x="20" y="132" class="s-sm s-ink2">600 ms, ordered</text>
+      <rect x="150" y="100" width="225" height="5" class="s-node-mod"/><rect x="375" y="108" width="150" height="5" class="s-node-mod"/><rect x="525" y="116" width="75" height="5" class="s-node-mod"/>
+      <circle cx="375" cy="136" r="8" class="s-node"/><text x="375" y="140" class="s-sm s-mid">1</text>
+      <circle cx="525" cy="136" r="8" class="s-node"/><text x="525" y="140" class="s-sm s-mid">2</text>
+      <circle cx="600" cy="136" r="8" class="s-node"/><text x="600" y="140" class="s-sm s-mid">3</text>
+      <text x="20" y="174" class="s-sm s-acc">flatMapSequential</text><text x="20" y="188" class="s-sm s-ink2">300 ms, ordered</text>
+      <rect x="150" y="156" width="225" height="5" class="s-node-mod"/><rect x="150" y="164" width="150" height="5" class="s-node-mod"/><rect x="150" y="172" width="75" height="5" class="s-node-mod"/>
+      <circle cx="375" cy="192" r="8" class="s-node"/><text x="375" y="196" class="s-sm s-mid">1</text>
+      <circle cx="393" cy="192" r="8" class="s-node"/><text x="393" y="196" class="s-sm s-mid">2</text>
+      <circle cx="411" cy="192" r="8" class="s-node"/><text x="411" y="196" class="s-sm s-mid">3</text>
+      <text x="300" y="196" class="s-sm s-end s-ink2">2, 3 held</text>
+      <text x="20" y="230" class="s-sm s-acc">switchMap</text><text x="20" y="244" class="s-sm s-ink2">only the latest</text>
+      <rect x="150" y="212" width="4" height="5" class="s-node-mod"/><rect x="150" y="220" width="4" height="5" class="s-node-mod"/><rect x="150" y="228" width="75" height="5" class="s-node-mod"/>
+      <text x="236" y="234" class="s-sm s-bad">1, 2 cancelled at once</text>
+      <circle cx="225" cy="248" r="8" class="s-node"/><text x="225" y="252" class="s-sm s-mid">3</text>
+      <line x1="150" y1="266" x2="612" y2="266" class="s-ln-ink"/>
+      <text x="150" y="280" class="s-sm s-mid">0</text><text x="225" y="280" class="s-sm s-mid">100</text><text x="300" y="280" class="s-sm s-mid">200</text>
+      <text x="375" y="280" class="s-sm s-mid">300</text><text x="525" y="280" class="s-sm s-mid">500</text><text x="600" y="280" class="s-sm s-mid">600 ms</text>
+    </svg>
+    <figcaption><b>Concurrency and order are separate choices.</b> Bars are the three inner lookups (ids 1, 2, 3 from top); circles are emissions downstream.</figcaption>
+  </figure>
+  <p><code>flatMap(f, concurrency)</code> caps how many inners are subscribed at once (default 256). That cap is your backpressure towards a downstream service: <code>flatMap(this::callInventory, 16)</code> never has more than 16 calls in flight. <code>flatMapSequential</code> pays for ordering with a buffer: fast results wait for slow predecessors. <code>switchMap</code> cancels the previous inner when a new source item arrives, which is exactly typeahead search.</p>
+
+  <h3>Filtering and defaults</h3>
+  <p><code>filter(p)</code>; <code>take(n)</code> (cancels upstream after n and, since Reactor 3.5, also limits the request to n); <code>takeUntil(p)</code> (emits the matching item, then completes) vs <code>takeWhile(p)</code> (stops before it); <code>skip(n)</code>; <code>distinct()</code>, which remembers every key it has seen and therefore grows without bound on an infinite stream; <code>distinctUntilChanged()</code>, which only drops consecutive repeats in constant memory; <code>defaultIfEmpty(value)</code>; and <code>switchIfEmpty(publisher)</code>, whose argument should be lazy (<a href="#l359">L359</a>).</p>
+
+  <h3>Combining publishers</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Operator</th><th>Subscribes</th><th>Emits</th><th>Typical use</th></tr></thead>
+    <tbody>
+      <tr><td><code>zip</code></td><td>All at once</td><td>The n-th item of each, paired; ends with the shortest</td><td>Parallel calls whose results you need together</td></tr>
+      <tr><td><code>merge</code></td><td>All at once</td><td>Items as they arrive, interleaved</td><td>Several event sources into one stream</td></tr>
+      <tr><td><code>concat</code></td><td>One after another</td><td>All of A, then all of B</td><td>Cache first, then network</td></tr>
+      <tr><td><code>combineLatest</code></td><td>All at once</td><td>Latest of each, whenever any changes</td><td>Derived values from several live inputs</td></tr>
+      <tr><td><code>then</code> family</td><td>Next after previous completes</td><td>Only the completion, or a new value</td><td>Sequencing side effects</td></tr>
+    </tbody>
+  </table></div>
+<pre><code>record Profile(User user, List&lt;Order&gt; orders, Score score) {}
+
+Mono&lt;Profile&gt; profile(String id) {
+    return Mono.zip(users.find(id),                       // the three calls run concurrently:
+                    orders.recent(id).collectList(),      // latency = max, not sum
+                    scoring.score(id).defaultIfEmpty(Score.UNKNOWN))
+               .map(t -&gt; new Profile(t.getT1(), t.getT2(), t.getT3()));
+}
+
+Mono&lt;String&gt; place(Order order) {
+    return repo.save(order)                // Mono&lt;Order&gt;
+               .then(audit.record(order))  // wait for save, ignore its value
+               .thenReturn(order.id());    // finish with a value of our choosing
+}</code></pre>
+  <p><code>Mono.zip</code> completes <b>empty</b> if any source is empty, and errors if any source errors (cancelling the rest). That is why the optional part gets a <code>defaultIfEmpty</code>. <code>thenMany(flux)</code> is the variant that continues with a <code>Flux</code>.</p>
+
+  <h3>Aggregating and splitting</h3>
+  <ul>
+    <li><code>collectList()</code>, <code>collectMap(keyFn, valueFn)</code>: a <code>Mono</code> of the whole stream; only for bounded streams.</li>
+    <li><code>reduce(acc)</code> emits the final accumulation; <code>scan(acc)</code> emits every intermediate one (running totals).</li>
+    <li><code>buffer(n)</code>, <code>buffer(Duration)</code>, <code>bufferTimeout(n, d)</code> give <code>Flux&lt;List&lt;T&gt;&gt;</code> for batch inserts; <code>window(n)</code> gives <code>Flux&lt;Flux&lt;T&gt;&gt;</code> without materializing lists.</li>
+    <li><code>groupBy(keyFn)</code> gives <code>Flux&lt;GroupedFlux&lt;K,T&gt;&gt;</code>. Every group must be consumed, and the number of live groups must stay below the downstream <code>flatMap</code> concurrency, or the pipeline stalls.</li>
+  </ul>
+<pre><code>Flux&lt;Item&gt; allItems(ApiClient client) {
+    return client.fetchPage(null)                           // Mono&lt;Page&gt;
+        .expand(page -&gt; page.nextToken() == null
+                ? Mono.empty()
+                : client.fetchPage(page.nextToken()))       // recursion, driven by demand
+        .flatMapIterable(Page::items);
+}
+
+Flux&lt;Map.Entry&lt;String, Long&gt;&gt; perRegion(Flux&lt;Order&gt; orders) {
+    return orders.groupBy(Order::region)                    // a handful of regions
+                 .flatMap(g -&gt; g.count().map(n -&gt; Map.entry(g.key(), n)));
+}</code></pre>
+  <p><code>expand</code> is breadth-first (<code>expandDeep</code> is depth-first); for a linear page chain they behave the same. Because it is demand-driven, <code>allItems(client).take(7)</code> fetches only the pages it needs.</p>
+
+  <h3>Reusable chains: transform and transformDeferred</h3>
+<pre><code>Function&lt;Flux&lt;Order&gt;, Flux&lt;Order&gt;&gt; cleaned =
+    f -&gt; f.filter(Order::valid).distinctUntilChanged(Order::id).log("orders");
+
+orders.transform(cleaned);                                  // applied once, at assembly
+orders.transformDeferred(CircuitBreakerOperator.of(breaker)); // applied per subscription</code></pre>
+  <p><code>transform</code> runs the function once while building the pipeline. <code>transformDeferred</code> runs it for every subscriber, so the operator can hold per-subscription state or read the subscriber's <code>Context</code>; Resilience4j's reactor operators are designed to be used this way.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><code>flatMap</code> where the client expected order: paginated API results shuffle under load and only under load.</li>
+      <li><code>flatMap</code> with the default concurrency of 256 against a service with a 20-connection pool: pending-acquire timeouts. Set the concurrency explicitly.</li>
+      <li><code>Mono.zip</code> with an empty source: the whole response silently disappears (an empty 200).</li>
+      <li><code>groupBy</code> on a high-cardinality key (order id) followed by <code>flatMap(..., 4)</code>: a hang with no error.</li>
+      <li><code>collectList()</code> or <code>distinct()</code> on an unbounded stream: a slow memory leak.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 55 min</h4><ol>
+    <li>Run <code>FlattenTimings</code> and explain each line. Make all delays equal and predict which outputs change.</li>
+    <li>Write <code>profile(id)</code> first as three chained <code>flatMap</code>s, then with <code>Mono.zip</code>; measure both with 100 ms fake services. Make the score service return empty and fix the result.</li>
+    <li>Fake a five-page API and implement <code>allItems</code> with <code>expand</code>. Log each page fetch and confirm <code>take(7)</code> stops early.</li>
+    <li>Group 1,000 orders by region with <code>groupBy</code> and count them. Then group by order id with <code>flatMap(..., 4)</code>, observe the stall, and explain it.</li>
+    <li>Write <code>cleaned</code> as a reusable operator; then write one with a per-subscription counter and show why it needs <code>transformDeferred</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Reactor reference guide, Appendix "Which operator do I need?" · Javadoc: <code>Flux#flatMap</code>, <code>concatMap</code>, <code>flatMapSequential</code>, <code>switchMap</code>, <code>groupBy</code>, <code>expand</code>, <code>Mono#zip</code> · Simon Baslé, "Flight of the Flux" (spring.io blog, 2019)</p>
+</article>
+<!-- ================================================================ L361 -->
+<article class="day" id="l361">
+  <header class="day-head">
+    <span class="day-no">L361 · DAY 361</span>
+    <h2>Reactor Operators II: Errors, Retries &amp; Timeouts</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">In Reactor an error is a terminal signal that travels down the pipeline like data, so error handling is just more operators: replace, translate, retry or time out. Request-scoped data cannot live in a <code>ThreadLocal</code> because the thread changes under you, so it travels up the pipeline in the subscriber's <code>Context</code> instead.</p>
+
+  <h3>Errors as signals</h3>
+  <p><code>Mono.error(e)</code> and <code>Flux.error(e)</code> create a publisher that only signals <code>onError</code>; an exception thrown inside <code>map</code> or <code>filter</code> is converted into the same signal. After <code>onError</code> the sequence is over. Every recovery operator therefore <em>replaces</em> the failed sequence; none of them can "continue" the original source.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Operator</th><th>Effect</th><th>Use for</th></tr></thead>
+    <tbody>
+      <tr><td><code>onErrorReturn(v)</code></td><td>Emit a static fallback, complete</td><td>Non-critical data: an empty recommendation list</td></tr>
+      <tr><td><code>onErrorResume(fn)</code></td><td>Switch to a fallback publisher</td><td>Cache or secondary service; conditional handling by type</td></tr>
+      <tr><td><code>onErrorMap(fn)</code></td><td>Translate the exception, still an error</td><td>Turning <code>WebClientResponseException</code> into a domain exception</td></tr>
+      <tr><td><code>doOnError(c)</code></td><td>Observe only; error continues</td><td>Logging and metrics without handling</td></tr>
+      <tr><td><code>onErrorContinue(c)</code></td><td>Drop the failing element upstream and keep going</td><td>Almost never (see below)</td></tr>
+    </tbody>
+  </table></div>
+  <p>All of these accept a <code>Class</code> or <code>Predicate</code> filter, as in <code>onErrorResume(TimeoutException.class, e -&gt; cache.get(id))</code>. <b>Why <code>onErrorContinue</code> is dangerous</b>: it does not wrap anything below it; it puts a flag in the <code>Context</code> that tells <em>supporting upstream operators</em> to swallow errors and skip the element. That breaks the rule that errors are terminal, silently loses data, works only with some operators, and changes the behaviour of code far from where it is written. The safe pattern is to handle the error inside the inner publisher:</p>
+<pre><code>Flux&lt;Result&gt; processAll(Flux&lt;Command&gt; commands) {
+    return commands.flatMap(cmd -&gt; process(cmd)
+        .doOnError(e -&gt; System.err.println("failed " + cmd.id() + ": " + e))
+        .onErrorResume(e -&gt; Mono.empty()));          // drop just this element, explicitly
+}</code></pre>
+
+  <h3>Retry with backoff, done properly</h3>
+  <p><code>retry(n)</code> resubscribes immediately up to <code>n</code> times. For a cold publisher, resubscribing re-runs the work (a new HTTP request), which is what you want; but immediate retries hammer a struggling service. <code>retryWhen(Retry spec)</code> adds delays, jitter, a filter and a custom exhaustion error.</p>
+<pre><code>import java.time.Duration;
+import java.util.concurrent.TimeoutException;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+
+public class QuoteClient {
+    public record Quote(String sku, long cents) {}
+    public static class QuoteUnavailableException extends RuntimeException {
+        QuoteUnavailableException(String sku, Throwable cause) { super("quote unavailable: " + sku, cause); }
+    }
+    public static class UnknownSkuException extends RuntimeException {
+        UnknownSkuException(String sku) { super("unknown sku: " + sku); }
+    }
+
+    private final WebClient web;
+    public QuoteClient(WebClient web) { this.web = web; }
+
+    public Mono&lt;Quote&gt; quote(String sku) {
+        return web.get().uri("/quotes/{sku}", sku)
+            .retrieve()
+            .bodyToMono(Quote.class)
+            .timeout(Duration.ofSeconds(2))                       // per attempt
+            .retryWhen(Retry.backoff(3, Duration.ofMillis(200))   // ~200, 400, 800 ms
+                .maxBackoff(Duration.ofSeconds(2))
+                .jitter(0.5)                                      // each delay +/- up to 50%
+                .filter(QuoteClient::isRetryable)
+                .doBeforeRetry(s -&gt; System.out.println("retry " + (s.totalRetries() + 1) + ": " + s.failure()))
+                .onRetryExhaustedThrow((spec, s) -&gt; new QuoteUnavailableException(sku, s.failure())))
+            .onErrorMap(WebClientResponseException.NotFound.class, e -&gt; new UnknownSkuException(sku))
+            .timeout(Duration.ofSeconds(6))                       // overall budget, retries included
+            .checkpoint("QuoteClient.quote");
+    }
+
+    static boolean isRetryable(Throwable t) {
+        return t instanceof TimeoutException
+            || t instanceof WebClientRequestException            // connect / I/O failures
+            || (t instanceof WebClientResponseException r &amp;&amp; r.getStatusCode().is5xxServerError());
+    }
+}</code></pre>
+  <figure class="fig" id="l361-fig">
+    <svg viewBox="0 0 640 150" role="img" aria-label="Three attempts with a 2 second per-attempt timeout and growing waits between them; the 6 second overall timeout cuts the third attempt">
+      <text x="60" y="20" class="s-sm s-ink2">per-attempt timeout 2 s, overall budget 6 s</text>
+      <rect x="60" y="40" width="180" height="22" class="s-node-mod"/><text x="150" y="55" class="s-sm s-mid">attempt 1</text>
+      <rect x="240" y="44" width="18" height="14" class="s-node"/><text x="249" y="36" class="s-sm s-mid">0.2</text>
+      <rect x="258" y="40" width="180" height="22" class="s-node-mod"/><text x="348" y="55" class="s-sm s-mid">attempt 2</text>
+      <rect x="438" y="44" width="36" height="14" class="s-node"/><text x="456" y="36" class="s-sm s-mid">0.4</text>
+      <rect x="474" y="40" width="126" height="22" class="s-node-mod"/><text x="537" y="55" class="s-sm s-mid">attempt 3</text>
+      <text x="150" y="78" class="s-sm s-mid s-warn">timeout, retry</text>
+      <text x="348" y="78" class="s-sm s-mid s-warn">timeout, retry</text>
+      <line x1="600" y1="30" x2="600" y2="100" class="s-ln-bad"/>
+      <text x="596" y="88" class="s-sm s-end s-bad">overall timeout</text>
+      <line x1="60" y1="100" x2="610" y2="100" class="s-ln-ink"/>
+      <text x="60" y="114" class="s-sm s-mid">0</text><text x="150" y="114" class="s-sm s-mid">1</text><text x="240" y="114" class="s-sm s-mid">2</text>
+      <text x="330" y="114" class="s-sm s-mid">3</text><text x="420" y="114" class="s-sm s-mid">4</text><text x="510" y="114" class="s-sm s-mid">5</text><text x="600" y="114" class="s-sm s-mid">6 s</text>
+      <text x="60" y="138" class="s-sm">retryWhen absorbs failures 1 and 2; the outer timeout ends attempt 3</text>
+    </svg>
+    <figcaption><b>Where the timeout sits decides what it limits.</b> The inner <code>timeout</code> bounds each attempt; the outer one bounds the caller's total wait, retries and backoff included.</figcaption>
+  </figure>
+  <div class="box def"><span class="tag">Definition · Backoff schedule</span>
+    <p>Delay before retry <i>k</i> is <code>minBackoff × 2^k</code> (k from 0), randomized by the jitter factor and capped by <code>maxBackoff</code>. A failure rejected by <code>filter</code> propagates unchanged and at once, so a 404 is never retried. Without <code>onRetryExhaustedThrow</code>, exhaustion raises an <code>IllegalStateException</code> ("Retries exhausted: 3/3") with the last failure as its cause. Position matters: a <code>timeout</code> above <code>retryWhen</code> limits each attempt; one below limits the total. Only retry operations that are safe to repeat; a retried <code>POST /payments</code> without an idempotency key charges twice.</p>
+  </div>
+
+  <h3>Timeouts, repeat vs retry, and resource cleanup</h3>
+  <p><code>timeout(Duration)</code> errors with <code>java.util.concurrent.TimeoutException</code> and cancels upstream if no item arrives in time; on a <code>Flux</code> the timer restarts after every item. <code>timeout(duration, fallback)</code> switches to a fallback instead. Timers run on <code>Schedulers.parallel()</code> by default.</p>
+  <p><code>retry</code> resubscribes after an <b>error</b>; <code>repeat</code> resubscribes after <b>completion</b>, which makes it a polling primitive: <code>Mono.defer(this::poll).repeatWhenEmpty(10, f -&gt; f.delayElements(Duration.ofSeconds(1)))</code> polls until a value appears.</p>
+  <p><code>using(supplier, body, cleanup)</code> ties a synchronous resource to one subscription. <code>usingWhen</code> is the reactive version: the resource is itself a publisher and cleanup returns a publisher, with optional separate handlers for complete, error and cancel, which is how reactive transactions commit or roll back.</p>
+<pre><code>Flux&lt;String&gt; names(io.r2dbc.spi.ConnectionFactory cf) {
+    return Flux.usingWhen(cf.create(),
+        conn -&gt; Flux.from(conn.createStatement("SELECT name FROM customer").execute())
+                    .flatMap(r -&gt; r.map((row, meta) -&gt; row.get("name", String.class))),
+        io.r2dbc.spi.Connection::close);                  // runs on complete, error or cancel
+}</code></pre>
+
+  <h3>Context instead of ThreadLocal</h3>
+  <p>One request may run on several event-loop and scheduler threads, so a <code>ThreadLocal</code> set at the start is gone (or, worse, belongs to another request) a few operators later. Reactor's <code>Context</code> is an immutable map attached to the <em>subscriber</em>. <code>contextWrite</code> adds entries, and they are visible to operators <b>above</b> it in the code, because the context propagates upstream during subscription. You read it as a <code>ContextView</code> with <code>Mono.deferContextual</code>.</p>
+<pre><code>@Component
+class TenantFilter implements WebFilter {
+    @Override public Mono&lt;Void&gt; filter(ServerWebExchange ex, WebFilterChain chain) {
+        String tenant = ex.getRequest().getHeaders().getFirst("X-Tenant");
+        return chain.filter(ex)                            // everything the handler does is upstream
+                    .contextWrite(Context.of("tenant", tenant == null ? "public" : tenant));
+    }
+}
+
+Mono&lt;String&gt; currentTenant() {
+    return Mono.deferContextual(ctx -&gt; Mono.just(ctx.getOrDefault("tenant", "public")));
+}</code></pre>
+  <p>Spring uses the same mechanism: <code>ReactiveSecurityContextHolder</code> and reactive transactions live in the Context. Logging is the gap: SLF4J's MDC is thread-local. The Micrometer <code>context-propagation</code> library bridges it: register a <code>ThreadLocalAccessor</code> and turn on automatic propagation (<code>Hooks.enableAutomaticContextPropagation()</code>, or <code>spring.reactor.context-propagation=auto</code> in Spring Boot 3.2+), and Reactor restores the thread-locals from the Context around each operator. Micrometer Tracing already registers accessors for trace and span ids.</p>
+<pre><code>ContextRegistry.getInstance().registerThreadLocalAccessor(
+    "tenant", () -&gt; MDC.get("tenant"), v -&gt; MDC.put("tenant", v), () -&gt; MDC.remove("tenant"));</code></pre>
+
+  <h3>Readable stack traces</h3>
+  <p>A reactive stack trace shows where the error was <em>delivered</em>, not where the pipeline was <em>assembled</em>. Three tools, in increasing cost: <code>checkpoint("description")</code> adds a named marker to any error that passes through (cheap; <code>checkpoint(desc, true)</code> also captures a stack trace); the <code>ReactorDebugAgent.init()</code> from <code>reactor-tools</code> rewrites operator call sites at class-load time to record assembly locations, cheap enough for production; <code>Hooks.onOperatorDebug()</code> captures a stack trace at every operator assembly, which is expensive and for development only.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>Retrying without a filter: validation errors and 401s are retried four times, multiplying load during an incident.</li>
+      <li>Retrying a non-idempotent call: duplicate orders or payments.</li>
+      <li><code>onErrorReturn(List.of())</code> with no logging: a downstream outage becomes an invisible "empty" result. Pair fallbacks with a metric.</li>
+      <li><code>contextWrite</code> placed above the operator that reads it: the value is simply not there.</li>
+      <li><code>Hooks.onOperatorDebug()</code> left on in production: a large throughput drop.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Build a fake <code>Mono</code> that fails twice with an <code>IOException</code> then succeeds (use an <code>AtomicInteger</code> inside <code>Mono.defer</code>). Apply the backoff spec and print timestamps; check the delays and jitter.</li>
+    <li>Make it fail with an <code>IllegalArgumentException</code>, exclude that from <code>filter</code>, and confirm there is exactly one attempt. Then let it exhaust retries and inspect the error you get with and without <code>onRetryExhaustedThrow</code>.</li>
+    <li>With a 1 s delay per attempt, put <code>timeout(Duration.ofMillis(1500))</code> above, then below, <code>retryWhen</code>, and explain the total time each way.</li>
+    <li><code>Flux.range(1, 5).map(i -&gt; 10 / (i - 3))</code>: add <code>onErrorContinue</code> and observe; then rewrite it with <code>flatMap</code> and an inner <code>onErrorResume</code>.</li>
+    <li>Write a tenant into the Context, read it with <code>deferContextual</code>, then move the <code>contextWrite</code> above the read and watch the default appear. Enable automatic propagation and log the tenant through MDC.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Reactor reference guide: "Handling Errors", "Adding a Context to a Reactive Sequence", "Debugging Reactor", and "Context-Propagation Support" · Javadoc: <code>reactor.util.retry.RetryBackoffSpec</code>, <code>reactor.util.context.ContextView</code> · Micrometer Context Propagation documentation · Spring Boot reference, <code>spring.reactor.context-propagation</code></p>
+</article>
+<!-- ================================================================ L362 -->
+<article class="day" id="l362">
+  <header class="day-head">
+    <span class="day-no">L362 · DAY 362</span>
+    <h2>Schedulers, publishOn &amp; subscribeOn</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">Reactor does not pick threads for you: a pipeline runs on whatever thread delivers its signals until an operator moves it. <code>publishOn</code> moves the signals flowing <em>down</em> from that point; <code>subscribeOn</code> moves the subscription flowing <em>up</em>, and with it the thread the source runs on. Knowing which one you need is how you keep blocking work off the event loop.</p>
+
+  <h3>The default: no thread switching</h3>
+  <p>Assembling a <code>Flux</code> creates no threads. When you call <code>subscribe</code> on <code>main</code>, a synchronous source such as <code>Flux.range</code> emits on <code>main</code> and every <code>map</code> runs there too. Thread changes come only from the source itself (<code>Flux.interval</code> and <code>delayElements</code> emit on <code>Schedulers.parallel()</code>; WebClient and R2DBC responses arrive on Netty event-loop threads) or from <code>publishOn</code>/<code>subscribeOn</code>. Operators after an asynchronous source simply continue on the thread that delivered the signal.</p>
+
+  <h3>The schedulers</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Scheduler</th><th>Threads</th><th>Use for</th></tr></thead>
+    <tbody>
+      <tr><td><code>Schedulers.parallel()</code></td><td>Fixed, one per CPU core, marked non-blocking</td><td>CPU-bound, non-blocking work; timers</td></tr>
+      <tr><td><code>Schedulers.boundedElastic()</code></td><td>Created on demand, capped at 10 × cores, each with a task queue (100,000 by default); idle threads evicted after 60 s</td><td><b>Wrapping blocking calls</b>: JDBC, file I/O, legacy SDKs</td></tr>
+      <tr><td><code>Schedulers.single()</code></td><td>One reusable thread</td><td>Low-volume serialized work</td></tr>
+      <tr><td><code>Schedulers.immediate()</code></td><td>The current thread</td><td>A no-op where an API demands a scheduler</td></tr>
+      <tr><td><code>Schedulers.fromExecutor(e)</code></td><td>Whatever the executor has</td><td>Reusing an existing pool</td></tr>
+      <tr><td><code>Schedulers.newParallel(name, n)</code>, <code>newBoundedElastic(...)</code></td><td>Dedicated pools you own and must <code>dispose()</code></td><td>Isolation (bulkheads) for one noisy dependency</td></tr>
+    </tbody>
+  </table></div>
+  <p>Since Reactor 3.6, on JDK 21+ setting <code>-Dreactor.schedulers.defaultBoundedElasticOnVirtualThreads=true</code> backs <code>boundedElastic()</code> with virtual threads. The size cap and queue still apply.</p>
+
+  <h3>subscribeOn vs publishOn</h3>
+  <div class="box def"><span class="tag">Definition · The two operators</span>
+    <p><b><code>subscribeOn(s)</code></b> runs the <em>subscribe call</em> on <code>s</code> as it travels upstream, so the source starts on <code>s</code> and, if the source is synchronous, emits there. Its position in the chain does not matter, and when there are several, the one <b>closest to the source</b> (the first in reading order) determines where the source runs.</p>
+    <p><b><code>publishOn(s)</code></b> takes <code>onNext</code>/<code>onComplete</code>/<code>onError</code> signals from upstream, queues them (prefetch 256 by default), and re-emits them on <code>s</code>. Everything <em>below</em> it runs on <code>s</code>, until the next <code>publishOn</code>. You can use it as many times as you like.</p>
+  </div>
+<pre><code>import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
+
+public class Threads {
+    static int log(String stage, int v) {
+        System.out.printf("%-5s %d on %s%n", stage, v, Thread.currentThread().getName());
+        return v;
+    }
+
+    public static void main(String[] args) {
+        Flux.range(1, 2)
+            .map(i -&gt; log("map1", i))                  // boundedElastic-1 (subscribeOn below decides)
+            .publishOn(Schedulers.parallel())
+            .map(i -&gt; log("map2", i))                  // parallel-1
+            .subscribeOn(Schedulers.boundedElastic())  // position irrelevant: moves the source
+            .publishOn(Schedulers.single())
+            .map(i -&gt; log("map3", i))                  // single-1
+            .blockLast();
+    }
+}</code></pre>
+  <figure class="fig" id="l362-fig">
+    <svg viewBox="0 0 680 190" role="img" aria-label="The pipeline from range through map3, showing the subscribe call travelling upstream on main then boundedElastic, and data travelling downstream changing thread at each publishOn">
+      <defs><marker id="ah-l362" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <line x1="660" y1="40" x2="404" y2="40" class="s-ln-ink" marker-end="url(#ah-l362)"/>
+      <text x="530" y="33" class="s-sm s-mid">subscribe on main</text>
+      <line x1="400" y1="40" x2="72" y2="40" class="s-ln-acc" marker-end="url(#ah-l362)"/>
+      <text x="236" y="33" class="s-sm s-mid s-acc">subscribe on boundedElastic</text>
+      <rect x="10" y="60" width="60" height="30" class="s-node-mod"/><text x="40" y="79" class="s-sm s-mid">range</text>
+      <rect x="82" y="60" width="50" height="30" class="s-node"/><text x="107" y="79" class="s-sm s-mid">map1</text>
+      <rect x="144" y="60" width="86" height="30" class="s-node-mod"/><text x="187" y="79" class="s-sm s-mid">publishOn P</text>
+      <rect x="242" y="60" width="50" height="30" class="s-node"/><text x="267" y="79" class="s-sm s-mid">map2</text>
+      <rect x="304" y="60" width="98" height="30" class="s-node-mod"/><text x="353" y="79" class="s-sm s-mid">subscribeOn E</text>
+      <rect x="414" y="60" width="86" height="30" class="s-node-mod"/><text x="457" y="79" class="s-sm s-mid">publishOn S</text>
+      <rect x="512" y="60" width="50" height="30" class="s-node"/><text x="537" y="79" class="s-sm s-mid">map3</text>
+      <rect x="574" y="60" width="96" height="30" class="s-node"/><text x="622" y="79" class="s-sm s-mid">blockLast</text>
+      <line x1="10" y1="112" x2="230" y2="112" class="s-ln-acc"/>
+      <text x="120" y="128" class="s-sm s-mid s-acc">boundedElastic-1</text>
+      <line x1="232" y1="112" x2="412" y2="112" class="s-ln-info"/>
+      <text x="322" y="128" class="s-sm s-mid s-info">parallel-1</text>
+      <line x1="414" y1="112" x2="670" y2="112" class="s-ln-warn" marker-end="url(#ah-l362)"/>
+      <text x="540" y="128" class="s-sm s-mid s-warn">single-1</text>
+      <text x="10" y="160" class="s-sm">top: subscription travels upstream; subscribeOn switches it before it reaches the source</text>
+      <text x="10" y="178" class="s-sm">bottom: data travels downstream; each publishOn switches the thread for what follows</text>
+    </svg>
+    <figcaption><b>Two directions, two operators.</b> P = <code>parallel()</code>, E = <code>boundedElastic()</code>, S = <code>single()</code>. The coloured line shows which thread runs each stage of the data path.</figcaption>
+  </figure>
+
+  <h3>Wrapping a blocking call correctly</h3>
+<pre><code>Mono&lt;Customer&gt; findCustomer(long id) {
+    return Mono.fromCallable(() -&gt; jdbc.queryForObject(
+                "SELECT id, name FROM customer WHERE id = ?",
+                (rs, n) -&gt; new Customer(rs.getLong("id"), rs.getString("name")), id))
+               .subscribeOn(Schedulers.boundedElastic());   // the callable runs off the event loop
+}</code></pre>
+  <p>Three details make this right. <code>fromCallable</code> defers the call to subscription time (with <code>Mono.just</code> it would already have run on the caller's thread). <code>subscribeOn</code>, not <code>publishOn</code>, is needed because the blocking work happens in the <em>source</em>. And downstream operators now run on the elastic thread; that is fine for light mapping, and WebFlux writes the response back through Netty regardless. Remember the real ceiling: with 8 cores, <code>boundedElastic</code> allows 80 threads but HikariCP may have 10 connections, so 70 threads queue on the pool.</p>
+
+  <h3>True parallelism: parallel() and runOn()</h3>
+<pre><code>List&lt;String&gt; hashes = Flux.fromIterable(documents)
+    .parallel(Runtime.getRuntime().availableProcessors())   // split into rails
+    .runOn(Schedulers.parallel())                           // without this, rails share one thread
+    .map(Hashing::sha256)                                   // CPU-bound work, one rail per core
+    .sequential()                                           // merge back (order not preserved)
+    .collectList()
+    .block();</code></pre>
+  <p><code>parallel(n)</code> alone only divides items round-robin into a <code>ParallelFlux</code>; <code>runOn</code> gives each rail its own worker. For I/O-bound fan-out, <code>flatMap(..., concurrency)</code> is usually simpler and keeps one pipeline.</p>
+
+  <h3>Metrics and a starved boundedElastic</h3>
+  <p>Wrap a scheduler with <code>Micrometer.timedScheduler(scheduler, registry, "jdbc")</code> from <code>reactor-core-micrometer</code> to get task counts, queue time and run time (the old <code>Schedulers.enableMetrics()</code> was deprecated in Reactor 3.5). Starvation looks like rising latency with idle CPUs; a thread dump shows every <code>boundedElastic-*</code> thread blocked (often inside the connection pool), and once queues fill, submissions fail with <code>RejectedExecutionException</code> ("Task capacity of bounded elastic scheduler reached"). Fixes, in order: make the work non-blocking, cap concurrency with <code>flatMap(..., n)</code> matched to the pool, isolate the dependency on its own <code>newBoundedElastic</code>.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><code>publishOn(boundedElastic())</code> placed after a blocking source: the block already happened on the event loop. Blocking sources need <code>subscribeOn</code>.</li>
+      <li>Blocking (JDBC, <code>Thread.sleep</code>) on <code>parallel()</code>: only a handful of threads exist, so all CPU work and timers stall.</li>
+      <li><code>Schedulers.newParallel(...)</code> created per request and never disposed: a thread leak.</li>
+      <li>Assuming <code>subscribeOn</code> also moves downstream work off an asynchronous source: once the source hops to its own thread (Netty, a timer), downstream follows it.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Run <code>Threads</code>. Move <code>subscribeOn</code> to the end, then add a second <code>subscribeOn(Schedulers.single())</code> just after <code>range</code>; predict each line before running.</li>
+    <li>Simulate a 100 ms JDBC call with <code>Thread.sleep</code>. Fire 500 calls through <code>flatMap</code> on <code>parallel()</code> without <code>subscribeOn</code>, then with <code>subscribeOn(boundedElastic())</code>; record total time and explain both numbers.</li>
+    <li>Hash 1,000 strings with <code>parallel().runOn(...)</code>, then with <code>parallel()</code> alone; print thread names to see the difference.</li>
+    <li>Create <code>Schedulers.newBoundedElastic(4, 10, "jdbc")</code>, submit 50 blocking tasks at once, and catch the <code>RejectedExecutionException</code>. Fix it by limiting <code>flatMap</code> concurrency.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Reactor reference guide, "Threading and Schedulers" and "Metrics" · Javadoc: <code>reactor.core.scheduler.Schedulers</code>, <code>Flux#publishOn</code>, <code>Flux#subscribeOn</code>, <code>ParallelFlux</code> · Simon Baslé, "Flight of the Flux 3: Hopping Threads and Schedulers" (spring.io blog)</p>
+</article>
+<!-- ================================================================ L363 -->
+<article class="day" id="l363">
+  <header class="day-head">
+    <span class="day-no">L363 · DAY 363</span>
+    <h2>Spring WebFlux Architecture</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+  <p class="thesis">WebFlux reuses Spring MVC's annotations on top of a completely different runtime: a non-blocking server, a <code>DispatcherHandler</code> that returns a <code>Mono&lt;Void&gt;</code> instead of finishing on a thread, and codecs that read and write byte streams. The price of entry is that every link in the request path must be non-blocking.</p>
+
+  <h3>Same annotations, different runtime</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Concern</th><th>Servlet stack</th><th>Reactive stack</th></tr></thead>
+    <tbody>
+      <tr><td>Front controller</td><td><code>DispatcherServlet</code></td><td><code>DispatcherHandler</code></td></tr>
+      <tr><td>Request and response</td><td><code>HttpServletRequest</code>/<code>Response</code></td><td><code>ServerWebExchange</code> holding <code>ServerHttpRequest</code>/<code>ServerHttpResponse</code></td></tr>
+      <tr><td>Filters</td><td><code>jakarta.servlet.Filter</code>, <code>OncePerRequestFilter</code></td><td><code>WebFilter</code></td></tr>
+      <tr><td>Body conversion</td><td><code>HttpMessageConverter</code></td><td>Codecs: <code>HttpMessageReader</code>/<code>Writer</code>, <code>Encoder</code>/<code>Decoder</code></td></tr>
+      <tr><td>Configuration</td><td><code>WebMvcConfigurer</code></td><td><code>WebFluxConfigurer</code></td></tr>
+      <tr><td>Session</td><td><code>HttpSession</code></td><td><code>Mono&lt;WebSession&gt;</code> via <code>exchange.getSession()</code></td></tr>
+      <tr><td>Security</td><td><code>SecurityFilterChain</code></td><td><code>SecurityWebFilterChain</code></td></tr>
+      <tr><td>Default server</td><td>Tomcat, about 200 request threads</td><td>Reactor Netty, a few event-loop threads</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>DispatcherHandler and its three strategies</h3>
+  <p>The server adapter (for Netty, <code>ReactorHttpHandlerAdapter</code>) turns each connection's request into a call to one <code>HttpHandler</code>. Spring builds that handler as a chain: <code>WebFilter</code>s, then <code>WebExceptionHandler</code>s, then the <code>DispatcherHandler</code>, which delegates to three kinds of beans.</p>
+  <figure class="fig" id="l363-fig">
+    <svg viewBox="0 0 660 220" role="img" aria-label="Request path through Reactor Netty, HttpHandler, WebFilter chain, DispatcherHandler, then HandlerMapping, HandlerAdapter and HandlerResultHandler">
+      <defs><marker id="ah-l363" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="30" width="110" height="36" class="s-node-mod"/><text x="65" y="52" class="s-sm s-mid">Reactor Netty</text>
+      <rect x="150" y="30" width="110" height="36" class="s-node"/><text x="205" y="52" class="s-sm s-mid">HttpHandler</text>
+      <rect x="290" y="30" width="130" height="36" class="s-node"/><text x="355" y="52" class="s-sm s-mid">WebFilter chain</text>
+      <rect x="450" y="30" width="200" height="36" class="s-node-mod"/><text x="550" y="52" class="s-mid s-acc">DispatcherHandler</text>
+      <line x1="120" y1="48" x2="148" y2="48" class="s-ln" marker-end="url(#ah-l363)"/>
+      <line x1="260" y1="48" x2="288" y2="48" class="s-ln" marker-end="url(#ah-l363)"/>
+      <line x1="420" y1="48" x2="448" y2="48" class="s-ln" marker-end="url(#ah-l363)"/>
+      <rect x="30" y="120" width="180" height="40" class="s-node"/><text x="120" y="137" class="s-sm s-mid">1 HandlerMapping</text><text x="120" y="152" class="s-sm s-mid s-ink2">which handler?</text>
+      <rect x="240" y="120" width="180" height="40" class="s-node"/><text x="330" y="137" class="s-sm s-mid">2 HandlerAdapter</text><text x="330" y="152" class="s-sm s-mid s-ink2">invoke it</text>
+      <rect x="450" y="120" width="200" height="40" class="s-node"/><text x="550" y="137" class="s-sm s-mid">3 HandlerResultHandler</text><text x="550" y="152" class="s-sm s-mid s-ink2">write the result</text>
+      <line x1="500" y1="66" x2="140" y2="118" class="s-ln-acc" marker-end="url(#ah-l363)"/>
+      <line x1="540" y1="66" x2="340" y2="118" class="s-ln-acc" marker-end="url(#ah-l363)"/>
+      <line x1="560" y1="66" x2="555" y2="118" class="s-ln-acc" marker-end="url(#ah-l363)"/>
+      <text x="10" y="190" class="s-sm">every step returns a Mono; the event loop is released as soon as one waits on I/O</text>
+      <text x="10" y="208" class="s-sm s-ink2">errors anywhere in the chain reach WebExceptionHandler beans</text>
+    </svg>
+    <figcaption><b>The reactive request pipeline.</b> Nothing holds a thread for the duration of the request: the chain is a composed <code>Mono&lt;Void&gt;</code> that completes when the response has been written.</figcaption>
+  </figure>
+  <ul>
+    <li><b><code>HandlerMapping</code></b> finds the handler: <code>RequestMappingHandlerMapping</code> for <code>@RequestMapping</code> methods, <code>RouterFunctionMapping</code> for functional routes, <code>SimpleUrlHandlerMapping</code> for WebSocket and static resources.</li>
+    <li><b><code>HandlerAdapter</code></b> invokes it, resolving arguments (reading the body through codecs) and producing a <code>HandlerResult</code>.</li>
+    <li><b><code>HandlerResultHandler</code></b> turns the result into a response: <code>ResponseEntityResultHandler</code>, <code>ResponseBodyResultHandler</code>, <code>ServerResponseResultHandler</code>, <code>ViewResolutionResultHandler</code>.</li>
+  </ul>
+
+  <h3>Servers and the event loop</h3>
+  <p>Reactor Netty is the default and the most common choice. WebFlux also runs on Undertow, and on Tomcat or Jetty through Servlet 3.1+ non-blocking I/O, which Spring adapts to its own <code>HttpHandler</code> contract (Spring Boot 4 dropped Undertow support). Reactor Netty's worker group defaults to one thread per core with a minimum of four (<code>-Dreactor.netty.ioWorkerCount=N</code> overrides it); the threads are named <code>reactor-http-nio-N</code> (or <code>-epoll-</code> with native transport). <b>The absolute rule: never block one.</b> Each event loop multiplexes many connections, so a 200 ms blocking call stalls every connection on that loop for 200 ms.</p>
+
+  <h3>Exchange, filters and the classpath rule</h3>
+<pre><code>@Component
+class TimingFilter implements WebFilter {
+    @Override public Mono&lt;Void&gt; filter(ServerWebExchange exchange, WebFilterChain chain) {
+        long start = System.nanoTime();
+        return chain.filter(exchange).doFinally(signal -&gt; System.out.printf("%s %s -&gt; %s in %d ms (%s)%n",
+            exchange.getRequest().getMethod(), exchange.getRequest().getPath(),
+            exchange.getResponse().getStatusCode(), (System.nanoTime() - start) / 1_000_000, signal));
+    }
+}</code></pre>
+  <p>A <code>WebFilter</code> wraps the rest of the chain as a <code>Mono&lt;Void&gt;</code>, so "after" logic goes in operators on the returned <code>Mono</code>, not in code after a call. To change the request, build a new exchange with <code>exchange.mutate().request(r -&gt; r.header("X-Trace", id)).build()</code>; the original is immutable.</p>
+  <div class="box note"><span class="tag">Starter precedence</span>
+    <p><code>spring-boot-starter-webflux</code> brings Spring WebFlux and Reactor Netty. If <code>spring-boot-starter-web</code> is <em>also</em> on the classpath, Spring Boot configures <b>Spring MVC</b> on Tomcat, because many apps add WebFlux only for <code>WebClient</code>. To force the reactive stack:</p>
+<pre><code class="plain">spring:
+  main:
+    web-application-type: reactive
+  codec:
+    max-in-memory-size: 2MB     # default 256KB per aggregated body</code></pre>
+  </div>
+
+  <h3>Auto-configuration, codecs and sessions</h3>
+  <p><code>WebFluxAutoConfiguration</code> registers the codecs, the handler mappings, static resources and validation. Customize it with a <code>WebFluxConfigurer</code> bean; adding <code>@EnableWebFlux</code> switches Boot's configuration off, just as <code>@EnableWebMvc</code> does. Codecs replace message converters: an <code>Encoder</code> turns a <code>Publisher&lt;T&gt;</code> into a stream of <code>DataBuffer</code>s and a <code>Decoder</code> does the reverse, so a body can be processed as it arrives. Codecs that aggregate a whole body (JSON into one object) enforce <code>maxInMemorySize</code> and throw <code>DataBufferLimitException</code> beyond it.</p>
+<pre><code>@Configuration
+class WebConfig implements WebFluxConfigurer {
+    @Override public void configureHttpMessageCodecs(ServerCodecConfigurer configurer) {
+        configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024);
+        configurer.defaultCodecs().enableLoggingRequestDetails(false);
+    }
+}</code></pre>
+  <p>Sessions are reactive too: <code>exchange.getSession()</code> returns <code>Mono&lt;WebSession&gt;</code>, created lazily and stored by a <code>WebSessionManager</code>; Spring Session supplies a reactive Redis-backed store for clusters.</p>
+
+  <div class="box algo"><span class="tag">Algorithm · Reactive stack checklist</span>
+    <ol>
+      <li>Database: R2DBC, reactive MongoDB or Cassandra, not JDBC or JPA.</li>
+      <li>Cache: Lettuce's <code>ReactiveRedisTemplate</code>, not a blocking Jedis client.</li>
+      <li>HTTP client: <code>WebClient</code> (or an HTTP interface on top of it), not <code>RestTemplate</code>.</li>
+      <li>Security: <code>@EnableWebFluxSecurity</code>, <code>SecurityWebFilterChain</code>, <code>ReactiveUserDetailsService</code>.</li>
+      <li>Messaging and SDKs: reactive or async APIs, or explicitly isolated on <code>boundedElastic</code> (<a href="#l362">L362</a>).</li>
+      <li>Logging and tracing: context propagation instead of thread-locals (<a href="#l361">L361</a>).</li>
+      <li>Verify with BlockHound in the integration tests. One blocking link ruins the whole chain.</li>
+    </ol>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>Both starters on the classpath: the team believes it runs WebFlux, actually runs MVC on Tomcat, and is surprised that <code>Mono</code> controllers "work" yet scale like servlets.</li>
+      <li>A JPA call hidden in a service used by a reactive controller: event loops block under load, p99 latency explodes, CPU stays low.</li>
+      <li><code>DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144</code> on the first large request in production.</li>
+      <li>Thread-local libraries (old MDC filters, <code>SecurityContextHolder</code>) silently seeing empty values.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 40 min</h4><ol>
+    <li>Create a WebFlux-only app with one endpoint that logs <code>Thread.currentThread().getName()</code>. Start it with <code>-Dreactor.netty.ioWorkerCount=2</code> and confirm the names.</li>
+    <li>Add <code>spring-boot-starter-web</code> and watch Tomcat start; fix it with <code>web-application-type: reactive</code>.</li>
+    <li>Write <code>TimingFilter</code> and a correlation-id <code>WebFilter</code> that mutates the request and echoes the id in the response.</li>
+    <li>POST a 1 MB JSON body, observe the <code>DataBufferLimitException</code>, and raise the limit through the property and then through <code>WebFluxConfigurer</code>.</li>
+    <li>Take a real service's <code>pom.xml</code> and list every dependency that would block, with its reactive replacement.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework reference, "Web on Reactive Stack": Overview, Reactive Core (<code>HttpHandler</code>, <code>WebHandler</code> API, Codecs) and <code>DispatcherHandler</code> · Spring Boot reference, "Reactive Web Applications" · Reactor Netty reference guide, HTTP Server</p>
+</article>
+<!-- ================================================================ L364 -->
+<article class="day" id="l364">
+  <header class="day-head">
+    <span class="day-no">L364 · DAY 364</span>
+    <h2>Annotated Controllers in WebFlux</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">A WebFlux controller looks like an MVC controller that returns <code>Mono</code> and <code>Flux</code>, and the return type plus the media type decide how the response is written: one buffered JSON document, or a stream flushed item by item. The annotations are familiar; what is new is that the method must return quickly and never block.</p>
+
+  <h3>Return types and the same annotations</h3>
+  <p><code>@RestController</code>, <code>@GetMapping</code>, <code>@PathVariable</code>, <code>@RequestParam</code>, <code>@RequestBody</code> and <code>@Valid</code> all work as in MVC. The method returns a publisher and WebFlux subscribes to it:</p>
+<pre><code>@RestController
+@RequestMapping("/api/orders")
+class OrderController {
+    private final OrderService service;
+    OrderController(OrderService service) { this.service = service; }
+
+    @GetMapping("/{id}")
+    Mono&lt;ResponseEntity&lt;OrderDto&gt;&gt; get(@PathVariable UUID id) {
+        return service.find(id)
+                      .map(ResponseEntity::ok)
+                      .defaultIfEmpty(ResponseEntity.notFound().build());   // empty Mono = 404
+    }
+
+    @GetMapping                                              // application/json: one JSON array
+    Flux&lt;OrderDto&gt; list(@RequestParam(defaultValue = "OPEN") Status status) {
+        return service.byStatus(status);
+    }
+
+    @GetMapping(value = "/export", produces = MediaType.APPLICATION_NDJSON_VALUE)
+    Flux&lt;OrderDto&gt; export() {                              // one JSON object per line, flushed as rows arrive
+        return service.streamAll();
+    }
+
+    @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    Flux&lt;ServerSentEvent&lt;OrderDto&gt;&gt; events() {
+        return service.updates().map(o -&gt; ServerSentEvent.builder(o)
+                .id(o.id().toString()).event("order-updated").build());
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    Mono&lt;OrderDto&gt; create(@Valid @RequestBody CreateOrder body,
+                          @AuthenticationPrincipal Jwt jwt) {
+        return service.create(body, jwt.getSubject());
+    }
+}</code></pre>
+  <p>With a plain <code>@RequestBody CreateOrder</code>, WebFlux decodes the body before calling you; with <code>@RequestBody Mono&lt;CreateOrder&gt;</code> you receive the decoding (and validation errors) as a signal and can compose on it. A <code>Mono&lt;Void&gt;</code> return means "200 with no body when done".</p>
+
+  <h3>JSON array vs a stream</h3>
+  <div class="box def"><span class="tag">Definition · How a Flux is written</span>
+    <p>With <code>application/json</code>, the Jackson encoder collects the <code>Flux</code> into a list and writes one JSON array: the client sees nothing until the last element, and the whole result sits in memory. With a <b>streaming media type</b>, <code>application/x-ndjson</code> (<code>APPLICATION_NDJSON_VALUE</code>) or <code>text/event-stream</code> (<code>TEXT_EVENT_STREAM_VALUE</code>), each element is encoded and flushed individually, and backpressure from a slow client propagates through Netty into the <code>Flux</code>. SSE adds framing (<code>id</code>, <code>event</code>, <code>retry</code>, <code>data</code>) and browser auto-reconnect via <code>EventSource</code>; NDJSON is better for machine-to-machine exports.</p>
+  </div>
+  <figure class="fig" id="l364-fig">
+    <svg viewBox="0 0 640 160" role="img" aria-label="Five rows arrive over time. With application/json one array is written after the last row; with NDJSON each row is written as it arrives.">
+      <text x="20" y="44" class="s-sm s-acc">application/json</text>
+      <circle cx="220" cy="36" r="5" class="s-node"/><circle cx="280" cy="36" r="5" class="s-node"/><circle cx="340" cy="36" r="5" class="s-node"/><circle cx="400" cy="36" r="5" class="s-node"/><circle cx="460" cy="36" r="5" class="s-node"/>
+      <rect x="465" y="50" width="160" height="16" class="s-node-mod"/><text x="545" y="62" class="s-sm s-mid">one JSON array</text>
+      <text x="220" y="62" class="s-sm s-ink2">nothing sent yet</text>
+      <text x="20" y="104" class="s-sm s-acc">application/x-ndjson</text>
+      <circle cx="220" cy="96" r="5" class="s-node"/><circle cx="280" cy="96" r="5" class="s-node"/><circle cx="340" cy="96" r="5" class="s-node"/><circle cx="400" cy="96" r="5" class="s-node"/><circle cx="460" cy="96" r="5" class="s-node"/>
+      <rect x="225" y="110" width="40" height="16" class="s-node-mod"/><rect x="285" y="110" width="40" height="16" class="s-node-mod"/><rect x="345" y="110" width="40" height="16" class="s-node-mod"/><rect x="405" y="110" width="40" height="16" class="s-node-mod"/><rect x="465" y="110" width="40" height="16" class="s-node-mod"/>
+      <text x="20" y="150" class="s-sm s-ink2">dots: rows arriving from the database; bars: bytes flushed to the client</text>
+    </svg>
+    <figcaption><b>The media type decides buffering.</b> Same <code>Flux</code>, same controller code: only <code>produces</code> changes whether the client waits for the last row and whether the server holds them all.</figcaption>
+  </figure>
+  <p><b>Streaming a large result set</b>: return the repository's <code>Flux</code> directly with NDJSON, as in <code>export()</code>. With R2DBC, rows are decoded as they arrive and memory stays flat whatever the row count; avoid <code>collectList()</code>, and add a <code>timeout</code> or <code>take</code> so a stuck client cannot hold a cursor open forever.</p>
+
+  <h3>Exchange, principal and the security context</h3>
+  <p>Any handler can declare a <code>ServerWebExchange</code> parameter for raw access to request, response, attributes and session. <code>@AuthenticationPrincipal</code> resolves the current principal (a <code>Jwt</code>, a <code>UserDetails</code>). Outside controllers, read it through <code>ReactiveSecurityContextHolder.getContext()</code>, which returns a <code>Mono&lt;SecurityContext&gt;</code> read from the Reactor <code>Context</code> that Spring Security's <code>WebFilter</code> wrote. It is <b>a Context key, not a <code>ThreadLocal</code></b>, so it only works inside the request's reactive chain; <code>SecurityContextHolder.getContext()</code> is empty here.</p>
+<pre><code>Mono&lt;String&gt; currentUser() {
+    return ReactiveSecurityContextHolder.getContext()
+        .map(ctx -&gt; ctx.getAuthentication().getName())
+        .defaultIfEmpty("anonymous");
+}</code></pre>
+
+  <h3>Exception handling, inside and outside the handler</h3>
+<pre><code>@RestControllerAdvice
+class ApiErrors {
+    @ExceptionHandler(OrderNotFoundException.class)
+    ProblemDetail notFound(OrderNotFoundException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
+    @ExceptionHandler(WebExchangeBindException.class)        // @Valid failures in WebFlux
+    ProblemDetail invalid(WebExchangeBindException e) {
+        var pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "validation failed");
+        pd.setProperty("errors", e.getFieldErrors().stream()
+            .map(f -&gt; f.getField() + ": " + f.getDefaultMessage()).toList());
+        return pd;
+    }
+}
+
+@Component
+@Order(-2)                                                    // before Boot's DefaultErrorWebExceptionHandler (-1)
+class LastResortErrorHandler implements ErrorWebExceptionHandler {
+    @Override public Mono&lt;Void&gt; handle(ServerWebExchange ex, Throwable t) {
+        var res = ex.getResponse();
+        if (res.isCommitted()) return Mono.error(t);          // too late to change status
+        HttpStatusCode status = t instanceof ResponseStatusException r ? r.getStatusCode()
+                                                                       : HttpStatus.INTERNAL_SERVER_ERROR;
+        res.setStatusCode(status);
+        res.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
+        byte[] body = ("{\"status\":" + status.value() + ",\"title\":\"request failed\"}")
+                .getBytes(StandardCharsets.UTF_8);
+        return res.writeWith(Mono.just(res.bufferFactory().wrap(body)));
+    }
+}</code></pre>
+  <p><code>@ExceptionHandler</code> methods (and the <code>@RestControllerAdvice</code> that hosts them) handle errors from <b>controller methods</b>, including error signals from the returned publisher. Errors raised <b>outside</b> a handler, in a <code>WebFilter</code>, in security, in a 404 with no matching route, reach <code>WebExceptionHandler</code> beans; Spring Boot registers a <code>DefaultErrorWebExceptionHandler</code>, and a custom <code>ErrorWebExceptionHandler</code> with higher precedence replaces it.</p>
+
+  <h3>Correlation ids in a WebFilter</h3>
+<pre><code>@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+class CorrelationIdFilter implements WebFilter {
+    static final String HEADER = "X-Correlation-Id";
+
+    @Override public Mono&lt;Void&gt; filter(ServerWebExchange ex, WebFilterChain chain) {
+        String id = Optional.ofNullable(ex.getRequest().getHeaders().getFirst(HEADER))
+                            .orElseGet(() -&gt; UUID.randomUUID().toString());
+        ex.getResponse().getHeaders().set(HEADER, id);
+        ServerWebExchange mutated = ex.mutate().request(r -&gt; r.header(HEADER, id)).build();
+        return chain.filter(mutated).contextWrite(Context.of("correlationId", id));
+    }
+}</code></pre>
+  <p>Downstream code reads the id from the Context, and with automatic context propagation (<a href="#l361">L361</a>) logging can put it into MDC for every line of the request.</p>
+
+  <h3>The classic mistake, measured</h3>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>A controller returns <code>Mono.just(jpaRepository.findById(id).orElseThrow())</code>. The JPA call runs on the event loop and takes 50 ms. With 4 event-loop threads, each can complete at most 1 / 0.05 = 20 requests per second, so the service tops out near <b>80 req/s</b> whatever the concurrency, with CPU nearly idle. Load-test it with <code>hey -z 30s -c 200 http://localhost:8080/api/blocking/42</code>: throughput is flat and latency grows with the queue. Swap in an R2DBC repository and the same machine is limited by the database instead. Wrapping the call in <code>fromCallable(...).subscribeOn(boundedElastic())</code> lifts the cap to 10 × cores threads: 40 threads on 4 cores, so about 40 / 0.05 = 800 req/s, and then the connection pool becomes the bound.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>A blocking repository behind a reactive controller (above). It passes every functional test and fails the first load test.</li>
+      <li>Returning a huge <code>Flux</code> as <code>application/json</code> and expecting streaming: it is buffered in full.</li>
+      <li>SSE behind a proxy that buffers responses or closes idle connections: add periodic heartbeat events and check the proxy's timeouts.</li>
+      <li>An <code>ErrorWebExceptionHandler</code> that writes to an already committed response: a second error and a truncated body.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Build <code>OrderController</code> over an in-memory service. Call <code>/api/orders</code> and <code>/api/orders/export</code> with <code>curl -N</code> on a <code>Flux</code> with <code>delayElements(Duration.ofMillis(200))</code> and see the difference between buffered and streamed output.</li>
+    <li>Add the SSE endpoint and consume it from a browser <code>EventSource</code>; stop and restart the server and watch the reconnect.</li>
+    <li>Trigger a validation error, a not-found error, and an error thrown in a <code>WebFilter</code>; confirm which handler produces each response.</li>
+    <li>Add <code>CorrelationIdFilter</code> and log the id from a service method via <code>deferContextual</code>.</li>
+    <li>Reproduce the worked example: a 50 ms <code>Thread.sleep</code> endpoint vs a <code>Mono.delay</code> endpoint, both load-tested with 200 connections. Record req/s for each.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework reference, "Web on Reactive Stack": Annotated Controllers (method arguments, return values, exceptions) and Codecs (Jackson JSON, streaming) · Spring Boot reference, "Reactive Web Applications: Error Handling" · Spring Security reference, Reactive Applications · Javadoc: <code>ServerSentEvent</code>, <code>ErrorWebExceptionHandler</code>, <code>ReactiveSecurityContextHolder</code></p>
+</article>
+<!-- ================================================================ L365 -->
+<article class="day" id="l365">
+  <header class="day-head">
+    <span class="day-no">L365 · DAY 365</span>
+    <h2>Functional Endpoints: RouterFunction &amp; HandlerFunction</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">Functional endpoints replace annotation scanning with two plain functions: a <code>RouterFunction</code> that maps a request to a handler, and a <code>HandlerFunction</code> that maps a <code>ServerRequest</code> to a <code>Mono&lt;ServerResponse&gt;</code>. Routing becomes ordinary code you can read top to bottom, compose, and unit-test without starting a server.</p>
+
+  <h3>The two functions</h3>
+  <div class="box def"><span class="tag">Definition · Router and handler</span>
+    <p><code>HandlerFunction&lt;T extends ServerResponse&gt;</code> is <code>Mono&lt;T&gt; handle(ServerRequest)</code>, the equivalent of a controller method body. <code>RouterFunction&lt;T&gt;</code> is <code>Mono&lt;HandlerFunction&lt;T&gt;&gt; route(ServerRequest)</code>: it returns the matching handler or an empty <code>Mono</code>. A <code>RequestPredicate</code> is a boolean test on the request (<code>GET("/x")</code>, <code>accept(...)</code>, <code>contentType(...)</code>, <code>queryParam(...)</code>) and composes with <code>and</code>, <code>or</code>, <code>negate</code>. Spring's <code>RouterFunctionMapping</code> picks up every <code>RouterFunction</code> bean and tries them in order.</p>
+  </div>
+
+  <h3>Routes with the builder</h3>
+<pre><code>import static org.springframework.web.reactive.function.server.RequestPredicates.accept;
+import static org.springframework.web.reactive.function.server.RequestPredicates.contentType;
+import static org.springframework.web.reactive.function.server.RequestPredicates.queryParam;
+
+@Configuration
+class OrderRoutes {
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; orderRouter(OrderHandler h) {
+        return RouterFunctions.route()
+            .path("/api/orders", b -&gt; b
+                .GET("/{id}", accept(MediaType.APPLICATION_JSON), h::get)
+                .GET(queryParam("status", s -&gt; !s.isBlank()), h::byStatus)
+                .GET(h::all)                                       // catch-all GET
+                .POST(contentType(MediaType.APPLICATION_JSON), h::create))
+            .filter((request, next) -&gt;                               // applies to every route of this builder
+                request.headers().firstHeader("X-Api-Key") == null
+                    ? ServerResponse.status(HttpStatus.UNAUTHORIZED).build()
+                    : next.handle(request))
+            .after((request, response) -&gt; {
+                System.out.println(request.method() + " " + request.path() + " -&gt; " + response.statusCode());
+                return response;
+            })
+            .onError(OrderNotFoundException.class,
+                     (e, request) -&gt; ServerResponse.notFound().build())
+            .build();
+    }
+}</code></pre>
+  <p>Order matters: the first matching route wins, so the <code>GET</code> that requires a <code>status</code> parameter must come before the catch-all <code>GET</code>. <code>path(prefix, builder)</code> and <code>nest(predicate, builder)</code> group routes under a shared prefix or predicate. Without the builder, the static style composes the same way: <code>route(GET("/a"), h1).andRoute(POST("/a"), h2).and(otherRouter)</code>, with <code>RouterFunctions.nest(path("/api"), ...)</code> for nesting. <code>before(request -&gt; ...)</code> can replace the request (adding an attribute or header) before the handler runs; <code>after</code> sees both request and response; <code>filter</code> can short-circuit, as the API-key check does.</p>
+
+  <figure class="fig" id="l365-fig">
+    <svg viewBox="0 0 640 200" role="img" aria-label="A request passes the API-key filter, then the four routes under /api/orders are tested top to bottom and the first match selects its handler">
+      <defs><marker id="ah-l365" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="80" width="100" height="36" class="s-node"/><text x="60" y="102" class="s-sm s-mid">request</text>
+      <rect x="140" y="80" width="120" height="36" class="s-node-mod"/><text x="200" y="96" class="s-sm s-mid">filter</text><text x="200" y="109" class="s-sm s-mid s-ink2">API key</text>
+      <line x1="110" y1="98" x2="138" y2="98" class="s-ln" marker-end="url(#ah-l365)"/>
+      <line x1="260" y1="98" x2="282" y2="98" class="s-ln"/>
+      <line x1="282" y1="35" x2="282" y2="170" class="s-ln"/>
+      <line x1="282" y1="35" x2="298" y2="35" class="s-ln" marker-end="url(#ah-l365)"/>
+      <line x1="282" y1="80" x2="298" y2="80" class="s-ln" marker-end="url(#ah-l365)"/>
+      <line x1="282" y1="125" x2="298" y2="125" class="s-ln" marker-end="url(#ah-l365)"/>
+      <line x1="282" y1="170" x2="298" y2="170" class="s-ln" marker-end="url(#ah-l365)"/>
+      <rect x="300" y="20" width="210" height="30" class="s-node"/><text x="310" y="39" class="s-sm">1 GET /{id}, accept json</text>
+      <rect x="300" y="65" width="210" height="30" class="s-node"/><text x="310" y="84" class="s-sm">2 GET with ?status</text>
+      <rect x="300" y="110" width="210" height="30" class="s-node"/><text x="310" y="129" class="s-sm">3 GET, catch-all</text>
+      <rect x="300" y="155" width="210" height="30" class="s-node"/><text x="310" y="174" class="s-sm">4 POST, json body</text>
+      <line x1="510" y1="35" x2="538" y2="35" class="s-ln-acc" marker-end="url(#ah-l365)"/><text x="544" y="39" class="s-sm s-acc">h::get</text>
+      <line x1="510" y1="80" x2="538" y2="80" class="s-ln-acc" marker-end="url(#ah-l365)"/><text x="544" y="84" class="s-sm s-acc">h::byStatus</text>
+      <line x1="510" y1="125" x2="538" y2="125" class="s-ln-acc" marker-end="url(#ah-l365)"/><text x="544" y="129" class="s-sm s-acc">h::all</text>
+      <line x1="510" y1="170" x2="538" y2="170" class="s-ln-acc" marker-end="url(#ah-l365)"/><text x="544" y="174" class="s-sm s-acc">h::create</text>
+      <text x="20" y="160" class="s-sm s-ink2">first match wins,</text>
+      <text x="20" y="175" class="s-sm s-ink2">top to bottom</text>
+    </svg>
+    <figcaption><b>Routing is a list, not a lookup table.</b> Predicates are evaluated in declaration order; swap routes 2 and 3 and the <code>status</code> handler is never reached.</figcaption>
+  </figure>
+
+  <h3>Handlers as plain beans</h3>
+<pre><code>@Component
+class OrderHandler {
+    private final OrderService service;
+    private final Validator validator;                       // jakarta.validation.Validator
+    OrderHandler(OrderService service, Validator validator) { this.service = service; this.validator = validator; }
+
+    Mono&lt;ServerResponse&gt; get(ServerRequest req) {
+        UUID id = UUID.fromString(req.pathVariable("id"));
+        return service.find(id)
+            .flatMap(o -&gt; ServerResponse.ok().contentType(MediaType.APPLICATION_JSON).bodyValue(o))
+            .switchIfEmpty(ServerResponse.notFound().build());
+    }
+
+    Mono&lt;ServerResponse&gt; byStatus(ServerRequest req) {
+        Status status = Status.valueOf(req.queryParam("status").orElseThrow());
+        return ServerResponse.ok().body(service.byStatus(status), OrderDto.class);   // Flux body
+    }
+
+    Mono&lt;ServerResponse&gt; all(ServerRequest req) {
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_NDJSON)
+                             .body(service.streamAll(), OrderDto.class);
+    }
+
+    Mono&lt;ServerResponse&gt; create(ServerRequest req) {
+        return req.bodyToMono(CreateOrder.class)
+            .doOnNext(this::validate)                             // no @Valid here: validate explicitly
+            .flatMap(service::create)
+            .flatMap(o -&gt; ServerResponse.created(URI.create("/api/orders/" + o.id())).bodyValue(o));
+    }
+
+    private void validate(CreateOrder body) {
+        var violations = validator.validate(body);
+        if (!violations.isEmpty())
+            throw new ServerWebInputException(violations.iterator().next().getMessage());
+    }
+}</code></pre>
+  <p><code>ServerRequest</code> exposes <code>pathVariable</code>, <code>queryParam</code> (an <code>Optional</code>), <code>headers()</code>, <code>cookies()</code>, <code>attribute</code>, <code>principal()</code> and the body as <code>bodyToMono</code>/<code>bodyToFlux</code>. <code>ServerResponse</code> is built with <code>ok()</code>, <code>created(uri)</code>, <code>status(...)</code>, <code>notFound()</code>, then <code>header</code>, <code>contentType</code>, and finally <code>bodyValue(object)</code> for a ready value, <code>body(publisher, Class)</code> for a <code>Mono</code>/<code>Flux</code>, or <code>build()</code> for no body. Handlers are normal beans: no reflection to resolve arguments, no annotation proxies, and constructor injection like anything else.</p>
+
+  <h3>Annotated vs functional</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Aspect</th><th>Annotated controllers</th><th>Functional endpoints</th></tr></thead>
+    <tbody>
+      <tr><td>Routing</td><td>Scattered across annotations, resolved at startup</td><td>Explicit code in one place, ordered</td></tr>
+      <tr><td>Argument binding and validation</td><td>Automatic (<code>@PathVariable</code>, <code>@Valid</code>)</td><td>Manual via <code>ServerRequest</code> and a <code>Validator</code></td></tr>
+      <tr><td>Testing</td><td><code>WebTestClient</code> or a sliced context</td><td>Call the function directly or <code>bindToRouterFunction</code></td></tr>
+      <tr><td>Tooling</td><td>OpenAPI generators, IDE navigation, familiarity</td><td>Needs explicit OpenAPI metadata (springdoc's <code>@RouterOperation</code>)</td></tr>
+      <tr><td>Fits best</td><td>Large CRUD APIs, mixed-skill teams</td><td>Small services, gateways, dynamic or conditional routes</td></tr>
+    </tbody>
+  </table></div>
+  <p>You can mix both in one application: <code>RouterFunctionMapping</code> and <code>RequestMappingHandlerMapping</code> are both registered, and by default router functions are consulted first.</p>
+
+  <h3>Without Spring Boot, and in tests</h3>
+<pre><code>RouterFunction&lt;ServerResponse&gt; routes = RouterFunctions.route()
+    .GET("/hello", req -&gt; ServerResponse.ok().bodyValue("hello"))
+    .build();
+
+HttpHandler httpHandler = RouterFunctions.toHttpHandler(routes);
+DisposableServer server = HttpServer.create().port(8080)
+    .handle(new ReactorHttpHandlerAdapter(httpHandler))
+    .bindNow();                                              // a full web server, no context at all</code></pre>
+<pre><code>class OrderRoutesTest {
+    OrderService service = Mockito.mock(OrderService.class);
+    Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+    WebTestClient client = WebTestClient
+        .bindToRouterFunction(new OrderRoutes().orderRouter(new OrderHandler(service, validator)))
+        .build();
+
+    @Test void unknownOrderIs404() {
+        UUID id = UUID.randomUUID();
+        Mockito.when(service.find(id)).thenReturn(Mono.empty());
+        client.get().uri("/api/orders/{id}", id).header("X-Api-Key", "k")
+              .accept(MediaType.APPLICATION_JSON)
+              .exchange()
+              .expectStatus().isNotFound();
+    }
+
+    @Test void missingKeyIs401() {
+        client.get().uri("/api/orders").exchange().expectStatus().isUnauthorized();
+    }
+}</code></pre>
+  <p><code>bindToRouterFunction</code> runs the real routing, filters, codecs and error handling in memory, with no Spring context and no port, so the test starts in milliseconds.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>Route order: a catch-all registered before a specific route silently shadows it.</li>
+      <li>Forgetting validation: there is no <code>@Valid</code>, so invalid bodies flow into the service unless the handler validates.</li>
+      <li><code>bodyValue(flux)</code> instead of <code>body(flux, Type.class)</code>: the <code>Flux</code> object itself is serialized (or fails), rather than its items.</li>
+      <li>A filter that calls <code>next.handle(request)</code> and also builds its own response: two responses, the second fails on a committed response.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Port the <code>OrderController</code> from <a href="#l364">L364</a> to <code>OrderRoutes</code> and <code>OrderHandler</code>, keeping the same URLs and status codes.</li>
+    <li>Swap the order of the two collection <code>GET</code> routes and write a test that catches the regression.</li>
+    <li>Add a <code>before</code> that stores a request start time as an attribute and an <code>after</code> that logs the duration.</li>
+    <li>Run the router with <code>toHttpHandler</code> and a bare Reactor Netty <code>HttpServer</code>; compare startup time with the Boot app.</li>
+    <li>Keep one annotated controller in the same app and confirm that both styles serve requests.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework reference, "Web on Reactive Stack": Functional Endpoints (HandlerFunction, RouterFunction, Running a Server, Filtering Handler Functions) and Testing (<code>WebTestClient</code>) · Javadoc: <code>RouterFunctions</code>, <code>RequestPredicates</code>, <code>ServerRequest</code>, <code>ServerResponse</code></p>
+</article>
+<!-- ================================================================ L366 -->
+<article class="day" id="l366">
+  <header class="day-head">
+    <span class="day-no">L366 · DAY 366</span>
+    <h2>WebClient In Depth</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis"><code>WebClient</code> is easy to call and easy to misconfigure: its defaults have no response timeout, generous pool waits and no idle eviction, which is exactly how one slow dependency becomes a cascading outage. Configure the connection layer explicitly, map errors with <code>onStatus</code>, and keep cross-cutting concerns in <code>ExchangeFilterFunction</code>s.</p>
+
+  <h3>Building clients</h3>
+  <p><code>WebClient.create()</code> and <code>WebClient.create(baseUrl)</code> are for scripts. In Spring Boot, inject the auto-configured <code>WebClient.Builder</code> (it carries Boot's codecs and observation) and build one client per downstream service: <code>baseUrl</code>, <code>defaultHeader</code>, <code>defaultUriVariables(Map)</code>, <code>filter</code>, <code>codecs</code>. A built <code>WebClient</code> is immutable and thread-safe; <code>client.mutate()</code> returns a builder seeded with its settings, for a variant with an extra header or filter.</p>
+<pre><code>@Configuration
+class InventoryClientConfig {
+    @Bean
+    WebClient inventoryWebClient(WebClient.Builder builder) {
+        ConnectionProvider pool = ConnectionProvider.builder("inventory")
+            .maxConnections(50)                              // default 2 x max(cores, 8)
+            .pendingAcquireMaxCount(200)                     // bounded wait queue
+            .pendingAcquireTimeout(Duration.ofSeconds(2))    // default 45 s
+            .maxIdleTime(Duration.ofSeconds(30))             // below the server / LB idle timeout
+            .maxLifeTime(Duration.ofMinutes(5))
+            .evictInBackground(Duration.ofSeconds(30))
+            .build();
+        HttpClient http = HttpClient.create(pool)
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 2_000)  // default 30 s
+            .responseTimeout(Duration.ofSeconds(3))               // default: none at all
+            .doOnConnected(c -&gt; c.addHandlerLast(new ReadTimeoutHandler(5, TimeUnit.SECONDS))
+                                 .addHandlerLast(new WriteTimeoutHandler(5, TimeUnit.SECONDS)));
+        return builder.baseUrl("https://inventory.internal")
+            .clientConnector(new ReactorClientHttpConnector(http))
+            .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+            .codecs(c -&gt; c.defaultCodecs().maxInMemorySize(1024 * 1024))
+            .filter(Filters.logging())
+            .build();
+    }
+}</code></pre>
+
+  <h3>The settings whose absence causes outages</h3>
+  <figure class="fig" id="l366-fig">
+    <svg viewBox="0 0 660 160" role="img" aria-label="The phases of one call, pool acquire, connect, send request and receive response, each with its timeout setting, and an overall Mono timeout across all of them">
+      <defs><marker id="ah-l366" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="30" width="130" height="34" class="s-node-mod"/><text x="85" y="51" class="s-sm s-mid">pool acquire</text>
+      <rect x="150" y="30" width="120" height="34" class="s-node"/><text x="210" y="51" class="s-sm s-mid">connect + TLS</text>
+      <rect x="270" y="30" width="110" height="34" class="s-node-mod"/><text x="325" y="51" class="s-sm s-mid">send request</text>
+      <rect x="380" y="30" width="260" height="34" class="s-node"/><text x="510" y="51" class="s-sm s-mid">receive headers and body</text>
+      <text x="85" y="84" class="s-sm s-mid s-acc">pendingAcquireTimeout</text>
+      <text x="210" y="100" class="s-sm s-mid s-acc">CONNECT_TIMEOUT_MILLIS</text>
+      <text x="325" y="84" class="s-sm s-mid s-acc">WriteTimeoutHandler</text>
+      <text x="510" y="100" class="s-sm s-mid s-acc">responseTimeout, ReadTimeoutHandler</text>
+      <line x1="22" y1="122" x2="638" y2="122" class="s-ln-warn" marker-start="url(#ah-l366)" marker-end="url(#ah-l366)"/>
+      <text x="330" y="144" class="s-sm s-mid s-warn">Mono.timeout(...) around the call, retries included: the caller's total budget</text>
+    </svg>
+    <figcaption><b>One timeout per phase, plus a budget.</b> Each Netty-level setting bounds one phase of the call; the operator-level <code>timeout</code> bounds what the caller actually waits.</figcaption>
+  </figure>
+  <div class="box def"><span class="tag">Definition · Pool and timeout settings</span>
+    <ul>
+      <li><b><code>maxConnections</code></b>: concurrent connections to one host. Requests beyond it wait in a queue bounded by <code>pendingAcquireMaxCount</code> for at most <code>pendingAcquireTimeout</code>, then fail with <code>PoolAcquireTimeoutException</code>.</li>
+      <li><b><code>maxIdleTime</code> / <code>maxLifeTime</code></b>: close connections before a load balancer silently drops them. Without them you get <code>PrematureCloseException: Connection prematurely closed BEFORE response</code> on the first request after an idle period.</li>
+      <li><b><code>CONNECT_TIMEOUT_MILLIS</code></b>: TCP connect.</li>
+      <li><b><code>responseTimeout</code></b>: per request, the maximum gap between network reads once the request is sent, so it covers the wait for headers. <code>ReadTimeoutHandler</code> and <code>WriteTimeoutHandler</code> are the channel-level equivalents.</li>
+    </ul>
+  </div>
+  <p>Why missing timeouts cascade: a dependency that hangs never fails, so callers hold connections and pending acquires until <em>their</em> callers time out and retry, which doubles the load on a service that is already stuck. A short, explicit timeout turns a hang into a fast, countable failure that a retry or circuit breaker can act on.</p>
+
+  <h3>retrieve() vs exchangeToMono()</h3>
+<pre><code>Mono&lt;Stock&gt; stock(String sku) {
+    return web.get().uri("/stock/{sku}", sku)
+        .retrieve()                                               // 4xx/5xx become WebClientResponseException
+        .onStatus(s -&gt; s.value() == 404, r -&gt; Mono.error(new UnknownSkuException(sku)))
+        .onStatus(HttpStatusCode::is5xxServerError, r -&gt; r.bodyToMono(String.class).defaultIfEmpty("")
+            .flatMap(body -&gt; Mono.error(new InventoryUnavailableException(r.statusCode(), body))))
+        .bodyToMono(Stock.class);
+}
+
+Mono&lt;Optional&lt;Stock&gt;&gt; stockIfKnown(String sku) {
+    return web.get().uri("/stock/{sku}", sku)
+        .&lt;Optional&lt;Stock&gt;&gt;exchangeToMono(r -&gt; switch (r.statusCode().value()) {
+            case 200 -&gt; r.bodyToMono(Stock.class).map(Optional::of);
+            case 404 -&gt; r.releaseBody().thenReturn(Optional.empty());   // consume or release, always
+            default  -&gt; r.createError();                                 // WebClientResponseException
+        });
+}</code></pre>
+  <p><code>retrieve()</code> is the default: it decodes the body and turns error statuses into exceptions, which <code>onStatus</code> lets you map. <code>exchangeToMono</code> hands you the raw <code>ClientResponse</code> (status, headers, cookies) for status-dependent decoding. The body is a network stream: every branch must decode it or call <code>releaseBody()</code>. Spring releases an unconsumed body once the returned <code>Mono</code> completes (the old <code>exchange()</code> did not, and leaked connections), but never let the response escape the function.</p>
+  <p>Request bodies: <code>bodyValue(obj)</code> for an object you have, <code>body(publisher, Type.class)</code> for a <code>Mono</code>/<code>Flux</code>, <code>BodyInserters.fromFormData("grant_type", "client_credentials").with("scope", "inventory")</code> for forms, and <code>BodyInserters.fromMultipartData(new MultipartBodyBuilder()...build())</code> for file uploads.</p>
+
+  <h3>ExchangeFilterFunction: tokens, logging, metrics, resilience</h3>
+<pre><code>final class Filters {
+    static ExchangeFilterFunction bearer(Mono&lt;String&gt; token) {        // token: a cached, refreshing Mono
+        return (request, next) -&gt; token
+            .map(t -&gt; ClientRequest.from(request).headers(h -&gt; h.setBearerAuth(t)).build())
+            .flatMap(next::exchange);
+    }
+
+    static ExchangeFilterFunction logging() {
+        return ExchangeFilterFunction.ofRequestProcessor(req -&gt; {
+            System.out.println(req.method() + " " + req.url());
+            return Mono.just(req);
+        });
+    }
+
+    static ExchangeFilterFunction circuitBreaker(CircuitBreaker cb) {    // Resilience4j
+        return (request, next) -&gt; next.exchange(request)
+            .flatMap(r -&gt; r.statusCode().is5xxServerError()
+                    ? r.createException().flatMap(e -&gt; Mono.&lt;ClientResponse&gt;error(e))  // count 5xx as failures
+                    : Mono.just(r))
+            .transformDeferred(CircuitBreakerOperator.of(cb));
+    }
+}</code></pre>
+  <p>Filters wrap every call of a client, like servlet filters around a server. For OAuth2 client credentials, Spring Security's <code>ServerOAuth2AuthorizedClientExchangeFilterFunction</code> does the token caching for you. Metrics come for free when the client is built from Boot's builder: an <code>http.client.requests</code> observation per call. Keep <b>retries at the call site</b> (<code>retryWhen</code> with backoff and jitter, and a <code>timeout</code>, as in <a href="#l361">L361</a>), because only the caller knows whether the operation is idempotent; a circuit breaker can sit in a filter because it is a property of the dependency.</p>
+
+  <h3>Streaming and buffer limits</h3>
+<pre><code>Flux&lt;PriceTick&gt; ticks = web.get().uri("/prices/stream")
+    .accept(MediaType.APPLICATION_NDJSON)
+    .retrieve().bodyToFlux(PriceTick.class);                  // decoded line by line, never aggregated
+
+Flux&lt;ServerSentEvent&lt;PriceTick&gt;&gt; events = web.get().uri("/prices/sse")
+    .accept(MediaType.TEXT_EVENT_STREAM)
+    .retrieve().bodyToFlux(new ParameterizedTypeReference&lt;ServerSentEvent&lt;PriceTick&gt;&gt;() {});</code></pre>
+  <p>Codecs that aggregate a whole body (<code>bodyToMono(Big.class)</code>, a JSON array into a <code>Flux</code>) are capped at 256 KB by default and fail with <code>DataBufferLimitException</code>; raise it with <code>codecs(c -&gt; c.defaultCodecs().maxInMemorySize(...))</code>, or the older <code>ExchangeStrategies</code> builder. Streaming types are limited per element, not in total.</p>
+
+  <h3>Testing against a fake server</h3>
+<pre><code>class InventoryClientTest {
+    MockWebServer server = new MockWebServer();                 // okhttp3.mockwebserver
+
+    @BeforeEach void start() throws IOException { server.start(); }
+    @AfterEach  void stop()  throws IOException { server.shutdown(); }
+
+    @Test void mapsNotFound() {
+        server.enqueue(new MockResponse().setResponseCode(404));
+        var client = new InventoryClient(WebClient.create(server.url("/").toString()));
+        StepVerifier.create(client.stock("A1"))
+            .expectError(UnknownSkuException.class)
+            .verify();
+    }
+}</code></pre>
+  <p>MockWebServer replays queued responses and records requests (<code>server.takeRequest()</code>) for asserting paths and headers. WireMock adds stubs by URL, delays (<code>withFixedDelay</code>) and faults (<code>Fault.CONNECTION_RESET_BY_PEER</code>), which is what you need to test timeouts and retries.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>No <code>responseTimeout</code> and no <code>timeout()</code>: a hung dependency holds every connection, pending acquires pile up, and the outage spreads upstream.</li>
+      <li>No <code>maxIdleTime</code> behind a load balancer: intermittent <code>PrematureCloseException</code> after quiet periods.</li>
+      <li>A new <code>ConnectionProvider</code> or <code>HttpClient</code> per request: connections and event-loop resources leak.</li>
+      <li>Retries in a shared filter: non-idempotent POSTs are retried too.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Point the configured client at a WireMock stub with a 10 s fixed delay; confirm the failure arrives after about 3 s and identify the exception type.</li>
+    <li>Set <code>maxConnections(2)</code> and <code>pendingAcquireTimeout(1 s)</code>, fire 20 concurrent calls at a slow stub, and observe <code>PoolAcquireTimeoutException</code>.</li>
+    <li>Write the bearer filter with a token <code>Mono</code> cached for its lifetime (<code>cache(token -&gt; ttl, e -&gt; Duration.ZERO, () -&gt; Duration.ZERO)</code>) and check the token endpoint is called once.</li>
+    <li>Implement <code>stockIfKnown</code> and test 200, 404 and 500 with MockWebServer.</li>
+    <li>Add <code>retryWhen</code> to <code>stock</code> and test "503, 503, 200" succeeds with three recorded requests.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework reference, "WebClient": Configuration, <code>retrieve()</code>, Exchange, Request Body, Filters, Testing · Reactor Netty reference, "HTTP Client": Connection Pool and Timeout Configuration · Resilience4j documentation, Reactor module · Javadoc: <code>ExchangeFilterFunction</code>, <code>ConnectionProvider.Builder</code></p>
+</article>
+<!-- ================================================================ L367 -->
+<article class="day" id="l367">
+  <header class="day-head">
+    <span class="day-no">L367 · DAY 367</span>
+    <h2>R2DBC &amp; Reactive Data Access</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">55m practice</span></p>
+  </header>
+  <p class="thesis">R2DBC makes SQL access non-blocking by changing the API, not the database: every call returns a <code>Publisher</code>. What you give up is the ORM. Spring Data R2DBC maps rows to objects and nothing more: no lazy loading, no dirty checking, no relationship mapping, so aggregates are assembled by hand.</p>
+
+  <h3>Why JDBC blocks, and what R2DBC changes</h3>
+  <p>JDBC is blocking <em>by contract</em>: <code>executeQuery()</code> returns a <code>ResultSet</code> and <code>next()</code> returns a <code>boolean</code>, so the calling thread must wait until the bytes arrive, whatever the driver does underneath. The R2DBC SPI returns publishers at every step: <code>ConnectionFactory.create()</code> gives <code>Publisher&lt;Connection&gt;</code>, <code>Statement.execute()</code> gives <code>Publisher&lt;Result&gt;</code>, and <code>Result.map((row, meta) -&gt; ...)</code> gives <code>Publisher&lt;T&gt;</code>. Drivers are built on Netty, so a waiting query costs no thread, and demand can flow to the driver (r2dbc-postgresql switches to cursor-based fetching when a fetch size is set).</p>
+<pre><code class="plain">&lt;dependency&gt;&lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;&lt;artifactId&gt;spring-boot-starter-data-r2dbc&lt;/artifactId&gt;&lt;/dependency&gt;
+&lt;dependency&gt;&lt;groupId&gt;org.postgresql&lt;/groupId&gt;&lt;artifactId&gt;r2dbc-postgresql&lt;/artifactId&gt;&lt;/dependency&gt;
+&lt;!-- MySQL: io.asyncer:r2dbc-mysql   H2 for tests: io.r2dbc:r2dbc-h2 --&gt;
+
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/shop
+    username: app
+    password: ${DB_PASSWORD}
+    pool:
+      initial-size: 5
+      max-size: 20            # r2dbc-pool; default 10
+      max-idle-time: 30m
+  flyway:                     # migrations still run over JDBC
+    url: jdbc:postgresql://localhost:5432/shop
+    user: app
+    password: ${DB_PASSWORD}</code></pre>
+  <p>Boot builds a <code>ConnectionFactory</code> from the URL and wraps it in an <code>r2dbc-pool</code> <code>ConnectionPool</code>. Programmatically, the same thing is <code>ConnectionFactories.get(ConnectionFactoryOptions.builder().option(DRIVER, "postgresql").option(HOST, "db").option(DATABASE, "shop")...build())</code>; in Boot, add options with a <code>ConnectionFactoryOptionsBuilderCustomizer</code> bean. Flyway and Liquibase have no R2DBC support, so give them a JDBC URL and the JDBC driver; they run once at startup, before traffic.</p>
+  <figure class="fig" id="l367-fig">
+    <svg viewBox="0 0 640 225" role="img" aria-label="The R2DBC stack from repositories through entity template, DatabaseClient, connection pool and driver to PostgreSQL, with Flyway using a separate JDBC connection at startup">
+      <defs><marker id="ah-l367" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="15" width="300" height="32" class="s-node"/><text x="170" y="35" class="s-sm s-mid">R2dbcRepository: derived, @Query</text>
+      <rect x="20" y="55" width="300" height="32" class="s-node"/><text x="170" y="75" class="s-sm s-mid">R2dbcEntityTemplate: criteria</text>
+      <rect x="20" y="95" width="300" height="32" class="s-node"/><text x="170" y="115" class="s-sm s-mid">DatabaseClient: fluent SQL</text>
+      <rect x="20" y="135" width="300" height="32" class="s-node-mod"/><text x="170" y="155" class="s-sm s-mid">r2dbc-pool ConnectionPool</text>
+      <rect x="20" y="175" width="300" height="32" class="s-node-mod"/><text x="170" y="195" class="s-sm s-mid">driver ConnectionFactory (Netty)</text>
+      <rect x="390" y="15" width="230" height="32" class="s-node"/><text x="505" y="35" class="s-sm s-mid">Flyway / Liquibase</text>
+      <rect x="390" y="55" width="230" height="32" class="s-node-mod"/><text x="505" y="75" class="s-sm s-mid">JDBC, at startup only</text>
+      <rect x="390" y="150" width="230" height="50" class="s-node"/><text x="505" y="180" class="s-mid s-acc">PostgreSQL</text>
+      <line x1="320" y1="191" x2="388" y2="178" class="s-ln-acc" marker-end="url(#ah-l367)"/>
+      <line x1="505" y1="87" x2="505" y2="148" class="s-ln s-dash" marker-end="url(#ah-l367)"/>
+      <text x="345" y="215" class="s-sm s-ink2">non-blocking</text>
+      <text x="512" y="125" class="s-sm s-ink2">blocking, once</text>
+    </svg>
+    <figcaption><b>Three levels of abstraction over one pool.</b> Repositories and the template generate SQL; <code>DatabaseClient</code> runs your SQL; all of them borrow connections from the reactive pool.</figcaption>
+  </figure>
+
+  <h3>Entities and repositories</h3>
+<pre><code>@Table("orders")
+public record Order(@Id Long id,
+                    @Column("customer_id") Long customerId,
+                    String status,
+                    BigDecimal total,
+                    @Version Integer version) {}
+
+public interface OrderRepository extends R2dbcRepository&lt;Order, Long&gt; {
+    Flux&lt;Order&gt; findByCustomerIdAndStatus(Long customerId, String status);   // derived query
+
+    @Query("SELECT * FROM orders WHERE total &gt; :min ORDER BY total DESC LIMIT :n")
+    Flux&lt;Order&gt; biggest(BigDecimal min, int n);                             // SQL, not JPQL
+
+    @Modifying
+    @Query("UPDATE orders SET status = :status WHERE id = :id")
+    Mono&lt;Long&gt; updateStatus(Long id, String status);                       // rows updated
+}</code></pre>
+  <div class="box def"><span class="tag">Definition · What Spring Data R2DBC is not</span>
+    <p>It is a <b>row mapper with repositories</b>, not an ORM. There is no JPQL, no persistence context, so <b>no dirty checking</b> (change a field and nothing is written until you call <code>save</code>), <b>no lazy loading</b>, and <b>no relationship mapping</b>: a field of type <code>List&lt;OrderLine&gt;</code> is not a join, it is a mapping error. <code>save</code> inserts when <code>@Id</code> is null and updates otherwise; <code>@Version</code> adds optimistic locking. Custom types need a <code>@WritingConverter</code>/<code>@ReadingConverter</code> pair registered in an <code>R2dbcCustomConversions</code> bean.</p>
+  </div>
+
+  <h3>DatabaseClient and R2dbcEntityTemplate</h3>
+<pre><code>Mono&lt;Long&gt; countOpen(long customerId) {
+    return db.sql("SELECT count(*) FROM orders WHERE customer_id = :c AND status = 'OPEN'")
+             .bind("c", customerId)
+             .map(row -&gt; row.get(0, Long.class))
+             .one();
+}
+
+Flux&lt;Map&lt;String, Object&gt;&gt; recent() {
+    return db.sql("SELECT id, total FROM orders ORDER BY id DESC LIMIT 50").fetch().all();
+}
+
+Mono&lt;Long&gt; archiveBefore(Instant cutoff) {
+    return db.sql("UPDATE orders SET status = 'ARCHIVED' WHERE created_at &lt; :t")
+             .bind("t", cutoff).fetch().rowsUpdated();
+}
+
+Flux&lt;Order&gt; bigOpenOrders() {                      // criteria API, no SQL strings
+    return template.select(Order.class)
+        .matching(Query.query(Criteria.where("status").is("OPEN").and("total").greaterThan(100))
+                       .sort(Sort.by("total").descending()).limit(20))
+        .all();
+}</code></pre>
+
+  <h3>Relationships by hand</h3>
+  <p>This is the biggest practical difference from JPA. Model each table as its own entity holding foreign-key ids, and assemble aggregates in the service. Load children for a page of parents with <b>one</b> <code>IN</code> query, not one query per parent:</p>
+<pre><code>record OrderView(Order order, List&lt;OrderLine&gt; lines) {}
+
+Flux&lt;OrderView&gt; withLines(List&lt;Order&gt; page) {
+    List&lt;Long&gt; ids = page.stream().map(Order::id).toList();
+    return lineRepo.findByOrderIdIn(ids)                          // 1 query, not N
+        .collectMultimap(OrderLine::orderId)
+        .flatMapMany(byOrder -&gt; Flux.fromIterable(page)
+            .map(o -&gt; new OrderView(o, List.copyOf(byOrder.getOrDefault(o.id(), List.of())))));
+}</code></pre>
+
+  <h3>Transactions live in the Context</h3>
+<pre><code>@Transactional                                  // R2dbcTransactionManager, auto-configured
+public Mono&lt;Order&gt; place(Order order, List&lt;OrderLine&gt; lines) {
+    return orders.save(order)
+        .flatMap(saved -&gt; lineRepo.saveAll(lines.stream().map(l -&gt; l.withOrderId(saved.id())).toList())
+                                  .then(Mono.just(saved)));
+}
+
+Mono&lt;Order&gt; placeProgrammatic(Order order, List&lt;OrderLine&gt; lines) {
+    return place0(order, lines).as(transactionalOperator::transactional);   // TransactionalOperator
+}</code></pre>
+  <p>The transaction is bound to the subscription through the Reactor <code>Context</code>, not a <code>ThreadLocal</code>: it begins when the returned <code>Mono</code> is subscribed and commits when it completes (rolls back on error or cancel). So <code>@Transactional</code> only works on methods that return a publisher, and any work you <code>subscribe()</code> to separately inside the method runs outside the transaction.</p>
+
+  <h3>Reactive Redis and MongoDB, and an honest benchmark</h3>
+<pre><code>Mono&lt;Product&gt; cached(String sku) {
+    return redis.opsForValue().get("product:" + sku)                     // ReactiveRedisTemplate (Lettuce)
+        .switchIfEmpty(Mono.defer(() -&gt; products.findBySku(sku)          // ReactiveMongoRepository
+            .flatMap(p -&gt; redis.opsForValue().set("product:" + sku, p, Duration.ofMinutes(10)).thenReturn(p))));
+}</code></pre>
+  <div class="box note"><span class="tag">Benchmarking R2DBC vs JDBC vs virtual threads</span>
+    <p>Run the same endpoint three ways (JDBC on platform threads, JDBC on virtual threads, R2DBC) against the same database with the <b>same pool size</b>, and measure throughput, p99 latency, thread count and heap under 200 to 2,000 connections. Published comparisons disagree, but the common pattern is that once the pool and the database are the bottleneck, all three reach similar throughput; platform threads lose first as concurrency grows; virtual threads and R2DBC stay flat in memory. JDBC drivers are more mature (batching, types, tooling), and recent pgjdbc versions avoid virtual-thread pinning. Treat any single result, including yours, as specific to driver, query shape and pool.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>JPA habits: mutating an entity and expecting it saved, or expecting <code>order.getLines()</code> to load.</li>
+      <li>N+1 through <code>flatMap(o -&gt; lineRepo.findByOrderId(o.id()))</code> on a page of 500 orders: 501 queries and a drained pool.</li>
+      <li>A pool of 10 behind <code>flatMap</code> with concurrency 256: acquire timeouts. Match concurrency to <code>max-size</code>.</li>
+      <li>Using <code>ConnectionFactory.create()</code> directly and forgetting to close: leaked connections. Use <code>DatabaseClient</code> or <code>usingWhen</code>.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 55 min</h4><ol>
+    <li>Start PostgreSQL with Testcontainers, create <code>orders</code> and <code>order_line</code> with Flyway (JDBC URL), and implement <code>OrderRepository</code> with one derived and one <code>@Query</code> method.</li>
+    <li>Implement <code>place</code>; throw after the lines are saved and prove the rollback with a count query.</li>
+    <li>Load 100 orders with lines, first per order, then with <code>withLines</code>; enable <code>logging.level.io.r2dbc.postgresql.QUERY=DEBUG</code> and count statements.</li>
+    <li>Add a <code>Money</code> value type stored as a string with a converter pair.</li>
+    <li>Run the three-way benchmark with pool size 10 and record your numbers next to your hardware description.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Data Relational reference, R2DBC chapters (repositories, entity mapping, <code>R2dbcEntityTemplate</code>) · Spring Framework reference, "Data Access with R2DBC" (<code>DatabaseClient</code>, transactions) · Spring Boot reference, "Using R2DBC" · R2DBC specification 1.0 (r2dbc.io) · Spring Data Redis, "Reactive Redis Support" · Spring Data MongoDB, "Reactive MongoDB Repositories"</p>
+</article>
+<!-- ================================================================ L368 -->
+<article class="day project" id="l368">
+  <header class="day-head">
+    <span class="day-no">L368 · DAY 368</span>
+    <h2>Testing Reactive Code &amp; the Final Comparison</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">55m practice</span><span class="tagx">milestone project</span></p>
+  </header>
+  <p class="thesis">Reactive code is tested by subscribing to it under control: <code>StepVerifier</code> scripts the expected signals, virtual time collapses hours into milliseconds, and <code>WebTestClient</code> drives the HTTP layer. With tests and BlockHound in place, the phase ends with the question that matters: measured under 10,000 connections, does WebFlux beat Spring MVC on virtual threads enough to pay for itself?</p>
+
+  <h3>StepVerifier: scripting the signals</h3>
+<pre><code>class StepVerifierBasicsTest {
+    @Test void itemsThenComplete() {
+        StepVerifier.create(Flux.just("a", "b", "c").map(String::toUpperCase))
+            .expectNext("A")
+            .expectNextMatches(s -&gt; s.startsWith("B"))
+            .assertNext(s -&gt; assertThat(s).isEqualTo("C"))   // any assertion library
+            .verifyComplete();                                // = expectComplete().verify()
+    }
+
+    @Test void manyItems() {
+        StepVerifier.create(Flux.range(1, 1_000)).expectNextCount(1_000).verifyComplete();
+    }
+
+    @Test void translatedError() {
+        Mono&lt;String&gt; failing = Mono.&lt;String&gt;error(new IllegalStateException("boom"))
+            .onErrorMap(e -&gt; new OrderException("order failed", e));
+        StepVerifier.create(failing)
+            .expectErrorMatches(e -&gt; e instanceof OrderException &amp;&amp; e.getCause().getMessage().equals("boom"))
+            .verify(Duration.ofSeconds(1));                  // a timeout guards against hangs
+    }
+}</code></pre>
+  <p><code>expectError(Class)</code> checks only the type; <code>expectErrorMatches</code> takes a predicate. The rule people forget: a <code>StepVerifier</code> chain is only a description. <b>Nothing runs until <code>verify()</code></b> (or a <code>verifyXxx()</code> shortcut) subscribes, so a test that ends at <code>expectComplete()</code> passes without testing anything.</p>
+
+  <h3>Virtual time and backpressure</h3>
+<pre><code>@Test void dailyTickInMilliseconds() {
+    StepVerifier.withVirtualTime(() -&gt; Flux.interval(Duration.ofHours(24)).take(3))  // build INSIDE the supplier
+        .expectSubscription()
+        .expectNoEvent(Duration.ofHours(24))     // advances the clock, asserts silence
+        .expectNext(0L)
+        .thenAwait(Duration.ofHours(48))         // advances the clock
+        .expectNext(1L, 2L)
+        .verifyComplete();
+}
+
+@Test void honoursDemand() {
+    StepVerifier.create(Flux.range(1, 10), 0)    // initial request: 0
+        .expectSubscription()
+        .expectNoEvent(Duration.ofMillis(50))    // no demand, no items
+        .thenRequest(3)
+        .expectNext(1, 2, 3)
+        .thenRequest(7)
+        .expectNextCount(7)
+        .verifyComplete();
+}</code></pre>
+  <figure class="fig" id="l368-fig">
+    <svg viewBox="0 0 640 140" role="img" aria-label="Virtual time axis from 0 to 72 hours with ticks emitted at 24, 48 and 72 hours, advanced by expectNoEvent and thenAwait">
+      <defs><marker id="ah-l368" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="20" y="54" class="s-sm s-ink2">virtual</text>
+      <line x1="70" y1="50" x2="620" y2="50" class="s-ln-ink"/>
+      <text x="70" y="30" class="s-sm s-mid">0 h</text><text x="250" y="30" class="s-sm s-mid">24 h</text><text x="430" y="30" class="s-sm s-mid">48 h</text><text x="600" y="30" class="s-sm s-mid">72 h</text>
+      <circle cx="250" cy="50" r="9" class="s-node-mod"/><text x="250" y="54" class="s-sm s-mid">0</text>
+      <circle cx="430" cy="50" r="9" class="s-node-mod"/><text x="430" y="54" class="s-sm s-mid">1</text>
+      <circle cx="600" cy="50" r="9" class="s-node-mod"/><text x="600" y="54" class="s-sm s-mid">2</text>
+      <line x1="72" y1="80" x2="248" y2="80" class="s-ln-acc" marker-start="url(#ah-l368)" marker-end="url(#ah-l368)"/>
+      <text x="160" y="98" class="s-sm s-mid s-acc">expectNoEvent(24h)</text>
+      <line x1="252" y1="80" x2="598" y2="80" class="s-ln-info" marker-start="url(#ah-l368)" marker-end="url(#ah-l368)"/>
+      <text x="425" y="98" class="s-sm s-mid s-info">thenAwait(48h)</text>
+      <text x="70" y="128" class="s-sm s-ink2">wall-clock duration of the whole test: a few milliseconds</text>
+    </svg>
+    <figcaption><b>Time is a scheduler.</b> <code>withVirtualTime</code> installs a <code>VirtualTimeScheduler</code> that operators like <code>interval</code> and <code>delay</code> use, and the verifier moves its clock forward on demand.</figcaption>
+  </figure>
+  <p>The supplier matters: the publisher must be <em>created</em> after the virtual scheduler is installed, or <code>interval</code> grabs the real parallel scheduler and the test waits a real day. <code>expectNoEvent</code> treats the subscription itself as an event, hence the leading <code>expectSubscription()</code>. Passing an initial request of 0 and stepping with <code>thenRequest(n)</code> is how you prove an operator honours backpressure.</p>
+
+  <h3>TestPublisher: driving the stream by hand</h3>
+<pre><code>@Test void fallsBackWhenFeedFails() {
+    TestPublisher&lt;Price&gt; feed = TestPublisher.create();
+    StepVerifier.create(pricing.withFallback(feed.flux()))     // flux.onErrorResume(e -&gt; Mono.just(UNKNOWN))
+        .then(() -&gt; feed.next(new Price("A", 10)))
+        .expectNext(new Price("A", 10))
+        .then(() -&gt; feed.error(new IOException("feed down")))
+        .expectNext(Price.UNKNOWN)
+        .verifyComplete();
+    feed.assertWasSubscribed();
+}</code></pre>
+  <p><code>TestPublisher.create()</code> enforces the spec; <code>createNoncompliant(Violation.REQUEST_OVERFLOW)</code> deliberately misbehaves so you can check that your own operator copes with a bad upstream.</p>
+
+  <h3>WebTestClient and the WebFlux slice</h3>
+<pre><code>@WebFluxTest(OrderController.class)                 // controllers, advice, WebFilters, codecs only
+class OrderControllerTest {
+    @Autowired WebTestClient client;
+    @MockitoBean OrderService service;              // Boot 3.4+ (replaces @MockBean)
+
+    @Test void getsOne() {
+        when(service.find(ID)).thenReturn(Mono.just(new OrderDto(ID, "OPEN")));
+        client.get().uri("/api/orders/{id}", ID).exchange()
+              .expectStatus().isOk()
+              .expectHeader().contentType(MediaType.APPLICATION_JSON)
+              .expectBody().jsonPath("$.status").isEqualTo("OPEN");
+    }
+
+    @Test void streamsExport() {
+        when(service.streamAll()).thenReturn(Flux.range(1, 3).map(i -&gt; new OrderDto(UUID.randomUUID(), "OPEN")));
+        FluxExchangeResult&lt;OrderDto&gt; result = client.get().uri("/api/orders/export")
+              .accept(MediaType.APPLICATION_NDJSON).exchange()
+              .expectStatus().isOk()
+              .returnResult(OrderDto.class);
+        StepVerifier.create(result.getResponseBody()).expectNextCount(3).verifyComplete();
+    }
+}</code></pre>
+  <p>Binding options: <code>bindToController(new OrderController(service))</code> for a pure unit test, <code>bindToRouterFunction(routes)</code> for functional endpoints (<a href="#l365">L365</a>), <code>bindToApplicationContext(ctx)</code> for the full configuration, and <code>bindToServer().baseUrl(...)</code> for any running server, Spring or not. Use <code>expectBody(OrderDto.class).isEqualTo(...)</code>, <code>expectBodyList(OrderDto.class).hasSize(2)</code>, <code>jsonPath</code>, and <code>returnResult</code> plus <code>StepVerifier</code> for streams. It is not WebFlux-only: <code>MockMvcWebTestClient</code> runs the same fluent API against Spring MVC.</p>
+
+  <h3>BlockHound in the build</h3>
+  <p>Add <code>io.projectreactor.tools:blockhound-junit-platform</code> to test scope: it registers a JUnit Platform listener that installs BlockHound before any test runs, so every <code>StepVerifier</code> and <code>WebTestClient</code> test fails with <code>BlockingOperationError</code> if blocking code runs on a non-blocking thread. On JDK 13+ add <code>-XX:+AllowRedefinitionToAddDeleteMethods</code> to the Surefire <code>argLine</code>. Allow known-safe calls explicitly, for example <code>BlockHound.builder().allowBlockingCallsInside("java.util.UUID", "randomUUID")</code> via a <code>BlockHoundIntegration</code>.</p>
+
+  <h3>The closing comparison</h3>
+  <div class="box algo"><span class="tag">Algorithm · A fair load test</span>
+    <ol>
+      <li>Build the same endpoint twice: Spring MVC + JDBC on virtual threads (<code>spring.threads.virtual.enabled=true</code>) and WebFlux + R2DBC + WebClient. Same JSON, same SQL, same 100 ms downstream call.</li>
+      <li>Equalize the hidden limits: identical DB pool sizes; downstream HTTP pools large enough for 10,000 in flight; raise Tomcat's <code>server.tomcat.max-connections</code> (default 8192) and the OS file-descriptor limit.</li>
+      <li>Drive 10,000 concurrent connections from a separate machine with a constant-rate tool (wrk2, k6, Gatling) so latency is not hidden by coordinated omission.</li>
+      <li>Record throughput, p50/p99/p99.9 latency, heap and RSS, CPU, and live thread count, after warm-up, for at least five minutes per run.</li>
+      <li>Repeat with a CPU-heavy variant and with a deliberately blocking call in each stack.</li>
+    </ol>
+  </div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Question</th><th>Servlet + virtual threads</th><th>Reactive stack</th></tr></thead>
+    <tbody>
+      <tr><td>I/O-bound throughput at 10k connections</td><td>Typically comparable once pools are equal</td><td>Typically comparable; DB or downstream is the limit</td></tr>
+      <tr><td>Memory per connection</td><td>Higher (a stack per virtual thread, grown on demand)</td><td>Lower, flatter</td></tr>
+      <tr><td>Streaming and backpressure</td><td>Manual (semaphores, SSE emitters)</td><td>Built in</td></tr>
+      <tr><td>Debuggability and onboarding</td><td>Plain stack traces, plain code</td><td>Operator traces, steeper learning curve</td></tr>
+      <tr><td>One accidental blocking call</td><td>Harmless, that is the model</td><td>Stalls an event loop</td></tr>
+    </tbody>
+  </table></div>
+  <p>These are expectations to test, not results: publish your own numbers with the hardware and versions. The honest verdict for a new project in 2026: <b>start with Spring MVC on virtual threads</b>; choose WebFlux when the product is a stream, a gateway, or heavy fan-out where backpressure and per-connection memory dominate, and when the whole stack can be non-blocking.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li>Tests that never call <code>verify()</code>, or that subscribe with <code>.subscribe()</code> and assert before anything arrived: green builds, untested code.</li>
+      <li>A publisher built outside <code>withVirtualTime</code>'s supplier: a CI job that hangs for a day.</li>
+      <li>Benchmarks that compare a 10-connection pool with a 50-connection pool and call it "reactive vs blocking".</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Milestone project · 55 min here, finish over the phase</h4>
+    <p>A fully reactive streaming API with R2DBC, backpressure, and a load-test comparison against the MVC version.</p>
+    <ul class="deliverables">
+      <li>WebFlux + R2DBC (PostgreSQL) orders API: CRUD, validation, <code>ProblemDetail</code> errors, Flyway migrations over JDBC.</li>
+      <li>An NDJSON export that streams 1,000,000 rows with flat heap (show a heap graph), and an SSE live feed with an explicit overflow strategy.</li>
+      <li>A downstream call through <code>WebClient</code> with pool limits, timeouts, retry with backoff and a circuit breaker.</li>
+      <li>Tests: <code>StepVerifier</code> (including one virtual-time test and one backpressure test), <code>@WebFluxTest</code> slices, Testcontainers integration tests, BlockHound active in every run.</li>
+      <li>A twin implementation on Spring MVC + JDBC + virtual threads with the same endpoints.</li>
+      <li>A load-test report at 10,000 connections: throughput, latency percentiles, memory, CPU and threads for both, plus a one-page recommendation.</li>
+    </ul>
+  </div>
+  <p class="refs"><b>Read</b> Reactor reference guide, "Testing" (<code>StepVerifier</code>, virtual time, <code>TestPublisher</code>) · Spring Framework reference, "Testing": <code>WebTestClient</code> · Spring Boot reference, "Testing: Auto-configured Spring WebFlux Tests" · BlockHound documentation, JUnit Platform integration · Gil Tene, "How NOT to Measure Latency" (talk, on coordinated omission)</p>
+</article>
+
+<nav class="modnav">
+  <a href="p17.html"><small>Previous · Days 335–356</small>◂ Phase 17 — Spring Security</a>
+  <a class="next" href="p19.html"><small>Next · Days 369–384</small>Phase 19 — Messaging: Kafka &amp; RabbitMQ ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

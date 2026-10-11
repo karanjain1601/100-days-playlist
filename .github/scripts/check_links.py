@@ -3,14 +3,33 @@
 Usage: python3 check_links.py <site-dir>
 """
 import os
-import re
 import sys
 from functools import lru_cache
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-ATTR = re.compile(r'\b(?:href|src)\s*=\s*"([^"]*)"')
 SKIP_PREFIXES = ("#", "mailto:", "tel:", "javascript:", "data:")
+
+
+class Refs(HTMLParser):
+    """Collect href/src values from real tags; escaped markup such as &lt;a href="/x"&gt; in a lesson is text."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.refs = set()
+
+    def handle_starttag(self, tag, attrs):
+        self.refs.update(v for k, v in attrs if k in ("href", "src") and v is not None)
+
+    handle_startendtag = handle_starttag
+
+
+def refs_in(page: Path) -> set:
+    parser = Refs()
+    parser.feed(page.read_text(encoding="utf-8", errors="replace"))
+    parser.close()
+    return parser.refs
 
 
 def is_local(ref: str) -> bool:
@@ -51,7 +70,7 @@ def main(site: Path) -> int:
     broken = []
     pages = sorted(site.rglob("*.html"))
     for page in pages:
-        for ref in set(ATTR.findall(page.read_text(encoding="utf-8", errors="replace"))):
+        for ref in refs_in(page):
             if not is_local(ref):
                 continue
             where = f"{page.relative_to(site).as_posix()} -> {ref}"

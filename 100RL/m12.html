@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 12 — Imitation &amp; Offline RL · 130 Days of RL</title>
+<meta name="description" content="Days 106–112: behaviour cloning and DAgger, inverse RL, GAIL and AIRL, the offline RL problem and D4RL, BCQ and BEAR, CQL and IQL, and Decision Transformer.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m12">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 12 · Imitation &amp; Offline RL · Days 106–112</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 12 · Imitation &amp; Offline</h4>
+  <nav>
+    <a href="#d106"><span class="n">D106</span>BC &amp; DAgger</a>
+    <a href="#d107"><span class="n">D107</span>Inverse RL</a>
+    <a href="#d108"><span class="n">D108</span>GAIL &amp; AIRL</a>
+    <a href="#d109"><span class="n">D109</span>The Offline RL Problem</a>
+    <a href="#d110"><span class="n">D110</span>BCQ &amp; BEAR</a>
+    <a href="#d111"><span class="n">D111</span>CQL &amp; IQL</a>
+    <a href="#d112"><span class="n">D112</span>Decision Transformer</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="12"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m11.html">◂ Module 11</a><a href="m13.html">Module 13 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 12 · Days 106–112 · Weeks 22–23</p>
+<h1>Imitation &amp; Offline RL</h1>
+<p class="dek">Seven lessons on learning without trial and error: from an expert's demonstrations (behaviour cloning, DAgger, inverse RL, adversarial imitation) and from a fixed log of someone else's experience (offline RL). One problem runs through both halves: distribution shift. A policy trained on someone else's data is judged on the states and actions it chooses itself. Module 11 assumed the agent could collect whatever data it needed; Module 13 returns to online agents and adds hierarchy, meta-learning, multiple agents and scale.</p>
+<ul class="chips">
+  <li><b>7</b> lessons</li>
+  <li><b>4h 50m</b> video</li>
+  <li><b>11h 00m</b> practice</li>
+  <li>Reading: <b>Levine et al. 2020 (offline RL tutorial) · Ross et al. 2011 · Kostrikov et al. 2022</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Derive the \(O(\varepsilon T^2)\) compounding-error bound for behaviour cloning and explain why DAgger's is \(O(\varepsilon T)\).</li>
+    <li>Explain why IRL is ill-posed, and derive the MaxEnt IRL gradient as expert feature counts minus expected feature counts.</li>
+    <li>Show that GAIL minimizes a Jensen–Shannon divergence between occupancy measures, and say what AIRL's discriminator structure buys.</li>
+    <li>Demonstrate extrapolation error on a fixed dataset and describe the D4RL dataset types.</li>
+    <li>Write the BCQ, BEAR, CQL and IQL objectives, and classify each as a policy constraint, a value regularizer or in-sample learning.</li>
+    <li>Implement IQL and a Decision Transformer, and explain why return-conditioned sequence models fail to stitch.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 106 -->
+<article class="day" id="d106">
+  <header class="day-head">
+    <span class="day-no">DAY 106</span>
+    <h2>Behavior Cloning &amp; DAgger</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Behaviour cloning is supervised learning on an expert's state–action pairs, and it fails in a specific, predictable way. The learner's small mistakes take it into states the expert never visited, where its mistakes get worse, and the cost gap grows with the square of the horizon. DAgger fixes this by collecting expert labels on the states the learner itself visits, which makes the gap linear.</p>
+
+  <h3>Imitation as supervised learning</h3>
+  <p>Roll out an expert \(\pi^*\) and record \(\mathcal D = \{(s_i, a^*_i)\}\). <b>Behaviour cloning</b> (BC) fits a policy by maximum likelihood:</p>
+  $$\hat\pi = \argmin_{\pi}\ \E_{s \sim d_{\pi^*}}\big[\ell\big(\pi(\cdot \mid s), \pi^*(s)\big)\big],$$
+  <p>with cross-entropy for discrete actions and a Gaussian negative log-likelihood (or MSE) for continuous ones. It needs no reward, no simulator and no interaction, which is why it was the first thing tried: ALVINN (Pomerleau, 1989) steered a van from camera images with a small network trained this way. The catch is in the subscript: the loss is measured on \(d_{\pi^*}\), the expert's state distribution, but the learner will be run on \(d_{\hat\pi}\), its own.</p>
+
+  <h3>Compounding error and covariate shift</h3>
+  <div class="box def"><span class="tag">Setup · Ross &amp; Bagnell (2010)</span>
+    <p>Horizon \(T\); per-step cost \(c(s, a) \in [0, 1]\); \(J(\pi) = \E\big[\sum_{t=1}^{T} c(s_t, a_t)\big]\) under \(\pi\). Let \(\varepsilon_t\) be the probability that \(\hat\pi\) disagrees with the expert on the expert's state distribution at time \(t\), and \(\varepsilon = \frac1T\sum_t \varepsilon_t\): the classification error that supervised training drives down.</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · behaviour cloning is quadratic in the horizon</span>
+    $$J(\hat\pi) \le J(\pi^*) + T^2 \varepsilon,$$
+    <p>and there are problems where this is tight up to constants.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof sketch</span>
+    <p>As long as \(\hat\pi\) has agreed with the expert at every step so far, it is in the expert's states, where its error rate is \(\varepsilon_t\). Once it makes its first mistake it may be in a state the expert never visited. There it has no training data, nothing guarantees it can recover, and in the worst case it pays cost 1 at every remaining step. A first mistake at step \(t\) therefore costs at most \(T - t + 1 \le T\) extra, and it happens with probability at most \(\varepsilon_t\). Summing over \(t\),</p>
+    $$J(\hat\pi) - J(\pi^*) \le \sum_{t=1}^{T} \varepsilon_t\,(T - t + 1) \le T \sum_{t=1}^{T} \varepsilon_t = T^2 \varepsilon.$$
+    <p>The worst case is real: a car that drifts a little towards the kerb sees a view no expert ever recorded, since experts don't drift, so it has no idea that it should steer back.</p>
+  </div>
+  <p>This is <b>covariate shift</b>: the input distribution at test time differs from the training distribution because of the learner's own actions. A supervised learner with 1% error per step is excellent; a 1,000-step task run by that learner can be a disaster. The data were never wrong, only in the wrong places.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 210" role="img" aria-label="An expert trajectory with a band of training data around it; the learner's trajectory starts inside the band, drifts out after small mistakes, and then diverges">
+      <path d="M40,98 C200,58 400,118 600,78" class="s-ln s-dash"/>
+      <path d="M40,142 C200,102 400,162 600,122" class="s-ln s-dash"/>
+      <path d="M40,120 C200,80 400,140 600,100" class="s-ln-ink"/>
+      <path d="M40,120 C150,96 230,98 300,112 C360,126 420,170 520,196" class="s-ln-bad"/>
+      <text x="40" y="30" class="s-sm">expert trajectory; dashed: the states its data covers</text>
+      <text x="600" y="22" class="s-end s-sm">BC: J(π̂) ≤ J(π*) + T²ε</text>
+      <text x="600" y="38" class="s-end s-sm">DAgger: J(π̂) ≤ J(π*) + uTε + O(1)</text>
+      <text x="320" y="64" class="s-ink2 s-sm">learner: small error ε per step</text>
+      <text x="60" y="196" class="s-bad s-sm">once off the data there are no labels: errors compound</text>
+    </svg>
+    <figcaption><b>Covariate shift.</b> The learner (red) is trained only on states inside the band around the expert's path. A few small mistakes take it to the edge of the band, where it is less accurate, and then outside it, where it has never been told what to do.</figcaption>
+  </figure>
+
+  <h3>DAgger: let the expert label the learner's mistakes</h3>
+  <p>Ross, Gordon &amp; Bagnell (2011) change where the labels come from rather than how the learner is trained.</p>
+  <div class="box algo"><span class="tag">Algorithm · DAgger (Dataset Aggregation)</span>
+    <ol>
+      <li>\(\mathcal D \leftarrow\) expert demonstrations (or \(\emptyset\)); train \(\hat\pi_1\) on \(\mathcal D\).</li>
+      <li>For \(i = 1, \dots, N\):
+        <ol>
+          <li>Run \(\pi_i = \beta_i \pi^* + (1 - \beta_i)\hat\pi_i\) for a few episodes. <span class="step">(β₁ = 1 and then β = 0 is common, or β decaying geometrically)</span></li>
+          <li>Ask the expert what it would have done in every state visited: \(\mathcal D_i = \{(s, \pi^*(s))\}\).</li>
+          <li>Aggregate, \(\mathcal D \leftarrow \mathcal D \cup \mathcal D_i\), and train \(\hat\pi_{i+1}\) on all of \(\mathcal D\).</li>
+        </ol>
+      </li>
+      <li>Return the best \(\hat\pi_i\) on validation rollouts.</li>
+    </ol>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · DAgger is linear in the horizon (Ross et al. 2011)</span>
+    <p>Let \(\varepsilon_N\) be the loss of the best policy in hindsight on the aggregated data, and suppose that a single deviation from the expert followed by expert play increases the expected cost-to-go by at most \(u\). With \(N = \tilde O(uT)\) iterations, some \(\hat\pi_i\) in the sequence satisfies</p>
+    $$J(\hat\pi_i) \le J(\pi^*) + u\,T\,\varepsilon_N + O(1).$$
+  </div>
+  <p>Why linear? DAgger is a reduction to <b>no-regret online learning</b>. Each iteration is a round in which the learner suffers its classification loss on the states its <em>own</em> policy reached. Training on all data so far ("follow the leader") is a no-regret strategy for well-behaved losses, so on average the learner does as well on its own distributions as the best fixed policy would. Errors are now measured where the learner actually goes, and each one costs at most \(u\) (the expert can recover from it) instead of the rest of the episode. When the expert can recover quickly, \(u\) is a small constant; in the worst case \(u = T\) and nothing is gained. The price is an <b>interactive expert</b>: someone or something that can label arbitrary states, including states it would never have reached itself.</p>
+
+  <pre><code>import gymnasium as gym
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+def expert(obs):                                   # a PD controller that balances CartPole
+    return int(obs[2] + 0.5 * obs[3] &gt; 0)          # pole angle + 0.5 * angular velocity
+
+def rollout(env, policy, n_episodes, seed, max_steps=500):
+    states, returns = [], []
+    for ep in range(n_episodes):
+        obs, _ = env.reset(seed=seed + ep)
+        done, G, t = False, 0.0, 0
+        while not done and t &lt; max_steps:
+            states.append(obs)
+            obs, r, terminated, truncated, _ = env.step(policy(obs))
+            G, t, done = G + r, t + 1, terminated or truncated
+        returns.append(G)
+    return np.array(states, dtype=np.float32), float(np.mean(returns))
+
+def fit(S, A, epochs=500):
+    net = nn.Sequential(nn.Linear(4, 64), nn.Tanh(), nn.Linear(64, 2))
+    opt = torch.optim.Adam(net.parameters(), lr=1e-2)
+    S_t, A_t = torch.as_tensor(S), torch.as_tensor(A, dtype=torch.long)
+    for _ in range(epochs):                         # full-batch cross-entropy: plain classification
+        loss = F.cross_entropy(net(S_t), A_t)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    return lambda o: int(net(torch.as_tensor(o, dtype=torch.float32)).argmax())
+
+env = gym.make("CartPole-v1")
+S, _ = rollout(env, expert, 1, seed=0, max_steps=20)        # BC: one short demonstration
+A = np.array([expert(s) for s in S])
+pi = fit(S, A)
+print("BC return:", rollout(env, pi, 20, seed=1000)[1])
+for it in range(5):                                          # DAgger
+    S_new, ret = rollout(env, pi, 3, seed=100 + 10 * it)     # run the LEARNER ...
+    S = np.concatenate([S, S_new])
+    A = np.concatenate([A, [expert(s) for s in S_new]])      # ... and have the expert label its states
+    pi = fit(S, A)                                           # retrain on everything so far
+    print(f"DAgger iteration {it}: return while collecting {ret:.0f}, dataset size {len(S)}")
+print("DAgger return:", rollout(env, pi, 20, seed=1000)[1])</code></pre>
+  <p class="code-cap">The expert balances all 500 steps on every seed we tried. In a check with a comparable small network, BC from this single 20-step demonstration averaged about half the maximum return, while DAgger reached 500 within one or two iterations. Exact numbers vary with the seed and the network, so run several seeds.</p>
+
+  <h3>When BC is enough</h3>
+  <p>BC is the default in much of modern robot learning, and often works. The bound explains when.</p>
+  <ul>
+    <li><b>The data cover the learner's mistakes.</b> Inject noise into the expert's actions while recording its <em>intended</em> actions (DART; Laskey et al., 2017), so the data contain recoveries. NVIDIA's end-to-end driving system (Bojarski et al., 2016) added cameras mounted to the left and right of the centre camera, and labelled their images with steering corrections that would bring the car back to the lane centre.</li>
+    <li><b>Mistakes wash out.</b> If the dynamics are self-stabilizing or the horizon is short, \(u\) is small and the \(T^2\) never materializes.</li>
+    <li><b>ε is tiny.</b> With a great deal of consistent data and an expressive policy class, the per-step error can be made small enough that \(T^2\varepsilon\) is acceptable. Predicting chunks of several future actions at once (action chunking) also shortens the effective horizon over which errors compound.</li>
+  </ul>
+  <p>Two failures are not about horizon at all. <b>Multimodal demonstrations</b>: if experts pass a tree on the left half the time and on the right half the time, an MSE-trained policy averages the two and drives into the tree; use a mixture, discretized or diffusion-based policy. <b>Causal confusion</b> (de Haan et al., 2019): a driving policy that can see the brake-light indicator on the dashboard learns "brake when the light is on", which predicts the expert perfectly and is causally backwards. More information in the observation can make imitation worse.</p>
+
+  <h3>Practical data-collection strategy</h3>
+  <ul>
+    <li>Record demonstrations in the <b>learner's observation space</b>: what the robot's camera sees, not what the human operator sees.</li>
+    <li>Prefer <b>consistent</b> demonstrators or a protocol. Mixed strategies create multimodality.</li>
+    <li><b>Collect recoveries</b> deliberately: noise injection, perturbations, or human-gated corrections, in which the expert takes over only when the learner starts to fail (HG-DAgger; Kelly et al., 2019). This gets labels on the learner's distribution without asking a human to label states while not in control, which people do poorly.</li>
+    <li><b>Spend the labelling budget on uncertain states</b>, for example where an ensemble of policies disagrees.</li>
+    <li><b>Validate by rollouts</b>, with whole trajectories held out. A low validation loss on expert states says nothing about closed-loop performance.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Covariate shift</b>, which no amount of model capacity fixes if the data never leave the expert's path.</li>
+      <li><b>Mode averaging</b> with unimodal policies on multimodal data.</li>
+      <li><b>Causal confusion</b> from observations that contain effects of the expert's own actions.</li>
+      <li><b>Non-Markovian experts.</b> A human uses memory and intent the state doesn't contain; a memoryless policy can't reproduce that.</li>
+      <li><b>DAgger's expert requirement.</b> A scripted expert or a planner with privileged information can label anything. A human usually can't, and labels given while not in control are often inconsistent with how the human would really act.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Run the snippet over five seeds. Plot BC's return against demonstration length (20, 50, 200, 1,000 steps), and DAgger's return against iteration and against the number of expert labels used.</li>
+      <li>Repeat on <code>LunarLander-v3</code> with your PPO or DQN agent from Modules 8–9 as the expert. Where is the gap between BC and DAgger larger, and why?</li>
+      <li>Implement DART for CartPole: during demonstrations, execute a random action with probability \(p\) but record the expert's intended action. Compare with BC and DAgger at an equal number of labels for \(p \in \{0.1, 0.3\}\).</li>
+      <li>Multimodality: build a 2D point-navigation task with an obstacle that a scripted expert passes on a random side. Show that a Gaussian MSE policy hits the obstacle and that a policy over discretized actions (or a two-component mixture) does not.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Ross &amp; Bagnell 2010, “Efficient Reductions for Imitation Learning” · Ross, Gordon &amp; Bagnell 2011, “A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning” · Pomerleau 1989, “ALVINN: An Autonomous Land Vehicle in a Neural Network” · Laskey et al. 2017, “DART: Noise Injection for Robust Imitation Learning” · de Haan, Jayaraman &amp; Levine 2019, “Causal Confusion in Imitation Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 107 -->
+<article class="day" id="d107">
+  <header class="day-head">
+    <span class="day-no">DAY 107</span>
+    <h2>Inverse Reinforcement Learning</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Inverse RL asks for the reward that explains the expert, on the theory that a reward is a more compact and more transferable description of a task than a policy. The problem is ill-posed, since many rewards explain any behaviour, and each classic method is a different rule for choosing among them: maximum margin, maximum entropy, or a posterior.</p>
+
+  <h3>Recovering reward from demonstrations</h3>
+  <p>Given an MDP without its reward (states, actions, dynamics, discount) and demonstrations from an expert assumed to be acting well, find a reward \(R\) under which the expert's behaviour is optimal or nearly so. Rewards are usually parameterized as linear in features, \(R(s) = w^\top \phi(s)\), or as a neural network. Russell (1998) posed the problem; Ng &amp; Russell (2000) gave the first algorithms, and the first thing they proved was that the problem, as stated, has too many solutions.</p>
+
+  <h3>The fundamental ambiguity</h3>
+  <ul>
+    <li>\(R \equiv 0\) makes every policy optimal, so it "explains" any demonstration. So does any constant.</li>
+    <li>Positive scaling \(cR\) leaves the optimal policies unchanged.</li>
+    <li>Potential-based shaping \(R'(s, a, s') = R(s, a, s') + \gamma\Phi(s') - \Phi(s)\) leaves the optimal policies unchanged too (Day 26). At best a reward can be identified up to shaping, and from a finite set of demonstrations, not even that.</li>
+  </ul>
+  <div class="box deriv"><span class="tag">Derivation · Ng &amp; Russell's characterization</span>
+    <p>Take a finite MDP with state rewards \(R \in \R^{S}\), and suppose the expert takes action \(a_1\) in every state (relabel actions so this holds). Its value is \(v = (I - \gamma P_{a_1})^{-1} R\). The policy is optimal if and only if no one-step deviation improves on it, \(P_{a_1} v \succeq P_a v\) for every \(a\), componentwise. Substituting \(v\):</p>
+    $$\big(P_{a_1} - P_a\big)\big(I - \gamma P_{a_1}\big)^{-1} R \;\succeq\; 0 \qquad \text{for all } a.$$
+    <p>The solution set is a convex cone, and it contains \(R = 0\). Ng &amp; Russell pick one point in it by a linear program: maximize the total gap between the expert's action and the best alternative, \(\sum_s \big(Q(s, a_1) - \max_{a \ne a_1} Q(s, a)\big)\), minus an \(L_1\) penalty \(\lambda\|R\|_1\) that prefers simple rewards.</p>
+  </div>
+
+  <h3>Feature matching and apprenticeship learning</h3>
+  <p>Abbeel &amp; Ng (2004) changed the goal: instead of recovering <em>the</em> reward, find a policy that performs as well as the expert under whatever the true reward is. With \(R(s) = w^\top\phi(s)\), \(\|w\|_2 \le 1\), define the <b>feature expectations</b> of a policy,</p>
+  $$\mu(\pi) = \E\Big[\sum_{t \ge 0} \gamma^t \phi(s_t) \;\Big|\; \pi\Big], \qquad \text{so that} \qquad V_w(\pi) = w^\top \mu(\pi).$$
+  <div class="box thm"><span class="tag">Lemma · matching features matches performance</span>
+    <p>If \(\|\mu(\tilde\pi) - \mu_E\|_2 \le \varepsilon\), then for every \(w\) with \(\|w\|_2 \le 1\): \(|V_w(\tilde\pi) - V_w(\pi_E)| = |w^\top(\mu(\tilde\pi) - \mu_E)| \le \|w\|_2\,\|\mu(\tilde\pi) - \mu_E\|_2 \le \varepsilon\), by Cauchy–Schwarz. The true reward never has to be found.</p>
+  </div>
+  <div class="box algo"><span class="tag">Algorithm · apprenticeship learning (projection method)</span>
+    <ol>
+      <li>Estimate \(\mu_E\) from the demonstrations. Pick any \(\pi^{(0)}\), compute \(\mu^{(0)}\), and set \(\bar\mu^{(0)} = \mu^{(0)}\).</li>
+      <li>Repeat for \(i = 1, 2, \dots\):
+        <ol>
+          <li>\(w^{(i)} = \mu_E - \bar\mu^{(i-1)}\), and \(t^{(i)} = \|w^{(i)}\|_2\). Stop if \(t^{(i)} \le \varepsilon\).</li>
+          <li><b>RL step:</b> \(\pi^{(i)}\) = an optimal policy for reward \(R = w^{(i)\top}\phi\). Compute \(\mu^{(i)}\).</li>
+          <li>\(\bar\mu^{(i)}\) = the orthogonal projection of \(\mu_E\) onto the line through \(\bar\mu^{(i-1)}\) and \(\mu^{(i)}\).</li>
+        </ol>
+      </li>
+      <li>Return a mixture of the \(\pi^{(j)}\) whose feature expectations are within \(\varepsilon\) of \(\mu_E\). <span class="step">(terminates within a number of iterations polynomial in k and 1/ε)</span></li>
+    </ol>
+    <p>The original max-margin variant instead picks \(w^{(i)}\) to maximize \(\min_{j &lt; i} w^\top(\mu_E - \mu^{(j)})\), an SVM-like quadratic program.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Feature-expectation space: the projection method moves a point towards the expert's feature expectations, each time using the gap as the next reward direction">
+      <defs>
+        <marker id="ah-d107" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <line x1="40" y1="228" x2="610" y2="228" class="s-ln"/><line x1="40" y1="228" x2="40" y2="10" class="s-ln"/>
+      <text x="606" y="222" class="s-ink3 s-end s-sm">feature 1</text>
+      <text x="46" y="18" class="s-ink3 s-sm">feature 2</text>
+      <ellipse cx="300" cy="115" rx="230" ry="110" class="s-grid s-dash"/>
+      <text x="90" y="110" class="s-ink3 s-sm">achievable μ(π)</text>
+      <line x1="140" y1="180" x2="460" y2="170" class="s-ln s-dash"/>
+      <line x1="424" y1="171" x2="360" y2="40" class="s-ln s-dash"/>
+      <path d="M424,171 L420,66" class="s-ln-mod" marker-end="url(#ah-d107)"/>
+      <path d="M380,80 L413,64" class="s-ln-mod" marker-end="url(#ah-d107)"/>
+      <circle cx="420" cy="60" r="6" class="s-acc"/><text x="432" y="58" class="s-acc s-sm">μ_E (expert)</text>
+      <circle cx="140" cy="180" r="4" class="s-ink"/><text x="140" y="198" class="s-mid s-sm">μ⁽⁰⁾</text>
+      <circle cx="460" cy="170" r="4" class="s-ink"/><text x="470" y="176" class="s-sm">μ⁽¹⁾</text>
+      <circle cx="360" cy="40" r="4" class="s-ink"/><text x="352" y="36" class="s-end s-sm">μ⁽²⁾</text>
+      <circle cx="424" cy="171" r="3" class="s-mod"/><text x="424" y="192" class="s-mod s-mid s-sm">μ̄⁽¹⁾</text>
+      <circle cx="380" cy="80" r="3" class="s-mod"/><text x="372" y="92" class="s-mod s-end s-sm">μ̄⁽²⁾</text>
+      <text x="430" y="122" class="s-mod s-sm">w⁽²⁾</text>
+    </svg>
+    <figcaption><b>The projection method in feature-expectation space.</b> Each reward direction \(w\) points from the current best mixture \(\bar\mu\) to the expert's \(\mu_E\). The RL step finds the achievable point furthest in that direction, and projecting \(\mu_E\) onto the new segment shrinks the gap: here from about 111 to about 45 units in one step. The short arrow from \(\bar\mu^{(2)}\) is the next direction, \(w^{(3)}\).</figcaption>
+  </figure>
+
+  <h3>Maximum-entropy IRL and the partition function</h3>
+  <p>Feature matching is still ambiguous: many policies, and mixtures of policies, match the expert's features. Ziebart et al. (2008) resolve it with the principle of maximum entropy: among all distributions over trajectories that match the expert's feature counts, choose the one that commits to nothing else.</p>
+  <div class="box deriv"><span class="tag">Derivation · MaxEnt IRL (deterministic dynamics)</span>
+    <p>Let \(f_\tau = \sum_t \phi(s_t)\) be a trajectory's feature counts and \(\tilde f\) the expert's average. Maximize \(-\sum_\tau P(\tau)\log P(\tau)\) subject to \(\sum_\tau P(\tau) f_\tau = \tilde f\) and \(\sum_\tau P(\tau) = 1\). Setting the derivative of the Lagrangian to zero gives an exponential family, in which the multipliers \(w\) play the role of reward weights:</p>
+    $$P(\tau \mid w) = \frac{\exp(w^\top f_\tau)}{Z(w)}, \qquad Z(w) = \sum_\tau \exp(w^\top f_\tau).$$
+    <p>Trajectories with higher reward are exponentially more likely, and ties are broken as evenly as possible. Fit \(w\) by maximum likelihood on the \(M\) demonstrations:</p>
+    $$L(w) = \frac1M\sum_{m} \log P(\tau_m \mid w) = w^\top \tilde f - \log Z(w).$$
+    <p>Differentiate. Since \(\nabla_w \log Z = \frac{1}{Z}\sum_\tau \exp(w^\top f_\tau)\, f_\tau = \E_{P(\cdot \mid w)}[f_\tau]\),</p>
+    $$\nabla_w L = \tilde f - \E_{\tau \sim P(\cdot \mid w)}[f_\tau] = \underbrace{\tilde f}_{\text{expert features}} - \underbrace{\sum_s D_s\, \phi(s)}_{\text{expected features}},$$
+    <p>where \(D_s\) is the expected number of visits to \(s\) under the current MaxEnt policy. \(\log Z\) is convex, so \(L\) is concave and gradient ascent finds the global optimum, where expected features equal expert features.</p>
+  </div>
+  <p>The <b>partition function</b> is the hard part: \(Z(w)\) sums over all trajectories, a number exponential in the horizon. Dynamic programming computes it, and the visitation counts \(D_s\), with a backward pass (soft value iteration, which yields the MaxEnt policy) and a forward pass (propagate the start distribution through that policy). With stochastic dynamics, Ziebart et al. (2008) put the expectation over next states inside the exponential, which makes the policy optimistic about lucky transitions. The later <b>maximum causal entropy</b> formulation (Ziebart, Bagnell &amp; Dey, 2010) uses \(Q(s, a) = r(s) + \E_{s'}[V(s')]\), \(V(s) = \log\sum_a \exp Q(s, a)\): exactly the soft Bellman equation of SAC (Day 95). The code below uses that form; for deterministic dynamics the two coincide.</p>
+  <pre><code>import numpy as np
+
+def maxent_irl(P, phi, expert_feats, p0, T, lr=0.05, iters=300):
+    """P: [S, A, S] dynamics; phi: [S, F] state features; expert_feats: [F] mean over demos of
+    sum_t phi(s_t); p0: [S] start distribution; T: horizon. Reward r(s) = phi(s) @ w."""
+    S, A, _ = P.shape
+    w = np.zeros(phi.shape[1])
+    for _ in range(iters):
+        r = phi @ w
+        V, policies = np.zeros(S), []
+        for t in range(T):                                 # backward pass: soft value iteration
+            Q = r[:, None] + P @ V                         # [S, A]
+            V = np.logaddexp.reduce(Q, axis=1)             # soft max over actions
+            policies.append(np.exp(Q - V[:, None]))        # MaxEnt policy pi(a | s)
+        policies.reverse()                                 # policies[t] acts at time t
+        d, D = p0.copy(), np.zeros(S)
+        for t in range(T):                                 # forward pass: expected visitation
+            D += d
+            d = np.einsum("s,sa,sat->t", d, policies[t], P)
+        w += lr * (expert_feats - phi.T @ D)               # expert features - expected features
+    return w</code></pre>
+  <p class="code-cap">Tested on a deterministic 5×5 grid with one-hot state features, 10-step episodes and 200 demonstrations from a soft-optimal expert rewarded only in the far corner: the recovered reward is about 4.2 on the goal cell and between −0.7 and 0.4 everywhere else, and the learned policy's visitation matches the expert's to within 0.04 visits per state.</p>
+  <p>For high-dimensional problems the dynamic program is out of reach. Guided cost learning (Finn et al., 2016) estimates \(Z\) by importance sampling from a policy trained alongside the reward. Alternating "improve the reward so the demonstrations look likely" with "improve the policy under that reward" is, as Day 108 shows, a GAN.</p>
+
+  <h3>Bayesian IRL</h3>
+  <p>Ramachandran &amp; Amir (2007) treat the reward as unknown and compute a posterior. Model the expert as Boltzmann-rational with confidence \(\alpha\):</p>
+  $$P(a \mid s, R) = \frac{\exp\big(\alpha\, Q^*_R(s, a)\big)}{\sum_b \exp\big(\alpha\, Q^*_R(s, b)\big)}, \qquad P(R \mid \mathcal D) \propto P(R) \prod_i P(a_i \mid s_i, R).$$
+  <p>The posterior is sampled with MCMC; their PolicyWalk algorithm takes random-walk steps on a grid of reward vectors and reuses the previous policy to warm-start each new policy iteration. The output is a distribution, so you can take the posterior mean (the estimate that minimizes squared error), act to maximize expected value under the posterior, or ask the expert for labels where the posterior is most uncertain. The cost: every likelihood evaluation requires solving an MDP.</p>
+
+  <h3>When you'd want the reward instead of the policy</h3>
+  <ul>
+    <li><b>Transfer to new dynamics.</b> A reward describes what to achieve; a policy also encodes how, for one body in one environment. After a change of robot or a moved wall, re-plan with the reward. AIRL (Day 108) is built for this.</li>
+    <li><b>Doing better than the demonstrations.</b> RL on the recovered reward can act sensibly in states the expert never visited, and can outperform an imperfect expert.</li>
+    <li><b>Predicting and understanding behaviour.</b> Ziebart et al. used MaxEnt IRL to model the route preferences of taxi drivers from GPS traces and predict their routes.</li>
+    <li><b>Specifying hard-to-write objectives.</b> Driving style, or the helicopter aerobatics that Abbeel et al. learned through apprenticeship learning, are easier to demonstrate than to write down. Learning reward models from human preferences (Day 123) is the same idea with comparisons instead of demonstrations.</li>
+  </ul>
+  <p>If you only need to reproduce behaviour in the same environment, BC, DAgger or GAIL is simpler: IRL puts an entire RL problem inside every iteration.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Degenerate and shaped solutions.</b> Without margins, entropy or priors, the optimizer happily returns trivial rewards. With them, the answer still depends on the features you chose and is identified only up to shaping.</li>
+      <li><b>The inner loop.</b> Every gradient step needs a (soft) optimal policy for the current reward; in large problems that is an RL run per step.</li>
+      <li><b>Suboptimal or inconsistent experts.</b> The Boltzmann model of irrationality is a convenience, not a fact. Systematic human biases get baked into the reward.</li>
+      <li><b>The non-causal MaxEnt model with stochastic dynamics</b> is risk-seeking: it explains demonstrations as if the expert expected lucky transitions.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run <code>maxent_irl</code> on a 5×5 gridworld with a goal reward and expert demonstrations from soft value iteration. Then add a wall and compare two agents on the new grid: one planning with the recovered reward, one running a BC policy trained on the original demonstrations.</li>
+      <li>Change the expert's rationality: generate demonstrations with rewards scaled by 1, 5 and 20. How does the scale of the recovered reward change, and why can IRL not tell a mild preference from a strong one held by a noisy expert?</li>
+      <li>Implement the projection method with five region-indicator features on the same grid. Plot \(\|\mu_E - \bar\mu^{(i)}\|\) against iteration.</li>
+      <li>On a 3×3 grid, run a simple Metropolis–Hastings sampler over rewards with the Boltzmann likelihood. Plot the posterior mean and standard deviation per state. Where is the uncertainty largest, and what demonstration would reduce it most?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Ng &amp; Russell 2000, “Algorithms for Inverse Reinforcement Learning” · Abbeel &amp; Ng 2004, “Apprenticeship Learning via Inverse Reinforcement Learning” · Ziebart et al. 2008, “Maximum Entropy Inverse Reinforcement Learning” · Ramachandran &amp; Amir 2007, “Bayesian Inverse Reinforcement Learning” · Ziebart, Bagnell &amp; Dey 2010, “Modeling Interaction via the Principle of Maximum Causal Entropy”</p>
+</article>
+
+<!-- ================================================================ DAY 108 -->
+<article class="day" id="d108">
+  <header class="day-head">
+    <span class="day-no">DAY 108</span>
+    <h2>GAIL &amp; Adversarial Imitation</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">GAIL skips the reward. It trains a discriminator to tell the expert's state–action pairs from the policy's, and trains the policy with RL to fool it. At the optimum the policy's occupancy measure matches the expert's, which is what running IRL and then RL would have produced anyway. AIRL constrains the discriminator's form so that a reward that transfers to new dynamics falls out as a by-product.</p>
+
+  <h3>Occupancy measures</h3>
+  <div class="box def"><span class="tag">Definition · occupancy measure</span>
+    <p>\(\rho_\pi(s, a) = \pi(a \mid s) \sum_{t \ge 0} \gamma^t \Pr(s_t = s \mid \pi)\): the discounted frequency with which \(\pi\) takes \(a\) in \(s\). Expected return is <em>linear</em> in it, \(\E_\pi\big[\sum_t \gamma^t r(s_t, a_t)\big] = \sum_{s, a} \rho_\pi(s, a)\, r(s, a)\).</p>
+    <p>Valid occupancy measures are exactly the non-negative solutions of the Bellman flow constraints \(\sum_a \rho(s', a) = p_0(s') + \gamma \sum_{s, a} P(s' \mid s, a)\, \rho(s, a)\), and they correspond one-to-one with policies through \(\pi_\rho(a \mid s) = \rho(s, a)/\sum_{a'} \rho(s, a')\) (Syed et al., 2008; this is also the dual of the LP formulation of Day 25).</p>
+  </div>
+  <p>So imitation can be posed as <b>occupancy-measure matching</b>: make \(\rho_\pi\) equal to \(\rho_{\pi_E}\). Unlike BC, this compares the two policies on the states each one actually visits, so covariate shift is built into the objective. Apprenticeship learning (Day 107) matched only a linear projection of \(\rho\), the feature expectations; occupancy matching asks for all of it.</p>
+
+  <h3>From IRL to GAIL</h3>
+  <p>Ho &amp; Ermon (2016) start from MaxEnt IRL with a convex regularizer \(\psi\) on the cost function, followed by entropy-regularized RL on the recovered cost. They show that the composition, RL after IRL, solves</p>
+  $$\operatorname{RL}\circ\operatorname{IRL}_\psi(\pi_E) = \argmin_\pi\; -H(\pi) + \psi^*\big(\rho_\pi - \rho_{\pi_E}\big),$$
+  <p>where \(\psi^*\) is the convex conjugate. The regularizer chooses the distance between occupancy measures. No regularizer gives exact matching, which is hopeless in large spaces. Restricting costs to a linear class recovers apprenticeship learning. And one particular regularizer, \(\psi_{GA}\), makes \(\psi^*\) the optimal value of a binary classification problem. That gives GAIL:</p>
+  $$\min_\pi \max_{D}\; \E_{\pi_E}\big[\log D(s, a)\big] + \E_{\pi}\big[\log\big(1 - D(s, a)\big)\big] - \lambda H(\pi).$$
+  <p>Here \(D(s, a) \in (0, 1)\) is the probability that \((s, a)\) came from the expert. (The paper writes \(D\) as the probability that the pair came from the policy, which is the same objective with \(D \mapsto 1 - D\).) The policy only affects the second term, so it is trained with RL to make its own pairs look like the expert's, with reward \(-\log(1 - D(s, a))\) or \(\log D(s, a)\).</p>
+  <div class="box deriv"><span class="tag">Derivation · the inner maximum is a Jensen–Shannon divergence</span>
+    <p>Normalize \(\rho\)'s to probability distributions (multiply by \(1 - \gamma\)). For fixed \(\pi\), the objective is \(\sum_{s,a} \big[\rho_E \log D + \rho_\pi \log(1 - D)\big]\), maximized pointwise in \(D\). Setting the derivative \(\rho_E/D - \rho_\pi/(1 - D)\) to zero gives</p>
+    $$D^*(s, a) = \frac{\rho_E(s, a)}{\rho_E(s, a) + \rho_\pi(s, a)}.$$
+    <p>Substitute and write \(m = \tfrac12(\rho_E + \rho_\pi)\):</p>
+    $$\sum \rho_E \log\frac{\rho_E}{2m} + \rho_\pi \log\frac{\rho_\pi}{2m} = \KL(\rho_E \,\|\, m) + \KL(\rho_\pi \,\|\, m) - 2\log 2 = 2\,\operatorname{JS}(\rho_E \,\|\, \rho_\pi) - \log 4.$$
+    <p>So with a perfect discriminator, the policy is minimizing the Jensen–Shannon divergence between its occupancy measure and the expert's, which is zero exactly when they match. It is the GAN argument (Goodfellow et al., 2014) applied to state–action visitation instead of images.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 220" role="img" aria-label="GAIL: expert and policy state-action pairs train a discriminator; its output is the reward for an RL update of the policy, whose new rollouts feed the discriminator again">
+      <defs>
+        <marker id="ah-d108" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d108m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="20" y="20" width="170" height="44" rx="6" class="s-node"/>
+      <text x="105" y="39" class="s-mid s-sm">expert (s, a) pairs</text><text x="105" y="54" class="s-ink2 s-mid s-sm">samples of ρ_E, label 1</text>
+      <rect x="20" y="150" width="170" height="44" rx="6" class="s-node-mod"/>
+      <text x="105" y="169" class="s-mid s-sm">policy π_θ (generator)</text><text x="105" y="184" class="s-ink2 s-mid s-sm">rollouts: ρ_π, label 0</text>
+      <rect x="260" y="80" width="170" height="60" rx="6" class="s-node"/>
+      <text x="345" y="104" class="s-mid s-sm">discriminator D(s, a)</text><text x="345" y="120" class="s-ink2 s-mid s-sm">binary classifier</text>
+      <path d="M190,42 C225,42 235,90 259,100" class="s-ln" marker-end="url(#ah-d108)"/>
+      <path d="M190,172 C225,172 235,130 259,120" class="s-ln" marker-end="url(#ah-d108)"/>
+      <rect x="490" y="88" width="170" height="44" rx="6" class="s-node"/>
+      <text x="575" y="107" class="s-mid s-sm">reward for the policy</text><text x="575" y="122" class="s-ink2 s-mid s-sm">r = −log(1 − D(s, a))</text>
+      <path d="M430,110 L489,110" class="s-ln" marker-end="url(#ah-d108)"/>
+      <path d="M575,132 C575,200 320,205 191,182" class="s-ln-mod" marker-end="url(#ah-d108m)"/>
+      <text x="420" y="214" class="s-mod s-mid s-sm">RL step on that reward (TRPO / PPO), plus entropy bonus</text>
+    </svg>
+    <figcaption><b>The adversarial loop.</b> The discriminator is a learned, constantly changing reward. When it can no longer tell the policy's pairs from the expert's, it outputs \(\tfrac12\) everywhere and the policy's occupancy measure matches the expert's.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · GAIL (Ho &amp; Ermon 2016)</span>
+    <ol>
+      <li>Collect trajectories with the current policy \(\pi_\theta\).</li>
+      <li>Take a gradient step on the discriminator: ascend \(\hat\E_{\pi_E}[\log D_w] + \hat\E_{\pi_\theta}[\log(1 - D_w)]\), i.e. logistic regression with expert pairs labelled 1 and policy pairs labelled 0.</li>
+      <li>Take a policy step (TRPO in the paper) with reward \(-\log(1 - D_w(s, a))\) and an entropy bonus.</li>
+      <li>Repeat. <span class="step">(the expert demonstrations are reused every iteration; only the policy data are fresh)</span></li>
+    </ol>
+  </div>
+
+  <h3>Training stability tricks</h3>
+  <ul>
+    <li><b>Mind the reward's sign.</b> \(-\log(1 - D) \ge 0\) pays a positive reward every step, so it implicitly rewards surviving longer; \(\log D \le 0\) charges every step and implicitly rewards ending episodes early. On tasks with termination this survival bias can dominate the imitation signal. Kostrikov et al. (2019, Discriminator-Actor-Critic) handle it by learning a reward for absorbing states, and also make adversarial imitation off-policy with TD3, cutting environment interactions by about an order of magnitude.</li>
+    <li><b>Keep the discriminator from winning.</b> A discriminator that separates the two sets perfectly saturates, and the reward stops varying between good and bad policy actions. Use a gradient penalty or spectral normalization, a small network, few discriminator steps per policy step, and stop training it when its accuracy gets near 100%.</li>
+    <li><b>Use a stable policy optimizer</b> (TRPO or PPO, with observation and reward normalization), and warm-start the policy with BC to save environment steps.</li>
+    <li><b>Without expert actions</b>, use a state-only discriminator \(D(s, s')\) (GAIfO; Torabi et al., 2018).</li>
+  </ul>
+  <pre><code>import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class Discriminator(nn.Module):
+    """Outputs the logit of 'this (s, a) pair came from the expert'."""
+    def __init__(self, obs_dim, act_dim, hidden=256):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(obs_dim + act_dim, hidden), nn.Tanh(),
+                                 nn.Linear(hidden, hidden), nn.Tanh(), nn.Linear(hidden, 1))
+
+    def forward(self, s, a):
+        return self.net(torch.cat([s, a], -1)).squeeze(-1)
+
+def discriminator_loss(D, s_E, a_E, s_pi, a_pi, gp_coef=10.0):
+    """Expert and policy batches must have the same size for the interpolation below."""
+    logit_E, logit_pi = D(s_E, a_E), D(s_pi, a_pi)
+    bce = F.binary_cross_entropy_with_logits(logit_E, torch.ones_like(logit_E)) \
+        + F.binary_cross_entropy_with_logits(logit_pi, torch.zeros_like(logit_pi))
+    # gradient penalty on interpolated inputs keeps D smooth, and so keeps the reward informative
+    eps = torch.rand(len(s_E), 1)
+    s_mix = (eps * s_E + (1 - eps) * s_pi).requires_grad_(True)
+    a_mix = (eps * a_E + (1 - eps) * a_pi).requires_grad_(True)
+    grads = torch.autograd.grad(D(s_mix, a_mix).sum(), [s_mix, a_mix], create_graph=True)
+    gp = (torch.cat(grads, -1).norm(dim=-1) - 1).pow(2).mean()
+    return bce + gp_coef * gp
+
+def gail_reward(D, s, a):
+    with torch.no_grad():
+        return -F.logsigmoid(-D(s, a))        # -log(1 - D): positive, so beware survival bias</code></pre>
+  <p class="code-cap">\(-\log(1 - \sigma(x)) = -\log\sigma(-x)\), computed stably by <code>logsigmoid</code>. Returning the logit itself, \(\log D - \log(1 - D)\), gives a reward with no fixed sign; that is the form AIRL uses.</p>
+
+  <h3>AIRL: recovering a transferable reward</h3>
+  <p>GAIL's discriminator is not a reward you can reuse: at the optimum it outputs \(\tfrac12\) everywhere, and before that it encodes the current policy as much as the task. Fu, Luo &amp; Levine (2018) give the discriminator a special form:</p>
+  $$D_\theta(s, a, s') = \frac{\exp f_\theta(s, a, s')}{\exp f_\theta(s, a, s') + \pi(a \mid s)}, \qquad f_\theta(s, a, s') = g_\theta(s) + \gamma\, h_\phi(s') - h_\phi(s).$$
+  <p>The policy's reward is \(\log D - \log(1 - D) = f_\theta(s, a, s') - \log\pi(a \mid s)\): entropy-regularized RL on \(f\). The form of \(f\) mirrors the ambiguity of Day 107. \(g\) is a state-only reward and \(h\) a potential, so \(\gamma h(s') - h(s)\) is exactly a potential-based shaping term. The paper shows that, under deterministic dynamics and a ground-truth reward that depends on states only, at the optimum \(g^*\) recovers the true reward up to a constant, \(h^*\) the optimal value function up to a constant, and \(f^*\) the optimal advantage. The shaping, which depends on the dynamics, is absorbed by \(h\), which leaves \(g\) <b>disentangled</b> from the dynamics. Re-optimize a policy for \(g\) in an environment with different dynamics and it still does the task. The paper demonstrates this on a maze whose wall moves and on a quadruped with disabled legs, where rewards recovered by GAIL-style or state–action AIRL variants fail to transfer.</p>
+
+  <h3>Comparison against BC on sample efficiency</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Behaviour cloning</th><th>GAIL</th><th>AIRL</th></tr></thead>
+    <tbody>
+      <tr><td><b>Expert data needed</b></td><td>a lot: errors compound off-distribution</td><td>little: Ho &amp; Ermon report near-expert MuJoCo performance from a few to a few dozen trajectories</td><td>similar to GAIL</td></tr>
+      <tr><td><b>Environment interaction</b></td><td>none</td><td>a lot: on-policy RL in the loop, typically millions of steps (off-policy variants cut this a lot)</td><td>a lot</td></tr>
+      <tr><td><b>Handles covariate shift</b></td><td>no</td><td>yes, it matches on the policy's own states</td><td>yes</td></tr>
+      <tr><td><b>Output</b></td><td>a policy</td><td>a policy (the discriminator isn't a reusable reward)</td><td>a policy and a transferable reward</td></tr>
+      <tr><td><b>Stability</b></td><td>supervised, easy</td><td>adversarial, fiddly</td><td>adversarial, fiddly</td></tr>
+    </tbody>
+  </table></div>
+  <p>The two axes of sample efficiency point in opposite directions. If demonstrations are expensive and simulation cheap, GAIL wins. If demonstrations are plentiful or there is no simulator, BC wins, and in the Ho &amp; Ermon experiments BC with enough data was competitive on some tasks.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>GAN pathologies.</b> Oscillation between discriminator and policy, and mode collapse: with multimodal demonstrations the policy can imitate one mode perfectly and ignore the rest.</li>
+      <li><b>Survival or termination bias</b> from the reward's sign, which can look like successful imitation on tasks where long episodes are good.</li>
+      <li><b>Memorization.</b> With few demonstrations the discriminator can memorize the expert's exact states, after which its reward is uninformative everywhere else.</li>
+      <li><b>A moving reward.</b> The critic in the policy's RL step chases a reward that changes every iteration; this is part of why on-policy methods are the default.</li>
+      <li><b>AIRL's guarantee is conditional</b> on deterministic dynamics and a state-only reward. With stochastic dynamics or action-dependent rewards, \(g\) need not be the true reward.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Implement GAIL on <code>Pendulum-v1</code> or <code>CartPole-v1</code> with your PPO, using 1, 5 and 20 expert trajectories from your Day 106 expert or Module 9 SAC. Compare with BC on the same demonstrations: return against the number of demonstrations, and against environment steps.</li>
+      <li>On CartPole, which terminates, compare the rewards \(-\log(1 - D)\), \(\log D\) and the logit. Plot episode length over training for each, and explain what you see with the survival-bias argument.</li>
+      <li>Sweep the gradient-penalty coefficient \(\{0, 1, 10\}\). Log discriminator accuracy on policy and expert batches; what accuracy range goes with successful imitation?</li>
+      <li>AIRL in a gridworld: implement \(f = g(s) + \gamma h(s') - h(s)\) with tabular \(g, h\). Train on demonstrations, then move a wall, re-optimize a policy for \(g\) in the new grid, and compare with re-optimizing for the logit of a GAIL discriminator.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Ho &amp; Ermon 2016, “Generative Adversarial Imitation Learning” · Fu, Luo &amp; Levine 2018, “Learning Robust Rewards with Adversarial Inverse Reinforcement Learning” · Kostrikov et al. 2019, “Discriminator-Actor-Critic: Addressing Sample Inefficiency and Reward Bias in Adversarial Imitation Learning” · Finn, Christiano, Abbeel &amp; Levine 2016, “A Connection between Generative Adversarial Networks, Inverse Reinforcement Learning, and Energy-Based Models”</p>
+</article>
+
+<!-- ================================================================ DAY 109 -->
+<article class="day" id="d109">
+  <header class="day-head">
+    <span class="day-no">DAY 109</span>
+    <h2>The Offline RL Problem</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Offline RL learns a policy from a fixed dataset, with no further interaction. Off-policy algorithms look as though they should work, but they rely on trying their own mistakes. Offline, every Bellman target that evaluates an action the data doesn't contain is an unchecked extrapolation, and the max in the backup seeks out the worst of those errors and compounds them.</p>
+
+  <h3>Learning purely from a fixed dataset</h3>
+  <p>The data are \(\mathcal D = \{(s_i, a_i, r_i, s'_i)\}\), collected once by some behaviour policy \(\pi_\beta\): typically unknown, often a mixture of policies, scripts and people. The goal is a policy with high return in the real MDP, found without running anything in it. The motivation is that interaction is often the expensive, slow or dangerous part (medicine, driving, robotics, recommendation), while logs of past decisions are plentiful. Offline RL promises what supervised learning has: train on a big dataset, deploy the result. Levine et al.'s tutorial (2020) is the standard map of the problem.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 200" role="img" aria-label="Three settings: online on-policy RL uses fresh data; off-policy RL keeps collecting into a replay buffer; offline RL learns from a fixed dataset with no interaction until deployment">
+      <defs>
+        <marker id="ah-d109" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <line x1="227" y1="14" x2="227" y2="190" class="s-grid"/><line x1="452" y1="14" x2="452" y2="190" class="s-grid"/>
+      <text x="115" y="24" class="s-ttl s-mid">online</text>
+      <rect x="30" y="58" width="80" height="36" rx="6" class="s-node-mod"/><text x="70" y="80" class="s-mid">π_k</text>
+      <rect x="130" y="58" width="80" height="36" rx="6" class="s-node"/><text x="170" y="80" class="s-mid">env</text>
+      <path d="M110,68 L129,68" class="s-ln" marker-end="url(#ah-d109)"/>
+      <path d="M130,86 L111,86" class="s-ln" marker-end="url(#ah-d109)"/>
+      <text x="115" y="136" class="s-ink2 s-mid s-sm">fresh data from π_k,</text>
+      <text x="115" y="152" class="s-ink2 s-mid s-sm">used, then discarded</text>
+      <text x="340" y="24" class="s-ttl s-mid">off-policy</text>
+      <rect x="255" y="48" width="80" height="36" rx="6" class="s-node-mod"/><text x="295" y="70" class="s-mid">π_k</text>
+      <rect x="355" y="48" width="80" height="36" rx="6" class="s-node"/><text x="395" y="70" class="s-mid">env</text>
+      <rect x="300" y="118" width="80" height="32" rx="6" class="s-node"/><text x="340" y="138" class="s-mid s-sm">buffer</text>
+      <path d="M335,62 L354,62" class="s-ln" marker-end="url(#ah-d109)"/>
+      <path d="M395,84 L362,117" class="s-ln" marker-end="url(#ah-d109)"/>
+      <path d="M318,118 L298,85" class="s-ln" marker-end="url(#ah-d109)"/>
+      <text x="340" y="176" class="s-ink2 s-mid s-sm">keeps collecting as it learns</text>
+      <text x="565" y="24" class="s-ttl s-mid">offline</text>
+      <rect x="470" y="48" width="86" height="42" rx="6" class="s-node"/><text x="513" y="66" class="s-mid s-sm">dataset 𝒟</text><text x="513" y="81" class="s-ink2 s-mid s-sm">(from π_β)</text>
+      <rect x="580" y="48" width="80" height="42" rx="6" class="s-node-mod"/><text x="620" y="73" class="s-mid">learn π</text>
+      <path d="M556,69 L579,69" class="s-ln" marker-end="url(#ah-d109)"/>
+      <rect x="580" y="128" width="80" height="32" rx="6" class="s-node"/><text x="620" y="148" class="s-mid">env</text>
+      <path d="M620,90 L620,127" class="s-ln s-dash" marker-end="url(#ah-d109)"/>
+      <text x="612" y="112" class="s-ink3 s-end s-sm">deploy</text>
+      <text x="565" y="186" class="s-ink2 s-mid s-sm">no interaction while learning</text>
+    </svg>
+    <figcaption><b>Three ways to get data.</b> Off-policy RL already learns from data it didn't just collect, but it keeps collecting, so its mistakes are eventually tried and corrected. Offline RL never gets that feedback.</figcaption>
+  </figure>
+
+  <h3>Why off-policy algorithms fail offline</h3>
+  <p>Tabular Q-learning converges for any behaviour policy that covers every state–action pair (Day 45), so it is tempting to take DQN or SAC and run it on the dataset. Two of the things those algorithms quietly rely on are missing. Coverage: the learned policy will choose actions the data don't contain. Corrective feedback: online, an action whose value is overestimated gets chosen, its real outcome is observed, and the estimate falls. Offline it is chosen and nothing happens.</p>
+  <p>Fujimoto et al. (2019) made the failure concrete. They trained DDPG offline on three datasets of a million transitions each from a MuJoCo task: the final replay buffer of an online DDPG agent; data collected concurrently by an online DDPG agent while it trained; and data from an expert policy. Offline DDPG failed on all three, with value estimates that diverged. It failed even on expert data, and even in the concurrent setting, where it saw exactly the same transitions as an online agent that learned well. The only difference was who had chosen the actions.</p>
+
+  <h3>Distributional shift and out-of-distribution action queries</h3>
+  <p>Two distribution shifts are at work. The first is the one from Day 106: the learned policy visits states the data don't cover, which hurts at deployment. The second is specific to value-based learning and happens during training. The Bellman target</p>
+  $$y = r + \gamma \max_{a'} Q(s', a') \qquad \text{or} \qquad y = r + \gamma\, \E_{a' \sim \pi(\cdot \mid s')}\big[Q(s', a')\big]$$
+  <p>evaluates \(Q\) at actions \(a'\) chosen by the max or by the current policy, not by the data. \(Q\) was fitted only on dataset actions, so its value at a very different action is an extrapolation, unconstrained by any data. Unconstrained errors go both ways, but the max (or the actor's gradient ascent on \(Q\)) systematically selects the overestimates. Bootstrapping then copies them into the targets of every predecessor state, and no new data ever correct them. This is the deadly triad of Day 69 in its worst form: function approximation, bootstrapping and off-policy data, with no way to collect more.</p>
+  <div class="box def"><span class="tag">Definition · extrapolation error (Fujimoto et al. 2019)</span>
+    <p>\(\epsilon_{\text{MDP}}(s, a) = Q^\pi(s, a) - Q^\pi_{\mathcal D}(s, a)\): the gap between a policy's value in the true MDP and its value in the MDP implied by the data, whose transitions are the empirical ones in \(\mathcal D\). It satisfies a Bellman-like recursion, so error at the pairs \((s', \pi(s'))\) the data poorly support propagates to every state that leads to them. Kumar et al. (2019) analyse the same phenomenon as <b>bootstrapping error</b>.</p>
+  </div>
+
+  <h3>Extrapolation error, demonstrated</h3>
+  <p>The smallest demonstration needs only NumPy. The behaviour policy only ever takes small actions; the features can represent \(Q\) well on those actions but extrapolate freely beyond them. Fitted Q iteration with a max over all actions diverges; the same procedure with the in-sample target, using the action actually logged at \(s'\), does not.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 620 232" role="img" aria-label="Q as a function of the action at one state: the learned Q matches the true Q inside the narrow band of data actions and extrapolates wildly outside it, where the max picks an action never seen">
+      <rect x="268" y="56" width="104" height="140" class="s-node"/>
+      <text x="320" y="72" class="s-ink3 s-mid s-sm">data</text>
+      <text x="320" y="86" class="s-ink3 s-mid s-sm">|a| ≤ 0.2</text>
+      <line x1="60" y1="196" x2="580" y2="196" class="s-ln"/><line x1="60" y1="20" x2="60" y2="196" class="s-ln"/>
+      <text x="54" y="30" class="s-ink3 s-end s-sm">Q</text>
+      <g class="s-ink3 s-sm">
+        <text x="60" y="210" class="s-mid">−1</text><text x="268" y="210" class="s-mid">−0.2</text>
+        <text x="372" y="210" class="s-mid">0.2</text><text x="580" y="210" class="s-mid">1</text>
+      </g>
+      <text x="320" y="226" class="s-ink3 s-mid s-sm">action a at a fixed state s</text>
+      <polyline points="60,170 120,155 180,143 240,135 300,130 320,129 360,131 420,138 480,150 540,165 580,176" class="s-ln-ink"/>
+      <polyline points="60,30 120,80 180,112 240,128 268,131 300,130 320,129 360,131 372,132 420,137 480,128 540,95 580,60" class="s-ln-bad"/>
+      <circle cx="60" cy="30" r="5" class="s-bad"/>
+      <text x="72" y="28" class="s-bad s-sm">the max picks this: an action never seen</text>
+      <line x1="430" y1="30" x2="452" y2="30" class="s-ln-ink"/><text x="460" y="34" class="s-sm">true Q(s, a)</text>
+      <line x1="430" y1="48" x2="452" y2="48" class="s-ln-bad"/><text x="460" y="52" class="s-sm">learned Q(s, a)</text>
+    </svg>
+    <figcaption><b>Where extrapolation error comes from.</b> Inside the band of logged actions the fitted \(Q\) is constrained by data and agrees with the truth. Outside it nothing constrains it, and the max in the Bellman target picks whichever extrapolation happens to be highest. The next iteration regresses onto that inflated target, and the error ratchets up.</figcaption>
+  </figure>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+gamma, n = 0.9, 1000
+
+def feats(s, a):                       # features of (s, a), cubic in the action
+    s, a = np.broadcast_arrays(s, a)
+    return np.stack([np.ones_like(s), s, s * s, a, s * a, a**2, s * a**2, a**3, s * a**3], -1)
+
+# A fixed dataset. The behaviour policy only ever takes small actions, |a| &lt;= 0.2.
+s = rng.uniform(-1, 1, n)
+a = rng.uniform(-0.2, 0.2, n)
+s2 = np.clip(s + a, -1, 1)
+r = -np.abs(s2)                        # every reward &lt;= 0, so every true Q lies in [-10, 0]
+a2 = rng.uniform(-0.2, 0.2, n)         # the behaviour policy's next action, as logged
+X, all_actions = feats(s, a), np.linspace(-1, 1, 41)
+
+for target in ["max over all actions", "in-sample (logged a')"]:
+    w = np.zeros(X.shape[1])
+    for k in range(31):
+        if target.startswith("max"):   # Q-learning: query Q at actions the data never contains
+            q_next = (feats(s2[:, None], all_actions[None, :]) @ w).max(axis=1)
+        else:                          # SARSA-style: only actions that appear in the data
+            q_next = feats(s2, a2) @ w
+        w = np.linalg.lstsq(X, r + gamma * q_next, rcond=None)[0]   # fitted Q iteration
+        if k % 10 == 0:
+            print(f"{target:24s} iter {k:2d}: mean Q on the data = {np.mean(X @ w):.3g}")</code></pre>
+  <p class="code-cap">Output: with the max, the mean predicted Q goes −0.49, 4×10⁴, 6×10⁷, 5×10¹⁰ at iterations 0, 10, 20, 30, for a problem in which no value can exceed 0. With the in-sample target it goes −0.49, −3.6, −4.7, −5.2, converging to the behaviour policy's value. The in-sample version is stable but only evaluates \(\pi_\beta\); getting improvement without the explosion is what Days 110–111 are about. (With purely quadratic features this particular problem is well specified and both targets behave. Extrapolation error is a property of the function class and the data together.)</p>
+
+  <h3>D4RL: benchmarks and dataset types</h3>
+  <p>D4RL (Fu et al., 2020) standardized offline evaluation. Its most used part is the Gym-MuJoCo locomotion suite (HalfCheetah, Hopper, Walker2d), each with several datasets that differ in who collected them.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Dataset</th><th>Collected by</th><th>What it tests</th></tr></thead>
+    <tbody>
+      <tr><td><b>random</b></td><td>1M steps of a randomly initialized policy</td><td>learning from poor, broad data</td></tr>
+      <tr><td><b>medium</b></td><td>1M steps of a policy trained online (SAC) and stopped early, at roughly a third of expert performance</td><td>improving on a single mediocre policy</td></tr>
+      <tr><td><b>medium-replay</b></td><td>the whole replay buffer of that agent, up to the medium level</td><td>diverse, multi-policy, mostly low-quality data</td></tr>
+      <tr><td><b>medium-expert</b></td><td>medium and expert data mixed half and half (2M steps)</td><td>picking out the good behaviour from a mixture</td></tr>
+      <tr><td><b>expert</b></td><td>1M steps of a fully trained policy</td><td>narrow, high-quality data, where BC is strong</td></tr>
+    </tbody>
+  </table></div>
+  <p>Other domains probe other things. <b>AntMaze</b> (umaze, medium, large; "diverse" and "play" datasets) has sparse goal rewards and data that never go from start to goal in one trajectory, so success requires <em>stitching</em> pieces of trajectories together (Day 112). <b>Adroit</b> (a 24-DoF hand; human, cloned and expert data) and <b>Franka Kitchen</b> (complete, partial, mixed) use small amounts of human data. There are also Maze2D, CARLA and Flow tasks. Scores are reported normalized, \(100 \times (\text{score} - \text{random}) / (\text{expert} - \text{random})\), so 100 means expert level. Two practical notes: dataset versions matter (the v0 MuJoCo datasets were regenerated as v2, and scores across versions are not comparable), and the datasets are now distributed through Farama's Minari library.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Divergent Q-values</b> are the signature failure: if Q estimates grow far beyond any plausible return, you are looking at extrapolation error, not a learning-rate problem.</li>
+      <li><b>Offline in name only.</b> Most papers tune hyperparameters and pick checkpoints by running the policy in the environment, which a real offline setting can't do. Offline policy evaluation and selection are hard open problems (Paine et al., 2020).</li>
+      <li><b>Benchmark artefacts.</b> On expert and medium datasets plain BC is a strong baseline; always report it. Normalized scores hide variance, and mixing D4RL versions makes comparisons meaningless.</li>
+      <li><b>Deployment shift remains.</b> Even a well-behaved offline Q-function says nothing reliable about states the dataset never reached.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Run the snippet. Then find out what stops the divergence: drop the cubic terms, add ridge regularization, widen the behaviour actions to \(|a| \le 0.5\). Explain each result in terms of support and extrapolation.</li>
+      <li>Collect three offline datasets for CartPole or Pendulum with your Module 8–9 agents: the final replay buffer, 100k steps of a medium-quality policy, and 100k random steps. Train DQN or SAC purely offline on each, logging the mean predicted Q against the policy's actual return.</li>
+      <li>Reproduce the "concurrent" experiment: an online agent and an offline agent consume exactly the same stream of transitions, but only the online one chooses actions. Compare their Q estimates and returns.</li>
+      <li>Load a D4RL or Minari dataset (for example hopper-medium). Plot the distribution of episode returns, and train a BC baseline. Its normalized score is the number every offline method on that dataset has to beat.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Levine, Kumar, Tucker &amp; Fu 2020, “Offline Reinforcement Learning: Tutorial, Review, and Perspectives on Open Problems” · Fujimoto, Meger &amp; Precup 2019, “Off-Policy Deep Reinforcement Learning without Exploration” · Fu et al. 2020, “D4RL: Datasets for Deep Data-Driven Reinforcement Learning” · Kumar et al. 2019, “Stabilizing Off-Policy Q-Learning via Bootstrapping Error Reduction” · Paine et al. 2020, “Hyperparameter Selection for Offline Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 110 -->
+<article class="day" id="d110">
+  <header class="day-head">
+    <span class="day-no">DAY 110</span>
+    <h2>Policy-Constraint Methods — BCQ &amp; BEAR</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">If out-of-distribution actions are the problem, keep the policy where the data are. BCQ only chooses among actions that a generative model of the data proposes, nudged slightly. BEAR constrains the policy's support to lie inside the behaviour policy's support. Both need a model of the behaviour policy. Implicit methods solve the constrained problem in closed form and avoid that model altogether.</p>
+
+  <h3>Constraining the learned policy to the data support</h3>
+  <p>Day 109's failure needs a policy that picks unsupported actions. Forbid that, and the Bellman targets only ever query \(Q\) where it was trained. In the tabular case Fujimoto et al. (2019) make this exact: <b>batch-constrained Q-learning</b> takes the max in the target only over actions observed at \(s'\),</p>
+  $$Q(s, a) \leftarrow (1 - \alpha)\, Q(s, a) + \alpha\Big(r + \gamma \max_{a' :\, (s', a') \in \mathcal D} Q(s', a')\Big),$$
+  <div class="box thm"><span class="tag">Theorem · batch-constrained Q-learning (tabular, informal)</span>
+    <p>Under the usual step-size conditions, batch-constrained Q-learning converges to the optimal <em>batch-constrained</em> policy: the best policy that only takes state–action pairs present in \(\mathcal D\), evaluated in the MDP the data define. Such policies never query an unseen pair, so with enough data per pair (and exactly, for deterministic dynamics) their values carry no extrapolation error.</p>
+  </div>
+  <p>The constraint is a dial. Too tight and the learned policy can do no better than \(\pi_\beta\); too loose and extrapolation error returns. Every method in this lesson is a way of setting that dial in continuous action spaces, where "the action at \(s'\) appears in \(\mathcal D\)" is never literally true.</p>
+
+  <h3>BCQ: a generative model plus a perturbation network</h3>
+  <p>Continuous BCQ (Fujimoto, Meger &amp; Precup, 2019) has three learned parts.</p>
+  <ul>
+    <li><b>A generative model</b> \(G_\omega(s)\) of the behaviour policy: a conditional VAE trained on \(\mathcal D\) to reconstruct actions. At decode time the latent is sampled from a clipped normal, so samples stay in high-density regions.</li>
+    <li><b>A perturbation network</b> \(\xi_\phi(s, a, \Phi) \in [-\Phi, \Phi]\) that adjusts a proposed action by a small amount, trained by deterministic policy gradient (Day 93) to maximize \(Q_{\theta_1}(s, a + \xi_\phi(s, a, \Phi))\).</li>
+    <li><b>Twin critics</b> \(Q_{\theta_1}, Q_{\theta_2}\), with a soft clipped double-Q target that mostly takes the minimum: \(y = r + \gamma \max_{a_i}\big[\lambda \min_j Q_{\theta'_j}(s', a_i) + (1-\lambda)\max_j Q_{\theta'_j}(s', a_i)\big]\), with \(\lambda = 0.75\).</li>
+  </ul>
+  <p>The policy is never a network of its own. It is a procedure:</p>
+  $$\pi(s) = \argmax_{a_i + \xi_\phi(s, a_i, \Phi)} Q_{\theta_1}\big(s, a_i + \xi_\phi(s, a_i, \Phi)\big), \qquad \{a_i \sim G_\omega(s)\}_{i=1}^{n},$$
+  <p>with \(n = 10\) and \(\Phi = 0.05\) (actions scaled to \([-1, 1]\)) in the paper. The two hyperparameters interpolate between familiar algorithms: \(n = 1, \Phi = 0\) is behaviour cloning (a sample from the VAE); \(\Phi = 0\) with large \(n\) is greedy selection among data-like actions; large \(\Phi\) with \(n \to \infty\) is ordinary Q-learning.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 230" role="img" aria-label="BCQ action selection in a two-dimensional action space: candidate actions are sampled near the data, each is nudged within a small box, and the highest-Q result is chosen">
+      <defs>
+        <marker id="ah-d110" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+        <marker id="ah-d110b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="40" y="20" width="220" height="180" class="s-grid"/>
+      <text x="30" y="16" class="s-ink3 s-sm">a₂</text>
+      <text x="262" y="214" class="s-ink3 s-sm">a₁</text>
+      <g class="s-ink3">
+        <circle cx="100" cy="130" r="2.5"/><circle cx="110" cy="120" r="2.5"/><circle cx="120" cy="125" r="2.5"/>
+        <circle cx="130" cy="112" r="2.5"/><circle cx="115" cy="140" r="2.5"/><circle cx="140" cy="118" r="2.5"/>
+        <circle cx="125" cy="105" r="2.5"/><circle cx="105" cy="110" r="2.5"/><circle cx="135" cy="130" r="2.5"/>
+        <circle cx="145" cy="108" r="2.5"/><circle cx="150" cy="122" r="2.5"/><circle cx="95" cy="122" r="2.5"/>
+        <circle cx="118" cy="132" r="2.5"/><circle cx="128" cy="118" r="2.5"/><circle cx="138" cy="140" r="2.5"/>
+        <circle cx="110" cy="145" r="2.5"/><circle cx="150" cy="135" r="2.5"/><circle cx="90" cy="138" r="2.5"/>
+      </g>
+      <rect x="93" y="113" width="24" height="24" class="s-grid"/><rect x="110" y="100" width="24" height="24" class="s-grid"/>
+      <rect x="128" y="113" width="24" height="24" class="s-grid"/><rect x="116" y="124" width="24" height="24" class="s-grid"/>
+      <rect x="136" y="100" width="24" height="24" class="s-grid"/>
+      <circle cx="105" cy="125" r="4" class="s-ln-ink"/><circle cx="122" cy="112" r="4" class="s-ln-ink"/>
+      <circle cx="140" cy="125" r="4" class="s-ln-ink"/><circle cx="128" cy="136" r="4" class="s-ln-ink"/>
+      <circle cx="148" cy="112" r="4" class="s-ln-ink"/>
+      <path d="M105,125 L113,117" class="s-ln-mod" marker-end="url(#ah-d110)"/>
+      <path d="M122,112 L130,104" class="s-ln-mod" marker-end="url(#ah-d110)"/>
+      <path d="M140,125 L148,117" class="s-ln-mod" marker-end="url(#ah-d110)"/>
+      <path d="M128,136 L136,128" class="s-ln-mod" marker-end="url(#ah-d110)"/>
+      <path d="M148,112 L156,104" class="s-ln-mod" marker-end="url(#ah-d110)"/>
+      <circle cx="158" cy="102" r="4.5" class="s-acc"/>
+      <path d="M200,80 L250,30" class="s-ln" marker-end="url(#ah-d110b)"/>
+      <text x="196" y="96" class="s-ink3 s-sm">higher Q</text>
+      <g class="s-sm">
+        <text x="290" y="44">1</text><text x="306" y="44">sample n actions from the VAE G_ω(s)</text>
+        <text x="306" y="60" class="s-ink2">(hollow circles, inside the data)</text>
+        <text x="290" y="86">2</text><text x="306" y="86">nudge each within ±Φ (the boxes)</text>
+        <text x="290" y="112">3</text><text x="306" y="112">keep the one with the highest Q₁</text>
+        <text x="290" y="150" class="s-ink2">Φ = 0, n = 1</text><text x="400" y="150" class="s-ink2">→ behaviour cloning</text>
+        <text x="290" y="168" class="s-ink2">Φ = 0, n large</text><text x="400" y="168" class="s-ink2">→ best data-like action</text>
+        <text x="290" y="186" class="s-ink2">Φ, n → ∞</text><text x="400" y="186" class="s-ink2">→ plain Q-learning</text>
+      </g>
+    </svg>
+    <figcaption><b>Batch-constrained action selection.</b> Grey dots are the actions logged near this state. BCQ only ever evaluates \(Q\) at a few data-like candidates and their small perturbations, so the max in its policy and in its target never reaches the unconstrained extrapolations of Day 109's figure.</figcaption>
+  </figure>
+  <pre><code>import torch
+import torch.nn as nn
+
+class Perturb(nn.Module):
+    """xi_phi(s, a, Phi): a bounded correction to an action proposed by the generative model."""
+    def __init__(self, obs_dim, act_dim, max_action=1.0, phi=0.05, hidden=400):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(obs_dim + act_dim, hidden), nn.ReLU(),
+                                 nn.Linear(hidden, 300), nn.ReLU(), nn.Linear(300, act_dim))
+        self.max_action, self.phi = max_action, phi
+
+    def forward(self, s, a):
+        xi = self.phi * self.max_action * torch.tanh(self.net(torch.cat([s, a], -1)))
+        return (a + xi).clamp(-self.max_action, self.max_action)
+
+@torch.no_grad()
+def bcq_act(s, vae, perturb, q1, n=10):
+    """s: [obs_dim]. Sample n candidates near the data, nudge them, keep the best by Q1."""
+    s_rep = s.unsqueeze(0).repeat(n, 1)
+    cand = perturb(s_rep, vae.decode(s_rep))        # decode() samples a clipped latent
+    return cand[q1(s_rep, cand).argmax()]
+
+@torch.no_grad()
+def bcq_target(r, s2, term, vae, perturb_t, q1_t, q2_t, n=10, lam=0.75, gamma=0.99):
+    B = s2.shape[0]
+    s_rep = s2.repeat_interleave(n, 0)              # [B * n, obs_dim]
+    a_rep = perturb_t(s_rep, vae.decode(s_rep))
+    q1v, q2v = q1_t(s_rep, a_rep), q2_t(s_rep, a_rep)
+    q = lam * torch.min(q1v, q2v) + (1 - lam) * torch.max(q1v, q2v)
+    return r + gamma * (1 - term) * q.view(B, n).max(1).values   # best candidate per next state
+
+def perturb_loss(s, vae, perturb, q1):              # DPG through the perturbation network only
+    a = vae.decode(s).detach()
+    return -q1(s, perturb(s, a)).mean()</code></pre>
+  <p class="code-cap">A fragment: the VAE (<code>decode</code> samples actions given states), the critics and the optimizers are assumed. The critics regress onto <code>bcq_target</code> with ordinary MSE, and target networks are Polyak-averaged as in TD3. <b>Discrete BCQ</b> (Fujimoto et al., 2019b) is simpler still: fit a behaviour classifier \(G(a \mid s)\) and take the max only over actions with \(G(a \mid s)/\max_{\hat a} G(\hat a \mid s) &gt; \tau\), with \(\tau = 0.3\).</p>
+
+  <h3>BEAR: support matching with MMD</h3>
+  <p>Kumar et al. (2019) point out that BCQ-style closeness to \(\pi_\beta\) is the wrong kind of constraint when \(\pi_\beta\) is poor. Constraining the <em>distribution</em>, for example \(\KL(\pi \,\|\, \pi_\beta) \le \varepsilon\), forces the policy to imitate the behaviour policy's preferences, including its bad ones: with mostly random data it keeps the policy nearly random. Constraining the <em>support</em> only forbids actions the behaviour policy (almost) never takes, and leaves the policy free to put all its mass on the best of the supported ones.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 620 210" role="img" aria-label="One-dimensional action axis: a broad behaviour distribution, a distribution-matched policy that copies it, and a support-matched policy that concentrates on the best supported action; Q is reliable only inside the support">
+      <line x1="60" y1="180" x2="580" y2="180" class="s-ln"/>
+      <text x="320" y="200" class="s-ink3 s-mid s-sm">action a at a fixed state s</text>
+      <polyline points="60,150 164,140" class="s-ln-bad s-dash"/>
+      <polyline points="476,64 520,36 560,24 580,20" class="s-ln-bad s-dash"/>
+      <polyline points="164,140 260,120 360,95 476,64" class="s-ln-info"/>
+      <polyline points="60,180 164,180 176,120 200,112 320,110 440,112 464,120 476,180 580,180" class="s-ln-ink"/>
+      <polyline points="164,180 176,104 320,100 464,92 476,180" class="s-ln-warn"/>
+      <polyline points="400,180 440,150 458,60 470,150 476,180" class="s-ln-mod"/>
+      <line x1="70" y1="24" x2="92" y2="24" class="s-ln-ink"/><text x="100" y="28" class="s-sm">π_β(a | s): behaviour data</text>
+      <line x1="70" y1="40" x2="92" y2="40" class="s-ln-warn"/><text x="100" y="44" class="s-sm">distribution matching (KL to π_β)</text>
+      <line x1="70" y1="56" x2="92" y2="56" class="s-ln-mod"/><text x="100" y="60" class="s-sm">support matching (BEAR)</text>
+      <line x1="70" y1="72" x2="92" y2="72" class="s-ln-info"/><text x="100" y="76" class="s-sm">Q(s, a); dashed red: extrapolated</text>
+    </svg>
+    <figcaption><b>Support vs distribution.</b> With broad, mediocre data, a KL constraint drags the policy towards the behaviour distribution. A support constraint allows any reweighting inside the support, so the policy can concentrate on the best action \(Q\) can actually vouch for, while staying out of the region where \(Q\) is an extrapolation.</figcaption>
+  </figure>
+  <p>BEAR measures support mismatch with the <b>maximum mean discrepancy</b>, estimated from samples:</p>
+  $$\operatorname{MMD}^2(P, Q) = \E_{x, x' \sim P}[k(x, x')] - 2\,\E_{x \sim P,\, y \sim Q}[k(x, y)] + \E_{y, y' \sim Q}[k(y, y')],$$
+  <p>with a Gaussian or Laplacian kernel \(k\). With many samples, MMD is a distance between distributions. The paper's empirical observation is that with only a <em>few</em> samples per state it behaves more like a support test, staying small for distributions that share a support even when their densities differ. The actor solves a constrained problem, maximizing a conservative ensemble estimate of \(Q\) subject to the MMD staying below a threshold, using a Lagrange multiplier updated by dual gradient ascent:</p>
+  $$\max_\pi\ \E_{s \sim \mathcal D}\,\E_{a \sim \pi(\cdot \mid s)}\Big[\min_{j = 1..K} Q_j(s, a)\Big] \quad \text{s.t.} \quad \E_{s \sim \mathcal D}\big[\operatorname{MMD}\big(\hat\pi_\beta(\cdot \mid s), \pi(\cdot \mid s)\big)\big] \le \varepsilon.$$
+  <p>The dataset has one action per state, so the samples from \(\hat\pi_\beta\) come from a fitted model, again a VAE. The critics are an ensemble with BCQ's soft clipped target, maximized over a few actions sampled from \(\pi\) at \(s'\).</p>
+  <pre><code>import torch
+
+def mmd2_laplacian(x, y, sigma=10.0):
+    """Squared MMD between sample sets x: [B, n, d] and y: [B, m, d], one value per state."""
+    k = lambda u, v: torch.exp(-(u.unsqueeze(2) - v.unsqueeze(1)).abs().sum(-1) / sigma)
+    return k(x, x).mean((1, 2)) - 2 * k(x, y).mean((1, 2)) + k(y, y).mean((1, 2))
+
+def bear_actor_losses(s, policy, vae, critics, log_alpha, eps=0.05, n=5):
+    a_pi = policy.rsample(s, n)                        # [B, n, act], reparameterized samples
+    a_beta = vae.decode_multiple(s, n).detach()        # [B, n, act] from the behaviour model
+    mmd = mmd2_laplacian(a_beta, a_pi)                 # [B]
+    q = torch.stack([c(s, a_pi[:, 0]) for c in critics]).min(0).values
+    actor_loss = (-q + log_alpha.exp().detach() * mmd).mean()
+    alpha_loss = -(log_alpha * (mmd.detach() - eps)).mean()   # raise alpha while MMD exceeds eps
+    return actor_loss, alpha_loss</code></pre>
+  <p class="code-cap">A fragment with the policy, VAE and critic ensemble assumed. The threshold, kernel and bandwidth are dataset-dependent hyperparameters; the values here are only placeholders.</p>
+
+  <h3>Explicit vs implicit constraints</h3>
+  <p><b>Explicit</b> methods put a divergence to \(\hat\pi_\beta\) into the actor's objective, as a constraint or a penalty: BEAR's MMD; BRAC (Wu, Tucker &amp; Nachum, 2019), which compares KL, MMD and Wasserstein penalties applied to the policy or to the value; TD3+BC (Fujimoto &amp; Gu, 2021), which simply adds a BC term on dataset actions, \(\max_\pi \E_{(s, a) \sim \mathcal D}\big[\lambda Q(s, \pi(s)) - (\pi(s) - a)^2\big]\) with \(\lambda = \alpha / \overline{|Q|}\) and \(\alpha = 2.5\), and is a strong baseline for that little effort. <b>Implicit</b> methods solve the constrained improvement step in closed form and never need \(\hat\pi_\beta\) at all.</p>
+  <div class="box deriv"><span class="tag">Derivation · the KL-constrained improvement step in closed form</span>
+    <p>At each state solve \(\max_\pi \E_{a \sim \pi}[A(s, a)] - \lambda\,\KL\big(\pi(\cdot \mid s)\,\|\,\pi_\beta(\cdot \mid s)\big)\) over distributions. With a multiplier \(\nu\) for normalization, the stationarity condition is \(A(s, a) - \lambda\big(\log\pi(a \mid s) - \log\pi_\beta(a \mid s) + 1\big) + \nu = 0\), so</p>
+    $$\pi^*(a \mid s) = \frac{1}{Z(s)}\,\pi_\beta(a \mid s)\,\exp\!\big(A(s, a)/\lambda\big).$$
+    <p>Project this onto a parametric policy by minimizing \(\E_s\, \KL(\pi^* \,\|\, \pi_\theta)\), which is equivalent to maximizing \(\E_s \E_{a \sim \pi^*}[\log\pi_\theta(a \mid s)]\). Write the expectation under \(\pi^*\) as one under \(\pi_\beta\), and drop the per-state constant \(Z(s)\):</p>
+    $$\max_\theta\ \E_{(s, a) \sim \mathcal D}\Big[\exp\!\big(A(s, a)/\lambda\big)\, \log\pi_\theta(a \mid s)\Big].$$
+    <p>An expectation under \(\pi_\beta\) is just an average over the dataset, so no behaviour model is needed. The result is behaviour cloning with each logged action weighted by its exponentiated advantage: AWR (Peng et al., 2019), AWAC (Nair et al., 2020), CRR (Wang et al., 2020), and IQL's policy extraction on Day 111.</p>
+  </div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Explicit (BEAR, BRAC, TD3+BC)</th><th>Implicit (AWR, AWAC, CRR)</th></tr></thead>
+    <tbody>
+      <tr><td><b>Needs \(\hat\pi_\beta\)</b></td><td>yes for KL and MMD (TD3+BC uses dataset actions directly)</td><td>no</td></tr>
+      <tr><td><b>Actor update</b></td><td>maximize \(Q\) at the policy's actions, minus a divergence</td><td>weighted regression on logged actions</td></tr>
+      <tr><td><b>Evaluates \(Q\) at policy actions</b></td><td>yes, inside the constraint</td><td>only in the critic's target, if at all</td></tr>
+      <tr><td><b>Main knob</b></td><td>threshold ε or penalty weight</td><td>temperature λ</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Behaviour-policy estimation</h3>
+  <p>BCQ's generator, BEAR's MMD samples and BRAC's KL all depend on a model \(\hat\pi_\beta\), and its errors leak straight into the constraint. Real datasets are usually mixtures: several policies, a replay buffer, or many human operators. A single Gaussian fitted to a multimodal mixture puts its mass between the modes, which is exactly where the data are not. That is why these methods use VAEs, and why later work uses mixtures, normalizing flows or diffusion models. Underestimating the support shuts out good actions; overestimating it lets extrapolation back in. And the model must generalize across states, since each state usually appears once with one action. Implicit methods avoid all of this, which is a large part of why they took over.</p>
+  <p>On results: BCQ was far better than offline DDPG on all of Fujimoto et al.'s datasets and particularly strong on expert data. BEAR was more robust on random and medium-quality data, where a tight closeness constraint hurts. On D4RL both have since been overtaken by simpler or more conservative methods: TD3+BC, CQL and IQL.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>The dial is dataset-dependent.</b> Good values of Φ, ε or the penalty weight differ between expert and random data, and are usually chosen by evaluating online, which a true offline user can't do.</li>
+      <li><b>A bad behaviour model breaks the constraint</b> in both directions, as above.</li>
+      <li><b>MMD is finicky.</b> The kernel, its bandwidth and the number of samples change whether it behaves like a support test or a distribution match.</li>
+      <li><b>Ceilings.</b> A constrained policy can't stray far from the data. If good behaviour needs actions that appear only rarely in the data, the constraint can rule them out.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Implement discrete BCQ on your offline CartPole datasets from Day 109 (expert, medium, random). Sweep \(\tau \in \{0, 0.3, 0.9, 1\}\) and plot return; explain both extremes.</li>
+      <li>Use <code>mmd2_laplacian</code> with behaviour samples from \(U[-1, 1]\) and policy samples from \(\mathcal N(0.9, 0.05^2)\) (inside the support) and \(\mathcal N(1.5, 0.05^2)\) (outside). Compute MMD with 4, 10 and 100 samples each, over many draws. When does it separate "inside the support" from "outside" better than it separates "same density" from "different density"?</li>
+      <li>Implement advantage-weighted regression on the CartPole data using a Q-function fitted by in-sample (SARSA-style) FQI, with \(\lambda \in \{0.1, 1, 10\}\). Compare with plain BC on each dataset.</li>
+      <li>Implement TD3+BC on offline Pendulum data and sweep \(\alpha \in \{0.5, 2.5, 10\}\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Fujimoto, Meger &amp; Precup 2019, “Off-Policy Deep Reinforcement Learning without Exploration” · Kumar et al. 2019, “Stabilizing Off-Policy Q-Learning via Bootstrapping Error Reduction” · Fujimoto et al. 2019b, “Benchmarking Batch Deep Reinforcement Learning Algorithms” · Wu, Tucker &amp; Nachum 2019, “Behavior Regularized Offline Reinforcement Learning” · Fujimoto &amp; Gu 2021, “A Minimalist Approach to Offline Reinforcement Learning” · Peng et al. 2019, “Advantage-Weighted Regression”</p>
+</article>
+
+<!-- ================================================================ DAY 111 -->
+<article class="day" id="d111">
+  <header class="day-head">
+    <span class="day-no">DAY 111</span>
+    <h2>Value-Regularization — CQL &amp; IQL</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Instead of constraining the policy, change what the critic believes. CQL adds a penalty that pushes \(Q\) down on actions the policy favours and up on actions in the data, which provably makes the policy's estimated value a lower bound on its true value. IQL never evaluates an unseen action at all: it learns an upper expectile of in-sample values and extracts a policy by advantage-weighted regression.</p>
+
+  <h3>Conservative Q-Learning: penalize out-of-distribution values</h3>
+  <p>Kumar, Zhou, Tucker &amp; Levine (2020) start from the policy-evaluation step of an actor-critic, \(\hat Q^{k+1} = \argmin_Q \tfrac12\E_{\mathcal D}\big[(Q - \hat{\mathcal B}^\pi \hat Q^k)^2\big]\), where \(\hat{\mathcal B}^\pi\) is the empirical Bellman operator for the current policy \(\pi\), and add a term that penalizes large \(Q\)-values under some distribution \(\mu\) over actions.</p>
+  <div class="box deriv"><span class="tag">Derivation · why the penalty gives a lower bound (tabular, exact backups)</span>
+    <p><b>First version.</b> \(\hat Q^{k+1} = \argmin_Q\ \alpha\,\E_{s \sim \mathcal D, a \sim \mu}[Q(s, a)] + \tfrac12\E_{(s, a) \sim \mathcal D}\big[(Q(s, a) - \mathcal B^\pi\hat Q^k(s, a))^2\big]\). The data put state \(s\) and action \(a\) at frequencies \(d(s)\,\pi_\beta(a \mid s)\), so setting the derivative with respect to each \(Q(s, a)\) to zero gives \(d(s)\big[\alpha\,\mu(a \mid s) + \pi_\beta(a \mid s)\big(Q(s, a) - \mathcal B^\pi \hat Q^k(s, a)\big)\big] = 0\), that is</p>
+    $$\hat Q^{k+1}(s, a) = \mathcal B^\pi \hat Q^k(s, a) - \alpha\,\frac{\mu(a \mid s)}{\pi_\beta(a \mid s)}.$$
+    <p>Every backup subtracts something non-negative, so the fixed point satisfies \(\hat Q^\pi = Q^\pi - \alpha(I - \gamma P^\pi)^{-1}\big[\mu/\pi_\beta\big] \le Q^\pi\) at every \((s, a)\): a pointwise lower bound. Notice where the penalty is largest: where \(\mu\) puts mass and the data don't.</p>
+    <p><b>Second version</b> (the one used). Also <em>maximize</em> \(Q\) on the data: add \(-\alpha\,\E_{(s, a) \sim \mathcal D}[Q(s, a)]\). The same calculation gives \(\hat Q^{k+1} = \mathcal B^\pi \hat Q^k - \alpha\big(\mu(a \mid s) - \pi_\beta(a \mid s)\big)/\pi_\beta(a \mid s)\), which can be positive for some actions, so the pointwise bound is lost. But take \(\mu = \pi\) and average over the policy's actions:</p>
+    $$\E_{a \sim \pi}\Big[\frac{\pi(a \mid s) - \pi_\beta(a \mid s)}{\pi_\beta(a \mid s)}\Big] = \sum_a \frac{\pi(a \mid s)^2}{\pi_\beta(a \mid s)} - 1 \;\ge\; 0,$$
+    <p>since \(\sum_a \pi^2/\pi_\beta \ge (\sum_a \pi)^2 / \sum_a \pi_\beta = 1\) by Cauchy–Schwarz (it is a chi-squared divergence). So the <em>value</em> \(\hat V^\pi(s) = \E_{a \sim \pi}[\hat Q^\pi(s, a)]\) is a lower bound on \(V^\pi(s)\). The bound is tighter than the first version's, and it is exact where \(\pi = \pi_\beta\), on the data's own behaviour.</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · CQL lower bound (Kumar et al. 2020, informal)</span>
+    <p>With sampling error in the empirical backup, the same conclusions hold with high probability provided \(\alpha\) is large enough to dominate the error, which shrinks like \(1/\sqrt{|\mathcal D(s, a)|}\). The first version lower-bounds \(Q^\pi\) pointwise; the second lower-bounds \(V^\pi\). A policy improved against a lower bound can't be fooled by overestimated, unsupported actions.</p>
+  </div>
+  <p><b>The CQL objective and its α term.</b> Rather than fixing \(\mu = \pi\), choose the \(\mu\) that maximizes the penalty, regularized by its entropy. Since \(\max_\mu \E_{a \sim \mu}[Q(s, a)] + \mathcal H(\mu) = \log\sum_a \exp Q(s, a)\), attained at \(\mu = \operatorname{softmax}(Q)\) (the Gibbs variational principle), the inner maximization has a closed form. That gives CQL(\(\mathcal H\)):</p>
+  $$\min_Q\ \alpha\,\E_{s \sim \mathcal D}\Big[\log\sum_a \exp Q(s, a) - \E_{a \sim \hat\pi_\beta(\cdot \mid s)}\big[Q(s, a)\big]\Big] + \frac12\,\E_{(s, a, s') \sim \mathcal D}\Big[\big(Q(s, a) - \hat{\mathcal B}^{\pi_k}\hat Q^k(s, a)\big)^2\Big].$$
+  <p>The \(\alpha\) term pushes down a soft maximum of \(Q\) over all actions and pushes up \(Q\) at the logged actions, so it widens the gap between in-distribution and out-of-distribution values. Its expectation over \(\hat\pi_\beta\) is just an average over dataset pairs, so no behaviour model is needed. In continuous action spaces the log-sum-exp is estimated by importance sampling, using a handful of actions drawn uniformly and from the current policy at \(s\) and \(s'\). \(\alpha\) is either fixed (values from about 1 to 10 are common, and the right value depends on the reward scale) or tuned automatically by a Lagrangian that raises it while the gap exceeds a threshold \(\tau\). The paper reports strong D4RL results, with its largest margins over earlier methods on the harder AntMaze, Kitchen and Adroit datasets.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Q as a function of the action: standard offline Q-learning has high spurious values away from the data; CQL pushes those down and keeps values near the data actions">
+      <defs>
+        <marker id="ah-d111" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <line x1="60" y1="190" x2="580" y2="190" class="s-ln"/>
+      <text x="320" y="210" class="s-ink3 s-mid s-sm">action a at a fixed state s</text>
+      <g class="s-ln-ink">
+        <line x1="250" y1="186" x2="250" y2="194"/><line x1="270" y1="186" x2="270" y2="194"/><line x1="290" y1="186" x2="290" y2="194"/>
+        <line x1="300" y1="186" x2="300" y2="194"/><line x1="320" y1="186" x2="320" y2="194"/><line x1="340" y1="186" x2="340" y2="194"/>
+      </g>
+      <text x="295" y="176" class="s-ink2 s-mid s-sm">logged actions: pushed up</text>
+      <polyline points="60,60 120,90 180,120 240,126 290,120 340,124 400,110 460,70 520,40 580,70" class="s-ln-bad s-dash"/>
+      <polyline points="60,170 120,165 180,150 240,132 290,124 340,128 400,140 460,150 520,160 580,170" class="s-ln-mod"/>
+      <path d="M520,50 L520,151" class="s-ln" marker-end="url(#ah-d111)"/>
+      <path d="M90,82 L90,160" class="s-ln" marker-end="url(#ah-d111)"/>
+      <text x="528" y="100" class="s-sm">pushed down</text>
+      <text x="528" y="114" class="s-sm">where μ ∝ exp Q</text>
+      <text x="528" y="128" class="s-sm">is large</text>
+      <line x1="150" y1="24" x2="172" y2="24" class="s-ln-bad s-dash"/><text x="180" y="28" class="s-sm">standard offline Q-learning</text>
+      <line x1="150" y1="42" x2="172" y2="42" class="s-ln-mod"/><text x="180" y="46" class="s-sm">CQL</text>
+    </svg>
+    <figcaption><b>What the α term does.</b> The log-sum-exp is dominated by the largest \(Q\)-values, which offline are typically the spurious out-of-distribution ones, so that is where the penalty bites. The data term pushes back on the logged actions. The policy, improved against this conservative \(Q\), prefers actions the data support.</figcaption>
+  </figure>
+  <pre><code>import torch
+import torch.nn.functional as F
+
+def cql_dqn_loss(q, q_targ, s, a, r, s2, term, alpha=1.0, gamma=0.99):
+    """Discrete CQL(H) on top of a DQN-style TD loss. a: [B] long; r, term: [B] float."""
+    q_all = q(s)                                            # [B, A]
+    q_data = q_all.gather(1, a[:, None]).squeeze(1)         # Q at the logged actions
+    with torch.no_grad():
+        y = r + gamma * (1 - term) * q_targ(s2).max(1).values
+    td = 0.5 * F.mse_loss(q_data, y)
+    # push down a soft maximum over all actions, push up the actions in the data
+    conservative = (torch.logsumexp(q_all, dim=1) - q_data).mean()
+    return td + alpha * conservative</code></pre>
+  <p class="code-cap">With discrete actions the log-sum-exp is exact. For continuous control, replace it with a sampled estimate and replace the max in the target with the actor's action, as in SAC.</p>
+
+  <h3>Implicit Q-Learning: expectile regression that never queries OOD actions</h3>
+  <p>The in-sample target of Day 109 (use the logged \(a'\)) never touches an unseen action, but it evaluates \(\pi_\beta\) instead of improving on it. Kostrikov, Nair &amp; Levine (2022) want a max over actions, restricted to actions the data contain, without ever sampling an action. Expectiles provide exactly that.</p>
+  <div class="box def"><span class="tag">Definition · expectile regression</span>
+    $$L_2^\tau(u) = \big|\tau - \mathbb 1(u &lt; 0)\big|\, u^2, \qquad \tau \in (0, 1).$$
+    <p>The \(\tau\)-expectile \(m_\tau\) of a random variable \(X\) minimizes \(\E[L_2^\tau(X - m)]\). Setting the derivative to zero gives \(\tau\,\E[(X - m)_+] = (1 - \tau)\,\E[(m - X)_+]\): the expected excess above \(m\), weighted by \(\tau\), balances the expected shortfall below it, weighted by \(1 - \tau\). For \(\tau = 0.5\) this is the mean; as \(\tau \to 1\) the shortfall weight vanishes and \(m_\tau\) rises to the maximum of \(X\)'s support.</p>
+  </div>
+  <p>IQL trains three things, using only \((s, a, r, s')\) tuples from the data:</p>
+  $$L_V(\psi) = \E_{(s, a) \sim \mathcal D}\Big[L_2^\tau\big(Q_{\hat\theta}(s, a) - V_\psi(s)\big)\Big], \qquad L_Q(\theta) = \E_{(s, a, s') \sim \mathcal D}\Big[\big(r + \gamma V_\psi(s') - Q_\theta(s, a)\big)^2\Big],$$
+  $$L_\pi(\phi) = -\E_{(s, a) \sim \mathcal D}\Big[\exp\!\big(\beta\,(Q_{\hat\theta}(s, a) - V_\psi(s))\big)\, \log\pi_\phi(a \mid s)\Big].$$
+  <p>\(V_\psi(s)\) is an upper expectile of \(Q\) over the <em>dataset's</em> actions at \(s\): a soft max over in-support actions. \(Q\) then regresses onto \(r + \gamma V(s')\), which is a Bellman optimality backup restricted to the support. As \(\tau \to 1\) the paper shows this approaches the optimal \(Q\)-function over policies that stay in the support. Why a separate \(V\), instead of applying the expectile directly to \(r + \gamma Q(s', a')\)? That target is also random through \(s'\), and an upper expectile of it would reward lucky transitions, not good actions. \(V(s)\) depends only on \(s\), so its expectile is over actions alone, while the \(Q\) regression averages over next states with an ordinary mean.</p>
+  <p><b>Advantage-weighted regression for policy extraction.</b> The value functions never use the policy. Once \(Q\) and \(V\) are learned (or concurrently), \(L_\pi\) extracts a policy by weighted behaviour cloning, Day 110's closed form with temperature \(1/\beta\): logged actions with positive advantage are imitated strongly, those with negative advantage barely at all. The weights are clipped (at 100 in the paper) to stop a few large advantages from dominating.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 228" role="img" aria-label="Left: the asymmetric expectile loss for tau 0.5, 0.7 and 0.9. Right: the distribution of Q over dataset actions at one state, with the mean and upper expectiles moving towards the maximum">
+      <text x="160" y="20" class="s-mid s-sm">loss |τ − 1(u &lt; 0)| · u²</text>
+      <line x1="30" y1="190" x2="290" y2="190" class="s-ln"/>
+      <line x1="160" y1="186" x2="160" y2="194" class="s-ln"/>
+      <text x="160" y="208" class="s-ink3 s-mid s-sm">u = Q(s, a) − V(s)</text>
+      <polyline points="30,110 62.5,145 95,170 127.5,185 160,190 192.5,185 225,170 257.5,145 290,110" class="s-ln-ink"/>
+      <polyline points="30,142 62.5,163 95,178 127.5,187 160,190 192.5,183 225,162 257.5,127 290,78" class="s-ln-warn"/>
+      <polyline points="30,174 62.5,181 95,186 127.5,189 160,190 192.5,181 225,154 257.5,109 290,46" class="s-ln-mod"/>
+      <text x="296" y="50" class="s-mod s-sm">τ = 0.9</text>
+      <text x="296" y="82" class="s-warn s-sm">τ = 0.7</text>
+      <text x="296" y="114" class="s-sm">τ = 0.5</text>
+      <text x="505" y="20" class="s-mid s-sm">V(s): τ-expectile of Q(s, ·) over the data</text>
+      <g class="s-node">
+        <rect x="390" y="160" width="26" height="30"/><rect x="418" y="130" width="26" height="60"/>
+        <rect x="446" y="100" width="26" height="90"/><rect x="474" y="90" width="26" height="100"/>
+        <rect x="502" y="110" width="26" height="80"/><rect x="530" y="140" width="26" height="50"/>
+        <rect x="558" y="165" width="26" height="25"/><rect x="586" y="178" width="26" height="12"/>
+      </g>
+      <line x1="380" y1="190" x2="620" y2="190" class="s-ln"/>
+      <text x="500" y="208" class="s-ink3 s-mid s-sm">Q(s, a) for the actions logged at s</text>
+      <line x1="487" y1="52" x2="487" y2="190" class="s-ln-ink s-dash"/><text x="487" y="46" class="s-mid s-sm">mean</text>
+      <line x1="515" y1="66" x2="515" y2="190" class="s-ln-warn"/><text x="515" y="60" class="s-warn s-mid s-sm">0.7</text>
+      <line x1="550" y1="80" x2="550" y2="190" class="s-ln-mod"/><text x="550" y="74" class="s-mod s-mid s-sm">0.9</text>
+      <line x1="612" y1="94" x2="612" y2="190" class="s-ln-bad s-dash"/><text x="612" y="88" class="s-bad s-mid s-sm">max</text>
+    </svg>
+    <figcaption><b>Expectiles as an in-support max.</b> Left: for \(\tau &gt; 0.5\), errors where \(Q\) exceeds \(V\) cost more than errors where it falls short, so \(V\) is pulled upwards. Right: as \(\tau\) grows, \(V(s)\) moves from the mean of \(Q\) over logged actions towards their maximum, without ever evaluating an action that wasn't logged.</figcaption>
+  </figure>
+  <pre><code>import torch
+import torch.nn.functional as F
+
+def expectile_loss(diff, tau=0.7):
+    """L2^tau(u) = |tau - 1(u &lt; 0)| * u^2, with u = Q - V."""
+    weight = torch.where(diff &lt; 0, 1 - tau, tau)
+    return (weight * diff.pow(2)).mean()
+
+def iql_update(batch, q1, q2, q1_t, q2_t, v, policy, opt_v, opt_q, opt_pi,
+               tau=0.7, beta=3.0, gamma=0.99):
+    s, a, r, s2, term = batch                              # dataset tuples only
+    # 1) V: upper expectile of the target Q over *logged* actions; no policy sampling anywhere
+    with torch.no_grad():
+        q_t = torch.min(q1_t(s, a), q2_t(s, a))
+    v_s = v(s)
+    loss_v = expectile_loss(q_t - v_s, tau)
+    # 2) Q: regress onto r + gamma V(s'); V carries the max, the mean handles random s'
+    with torch.no_grad():
+        y = r + gamma * (1 - term) * v(s2)
+    loss_q = F.mse_loss(q1(s, a), y) + F.mse_loss(q2(s, a), y)
+    # 3) policy: advantage-weighted regression on logged actions
+    with torch.no_grad():
+        w = torch.exp(beta * (q_t - v_s)).clamp(max=100.0)
+    loss_pi = -(w * policy.log_prob(s, a)).mean()
+    for opt, loss in ((opt_v, loss_v), (opt_q, loss_q), (opt_pi, loss_pi)):
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    # then Polyak-average q1_t, q2_t towards q1, q2 (rate 0.005)</code></pre>
+  <p class="code-cap">The three losses touch disjoint parameters, so the three backward passes are independent. The paper's settings include \(\tau = 0.7, \beta = 3\) for the locomotion datasets and \(\tau = 0.9, \beta = 10\) for AntMaze, with rewards rescaled per domain; treat those as starting points.</p>
+
+  <h3>Why IQL is simple and strong</h3>
+  <ul>
+    <li><b>No out-of-distribution queries, by construction.</b> Every \(Q\) and \(V\) evaluation is at a dataset pair or a dataset state, so there is nothing to extrapolate and nothing to constrain.</li>
+    <li><b>No behaviour model and no sampling.</b> No VAE, no log-sum-exp estimate, no actor in the value updates. It is three regressions, which makes it fast and stable.</li>
+    <li><b>It still does dynamic programming.</b> Because \(V\) approximates an in-support max and \(Q\) backs it up, value propagates across trajectories that share states. That is why IQL is strong on AntMaze, which requires stitching, where return-conditioned methods (Day 112) are weak.</li>
+    <li><b>It fine-tunes well.</b> The paper shows that IQL-pretrained agents improve smoothly when online interaction is later allowed.</li>
+  </ul>
+  <p>The reported D4RL results put IQL on par with CQL on the locomotion datasets and ahead on AntMaze, with a fraction of the implementation complexity.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>CQL's α.</b> Too large and \(Q\) is so pessimistic the policy collapses towards behaviour cloning; too small and overestimation returns. Its scale is tied to the reward scale, which is why the Lagrangian variant exists.</li>
+      <li><b>Pessimism costs you online.</b> CQL's deliberately low values make online fine-tuning start with an "unlearning" dip as the critic recalibrates; Cal-QL (Nakamoto et al., 2023) is one fix.</li>
+      <li><b>IQL's τ near 1</b> approximates a hard max, which is noisy and unstable; \(\beta\) too large makes a few weights dominate the policy loss, and too small turns it into BC.</li>
+      <li><b>The support is a ceiling.</b> IQL can't recommend an action the data never contain, however good it might be.</li>
+      <li><b>Online tuning again.</b> The published settings were chosen by evaluating in the environment.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Add <code>cql_dqn_loss</code> to your DQN and train it on the Day 109 CartPole datasets for \(\alpha \in \{0, 0.1, 1, 10\}\). For each, plot the mean predicted \(Q\) at dataset states against the learned policy's actual discounted return. Which values of α give a lower bound?</li>
+      <li>Verify the CQL derivation on a tiny tabular MDP: iterate the penalized backup to its fixed point and check \(\hat V^\pi \le V^\pi\) for several \(\pi\), and \(\hat V^\pi = V^\pi\) when \(\pi = \pi_\beta\) (with the second version).</li>
+      <li>Expectiles: draw samples from a skewed distribution, minimize \(L_2^\tau\) numerically for \(\tau \in \{0.5, 0.7, 0.9, 0.99\}\), and compare \(m_\tau\) with the sample mean and maximum.</li>
+      <li>Implement IQL on an offline Pendulum or Minari <code>hopper-medium</code> dataset. Sweep \(\tau \in \{0.5, 0.7, 0.9\}\) and \(\beta \in \{1, 3, 10\}\), and compare with BC and with your CQL. At \(\tau = 0.5\), what is IQL computing?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Kumar, Zhou, Tucker &amp; Levine 2020, “Conservative Q-Learning for Offline Reinforcement Learning” · Kostrikov, Nair &amp; Levine 2022, “Offline Reinforcement Learning with Implicit Q-Learning” · Peng et al. 2019, “Advantage-Weighted Regression” · Newey &amp; Powell 1987, “Asymmetric Least Squares Estimation and Testing” · Nakamoto et al. 2023, “Cal-QL: Calibrated Offline RL Pre-Training for Efficient Online Fine-Tuning”</p>
+</article>
+
+<!-- ================================================================ DAY 112 -->
+<article class="day" id="d112">
+  <header class="day-head">
+    <span class="day-no">DAY 112</span>
+    <h2>Decision Transformer &amp; RL as Sequence Modeling</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Decision Transformer drops value functions and policy gradients altogether. It trains a causal transformer to predict actions from the recent trajectory and a desired return-to-go, then asks for a high return at test time. It is simple and stable, and it inherits the limits of conditioning on outcomes: it can't stitch together the best parts of different trajectories, and in stochastic environments it confuses luck with skill.</p>
+
+  <h3>Casting RL as conditional sequence prediction</h3>
+  <p>A trajectory is a sequence, and sequence models are very good at predicting the next element of one. The trick is to put the <em>outcome</em> into the sequence as an input: learn \(\pi(a \mid \text{history}, \text{desired return})\) by maximum likelihood on the dataset, then at test time ask for a return as high as the best in the data. This is <b>return-conditioned supervised learning</b>; Schmidhuber's "upside-down RL" (2019) and RvS ("reinforcement learning via supervised learning") are related framings. There is no Bellman backup and no bootstrapping, so none of the deadly-triad machinery of Days 109–111 is needed. The question this lesson answers is what that costs.</p>
+
+  <h3>Return-to-go conditioning</h3>
+  <p>Decision Transformer (Chen et al., 2021) represents each trajectory as interleaved tokens</p>
+  $$\tau = \big(\hat R_1, s_1, a_1,\ \hat R_2, s_2, a_2,\ \dots,\ \hat R_T, s_T, a_T\big), \qquad \hat R_t = \sum_{t' = t}^{T} r_{t'},$$
+  <p>where \(\hat R_t\) is the undiscounted <b>return-to-go</b> from step \(t\) and \(r_{t'}\) is the reward received after \(a_{t'}\) (the paper's indexing). Conditioning on what is <em>left</em> to achieve, rather than on rewards already received, makes the same input mean the same thing at every point in an episode. At test time you choose \(\hat R_1\), say an expert-level return, and after each step subtract the reward actually received, \(\hat R_{t+1} = \hat R_t - r_t\).</p>
+
+  <h3>The transformer over (R, s, a) tokens</h3>
+  <ul>
+    <li><b>Embeddings.</b> Each modality has its own linear embedding (a convolutional encoder for Atari frames) into dimension \(d\). A learned embedding of the episode timestep \(t\), the absolute step in the episode and not the position in the context window, is added to all three tokens of step \(t\).</li>
+    <li><b>Backbone.</b> A GPT-style causal transformer over the last \(K\) timesteps, \(3K\) tokens (\(K = 20\) for the MuJoCo tasks, 30 for most Atari games). Each token attends only to earlier tokens.</li>
+    <li><b>Head and loss.</b> The output at each state token \(s_t\) predicts \(a_t\), with MSE for continuous actions or cross-entropy for discrete ones. Only actions are predicted; the paper found that also predicting states or returns did not help.</li>
+  </ul>
+  <div class="box algo"><span class="tag">Algorithm · Decision Transformer</span>
+    <ol>
+      <li><b>Preprocess.</b> For every trajectory in the dataset compute the returns-to-go \(\hat R_t\) and timesteps \(t\). Scale returns by a fixed constant (for example, divide by 1,000 on MuJoCo).</li>
+      <li><b>Train.</b> Repeat: sample a window of \(K\) consecutive steps from a random trajectory (longer trajectories more often), embed its \(3K\) tokens, and minimize the action-prediction loss at every state token. <span class="step">(pad short windows and mask the padding in attention and in the loss)</span></li>
+      <li><b>Act.</b> Choose a target return \(\hat R_1\). At each step:
+        <ol>
+          <li>Feed the last \(K\) steps of \((\hat R, s, a)\), with a placeholder for the current action.</li>
+          <li>Execute the action predicted at the newest state token; observe \(r_t\) and \(s_{t+1}\).</li>
+          <li>Append \(\hat R_{t+1} = \hat R_t - r_t\) and \(s_{t+1}\) to the context.</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 262" role="img" aria-label="Decision Transformer: return-to-go, state and action tokens for each timestep are embedded, passed through a causal transformer, and the output at each state token predicts that step's action">
+      <defs>
+        <marker id="ah-d112" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d112m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="340" y="22" class="s-ink2 s-mid s-sm">predict aₜ from the output at the sₜ token; the loss is on actions only</text>
+      <text x="125" y="56" class="s-mod s-mid">â₁</text><text x="335" y="56" class="s-mod s-mid">â₂</text><text x="545" y="56" class="s-mod s-mid">â₃</text>
+      <path d="M125,92 L125,63" class="s-ln-mod" marker-end="url(#ah-d112m)"/>
+      <path d="M335,92 L335,63" class="s-ln-mod" marker-end="url(#ah-d112m)"/>
+      <path d="M545,92 L545,63" class="s-ln-mod" marker-end="url(#ah-d112m)"/>
+      <rect x="20" y="92" width="640" height="58" rx="8" class="s-node"/>
+      <text x="340" y="118" class="s-ttl s-mid">causal transformer (GPT)</text>
+      <text x="340" y="136" class="s-ink2 s-mid s-sm">each token attends only to the tokens before it</text>
+      <g>
+        <rect x="25" y="200" width="60" height="30" rx="4" class="s-node"/><text x="55" y="220" class="s-mid">R̂₁</text>
+        <rect x="95" y="200" width="60" height="30" rx="4" class="s-node-mod"/><text x="125" y="220" class="s-mid">s₁</text>
+        <rect x="165" y="200" width="60" height="30" rx="4" class="s-node"/><text x="195" y="220" class="s-mid">a₁</text>
+        <rect x="235" y="200" width="60" height="30" rx="4" class="s-node"/><text x="265" y="220" class="s-mid">R̂₂</text>
+        <rect x="305" y="200" width="60" height="30" rx="4" class="s-node-mod"/><text x="335" y="220" class="s-mid">s₂</text>
+        <rect x="375" y="200" width="60" height="30" rx="4" class="s-node"/><text x="405" y="220" class="s-mid">a₂</text>
+        <rect x="445" y="200" width="60" height="30" rx="4" class="s-node"/><text x="475" y="220" class="s-mid">R̂₃</text>
+        <rect x="515" y="200" width="60" height="30" rx="4" class="s-node-mod"/><text x="545" y="220" class="s-mid">s₃</text>
+        <rect x="585" y="200" width="60" height="30" rx="4" class="s-node"/><text x="615" y="220" class="s-mid">a₃</text>
+      </g>
+      <g>
+        <path d="M55,200 L55,152" class="s-ln" marker-end="url(#ah-d112)"/><path d="M125,200 L125,152" class="s-ln" marker-end="url(#ah-d112)"/>
+        <path d="M195,200 L195,152" class="s-ln" marker-end="url(#ah-d112)"/><path d="M265,200 L265,152" class="s-ln" marker-end="url(#ah-d112)"/>
+        <path d="M335,200 L335,152" class="s-ln" marker-end="url(#ah-d112)"/><path d="M405,200 L405,152" class="s-ln" marker-end="url(#ah-d112)"/>
+        <path d="M475,200 L475,152" class="s-ln" marker-end="url(#ah-d112)"/><path d="M545,200 L545,152" class="s-ln" marker-end="url(#ah-d112)"/>
+        <path d="M615,200 L615,152" class="s-ln" marker-end="url(#ah-d112)"/>
+      </g>
+      <text x="340" y="252" class="s-ink2 s-mid s-sm">each token = linear embedding of its modality + an embedding of its timestep t</text>
+    </svg>
+    <figcaption><b>Decision Transformer.</b> Three tokens per timestep: return-to-go, state (module colour) and action. Because of the causal mask, the output at \(s_t\) has seen \(\hat R_{1..t}\), \(s_{1..t}\) and \(a_{1..t-1}\), but not \(a_t\), which is what it must predict.</figcaption>
+  </figure>
+  <pre><code>import torch
+import torch.nn as nn
+
+class DecisionTransformer(nn.Module):
+    def __init__(self, obs_dim, act_dim, d=128, n_layer=3, n_head=1, max_ep_len=1000):
+        super().__init__()
+        self.embed_R, self.embed_s = nn.Linear(1, d), nn.Linear(obs_dim, d)
+        self.embed_a, self.embed_t = nn.Linear(act_dim, d), nn.Embedding(max_ep_len, d)
+        self.ln = nn.LayerNorm(d)
+        layer = nn.TransformerEncoderLayer(d, n_head, 4 * d, dropout=0.1, batch_first=True)
+        self.gpt = nn.TransformerEncoder(layer, n_layer)
+        self.predict_a = nn.Sequential(nn.Linear(d, act_dim), nn.Tanh())
+
+    def forward(self, R, s, a, t):
+        """R: [B, K, 1] returns-to-go; s: [B, K, obs]; a: [B, K, act]; t: [B, K] long timesteps."""
+        B, K, _ = s.shape
+        te = self.embed_t(t)                                   # added to all three tokens of a step
+        tokens = torch.stack([self.embed_R(R) + te, self.embed_s(s) + te, self.embed_a(a) + te],
+                             dim=2).reshape(B, 3 * K, -1)      # R1 s1 a1 R2 s2 a2 ...
+        causal = torch.triu(torch.ones(3 * K, 3 * K, dtype=torch.bool), diagonal=1)
+        h = self.gpt(self.ln(tokens), mask=causal).reshape(B, K, 3, -1)
+        return self.predict_a(h[:, :, 1])                      # read out at the s_t tokens
+
+def returns_to_go(rewards):
+    """Undiscounted R_t = r_t + r_{t+1} + ... + r_T, as Decision Transformer uses."""
+    out, running = [0.0] * len(rewards), 0.0
+    for t in reversed(range(len(rewards))):
+        running += rewards[t]
+        out[t] = running
+    return out
+
+# training step on random length-K windows of dataset trajectories:
+#   loss = ((model(R, s, a, t) - a) ** 2).mean()        # mask padded steps in short windows</code></pre>
+  <pre><code>import numpy as np
+import torch
+
+@torch.no_grad()
+def run_dt(model, env, target_return, K=20, scale=1000.0, max_ep_len=1000):
+    obs, _ = env.reset(seed=0)
+    act_dim = env.action_space.shape[0]
+    R, S, A, T = [target_return / scale], [obs], [np.zeros(act_dim)], [0]
+    ctx = lambda xs: torch.as_tensor(np.array(xs[-K:]), dtype=torch.float32)[None]
+    total = 0.0
+    for t in range(max_ep_len):
+        a = model(ctx(R)[..., None], ctx(S), ctx(A), torch.as_tensor(T[-K:])[None])[0, -1]
+        A[-1] = a.numpy()                                  # fill the placeholder for a_t
+        obs, r, terminated, truncated, _ = env.step(A[-1])
+        total += r
+        if terminated or truncated:
+            break
+        R.append(R[-1] - r / scale)                        # decrement the return-to-go
+        S.append(obs)
+        A.append(np.zeros(act_dim))
+        T.append(t + 1)
+    return total</code></pre>
+  <p class="code-cap">The defaults follow the paper's MuJoCo configuration (3 layers, 1 head, \(d = 128\), \(K = 20\), returns divided by 1,000); the original uses GPT-2 blocks, but any causal transformer works. The placeholder action for the current step is harmless: the causal mask hides it from the \(s_t\) token. The paper reports DT competitive with CQL on the D4RL locomotion datasets and on the Atari datasets it used, and strong on a Key-to-Door task built to need credit assignment over long horizons.</p>
+
+  <h3>Trajectory Transformer and beam search</h3>
+  <p>Janner, Li &amp; Levine (2021) model everything, not just actions. Each dimension of the state, the action and the reward (plus a reward-to-go estimate) is discretized independently into 100 bins and becomes its own token, so one transition is a run of \(N_s + N_a + 2\) tokens. A GPT trained on these sequences is at once a dynamics model, a behaviour policy and a reward model. Planning is <b>beam search</b>, the same procedure language models use for decoding. For imitation, the beam keeps the most likely continuations. For offline RL, it keeps the continuations with the highest predicted cumulative reward plus predicted reward-to-go at the end of a short planning horizon. For goal reaching, a goal token is placed at the start of the sequence. The paper shows its long-horizon predictions compound far less error than single-step models, and reports results competitive with the strong offline methods of the time on D4RL locomotion. The cost is inference: every real action needs a beam of candidates expanded token by token, which is very slow.</p>
+
+  <h3>Strengths and honest limitations vs value-based offline RL</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Return-conditioned (DT)</th><th>Value-based offline RL (CQL, IQL)</th></tr></thead>
+    <tbody>
+      <tr><td><b>Objective</b></td><td>supervised likelihood of actions</td><td>Bellman regression with a constraint or regularizer</td></tr>
+      <tr><td><b>Stability</b></td><td>high: no bootstrapping, no deadly triad</td><td>needs the machinery of Days 110–111</td></tr>
+      <tr><td><b>Long context and partial observability</b></td><td>natural, through attention over the history</td><td>needs recurrent or stacked inputs</td></tr>
+      <tr><td><b>Stitching sub-trajectories</b></td><td>no</td><td>yes, through dynamic programming</td></tr>
+      <tr><td><b>Stochastic environments</b></td><td>conditions on luck</td><td>averages over outcomes correctly</td></tr>
+      <tr><td><b>Test-time knob</b></td><td>the target return, chosen by hand</td><td>none</td></tr>
+    </tbody>
+  </table></div>
+  <p>Three findings temper the enthusiasm. Emmons et al. (2022) showed that a plain MLP conditioned on return or goal (RvS) matches DT on many D4RL tasks, so the transformer is not the key ingredient there; careful conditioning and regularization are. Brandfonbrener et al. (2022) proved that return-conditioned supervised learning needs near-deterministic dynamics and good coverage of high-return trajectories to work, and can be arbitrarily suboptimal otherwise. Paster et al. (2022) showed the stochastic failure concretely: conditioning on a high return selects the trajectories where the environment happened to be kind, so the policy imitates gambles that paid off rather than choices that pay off on average. And the target return itself is a hyperparameter: within the range of the data, achieved return tracks the target; above the data's best return it typically does not.</p>
+
+  <h3>The stitching failure</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 640 232" role="img" aria-label="Two dataset trajectories cross at state X: trajectory 1 goes from A through X to B with reward 0, trajectory 2 from C through X to D with reward 1; dynamic programming stitches A to X to D, return conditioning cannot">
+      <defs>
+        <marker id="ah-d112b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d112c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <path d="M88,66 L301,109" class="s-ln-ink" marker-end="url(#ah-d112b)"/>
+      <path d="M338,121 L551,164" class="s-ln-ink" marker-end="url(#ah-d112b)"/>
+      <path d="M88,164 L301,121" class="s-ln-info" marker-end="url(#ah-d112b)"/>
+      <path d="M338,109 L551,66" class="s-ln-info" marker-end="url(#ah-d112b)"/>
+      <path d="M80,44 C200,40 280,90 320,93 C360,90 440,40 552,46" class="s-ln-mod s-dash" marker-end="url(#ah-d112c)"/>
+      <circle cx="70" cy="60" r="18" class="s-node-mod"/><text x="70" y="65" class="s-mid">A</text>
+      <circle cx="70" cy="170" r="18" class="s-node"/><text x="70" y="175" class="s-mid">C</text>
+      <circle cx="320" cy="115" r="18" class="s-node"/><text x="320" y="120" class="s-mid">X</text>
+      <circle cx="570" cy="170" r="18" class="s-node"/><text x="570" y="175" class="s-mid">B</text>
+      <circle cx="570" cy="60" r="18" class="s-node"/><text x="570" y="65" class="s-mid">D</text>
+      <text x="70" y="30" class="s-ink3 s-mid s-sm">start</text>
+      <text x="592" y="64" class="s-sm">reward 1</text>
+      <text x="592" y="174" class="s-sm">reward 0</text>
+      <text x="195" y="78" class="s-ink2 s-mid s-sm">trajectory 1</text>
+      <text x="195" y="162" class="s-info s-mid s-sm">trajectory 2</text>
+      <text x="320" y="82" class="s-mod s-mid s-sm">stitched by DP</text>
+      <text x="320" y="204" class="s-ink2 s-mid s-sm">Q-learning / IQL: V(X) = 1 is learned from trajectory 2, so A → X → D gets value 1</text>
+      <text x="320" y="222" class="s-ink2 s-mid s-sm">DT at A asked for return 1: the only trajectory from A in the data got 0</text>
+    </svg>
+    <figcaption><b>Stitching.</b> The best behaviour from A, go to X and then follow trajectory 2 to D, never appears in the data as one trajectory. Dynamic programming finds it because value flows backwards through the shared state X. A return-conditioned policy at A is asked for a return that no trajectory from A ever achieved, which is out-of-distribution conditioning.</figcaption>
+  </figure>
+  <p>Stitching is what D4RL's AntMaze datasets test, and it is where return-conditioned methods do worst and IQL does best. Fixes graft dynamic programming back on: Q-conditioned DT (Yamagata et al., 2023) relabels returns-to-go with learned \(Q\)-values so that the conditioning reflects what is achievable from each state; Elastic DT (Wu et al., 2023) varies the history length so the model can drop a bad trajectory's past; Online DT (Zheng et al., 2022) adds online fine-tuning. Each step back towards value functions recovers some of what return conditioning gave up.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Stitching</b>, as above: on datasets of partial or suboptimal trajectories, return conditioning can't combine their good parts.</li>
+      <li><b>Stochasticity:</b> conditioning on high returns rewards luck. Check your environment's stochasticity before choosing DT.</li>
+      <li><b>Choosing the target return.</b> Too low wastes the model; above the dataset's best, behaviour becomes unpredictable. In papers it is tuned with online rollouts.</li>
+      <li><b>Implementation details:</b> returns must be scaled consistently between training and evaluation, the return-to-go must be decremented at every step, padded windows need attention and loss masks, and the timestep embedding can't handle episodes longer than its table.</li>
+      <li><b>Cost per action.</b> A transformer forward pass per step for DT; a full beam search per step for Trajectory Transformer.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Train the Decision Transformer on an offline dataset: your Day 109 Pendulum data, or Minari <code>hopper-medium</code>. Evaluate with target returns from the 10th to the 100th percentile of dataset returns, and at 1.5× the best. Plot achieved return against target.</li>
+      <li><b>Stitching test.</b> Build the figure's dataset as a small gridworld, with many copies of trajectories 1 and 2 and none from A to D. Compare DT, BC and IQL started from A.</li>
+      <li><b>Stochasticity test.</b> Add a "gamble" action at the start: with probability 0.1 it pays 10, otherwise 0, while a safe action pays 2. Generate data with a uniformly random behaviour policy. Which action does DT choose when conditioned on a return of 10, and which does Q-learning choose?</li>
+      <li>Replace the transformer with an MLP over \((s_t, \hat R_t)\) only (RvS) and compare on your dataset. When does the context window help?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Chen et al. 2021, “Decision Transformer: Reinforcement Learning via Sequence Modeling” · Janner, Li &amp; Levine 2021, “Offline Reinforcement Learning as One Big Sequence Modeling Problem” · Emmons et al. 2022, “RvS: What is Essential for Offline RL via Supervised Learning?” · Brandfonbrener et al. 2022, “When does return-conditioned supervised learning work for offline reinforcement learning?” · Paster, McIlraith &amp; Ba 2022, “You Can't Count on Luck: Why Decision Transformers and RvS Fail in Stochastic Environments” · Yamagata, Khalil &amp; Santos-Rodriguez 2023, “Q-learning Decision Transformer”</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m11.html"><small>Previous · Days 102–105</small>◂ Module 11 — Exploration</a>
+  <a class="next" href="m13.html"><small>Next · Days 113–121</small>Module 13 — Hierarchy, Meta, Multi-Agent &amp; Scale ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,1619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 7 — Build Tools &amp; Project Structure · 365 Days of Java Backend</title>
+<meta name="description" content="365 Days of Java Backend, phase 7: Build Tools &amp; Project Structure (lessons 171–182).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+</head>
+<body class="m7" data-lang="java">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>365 Days</b> of Java</a>
+  <span class="meta">Phase 7 · Build Tools &amp; Project Structure · Days 171–182</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 7 · Build Tools &amp; Project Structu…</h4>
+  <nav>
+    <a href="#l171"><span class="n">L171</span>Build Tools Overview &amp; Installati…</a>
+    <a href="#l172"><span class="n">L172</span>Maven POM Anatomy &amp; Coordinates</a>
+    <a href="#l173"><span class="n">L173</span>Maven Lifecycles, Phases &amp; Goals</a>
+    <a href="#l174"><span class="n">L174</span>Dependencies: Scopes, Transitivit…</a>
+    <a href="#l175"><span class="n">L175</span>dependencyManagement, BOMs &amp; the…</a>
+    <a href="#l176"><span class="n">L176</span>Essential Maven Plugins</a>
+    <a href="#l177"><span class="n">L177</span>Profiles, settings.xml &amp; Private…</a>
+    <a href="#l178"><span class="n">L178</span>Multi-Module Maven Project Design</a>
+    <a href="#l179"><span class="n">L179</span>Gradle Basics: DSLs, Tasks &amp; Conf…</a>
+    <a href="#l180"><span class="n">L180</span>Gradle Advanced: Version Catalogs…</a>
+    <a href="#l181"><span class="n">L181</span>Versioning, Releases &amp; Artifact R…</a>
+    <a href="#l182"><span class="n">L182</span>Code Quality Gates: Checkstyle, P…</a>
+  </nav>
+  <h4>All 480 lessons</h4>
+  <div class="spine" data-spine data-module="7" style="grid-template-columns:repeat(20,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p06.html">◂ Phase 6</a><a href="p08.html">Phase 8 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 7 · Days 171–182 · Lessons 171–182</p>
+<h1>Build Tools &amp; Project Structure</h1>
+<p class="dek">Phase 7 turns a folder of Java sources into a reproducible build that tests, packages and publishes itself, first with Maven, then with Gradle, and then with the release and quality tooling around both. Phase 6 covered what the JVM needs at run time. This phase covers how the artifact that runs there gets produced. It ends with the multi-module, CI-ready project skeleton that the testing work of Phase 8 and the Spring phases build on.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Read any <code>pom.xml</code> and its effective POM, and say where every version, plugin execution and property came from.</li>
+    <li>Predict which version Maven resolves in a dependency conflict, diagnose the resulting <code>NoSuchMethodError</code>, and fix it with <code>dependencyManagement</code>, a BOM import or an exclusion.</li>
+    <li>Choose the right phase and flags (<code>verify</code> rather than <code>install</code>, <code>-pl -am</code>, <code>-T 1C</code>) and configure the essential plugins: compiler processor paths, Surefire/Failsafe, resources filtering, shade and Spring Boot repackage.</li>
+    <li>Design a multi-module service with CI-friendly versions, inward-pointing dependencies and exactly one deployable module.</li>
+    <li>Write a Kotlin-DSL Gradle build with a version catalog, convention plugins, <code>platform()</code> and the build cache, and decide honestly whether a migration pays off.</li>
+    <li>Set up <code>settings.xml</code>, mirrors and profiles without committing credentials, and ship a signed, tag-driven release to Nexus, GitHub Packages or Maven Central.</li>
+    <li>Wire Spotless, Checkstyle, Error Prone, SpotBugs, PMD, JaCoCo, ArchUnit and a Sonar quality gate into a single <code>./mvnw verify</code>.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>12</b> lessons</li><li><b>8h 25m</b> video</li><li><b>8h 40m</b> practice</li><li>Days <b>171–182</b></li>
+</ul>
+
+<!-- ================================================================ L171 -->
+<article class="day" id="l171">
+  <header class="day-head">
+    <span class="day-no">L171 · DAY 171</span>
+    <h2>Build Tools Overview &amp; Installation</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">35m practice</span></p>
+  </header>
+
+  <p class="thesis">A build tool turns "these are my sources and these are the libraries I need" into a tested, packaged, publishable artifact, the same way on every machine. Most of that sameness comes from one habit: committing the wrapper, so the build pins its own tool version.</p>
+
+  <h3>Why javac by hand stops working</h3>
+  <p>With three classes and no libraries, <code>javac</code> and <code>jar</code> are enough. Then you add Jackson:</p>
+  <pre><code class="plain">&#36; javac -d out -cp lib/jackson-databind-2.19.0.jar:lib/jackson-core-2.19.0.jar:lib/jackson-annotations-2.19.0.jar \
+        &#36;(find src/main/java -name '*.java')
+&#36; cp -r src/main/resources/* out/
+&#36; javac -d test-out -cp 'out:lib/*:lib-test/*' &#36;(find src/test/java -name '*.java')
+&#36; java -jar lib-test/junit-platform-console-standalone.jar execute -cp 'out:test-out:lib/*' --scan-classpath
+&#36; jar --create --file app.jar --main-class com.acme.App -C out .</code></pre>
+  <p>Problems pile up quickly. You had to find out yourself that <code>jackson-databind</code> needs <code>jackson-core</code> and <code>jackson-annotations</code>, and at which versions. Two libraries may want different versions of a third. The classpath separator is <code>:</code> on Unix and <code>;</code> on Windows. Test libraries must not end up in the shipped jar. The resulting <code>app.jar</code> does not run anyway, because its manifest names no dependencies. And nobody else can reproduce exactly what you did. Around file twenty, the script becomes a second, untested codebase.</p>
+
+  <h3>What a build tool actually does</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Job</th><th>Underneath</th><th>Maven phase</th><th>Gradle task</th></tr></thead>
+    <tbody>
+      <tr><td>Dependency resolution</td><td>download the declared artifacts plus their transitive dependencies, pick one version per library, build the classpaths</td><td>before every phase that needs them</td><td>on demand, per configuration</td></tr>
+      <tr><td>Compilation</td><td><code>javac</code> with the right <code>--release</code>, classpath and annotation processors</td><td><code>compile</code></td><td><code>compileJava</code></td></tr>
+      <tr><td>Resource processing</td><td>copy (and optionally filter) <code>src/main/resources</code></td><td><code>process-resources</code></td><td><code>processResources</code></td></tr>
+      <tr><td>Testing</td><td>compile tests against test classpath, run JUnit, fail the build on failures</td><td><code>test</code></td><td><code>test</code></td></tr>
+      <tr><td>Packaging</td><td>jar / war / Spring Boot executable jar</td><td><code>package</code></td><td><code>jar</code>, <code>bootJar</code></td></tr>
+      <tr><td>Publishing</td><td>upload artifact + POM + checksums to a repository</td><td><code>deploy</code></td><td><code>publish</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Ant, Maven, Gradle: three philosophies</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 240" role="img" aria-label="Three boxes: Ant 2000 imperative, Maven 2004 declarative, Gradle 2012 programmable, with arrows from each to the next">
+      <defs><marker id="ah-l171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="30" width="190" height="160" rx="8" class="s-node"/>
+      <text x="115" y="54" class="s-mid s-ttl">Ant · 2000</text>
+      <text x="115" y="76" class="s-mid s-mod">imperative</text>
+      <text x="115" y="104" class="s-mid s-sm">targets call tasks</text>
+      <text x="115" y="124" class="s-mid s-sm">you script every step</text>
+      <text x="115" y="144" class="s-mid s-sm">no conventions</text>
+      <text x="115" y="164" class="s-mid s-sm">deps only via Ivy</text>
+      <rect x="235" y="30" width="190" height="160" rx="8" class="s-node-mod"/>
+      <text x="330" y="54" class="s-mid s-ttl">Maven · 2004</text>
+      <text x="330" y="76" class="s-mid s-mod">declarative</text>
+      <text x="330" y="104" class="s-mid s-sm">describe the project</text>
+      <text x="330" y="124" class="s-mid s-sm">fixed lifecycle + plugins</text>
+      <text x="330" y="144" class="s-mid s-sm">convention over config</text>
+      <text x="330" y="164" class="s-mid s-sm">Central repository</text>
+      <rect x="450" y="30" width="190" height="160" rx="8" class="s-node"/>
+      <text x="545" y="54" class="s-mid s-ttl">Gradle · 2012</text>
+      <text x="545" y="76" class="s-mid s-mod">programmable</text>
+      <text x="545" y="104" class="s-mid s-sm">task graph in a DSL</text>
+      <text x="545" y="124" class="s-mid s-sm">incremental + cache</text>
+      <text x="545" y="144" class="s-mid s-sm">Maven repos, conventions</text>
+      <text x="545" y="164" class="s-mid s-sm">Groovy or Kotlin</text>
+      <line x1="210" y1="110" x2="233" y2="110" class="s-ln-ink" marker-end="url(#ah-l171)"/>
+      <line x1="425" y1="110" x2="448" y2="110" class="s-ln-ink" marker-end="url(#ah-l171)"/>
+      <text x="330" y="222" class="s-mid s-sm s-ink3">Maven keeps the build boring; Gradle lets the build be code</text>
+    </svg>
+    <figcaption><b>Each tool reacted to the one before.</b> Ant made every project invent its own build. Maven replaced that with one lifecycle and one directory layout. Gradle kept Maven's repositories and conventions and added a scriptable task graph and incremental builds. (Years are first stable releases, roughly.)</figcaption>
+  </figure>
+  <p>The difference shows up in a build file. In Ant you write <em>how</em>: <code>&lt;javac srcdir="src" destdir="build"/&gt;</code>, then a jar task, in an order you choose. In Maven you state <em>what</em> the project is (coordinates, packaging, dependencies), and a fixed lifecycle decides what runs. Gradle is also declarative at the surface, but the build file is a program. That power is why Gradle builds can be fast, and also why they can be hard to read.</p>
+
+  <h3>Installing, and why the wrapper matters more</h3>
+  <p>For a workstation, SDKMAN manages JDKs and tools side by side (on Windows, use winget or Scoop):</p>
+  <pre><code class="plain">&#36; sdk install java 21.0.7-tem        # any 21+ distribution
+&#36; sdk install maven                   # 3.9.x line
+&#36; sdk install gradle
+&#36; mvn -v &amp;&amp; gradle -v                 # prints the JDK each one will use (JAVA_HOME)
+
+# then, once per project, generate wrappers and commit them
+&#36; mvn wrapper:wrapper -Dmaven=3.9.9   # mvnw, mvnw.cmd, .mvn/wrapper/maven-wrapper.properties
+&#36; gradle wrapper --gradle-version 8.14  # gradlew, gradlew.bat, gradle/wrapper/*
+&#36; git add mvnw mvnw.cmd .mvn gradlew gradlew.bat gradle/wrapper
+&#36; git update-index --chmod=+x mvnw gradlew</code></pre>
+  <div class="box def"><span class="tag">Definition · Build wrapper</span>
+    <p>A small script checked into the repo. The properties file next to it pins the exact tool version (<code>distributionUrl</code>, optionally a <code>distributionSha256Sum</code>). On first run, the script downloads that distribution into <code>~/.m2/wrapper</code> or <code>~/.gradle/wrapper</code> and runs it. After that, <code>./mvnw verify</code> means the same thing on a laptop, in CI, and five years from now. All you need installed is a JDK. Always commit the wrapper and always invoke it, never a global <code>mvn</code>.</p>
+  </div>
+
+  <h3>The local repository and offline mode</h3>
+  <p>Maven caches every artifact it resolves in <code>~/.m2/repository</code>. The path is the coordinates: dots in the groupId become directories.</p>
+  <pre><code class="plain">~/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.19.0/
+    jackson-databind-2.19.0.jar
+    jackson-databind-2.19.0.pom          # its own dependencies, read for transitivity
+    jackson-databind-2.19.0.jar.sha1     # checksum verified on download
+    _remote.repositories                 # which repository it came from</code></pre>
+  <p><code>mvn install</code> also writes your own artifacts here, which is how one local project consumes another. Gradle keeps a separate cache under <code>~/.gradle/caches/modules-2</code> and does not read <code>~/.m2</code> unless you add <code>mavenLocal()</code>. Offline mode (<code>mvn -o</code>, <code>gradle --offline</code>) forbids network access and builds only from the cache. Run <code>mvn dependency:go-offline</code> first to pre-fetch, but it can miss plugins that are resolved lazily.</p>
+
+  <h3>Which to choose in 2026</h3>
+  <p>For a Spring Boot service, Maven is the default answer in most shops, and surveys have consistently shown it ahead of Gradle among Java developers. The reasons are practical. A POM is declarative data that every IDE, scanner and CI tool understands. Corporate parent POMs and BOMs (L175) standardize hundreds of services. There are few ways to be clever, so builds stay alike across teams. Pick Gradle when build speed across a large multi-project codebase matters, when you need custom build logic, or when the ecosystem already uses it (Android, Kotlin Multiplatform). L179–L180 cover Gradle on its own terms. This course uses Maven first.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b><code>./mvnw: Permission denied</code> in CI.</b> The script was committed from Windows without the executable bit. Fix it with <code>git update-index --chmod=+x</code>.</li>
+      <li><b>CRLF line endings in <code>mvnw</code>.</b> The script then fails on Linux with <code>/bin/sh^M</code>. Add <code>mvnw text eol=lf</code> to <code>.gitattributes</code>.</li>
+      <li><b>No wrapper committed.</b> CI uses whatever Maven the image ships. A plugin that needs a newer Maven then fails only on the build server.</li>
+      <li><b>The wrapper download is blocked by a corporate proxy.</b> Point <code>distributionUrl</code> at the internal repository mirror (L177) instead of disabling the wrapper.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 35 min</h4>
+    <ol>
+      <li>Write a two-class app that serializes a record with Jackson. Build and run it by hand with <code>javac</code>, <code>jar</code> and <code>java -cp</code>, and count the commands and jars you needed.</li>
+      <li>Generate the same project from start.spring.io (Maven) and run <code>./mvnw -q package</code>. Open the wrapper's properties file and find the pinned version.</li>
+      <li>Clone the repo into a fresh directory on a machine (or container) with only a JDK and build it with the wrapper.</li>
+      <li>Find <code>jackson-databind</code> in <code>~/.m2/repository</code>. Delete its folder, run <code>./mvnw -o package</code>, and read the error. Then run without <code>-o</code> and watch it come back.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Apache Maven, “Maven in 5 Minutes” and “Introduction to Repositories” · Apache Maven Wrapper documentation · Gradle User Manual, “The Gradle Wrapper” and “Dependency Caching” · Sonatype, <i>Maven: The Complete Reference</i>, ch. 1</p>
+</article>
+<!-- ================================================================ L172 -->
+<article class="day" id="l172">
+  <header class="day-head">
+    <span class="day-no">L172 · DAY 172</span>
+    <h2>Maven POM Anatomy &amp; Coordinates</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A POM is a description of a project, not a script: its coordinates, its packaging, what it depends on, and which plugin configuration to use. Maven merges it with every parent above it, and the result, the effective POM, is what actually runs.</p>
+
+  <h3>The POM element by element</h3>
+  <pre><code class="plain">&lt;project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"&gt;
+  &lt;modelVersion&gt;4.0.0&lt;/modelVersion&gt;              &lt;!-- POM format version, always 4.0.0 on Maven 3 --&gt;
+
+  &lt;parent&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-parent&lt;/artifactId&gt;
+    &lt;version&gt;3.5.0&lt;/version&gt;
+    &lt;relativePath/&gt;                                 &lt;!-- resolve from repositories, not ../pom.xml --&gt;
+  &lt;/parent&gt;
+
+  &lt;groupId&gt;com.acme.orders&lt;/groupId&gt;               &lt;!-- the coordinates: G, A, V --&gt;
+  &lt;artifactId&gt;order-service&lt;/artifactId&gt;
+  &lt;version&gt;1.0.0-SNAPSHOT&lt;/version&gt;
+  &lt;packaging&gt;jar&lt;/packaging&gt;                       &lt;!-- default; decides the lifecycle bindings --&gt;
+  &lt;name&gt;Order Service&lt;/name&gt;
+
+  &lt;properties&gt;
+    &lt;java.version&gt;21&lt;/java.version&gt;               &lt;!-- read by the Boot parent --&gt;
+    &lt;mapstruct.version&gt;1.6.3&lt;/mapstruct.version&gt;  &lt;!-- one place for each unmanaged version --&gt;
+  &lt;/properties&gt;
+
+  &lt;dependencies&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.mapstruct&lt;/groupId&gt;
+      &lt;artifactId&gt;mapstruct&lt;/artifactId&gt;
+      &lt;version&gt;&#36;{mapstruct.version}&lt;/version&gt;
+    &lt;/dependency&gt;
+  &lt;/dependencies&gt;
+
+  &lt;build&gt;&lt;plugins&gt;…&lt;/plugins&gt;&lt;/build&gt;
+&lt;/project&gt;</code></pre>
+  <p>Other top-level elements you will meet: <code>&lt;dependencyManagement&gt;</code> (L175), <code>&lt;build&gt;&lt;pluginManagement&gt;</code>, <code>&lt;profiles&gt;</code> and <code>&lt;repositories&gt;</code> (L177), <code>&lt;modules&gt;</code> (L178), and <code>&lt;distributionManagement&gt;</code>, <code>&lt;scm&gt;</code>, <code>&lt;licenses&gt;</code> and <code>&lt;developers&gt;</code> for publishing (L181). Appendix B of the plan shows a full production POM.</p>
+
+  <h3>Coordinates and naming</h3>
+  <div class="box def"><span class="tag">Definition · Maven coordinates</span>
+    <p>An artifact is identified by <code>groupId:artifactId:version</code>, written in full as <code>groupId:artifactId:extension[:classifier]:version</code>. The <b>groupId</b> is a reverse domain you control (<code>com.acme.orders</code>), and it becomes a directory path in every repository. The <b>artifactId</b> is the lowercase, hyphenated module name (<code>order-service</code>), and it becomes the file name. The <b>version</b> follows the release scheme of L181. A <b>classifier</b> marks extra files built from the same project: <code>-sources</code>, <code>-javadoc</code>, <code>-tests</code>.</p>
+  </div>
+  <p>Maven compares versions by parsing them, not as strings: <code>1.10 &gt; 1.9</code>, and the qualifiers rank <code>alpha &lt; beta &lt; milestone &lt; rc &lt; SNAPSHOT &lt; (release) &lt; sp</code>. So <code>1.0-rc1 &lt; 1.0-SNAPSHOT &lt; 1.0</code>. Odd version strings (<code>1.0-final-2</code>) still sort somehow, but rarely the way you expect.</p>
+
+  <h3>SNAPSHOT versus release</h3>
+  <p>A <b>release</b> version (<code>1.4.2</code>) is immutable. Repositories refuse to overwrite it, so anyone who resolves <code>1.4.2</code> gets the same bytes forever. A <b>SNAPSHOT</b> (<code>1.5.0-SNAPSHOT</code>) means "the latest build on the way to 1.5.0". Each deploy stores a timestamped file such as <code>order-service-1.5.0-20261011.143015-7.jar</code> and updates <code>maven-metadata.xml</code> to point at it. Consumers check for a newer snapshot according to the repository's update policy, <code>daily</code> by default, and <code>-U</code> forces a check now. That is useful between teams during development. A release build must never depend on a SNAPSHOT, because the same tag could build different code next week. L176 enforces this with the Enforcer plugin.</p>
+
+  <h3>Packaging, properties and inheritance</h3>
+  <ul>
+    <li><b>Packaging</b> selects the default plugin bindings (L173): <code>jar</code> (default, also used for Spring Boot apps), <code>war</code> for servlet containers, <code>pom</code> for parents, aggregators and BOMs (no code, only metadata), and <code>maven-plugin</code> for writing your own plugins.</li>
+    <li><b>Properties</b> are referenced as <code>&#36;{name}</code>. Built-ins include <code>&#36;{project.version}</code>, <code>&#36;{project.basedir}</code>, <code>&#36;{env.HOME}</code> and Java system properties. <code>-Dname=value</code> on the command line overrides a POM property.</li>
+    <li><b><code>&lt;parent&gt;</code></b> merges the parent's model into yours. Inherited: groupId and version (when omitted), properties, <code>dependencies</code> (every child really gets them), <code>dependencyManagement</code>, <code>pluginManagement</code>, <code>build/plugins</code> with their executions, repositories, distributionManagement, and scm/developers/licenses metadata. <em>Not</em> inherited: <code>artifactId</code>, <code>name</code>, <code>packaging</code>, <code>modules</code>, and profiles themselves (the effects of active parent profiles do come through). By default, Maven looks for the parent in <code>../pom.xml</code> and then in repositories.</li>
+  </ul>
+  <figure class="fig">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Inheritance chain from the Super POM through spring-boot-dependencies and spring-boot-starter-parent to the project POM, all merged into one effective POM">
+      <defs><marker id="ah-l172" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="20" width="260" height="44" rx="6" class="s-node"/><text x="150" y="38" class="s-mid">Super POM (inside Maven)</text><text x="150" y="55" class="s-mid s-sm s-ink3">layout, Central, plugin versions</text>
+      <rect x="20" y="80" width="260" height="44" rx="6" class="s-node"/><text x="150" y="98" class="s-mid">spring-boot-dependencies</text><text x="150" y="115" class="s-mid s-sm s-ink3">dependencyManagement only</text>
+      <rect x="20" y="140" width="260" height="44" rx="6" class="s-node"/><text x="150" y="158" class="s-mid">spring-boot-starter-parent</text><text x="150" y="175" class="s-mid s-sm s-ink3">java.version, plugin config</text>
+      <rect x="20" y="200" width="260" height="44" rx="6" class="s-node-mod"/><text x="150" y="218" class="s-mid">order-service pom.xml</text><text x="150" y="235" class="s-mid s-sm s-ink3">your GAV, deps, plugins</text>
+      <line x1="150" y1="64" x2="150" y2="78" class="s-ln-ink" marker-end="url(#ah-l172)"/>
+      <line x1="150" y1="124" x2="150" y2="138" class="s-ln-ink" marker-end="url(#ah-l172)"/>
+      <line x1="150" y1="184" x2="150" y2="198" class="s-ln-ink" marker-end="url(#ah-l172)"/>
+      <rect x="370" y="20" width="250" height="224" rx="8" class="s-node"/>
+      <text x="495" y="62" class="s-mid s-ttl">Effective POM</text>
+      <text x="495" y="100" class="s-mid s-sm">one merged model</text>
+      <text x="495" y="122" class="s-mid s-sm">what Maven really runs</text>
+      <text x="495" y="170" class="s-mid s-sm s-mod">mvn help:effective-pom</text>
+      <line x1="280" y1="42" x2="368" y2="42" class="s-ln" marker-end="url(#ah-l172)"/>
+      <line x1="280" y1="102" x2="368" y2="102" class="s-ln" marker-end="url(#ah-l172)"/>
+      <line x1="280" y1="162" x2="368" y2="162" class="s-ln" marker-end="url(#ah-l172)"/>
+      <line x1="280" y1="222" x2="368" y2="222" class="s-ln" marker-end="url(#ah-l172)"/>
+    </svg>
+    <figcaption><b>Four POMs, one model.</b> The Super POM is built into Maven and is the implicit root of every project. A Spring Boot app normally sits three levels below it, and closer POMs override farther ones.</figcaption>
+  </figure>
+
+  <h3>mvn help:effective-pom: see the truth</h3>
+  <pre><code class="plain">&#36; ./mvnw help:effective-pom -Doutput=effective.xml
+&#36; grep -n -A2 "maven-compiler-plugin" effective.xml     # which version, which &lt;release&gt;?
+&#36; grep -n "sourceDirectory\|&lt;url&gt;https://repo" effective.xml</code></pre>
+  <p>When a build does something you did not write, such as a plugin running in the wrong phase, an odd version, or a property with an unexpected value, read the effective POM before you guess. With <code>-Dverbose</code>, recent versions of the help plugin annotate each line with the POM it came from.</p>
+
+  <h3>The standard directory layout</h3>
+  <pre><code class="plain">order-service/
+  pom.xml
+  src/main/java/com/acme/orders/...      # production code
+  src/main/resources/application.yml     # copied onto the classpath
+  src/test/java/com/acme/orders/...      # tests, never shipped
+  src/test/resources/
+  target/                                # build output: classes/, test-classes/, *.jar (never commit)</code></pre>
+  <p>Because these paths come from the Super POM, a new POM needs no configuration to compile, test and package. Every IDE, CI template and new teammate already knows where things are. You <em>can</em> override <code>&lt;sourceDirectory&gt;</code>, but each override is something every tool and person has to learn. Convention over configuration means you give up choices that don't matter so that all projects look alike.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Dependencies in a corporate parent's <code>&lt;dependencies&gt;</code>.</b> Every child inherits them, wanted or not. Shared versions belong in <code>dependencyManagement</code>.</li>
+      <li><b>A release that depends on a SNAPSHOT.</b> The same git tag rebuilds differently next week, which makes it impossible to bisect.</li>
+      <li><b>A groupId you don't own.</b> You cannot publish to Central under someone else's domain, and you risk colliding with their artifacts.</li>
+      <li><b>No <code>&lt;relativePath/&gt;</code> under a repository parent.</b> Maven first tries <code>../pom.xml</code>, which may be an unrelated POM in a monorepo, and warns or picks up the wrong parent.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Write a POM from scratch (no Initializr) for a <code>jar</code> with one dependency and one test, and build it with <code>verify</code>.</li>
+      <li>In its effective POM, find the compiler plugin version, the Central repository URL, and <code>testSourceDirectory</code>.</li>
+      <li>Create a <code>pom</code>-packaged parent with a property, a dependency, a <code>&lt;name&gt;</code> and a managed version. Check in the child's effective POM what came through.</li>
+      <li>Sort <code>1.0</code>, <code>1.10</code>, <code>1.9</code>, <code>1.0-SNAPSHOT</code>, <code>1.0-rc1</code>, <code>1.0.1</code> the way Maven does. <details><summary>Answer</summary><code>1.0-rc1 &lt; 1.0-SNAPSHOT &lt; 1.0 &lt; 1.0.1 &lt; 1.9 &lt; 1.10</code>. Check with <code>java -jar maven-artifact-*.jar 1.0-rc1 1.0-SNAPSHOT 1.0</code>, which prints the ordering.</details></li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Apache Maven, “POM Reference” (Inheritance, Super POM) and “Introduction to the Standard Directory Layout” · Maven Help Plugin, <code>help:effective-pom</code> · Apache Maven, “Guide to Naming Conventions on groupId, artifactId, and version” · Javadoc <code>org.apache.maven.artifact.versioning.ComparableVersion</code></p>
+</article>
+<!-- ================================================================ L173 -->
+<article class="day" id="l173">
+  <header class="day-head">
+    <span class="day-no">L173 · DAY 173</span>
+    <h2>Maven Lifecycles, Phases &amp; Goals</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">Maven itself knows nothing about compiling or testing. It knows ordered lists of phases, and plugins bind goals to those phases. Ask for a phase and every earlier phase runs too. Ask for a goal and only that goal runs.</p>
+
+  <h3>Three lifecycles</h3>
+  <div class="box def"><span class="tag">Definition · Lifecycle, phase, goal, plugin</span>
+    <p>A <b>lifecycle</b> is a fixed, ordered list of <b>phases</b>. Maven has three: <b>clean</b> (<code>pre-clean</code>, <code>clean</code>, <code>post-clean</code>), <b>default</b> (23 phases, below) and <b>site</b> (<code>pre-site</code>, <code>site</code>, <code>post-site</code>, <code>site-deploy</code>). A <b>plugin</b> is an artifact (<code>maven-compiler-plugin</code>) that contains one or more <b>goals</b> (mojos), named <code>prefix:goal</code> (<code>compiler:compile</code>). A phase does nothing by itself. All of its work comes from the goals bound to it, either by default for the project's packaging or explicitly in <code>&lt;executions&gt;</code>.</p>
+  </div>
+  <p>The default lifecycle's 23 phases, in order: <code>validate</code>, <code>initialize</code>, <code>generate-sources</code>, <code>process-sources</code>, <code>generate-resources</code>, <code>process-resources</code>, <code>compile</code>, <code>process-classes</code>, <code>generate-test-sources</code>, <code>process-test-sources</code>, <code>generate-test-resources</code>, <code>process-test-resources</code>, <code>test-compile</code>, <code>process-test-classes</code>, <code>test</code>, <code>prepare-package</code>, <code>package</code>, <code>pre-integration-test</code>, <code>integration-test</code>, <code>post-integration-test</code>, <code>verify</code>, <code>install</code>, <code>deploy</code>. You type seven of them. The rest exist as hooks: code generators bind to <code>generate-sources</code>, and test containers start in <code>pre-integration-test</code>.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 230" role="img" aria-label="The seven commonly used default-lifecycle phases in order, with the goals bound to each for jar packaging, and brackets showing what mvn verify and mvn install run">
+      <defs><marker id="ah-l173" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="24" y="40" width="80" height="34" rx="5" class="s-node"/><text x="64" y="62" class="s-mid s-sm">validate</text>
+      <rect x="116" y="40" width="80" height="34" rx="5" class="s-node-mod"/><text x="156" y="62" class="s-mid s-sm">compile</text>
+      <rect x="208" y="40" width="80" height="34" rx="5" class="s-node-mod"/><text x="248" y="62" class="s-mid s-sm">test</text>
+      <rect x="300" y="40" width="80" height="34" rx="5" class="s-node-mod"/><text x="340" y="62" class="s-mid s-sm">package</text>
+      <rect x="392" y="40" width="80" height="34" rx="5" class="s-node"/><text x="432" y="62" class="s-mid s-sm">verify</text>
+      <rect x="484" y="40" width="80" height="34" rx="5" class="s-node"/><text x="524" y="62" class="s-mid s-sm">install</text>
+      <rect x="576" y="40" width="80" height="34" rx="5" class="s-node"/><text x="616" y="62" class="s-mid s-sm">deploy</text>
+      <line x1="104" y1="57" x2="114" y2="57" class="s-ln-ink" marker-end="url(#ah-l173)"/>
+      <line x1="196" y1="57" x2="206" y2="57" class="s-ln-ink" marker-end="url(#ah-l173)"/>
+      <line x1="288" y1="57" x2="298" y2="57" class="s-ln-ink" marker-end="url(#ah-l173)"/>
+      <line x1="380" y1="57" x2="390" y2="57" class="s-ln-ink" marker-end="url(#ah-l173)"/>
+      <line x1="472" y1="57" x2="482" y2="57" class="s-ln-ink" marker-end="url(#ah-l173)"/>
+      <line x1="564" y1="57" x2="574" y2="57" class="s-ln-ink" marker-end="url(#ah-l173)"/>
+      <text x="64" y="96" class="s-mid s-sm s-ink3">enforcer*</text>
+      <text x="156" y="96" class="s-mid s-sm s-ink3">resources</text><text x="156" y="112" class="s-mid s-sm s-ink3">compiler</text>
+      <text x="248" y="96" class="s-mid s-sm s-ink3">testCompile</text><text x="248" y="112" class="s-mid s-sm s-ink3">surefire</text>
+      <text x="340" y="96" class="s-mid s-sm s-ink3">jar:jar</text><text x="340" y="112" class="s-mid s-sm s-ink3">repackage*</text>
+      <text x="432" y="96" class="s-mid s-sm s-ink3">failsafe*</text><text x="432" y="112" class="s-mid s-sm s-ink3">jacoco*</text>
+      <text x="524" y="96" class="s-mid s-sm s-ink3">to ~/.m2</text>
+      <text x="616" y="96" class="s-mid s-sm s-ink3">to remote</text>
+      <line x1="24" y1="140" x2="472" y2="140" class="s-ln-mod"/><text x="248" y="156" class="s-mid s-sm s-mod">mvn verify: everything a CI build needs</text>
+      <line x1="24" y1="176" x2="564" y2="176" class="s-ln"/><text x="294" y="192" class="s-mid s-sm">mvn install: plus a copy in your local repository</text>
+      <text x="340" y="220" class="s-mid s-sm s-ink3">* bound only when the POM configures that plugin</text>
+    </svg>
+    <figcaption><b>Asking for a phase runs the whole prefix.</b> <code>mvn package</code> runs validate through package, including every hook phase in between. The goals under each box are the defaults for <code>jar</code> packaging plus the usual Spring Boot additions.</figcaption>
+  </figure>
+
+  <h3>Default bindings per packaging</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Phase</th><th>Jar packaging</th><th>War packaging</th><th>Pom packaging</th></tr></thead>
+    <tbody>
+      <tr><td><code>process-resources</code></td><td><code>resources:resources</code></td><td>same</td><td>none</td></tr>
+      <tr><td><code>compile</code></td><td><code>compiler:compile</code></td><td>same</td><td>none</td></tr>
+      <tr><td><code>test-compile</code></td><td><code>compiler:testCompile</code></td><td>same</td><td>none</td></tr>
+      <tr><td><code>test</code></td><td><code>surefire:test</code></td><td>same</td><td>none</td></tr>
+      <tr><td><code>package</code></td><td><code>jar:jar</code></td><td><code>war:war</code></td><td>none</td></tr>
+      <tr><td><code>install</code> / <code>deploy</code></td><td><code>install:install</code> / <code>deploy:deploy</code></td><td>same</td><td>same</td></tr>
+    </tbody>
+  </table></div>
+  <p>Any other plugin joins the lifecycle through an execution. Binding a goal to a phase in your POM looks like this:</p>
+  <pre><code class="plain">&lt;plugin&gt;
+  &lt;groupId&gt;org.apache.maven.plugins&lt;/groupId&gt;
+  &lt;artifactId&gt;maven-source-plugin&lt;/artifactId&gt;
+  &lt;executions&gt;
+    &lt;execution&gt;
+      &lt;id&gt;attach-sources&lt;/id&gt;          &lt;!-- ids let children override or extend it --&gt;
+      &lt;phase&gt;package&lt;/phase&gt;
+      &lt;goals&gt;&lt;goal&gt;jar-no-fork&lt;/goal&gt;&lt;/goals&gt;
+    &lt;/execution&gt;
+  &lt;/executions&gt;
+&lt;/plugin&gt;</code></pre>
+  <p>When several goals share a phase, defaults run first, then executions in POM order. <code>mvn help:describe -Dcmd=package</code> lists the phases up to <code>package</code> with the default goals for the project's packaging. To see the full plan, including your own executions, run <code>mvn buildplan:list</code> (buildplan-maven-plugin).</p>
+
+  <h3>mvn clean install, precisely</h3>
+  <p>The command names two phases from two lifecycles. Maven runs the clean lifecycle up to <code>clean</code>, which deletes <code>target/</code>. Then it runs all 22 default phases up to and including <code>install</code>, which copies the jar and POM into <code>~/.m2/repository</code>. That last step only matters if a <em>separate</em> project on the same machine needs your artifact. In a multi-module build, the reactor (L178) already passes sibling modules to each other. So <code>./mvnw verify</code> is the right everyday command and the right CI command: it runs unit tests, integration tests and quality checks without writing to the shared local repository. Installing also leaves stale local SNAPSHOTs behind, and they can shadow newer remote ones. Use <code>clean</code> when you have a reason: renamed or deleted classes, or a plugin that does not track its outputs.</p>
+
+  <h3>Flags and goals worth knowing</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Option</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>-DskipTests</code></td><td>compiles tests, does not run them (Surefire and Failsafe honor it)</td></tr>
+      <tr><td><code>-Dmaven.test.skip=true</code></td><td>does not even compile tests; breaks any module that consumes a <code>test-jar</code></td></tr>
+      <tr><td><code>-o</code> / <code>-U</code></td><td>offline / force a check for updated SNAPSHOTs and releases missing from earlier failed lookups</td></tr>
+      <tr><td><code>-e</code> / <code>-X</code></td><td>stack traces on failure / full debug log, including the resolved configuration of each mojo</td></tr>
+      <tr><td><code>-T 1C</code></td><td>one build thread per CPU core across independent modules</td></tr>
+      <tr><td><code>-B</code>, <code>-ntp</code></td><td>batch mode and no download progress: use both in CI logs</td></tr>
+    </tbody>
+  </table></div>
+  <pre><code class="plain">&#36; ./mvnw dependency:tree                                   # resolved graph (L174)
+&#36; ./mvnw help:describe -Dplugin=surefire -Ddetail          # every goal and parameter
+&#36; ./mvnw versions:display-dependency-updates               # what is out of date
+&#36; ./mvnw versions:display-plugin-updates
+&#36; ./mvnw -B -ntp -T 1C clean verify                        # a sane CI invocation</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Parallel CI jobs running <code>install</code> into one shared <code>~/.m2</code>.</b> Jobs overwrite each other's SNAPSHOTs, and one branch tests against another branch's jar. Use <code>verify</code>, and give each job its own repository cache.</li>
+      <li><b>Running a goal without its phases.</b> <code>mvn jar:jar</code> on a clean checkout packages an empty <code>target/classes</code>. Goals do not trigger earlier phases. Phases do.</li>
+      <li><b><code>-T 1C</code> with old plugins.</b> Maven warns that a plugin is not marked thread-safe. Shared output directories then produce intermittent, unrepeatable failures.</li>
+      <li><b>Habitual <code>-DskipTests</code></b> in a "fast" deploy script. The tests stop running long before anyone notices.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Run <code>help:describe -Dcmd=deploy</code> on a jar project and on a <code>pom</code> project, and compare the bound goals.</li>
+      <li>Bind <code>maven-source-plugin</code> as above, run <code>package</code>, and find the <code>-sources.jar</code>. Then run <code>mvn source:jar-no-fork</code> on a clean tree and explain the result.</li>
+      <li>Run <code>-DskipTests</code> and then <code>-Dmaven.test.skip=true</code>, and compare <code>target/test-classes</code> each time.</li>
+      <li>Time <code>clean install</code>, <code>verify</code> and <code>-T 1C verify</code> on any multi-module project. Which step did <code>install</code> add?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Apache Maven, “Introduction to the Build Lifecycle” and “Lifecycles Reference” · Maven Help Plugin, <code>help:describe</code> · Versions Maven Plugin documentation · Sonatype, <i>Maven: The Complete Reference</i>, ch. 4, “The Build Lifecycle”</p>
+</article>
+<!-- ================================================================ L174 -->
+<article class="day" id="l174">
+  <header class="day-head">
+    <span class="day-no">L174 · DAY 174</span>
+    <h2>Dependencies: Scopes, Transitivity &amp; Conflicts</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">You declare a handful of dependencies, and Maven computes a graph of a hundred or more. When two paths bring different versions of the same library, Maven keeps exactly one, the nearest. It doesn't pick the newest, and it doesn't warn you. Most <code>NoSuchMethodError</code>s in Java are that choice going wrong.</p>
+
+  <h3>The six scopes</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Scope</th><th>Main compile</th><th>Test compile + run</th><th>Runtime (packaged)</th><th>Passed on transitively</th><th>Typical use</th></tr></thead>
+    <tbody>
+      <tr><td><code>compile</code> (default)</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>Spring, Jackson, anything your code calls</td></tr>
+      <tr><td><code>provided</code></td><td>yes</td><td>yes</td><td>no, the runtime supplies it</td><td>no</td><td>Servlet API in a WAR, Lombok</td></tr>
+      <tr><td><code>runtime</code></td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>JDBC drivers, SLF4J bindings</td></tr>
+      <tr><td><code>test</code></td><td>no</td><td>yes</td><td>no</td><td>no</td><td>JUnit, AssertJ, Testcontainers</td></tr>
+      <tr><td><code>system</code></td><td>yes</td><td>yes</td><td>no</td><td>no</td><td>a jar on a local path via <code>systemPath</code>; deprecated, never use</td></tr>
+      <tr><td><code>import</code></td><td colspan="4">not a classpath scope: only inside <code>dependencyManagement</code> with <code>type pom</code>, it copies a BOM's managed versions (L175)</td><td>Spring Boot, Spring Cloud, Testcontainers BOMs</td></tr>
+    </tbody>
+  </table></div>
+  <p><code>runtime</code> scope keeps you honest. If your code compiles against the PostgreSQL driver, you have coupled to a vendor class by accident. With <code>runtime</code> scope, it fails to compile.</p>
+
+  <h3>Transitivity and the scope table</h3>
+  <p>Each dependency's POM lists its own dependencies, and Maven follows them recursively. The scope a transitive dependency ends up with depends on both the scope of your direct dependency (row) and the scope that dependency declared (column):</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Direct ↓ / transitive →</th><th>Compile</th><th>Provided</th><th>Runtime</th><th>Test</th></tr></thead>
+    <tbody>
+      <tr><td><code>compile</code></td><td>compile</td><td>dropped</td><td>runtime</td><td>dropped</td></tr>
+      <tr><td><code>provided</code></td><td>provided</td><td>dropped</td><td>provided</td><td>dropped</td></tr>
+      <tr><td><code>runtime</code></td><td>runtime</td><td>dropped</td><td>runtime</td><td>dropped</td></tr>
+      <tr><td><code>test</code></td><td>test</td><td>dropped</td><td>test</td><td>dropped</td></tr>
+    </tbody>
+  </table></div>
+  <p>Provided and test dependencies of your dependencies never reach you. That is why a library's JUnit never shows up on your classpath.</p>
+
+  <h3>Nearest-wins mediation</h3>
+  <div class="box def"><span class="tag">Definition · Dependency mediation</span>
+    <p>When several versions of one <code>groupId:artifactId</code> appear in the graph, Maven keeps the one <b>closest to your project</b> (fewest hops). If two are at the same depth, the one <b>declared first</b> wins. Version numbers are never compared. A version in <code>dependencyManagement</code> overrides mediation entirely. Gradle, by contrast, picks the highest requested version (L179).</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 250" role="img" aria-label="Dependency tree where jackson-databind 2.12.7 at depth 2 beats jackson-databind 2.19.0 at depth 3, although jsr310 2.19 needs the newer one">
+      <defs><marker id="ah-l174" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="95" width="130" height="40" rx="6" class="s-node-mod"/><text x="85" y="119" class="s-mid">order-service</text>
+      <rect x="175" y="40" width="145" height="40" rx="6" class="s-node"/><text x="247" y="64" class="s-mid s-sm">legacy-sdk 1.0</text>
+      <rect x="175" y="150" width="145" height="40" rx="6" class="s-node"/><text x="247" y="174" class="s-mid s-sm">json-support 2.0</text>
+      <rect x="345" y="40" width="145" height="40" rx="6" class="s-node"/><text x="417" y="57" class="s-mid s-sm">jackson-databind</text><text x="417" y="72" class="s-mid s-sm s-warn">2.12.7 · depth 2</text>
+      <rect x="345" y="150" width="145" height="40" rx="6" class="s-node"/><text x="417" y="174" class="s-mid s-sm">jsr310 2.19.0</text>
+      <rect x="515" y="150" width="130" height="40" rx="6" class="s-node s-dash"/><text x="580" y="167" class="s-mid s-sm s-ink3">jackson-databind</text><text x="580" y="182" class="s-mid s-sm s-ink3">2.19.0 · depth 3</text>
+      <line x1="150" y1="110" x2="173" y2="62" class="s-ln-ink" marker-end="url(#ah-l174)"/>
+      <line x1="150" y1="122" x2="173" y2="168" class="s-ln-ink" marker-end="url(#ah-l174)"/>
+      <line x1="320" y1="60" x2="343" y2="60" class="s-ln-ink" marker-end="url(#ah-l174)"/>
+      <line x1="320" y1="170" x2="343" y2="170" class="s-ln-ink" marker-end="url(#ah-l174)"/>
+      <line x1="490" y1="170" x2="513" y2="170" class="s-ln s-dash" marker-end="url(#ah-l174)"/>
+      <text x="417" y="100" class="s-mid s-sm s-warn">kept: nearest</text>
+      <text x="580" y="210" class="s-mid s-sm s-ink3">omitted for conflict</text>
+      <text x="330" y="240" class="s-mid s-sm s-bad">jsr310 2.19 calls a 2.19-only method → NoSuchMethodError at run time</text>
+    </svg>
+    <figcaption><b>Nearest wins, even when it is older.</b> Nothing fails at compile time, because your code never touches the missing method. The failure appears only when that code path runs.</figcaption>
+  </figure>
+  <pre><code class="plain">&#36; ./mvnw dependency:tree -Dverbose -Dincludes=com.fasterxml.jackson.core:jackson-databind
+[INFO] com.acme:order-service:jar:1.0.0-SNAPSHOT
+[INFO] +- com.vendor:legacy-sdk:jar:1.0:compile
+[INFO] |  \- com.fasterxml.jackson.core:jackson-databind:jar:2.12.7:compile
+[INFO] \- com.acme:json-support:jar:2.0:compile
+[INFO]    \- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:jar:2.19.0:compile
+[INFO]       \- (com.fasterxml.jackson.core:jackson-databind:jar:2.19.0:compile - omitted for conflict with 2.12.7)</code></pre>
+
+  <h3>Exclusions, optional, and pinning</h3>
+  <pre><code class="plain">&lt;dependencyManagement&gt;                     &lt;!-- fix 1: pin the version everywhere in the tree --&gt;
+  &lt;dependencies&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;com.fasterxml.jackson.core&lt;/groupId&gt;
+      &lt;artifactId&gt;jackson-databind&lt;/artifactId&gt;
+      &lt;version&gt;2.19.0&lt;/version&gt;
+    &lt;/dependency&gt;
+  &lt;/dependencies&gt;
+&lt;/dependencyManagement&gt;
+
+&lt;dependency&gt;                                &lt;!-- fix 2: cut the edge at its source --&gt;
+  &lt;groupId&gt;com.vendor&lt;/groupId&gt;
+  &lt;artifactId&gt;legacy-sdk&lt;/artifactId&gt;
+  &lt;version&gt;1.0&lt;/version&gt;
+  &lt;exclusions&gt;
+    &lt;exclusion&gt;
+      &lt;groupId&gt;com.fasterxml.jackson.core&lt;/groupId&gt;
+      &lt;artifactId&gt;jackson-databind&lt;/artifactId&gt;
+    &lt;/exclusion&gt;
+  &lt;/exclusions&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>Pinning in <code>dependencyManagement</code> is the usual fix. It wins over mediation at any depth and documents the decision in one place. An <b>exclusion</b> removes one edge, which is right when the transitive artifact is unwanted altogether (such as a second logging backend). <code>&lt;optional&gt;true&lt;/optional&gt;</code> is the library author's version of an exclusion: "I compile against this, but my consumers don't get it unless they declare it." A library that supports both Jackson and Gson marks both optional.</p>
+
+  <h3>Keeping the graph honest</h3>
+  <p><code>mvn dependency:analyze</code> inspects bytecode and reports two lists. <b>Used undeclared</b> means you call classes you only get transitively: declare them, or an upgrade elsewhere will remove them. <b>Unused declared</b> means nothing references them. Treat that list with care, because runtime-only artifacts (drivers, starters, reflection and annotation users) show up as false positives. To fail the build on conflicts instead of finding them in production, use the Enforcer plugin:</p>
+  <pre><code class="plain">&lt;plugin&gt;
+  &lt;artifactId&gt;maven-enforcer-plugin&lt;/artifactId&gt;
+  &lt;executions&gt;&lt;execution&gt;
+    &lt;id&gt;enforce&lt;/id&gt;&lt;goals&gt;&lt;goal&gt;enforce&lt;/goal&gt;&lt;/goals&gt;
+    &lt;configuration&gt;&lt;rules&gt;
+      &lt;dependencyConvergence/&gt;       &lt;!-- two versions of one artifact in the graph: fail --&gt;
+      &lt;requireUpperBoundDeps/&gt;       &lt;!-- resolved version lower than one requested: fail --&gt;
+      &lt;banDuplicateClasses/&gt;         &lt;!-- same class in two jars; needs MojoHaus extra-enforcer-rules --&gt;
+    &lt;/rules&gt;&lt;/configuration&gt;
+  &lt;/execution&gt;&lt;/executions&gt;
+&lt;/plugin&gt;</code></pre>
+
+  <h3>Diagnosing version skew</h3>
+  <p><code>NoSuchMethodError</code> and <code>NoSuchFieldError</code> mean the class was found, but at a different version than the caller was compiled against. <code>ClassNotFoundException</code> (reflective loading) and <code>NoClassDefFoundError</code> (linking) mean a jar is missing entirely, often because of an exclusion or a <code>provided</code> scope. First ask the JVM which jar it actually loaded:</p>
+  <pre><code>public class WhichJar {
+    public static void main(String[] args) throws ClassNotFoundException {
+        var cls = Class.forName(args.length &gt; 0 ? args[0] : "com.fasterxml.jackson.databind.ObjectMapper");
+        var source = cls.getProtectionDomain().getCodeSource();
+        System.out.println(cls.getName() + " loaded from " + (source == null ? "the JDK" : source.getLocation()));
+        System.out.println("version: " + cls.getPackage().getImplementationVersion());
+    }
+}</code></pre>
+  <p>Then find who brought that jar with <code>dependency:tree -Dverbose -Dincludes=group:artifact</code>, and pin or exclude it. <code>java -verbose:class</code> gives the same information for every class during a failing start-up.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A minor bump of an unrelated library.</b> Its new POM adds a shallower path to an old version of something you rely on, and nearest-wins silently downgrades it. Turn on <code>dependencyConvergence</code> before this happens to you.</li>
+      <li><b>Excluding something that is still needed.</b> Tests pass because the test classpath has it through another route. In production you get <code>NoClassDefFoundError</code> at first use.</li>
+      <li><b>Explicit versions under a BOM.</b> A <code>&lt;version&gt;</code> on a Boot-managed artifact overrides the tested set (L175).</li>
+      <li><b>Two artifacts with the same classes</b> (<code>javax</code> vs <code>jakarta</code>, <code>commons-logging</code> vs <code>jcl-over-slf4j</code>). Which class loads depends on classpath order, which can differ between the IDE and the fat jar.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>In a Boot app, add <code>jackson-databind</code> with an explicit old version (<code>2.12.7</code>). Run <code>dependency:tree -Dverbose</code>, start the app, and record what fails. Remove the version and confirm the fix.</li>
+      <li>Run <code>dependency:analyze</code> and classify every warning as a real problem or a false positive, with a reason.</li>
+      <li>Add the three Enforcer rules above and fix each violation with either a pin or an exclusion. Note which fix you chose and why.</li>
+      <li>Your module A has <code>test</code>-scoped <code>B</code>, and B has a <code>compile</code> dependency on C. Is C on A's main classpath? On its test classpath? <details><summary>Answer</summary>C is not on the main classpath, but it is on the test classpath with scope <code>test</code> (row test, column compile in the table).</details></li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Apache Maven, “Introduction to the Dependency Mechanism” (scopes, transitivity table, mediation) · Maven Dependency Plugin, <code>dependency:tree</code> and <code>dependency:analyze</code> · Maven Enforcer, built-in rules <code>dependencyConvergence</code> and <code>requireUpperBoundDeps</code> · MojoHaus Extra Enforcer Rules, <code>banDuplicateClasses</code> · JLS §12.3, “Linking of Classes and Interfaces”</p>
+</article>
+<!-- ================================================================ L175 -->
+<article class="day" id="l175">
+  <header class="day-head">
+    <span class="day-no">L175 · DAY 175</span>
+    <h2>dependencyManagement, BOMs &amp; the Spring Boot BOM</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A BOM is a published list of versions known to work together. Import one and you stop choosing versions artifact by artifact. Spring Boot's BOM is the reason a Boot POM has almost no <code>&lt;version&gt;</code> tags, and knowing how it is wired tells you how to override it safely.</p>
+
+  <h3>dependencyManagement and what a BOM is</h3>
+  <div class="box def"><span class="tag">Definition · dependencyManagement</span>
+    <p>A <code>&lt;dependencyManagement&gt;</code> entry says: <em>if</em> this artifact appears anywhere in the graph, use this version (and optionally this scope or these exclusions). It adds nothing to the classpath. It applies to your own versionless declarations <b>and</b> to transitive ones, overriding nearest-wins mediation (L174).</p>
+  </div>
+  <p>A <b>Bill of Materials</b> is an artifact with <code>pom</code> packaging whose only content is a <code>dependencyManagement</code> section. Library families publish one so their modules stay in step: <code>jackson-bom</code>, <code>junit-bom</code>, <code>netty-bom</code>, <code>testcontainers-bom</code>. Platforms publish one to curate third-party versions they have tested together.</p>
+
+  <h3>Importing a BOM</h3>
+  <pre><code class="plain">&lt;dependencyManagement&gt;
+  &lt;dependencies&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-dependencies&lt;/artifactId&gt;
+      &lt;version&gt;3.5.0&lt;/version&gt;
+      &lt;type&gt;pom&lt;/type&gt;
+      &lt;scope&gt;import&lt;/scope&gt;                &lt;!-- copy its managed entries into this POM --&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-cloud-dependencies&lt;/artifactId&gt;
+      &lt;version&gt;&#36;{spring-cloud.version}&lt;/version&gt;   &lt;!-- 2025.0.0 for Boot 3.5 --&gt;
+      &lt;type&gt;pom&lt;/type&gt;
+      &lt;scope&gt;import&lt;/scope&gt;
+    &lt;/dependency&gt;
+  &lt;/dependencies&gt;
+&lt;/dependencyManagement&gt;
+
+&lt;dependencies&gt;
+  &lt;dependency&gt;                              &lt;!-- no version: the BOM decides --&gt;
+    &lt;groupId&gt;org.postgresql&lt;/groupId&gt;
+    &lt;artifactId&gt;postgresql&lt;/artifactId&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+  &lt;/dependency&gt;
+&lt;/dependencies&gt;</code></pre>
+  <p>Precedence rules: entries written directly in your <code>dependencyManagement</code> beat imported ones, and when two imported BOMs manage the same artifact, the one <b>declared first</b> wins. An explicit <code>&lt;version&gt;</code> on a <code>&lt;dependency&gt;</code> beats everything, which is exactly why you shouldn't write one for a managed artifact. It quietly takes that artifact out of the tested set.</p>
+
+  <h3>spring-boot-dependencies: the BOM behind every starter</h3>
+  <p><code>spring-boot-dependencies</code> pins several hundred artifacts: all of Spring, plus Jackson, Hibernate, Tomcat, Netty, Micrometer, Flyway, the major JDBC drivers, Kafka clients, Testcontainers, JUnit and more. Each version sits in a named property (<code>jackson-bom.version</code>, <code>hibernate.version</code>, <code>postgresql.version</code>, <code>flyway.version</code>…), and the entries refer to those properties. Open <code>~/.m2/repository/org/springframework/boot/spring-boot-dependencies/3.5.0/spring-boot-dependencies-3.5.0.pom</code> once and read it. Appendix A of the plan marks every artifact it manages as <b>BOM</b>.</p>
+
+  <h3>Starter parent or imported BOM</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 250" role="img" aria-label="Option A: the project inherits spring-boot-starter-parent, which inherits spring-boot-dependencies. Option B: the project inherits a corporate parent and imports spring-boot-dependencies">
+      <defs><marker id="ah-l175" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="165" y="25" class="s-mid s-ttl">A: inherit starter-parent</text>
+      <text x="495" y="25" class="s-mid s-ttl">B: corporate parent + BOM</text>
+      <line x1="330" y1="10" x2="330" y2="245" class="s-grid"/>
+      <rect x="60" y="45" width="210" height="36" rx="6" class="s-node-mod"/><text x="165" y="68" class="s-mid">order-service</text>
+      <rect x="60" y="105" width="210" height="36" rx="6" class="s-node"/><text x="165" y="128" class="s-mid">spring-boot-starter-parent</text>
+      <rect x="60" y="165" width="210" height="36" rx="6" class="s-node"/><text x="165" y="188" class="s-mid">spring-boot-dependencies</text>
+      <line x1="165" y1="81" x2="165" y2="103" class="s-ln-ink" marker-end="url(#ah-l175)"/><text x="172" y="96" class="s-sm s-ink3">parent</text>
+      <line x1="165" y1="141" x2="165" y2="163" class="s-ln-ink" marker-end="url(#ah-l175)"/><text x="172" y="156" class="s-sm s-ink3">parent</text>
+      <text x="165" y="222" class="s-mid s-sm">versions + plugin config</text>
+      <text x="165" y="240" class="s-mid s-sm s-mod">property overrides work</text>
+      <rect x="420" y="45" width="150" height="36" rx="6" class="s-node-mod"/><text x="495" y="68" class="s-mid">order-service</text>
+      <rect x="345" y="125" width="140" height="36" rx="6" class="s-node"/><text x="415" y="148" class="s-mid">acme-parent</text>
+      <rect x="497" y="125" width="150" height="36" rx="6" class="s-node"/><text x="572" y="148" class="s-mid s-sm">spring-boot-dependencies</text>
+      <line x1="470" y1="81" x2="425" y2="123" class="s-ln-ink" marker-end="url(#ah-l175)"/><text x="440" y="104" class="s-end s-sm s-ink3">parent</text>
+      <line x1="520" y1="81" x2="562" y2="123" class="s-ln-ink" marker-end="url(#ah-l175)"/><text x="550" y="104" class="s-sm s-ink3">import</text>
+      <text x="495" y="200" class="s-mid s-sm">plugin config: acme-parent</text>
+      <text x="495" y="222" class="s-mid s-sm">versions: the BOM</text>
+      <text x="495" y="240" class="s-mid s-sm s-warn">property overrides ignored</text>
+    </svg>
+    <figcaption><b>Maven has single inheritance.</b> If the parent slot already holds your company's POM, Spring Boot's versions have to come in by import. You then lose Boot's plugin configuration and its property-based overrides.</figcaption>
+  </figure>
+  <p><code>spring-boot-starter-parent</code> is itself a child of <code>spring-boot-dependencies</code>. On top of the versions, it adds: <code>maven.compiler.release</code> from <code>java.version</code> and <code>-parameters</code> for the compiler, UTF-8 source encoding, resource filtering of <code>application*.yml</code>/<code>.properties</code> with <code>@…@</code> delimiters (L176), a preconfigured <code>repackage</code> execution for <code>spring-boot-maven-plugin</code>, and pinned versions for the common plugins. When you import the BOM instead, you get only <code>dependencyManagement</code> and must configure those plugins yourself, usually in the corporate parent.</p>
+
+  <h3>Overriding a managed version, and the risks</h3>
+  <pre><code class="plain">&lt;properties&gt;                                  &lt;!-- works only when Boot is your parent --&gt;
+  &lt;postgresql.version&gt;42.7.7&lt;/postgresql.version&gt;
+&lt;/properties&gt;</code></pre>
+  <p>With the starter parent, redefining the property is enough, because the BOM's entries are interpolated in your project's context. With an <b>imported</b> BOM it does nothing. The import is resolved with the BOM's own properties. In that case, declare the artifact (or the family's own BOM, such as <code>jackson-bom</code>) in your <code>dependencyManagement</code> <em>before</em> the Boot import. The risks are the same either way:</p>
+  <ul>
+    <li>Patch bumps for a CVE are usually safe. Minor or major bumps of Hibernate, Jackson or Netty can break Boot's auto-configuration, which was compiled and tested against the managed version.</li>
+    <li>An override outlives its reason. Upgrade Boot a year later and the old property now <em>downgrades</em> the library. Every override needs a comment with a ticket and a removal condition.</li>
+  </ul>
+
+  <h3>Spring Cloud release trains and your own BOM</h3>
+  <p>Spring Cloud publishes <code>spring-cloud-dependencies</code> as a release train: one version number (<code>2025.0.x</code>) covering Config, Gateway, OpenFeign, Stream and the rest, built against one Spring Boot minor (2025.0 targets Boot 3.5). A train that doesn't match your Boot version fails at start-up with Spring Cloud's compatibility check, or worse, half-works. Upgrade Boot and the train together, using the compatibility table on the Spring Cloud project page (Appendix D of the plan).</p>
+  <p>An organization with dozens of services publishes one more layer, its own platform BOM:</p>
+  <pre><code class="plain">&lt;groupId&gt;com.acme.platform&lt;/groupId&gt;
+&lt;artifactId&gt;acme-platform-bom&lt;/artifactId&gt;
+&lt;version&gt;2026.10.0&lt;/version&gt;
+&lt;packaging&gt;pom&lt;/packaging&gt;
+&lt;dependencyManagement&gt;&lt;dependencies&gt;
+  &lt;dependency&gt;&lt;groupId&gt;com.acme.platform&lt;/groupId&gt;&lt;artifactId&gt;acme-observability-starter&lt;/artifactId&gt;&lt;version&gt;3.2.1&lt;/version&gt;&lt;/dependency&gt;
+  &lt;dependency&gt;&lt;groupId&gt;com.acme.platform&lt;/groupId&gt;&lt;artifactId&gt;acme-security-starter&lt;/artifactId&gt;&lt;version&gt;5.0.4&lt;/version&gt;&lt;/dependency&gt;
+  &lt;dependency&gt;&lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;&lt;artifactId&gt;spring-boot-dependencies&lt;/artifactId&gt;
+              &lt;version&gt;3.5.0&lt;/version&gt;&lt;type&gt;pom&lt;/type&gt;&lt;scope&gt;import&lt;/scope&gt;&lt;/dependency&gt;
+&lt;/dependencies&gt;&lt;/dependencyManagement&gt;</code></pre>
+  <p>Services import one artifact and get a tested combination of internal libraries, Boot and Cloud. A bot (Renovate or Dependabot) proposes the bump, and the platform team owns compatibility. Keep versions in the BOM and plugin configuration in a parent, so teams can adopt one without the other.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A property override under an imported BOM.</b> It looks applied in the POM, but <code>dependency:tree</code> still shows Boot's version. Always verify an override in the tree.</li>
+      <li><b>BOM import order.</b> Two BOMs manage <code>netty</code> and the first one silently wins. Put the BOM you trust most first, or pin the artifact explicitly.</li>
+      <li><b>A Boot upgrade without a Spring Cloud upgrade.</b> The incompatible train fails at start-up, or breaks in odd ways after you disable the check.</li>
+      <li><b>Stale overrides</b> that pin a library below the version the new Boot was tested with.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Find in <code>spring-boot-dependencies</code> the property and version for Jackson, Hibernate and the PostgreSQL driver. Override one through a property and confirm it with <code>dependency:tree</code>.</li>
+      <li>Convert the project to option B: a tiny <code>acme-parent</code> as parent, Boot BOM imported. Note what broke (the repackage execution? resource filtering?) and restore it in <code>acme-parent</code>.</li>
+      <li>Under option B, try the same property override and observe that it is ignored. Fix it by declaring the artifact before the import.</li>
+      <li>Create and <code>install</code> an <code>acme-platform-bom</code> that imports Boot and Cloud and manages one internal library, and consume it from the service.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Apache Maven, “Introduction to the Dependency Mechanism”, sections on dependency management and importing dependencies · Spring Boot reference, “Build Tool Plugins → Maven Plugin → Using the Plugin” (parent vs. import) and appendix “Dependency Versions” (version properties) · Spring Cloud project page, release-train compatibility table</p>
+</article>
+<!-- ================================================================ L176 -->
+<article class="day" id="l176">
+  <header class="day-head">
+    <span class="day-no">L176 · DAY 176</span>
+    <h2>Essential Maven Plugins</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Every useful thing a Maven build does is a plugin goal bound to a phase. A dozen plugins cover nearly all backend builds. For each one, learn which phase it runs in and the two or three settings that cause most of the trouble.</p>
+
+  <h3>Compiler: release, preview, annotation processors</h3>
+  <pre><code class="plain">&lt;plugin&gt;
+  &lt;artifactId&gt;maven-compiler-plugin&lt;/artifactId&gt;
+  &lt;configuration&gt;
+    &lt;release&gt;&#36;{java.version}&lt;/release&gt;          &lt;!-- not source/target --&gt;
+    &lt;parameters&gt;true&lt;/parameters&gt;               &lt;!-- keep parameter names for Spring --&gt;
+    &lt;compilerArgs&gt;&lt;arg&gt;--enable-preview&lt;/arg&gt;&lt;/compilerArgs&gt;   &lt;!-- only if you use preview features --&gt;
+    &lt;annotationProcessorPaths&gt;                  &lt;!-- order matters --&gt;
+      &lt;path&gt;&lt;groupId&gt;org.projectlombok&lt;/groupId&gt;&lt;artifactId&gt;lombok&lt;/artifactId&gt;&lt;version&gt;&#36;{lombok.version}&lt;/version&gt;&lt;/path&gt;
+      &lt;path&gt;&lt;groupId&gt;org.projectlombok&lt;/groupId&gt;&lt;artifactId&gt;lombok-mapstruct-binding&lt;/artifactId&gt;&lt;version&gt;&#36;{lombok-mapstruct-binding.version}&lt;/version&gt;&lt;/path&gt;
+      &lt;path&gt;&lt;groupId&gt;org.mapstruct&lt;/groupId&gt;&lt;artifactId&gt;mapstruct-processor&lt;/artifactId&gt;&lt;version&gt;&#36;{mapstruct.version}&lt;/version&gt;&lt;/path&gt;
+    &lt;/annotationProcessorPaths&gt;
+  &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre>
+  <ul>
+    <li><b><code>&lt;release&gt;</code></b> passes <code>javac --release N</code>. That fixes the language level, the bytecode version <em>and</em> the JDK API you may call. With <code>source</code>/<code>target</code>, a JDK 25 compiler happily links against 25-only methods and the code fails on a 21 runtime.</li>
+    <li><b>Preview features</b> need <code>--enable-preview</code> at compile time <em>and</em> at run time, for Surefire too (<code>&lt;argLine&gt;--enable-preview&lt;/argLine&gt;</code>), and they tie the class files to that exact JDK.</li>
+    <li><b>Processor paths.</b> Once <code>annotationProcessorPaths</code> is set, javac looks for processors only there, not on the classpath. Lombok must come before MapStruct, and <code>lombok-mapstruct-binding</code> lets MapStruct see the getters Lombok generates. If the order is wrong, MapStruct reports "unknown property" for fields that clearly exist. Since JDK 23, javac no longer runs processors it merely finds on the classpath, so an explicit processor path is now the reliable option.</li>
+  </ul>
+
+  <h3>Surefire, Failsafe, resources and the jar manifest</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Plugin</th><th>Phase · goal</th><th>What to know</th></tr></thead>
+    <tbody>
+      <tr><td><code>maven-surefire-plugin</code></td><td>test · <code>test</code></td><td>unit tests: <code>*Test</code>, <code>*Tests</code>, <code>Test*</code>, <code>*TestCase</code>; a failure stops the build immediately</td></tr>
+      <tr><td><code>maven-failsafe-plugin</code></td><td>integration-test · <code>integration-test</code>, then verify · <code>verify</code></td><td><code>*IT</code>, <code>IT*</code>, <code>*ITCase</code>; failures are recorded, <code>post-integration-test</code> still tears down containers or servers, and <code>verify</code> then fails the build</td></tr>
+      <tr><td><code>maven-resources-plugin</code></td><td>process-resources · <code>resources</code></td><td>copies resources; with <code>&lt;filtering&gt;true&lt;/filtering&gt;</code> it replaces placeholders</td></tr>
+      <tr><td><code>maven-jar-plugin</code></td><td>package · <code>jar</code></td><td>writes <code>MANIFEST.MF</code>: <code>mainClass</code>, <code>addClasspath</code>, <code>addDefaultImplementationEntries</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Spring Boot's parent sets the filtering delimiter to <code>@</code> only, because <code>&#36;{…}</code> would collide with Spring's own placeholders. So you write <code>info.app.version: @project.version@</code> in <code>application.yml</code>, and the build replaces it. Never filter binary files such as keystores and fonts: list them under <code>nonFilteredFileExtensions</code>, or Maven corrupts them while "replacing" bytes. With <code>addDefaultImplementationEntries</code>, <code>getClass().getPackage().getImplementationVersion()</code> returns the project version at run time.</p>
+
+  <h3>Uber-jars: shade, assembly, or Boot</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 240" role="img" aria-label="Left: a shaded uber-jar with all dependency classes unpacked into one tree. Right: a Spring Boot executable jar with BOOT-INF/classes, nested dependency jars and the loader">
+      <text x="165" y="22" class="s-mid s-ttl">Shaded uber-jar (shade)</text>
+      <text x="495" y="22" class="s-mid s-ttl">Boot executable jar (repackage)</text>
+      <rect x="15" y="35" width="300" height="190" rx="8" class="s-node"/>
+      <text x="30" y="60" class="s-sm">com/acme/orders/*.class</text>
+      <text x="30" y="82" class="s-sm">com/fasterxml/jackson/**/*.class</text>
+      <text x="30" y="104" class="s-sm s-mod">acme/shaded/guava/** (relocated)</text>
+      <text x="30" y="126" class="s-sm">META-INF/services/* (merged)</text>
+      <text x="30" y="148" class="s-sm">META-INF/MANIFEST.MF Main-Class</text>
+      <text x="30" y="182" class="s-sm s-ink3">every dependency unpacked</text>
+      <text x="30" y="204" class="s-sm s-warn">same path twice: one copy lost</text>
+      <rect x="345" y="35" width="300" height="190" rx="8" class="s-node-mod"/>
+      <text x="360" y="60" class="s-sm">META-INF/MANIFEST.MF</text>
+      <text x="360" y="78" class="s-sm s-ink3">  Main-Class: …launch.JarLauncher</text>
+      <text x="360" y="100" class="s-sm">org/springframework/boot/loader/…</text>
+      <text x="360" y="122" class="s-sm">BOOT-INF/classes/ (your code)</text>
+      <text x="360" y="144" class="s-sm">BOOT-INF/lib/*.jar (nested, intact)</text>
+      <text x="360" y="166" class="s-sm">BOOT-INF/layers.idx</text>
+      <text x="360" y="204" class="s-sm s-mod">jars kept whole: nothing to merge</text>
+    </svg>
+    <figcaption><b>Two ways to ship one file.</b> Shade flattens every dependency into one class tree, so it has to merge and relocate. Boot keeps each dependency jar intact and adds a small launcher that can read nested jars.</figcaption>
+  </figure>
+  <div class="box def"><span class="tag">Definition · Uber-jar</span>
+    <p>A single jar that contains the application <em>and</em> all of its runtime dependencies, so <code>java -jar app.jar</code> works with no classpath. The JVM's class loader cannot read a jar inside a jar, so there are only two options. You can unpack every dependency into one tree (shade, assembly), or ship a custom launcher that reads nested jars (Spring Boot).</p>
+  </div>
+  <ul>
+    <li><b><code>maven-shade-plugin</code></b> (package · <code>shade</code>) is right for plain libraries and CLIs. <em>Relocation</em> rewrites package names (<code>com.google.common</code> → <code>acme.shaded.guava</code>) so your copy of a dependency cannot clash with the user's. <em>Transformers</em> handle files that would otherwise overwrite each other: <code>ServicesResourceTransformer</code> merges <code>META-INF/services</code> (forget it and JDBC drivers or Jackson modules vanish), <code>ManifestResourceTransformer</code> sets <code>Main-Class</code>, and <code>AppendingTransformer</code> concatenates files like <code>spring.handlers</code>.</li>
+    <li><b><code>maven-assembly-plugin</code></b> builds distribution archives: a <code>tar.gz</code> with <code>bin/</code>, <code>lib/</code> and <code>conf/</code>. Its built-in <code>jar-with-dependencies</code> descriptor unpacks naively and clobbers service files. Prefer shade for a single jar.</li>
+    <li><b>Spring Boot apps use neither.</b> <code>repackage</code> keeps every jar whole, so there is nothing to merge or relocate.</li>
+  </ul>
+
+  <h3>spring-boot-maven-plugin</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Goal</th><th>Does</th></tr></thead>
+    <tbody>
+      <tr><td><code>repackage</code></td><td>bound to <code>package</code> by the parent: turns the plain jar into the executable layout above and keeps the original as <code>*.jar.original</code></td></tr>
+      <tr><td><code>run</code></td><td><code>./mvnw spring-boot:run</code> forks the app from <code>target/classes</code> (compiles first)</td></tr>
+      <tr><td><code>build-image</code></td><td>OCI image via Cloud Native Buildpacks (Paketo), with no Dockerfile; needs a Docker-compatible daemon</td></tr>
+      <tr><td><code>build-info</code></td><td>writes <code>META-INF/build-info.properties</code>, exposed as a <code>BuildProperties</code> bean and in <code>/actuator/info</code></td></tr>
+    </tbody>
+  </table></div>
+  <p><b>Layering</b>: <code>layers.idx</code> groups the jar's contents into <code>dependencies</code>, <code>spring-boot-loader</code>, <code>snapshot-dependencies</code> and <code>application</code>. <code>java -Djarmode=tools -jar app.jar extract --layers --launcher</code> (Boot 3.3+) unpacks them, and copying each into its own Dockerfile layer means a code change rebuilds only the thin <code>application</code> layer.</p>
+  <pre><code>import java.util.Map;
+import org.springframework.boot.info.BuildProperties;
+import org.springframework.boot.info.GitProperties;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+class VersionController {
+    private final BuildProperties build;   // from build-info goal
+    private final GitProperties git;       // from git-commit-id-maven-plugin
+
+    VersionController(BuildProperties build, GitProperties git) { this.build = build; this.git = git; }
+
+    @GetMapping("/version")
+    Map&lt;String, String&gt; version() {
+        return Map.of("version", build.getVersion(), "commit", git.getShortCommitId(),
+                      "built", build.getTime().toString());
+    }
+}</code></pre>
+
+  <h3>exec, enforcer and git-commit-id</h3>
+  <ul>
+    <li><b><code>exec-maven-plugin</code></b>: <code>exec:java -Dexec.mainClass=com.acme.tools.Seed</code> runs a main class in the Maven JVM with the project classpath, and <code>exec:exec</code> runs an external program. Use it for code generators and one-off tooling, not for starting the app.</li>
+    <li><b><code>maven-enforcer-plugin</code></b> (validate) fails fast on broken assumptions: <code>requireMavenVersion</code>, <code>requireJavaVersion</code>, <code>dependencyConvergence</code> (L174), <code>bannedDependencies</code> (ban <code>commons-logging</code>, <code>log4j:log4j</code>, <code>junit:junit</code>), and <code>requireReleaseDeps</code> in the release profile so that no SNAPSHOT ships.</li>
+    <li><b><code>git-commit-id-maven-plugin</code></b> (<code>io.github.git-commit-id</code>, the successor of <code>pl.project13</code>'s plugin) writes <code>git.properties</code> with branch, commit id, time and dirty flag. Boot turns it into <code>GitProperties</code>, and the starter parent preconfigures it.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A shaded jar without <code>ServicesResourceTransformer</code>.</b> <code>ServiceLoader</code> finds one provider out of three, so you get "No suitable driver" only in the packaged app.</li>
+      <li><b>Integration tests named <code>*Test</code></b> run under Surefire, before the app is packaged, and fail or slow down every unit-test run. Name them <code>*IT</code>.</li>
+      <li><b><code>source</code>/<code>target</code> instead of <code>release</code></b> builds on a newer JDK, then fails with <code>NoSuchMethodError</code> on the production JDK.</li>
+      <li><b>A filtered <code>keystore.p12</code>.</b> TLS fails with "invalid keystore format" because filtering rewrote binary bytes.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Add Lombok and MapStruct with the processor paths in the wrong order, read the error, then fix the order.</li>
+      <li>Write one <code>*Test</code> and one <code>*IT</code>, make the IT fail, and run <code>verify</code>. Confirm that <code>post-integration-test</code> still ran.</li>
+      <li>Add <code>build-info</code> and git-commit-id, expose <code>/version</code> as above, and check <code>/actuator/info</code>.</li>
+      <li>Shade a small CLI that uses the PostgreSQL driver, once without and once with <code>ServicesResourceTransformer</code>, and compare <code>META-INF/services/java.sql.Driver</code>.</li>
+      <li>Extract the layers of your Boot jar and list each layer's size.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Maven Compiler Plugin, “Using annotation processors” and the <code>release</code> parameter · Maven Surefire and Failsafe Plugin documentation · Maven Shade Plugin, “Resource Transformers” and “Relocating Classes” · Spring Boot Maven Plugin reference (packaging, build-image, build-info, layers) · git-commit-id-maven-plugin README</p>
+</article>
+<!-- ================================================================ L177 -->
+<article class="day" id="l177">
+  <header class="day-head">
+    <span class="day-no">L177 · DAY 177</span>
+    <h2>Profiles, settings.xml &amp; Private Repositories</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">35m practice</span></p>
+  </header>
+
+  <p class="thesis">The POM describes the project and gets committed and published with it. Anything that depends on the machine or the person running the build, such as credentials, mirrors and proxies, belongs in <code>settings.xml</code>. Profiles are the controlled way to vary a build, and they should change how you build, not what you ship.</p>
+
+  <h3>Profiles and activation</h3>
+  <pre><code class="plain">&lt;profiles&gt;
+  &lt;profile&gt;
+    &lt;id&gt;ci&lt;/id&gt;
+    &lt;activation&gt;&lt;property&gt;&lt;name&gt;env.CI&lt;/name&gt;&lt;/property&gt;&lt;/activation&gt;   &lt;!-- CI=true on most runners --&gt;
+    &lt;properties&gt;&lt;jacoco.skip&gt;false&lt;/jacoco.skip&gt;&lt;/properties&gt;
+  &lt;/profile&gt;
+  &lt;profile&gt;
+    &lt;id&gt;release&lt;/id&gt;                                    &lt;!-- only with -Prelease --&gt;
+    &lt;build&gt;&lt;plugins&gt;
+      &lt;plugin&gt;&lt;artifactId&gt;maven-source-plugin&lt;/artifactId&gt;…&lt;/plugin&gt;
+      &lt;plugin&gt;&lt;artifactId&gt;maven-javadoc-plugin&lt;/artifactId&gt;…&lt;/plugin&gt;
+      &lt;plugin&gt;&lt;artifactId&gt;maven-gpg-plugin&lt;/artifactId&gt;…&lt;/plugin&gt;
+    &lt;/plugins&gt;&lt;/build&gt;
+  &lt;/profile&gt;
+  &lt;profile&gt;
+    &lt;id&gt;windows-dev&lt;/id&gt;
+    &lt;activation&gt;&lt;os&gt;&lt;family&gt;windows&lt;/family&gt;&lt;/os&gt;&lt;/activation&gt;
+  &lt;/profile&gt;
+  &lt;profile&gt;
+    &lt;id&gt;docker-tests&lt;/id&gt;
+    &lt;activation&gt;&lt;file&gt;&lt;exists&gt;/var/run/docker.sock&lt;/exists&gt;&lt;/file&gt;&lt;/activation&gt;
+  &lt;/profile&gt;
+  &lt;profile&gt;
+    &lt;id&gt;jdk25&lt;/id&gt;
+    &lt;activation&gt;&lt;jdk&gt;[25,)&lt;/jdk&gt;&lt;/activation&gt;            &lt;!-- running on JDK 25 or newer --&gt;
+  &lt;/profile&gt;
+&lt;/profiles&gt;</code></pre>
+  <div class="box def"><span class="tag">Definition · Profile activation</span>
+    <p>A profile is a partial POM (dependencies, plugins, properties, modules, repositories…) that is merged in when it is active. It can be activated by a <b>property</b> (present, absent with <code>!name</code>, or equal to a value), a <b>JDK</b> version range, an <b>OS</b> family/name/arch, a <b>file</b> that exists or is missing, or <b><code>activeByDefault</code></b>. When one profile lists several conditions, all of them must hold (Maven 3.2.2+). An <code>activeByDefault</code> profile turns off as soon as any other profile in the same POM becomes active, which surprises almost everyone.</p>
+  </div>
+  <pre><code class="plain">&#36; ./mvnw -Prelease,ci verify          # activate explicitly
+&#36; ./mvnw '-P!windows-dev' verify      # deactivate (quote it: ! is special in bash)
+&#36; ./mvnw help:active-profiles         # what is active, and from where (POM or settings)
+&#36; ./mvnw help:all-profiles</code></pre>
+
+  <h3>The ci / local / release pattern</h3>
+  <ul>
+    <li><b>Local</b> (no profile): a fast inner loop with unit tests and formatting checks.</li>
+    <li><b><code>ci</code></b> (activated by the CI environment): everything that gates a merge, meaning integration tests, coverage thresholds, enforcer rules and static analysis (L182).</li>
+    <li><b><code>release</code></b> (explicit <code>-Prelease</code>): source and javadoc jars, GPG signatures, <code>requireReleaseDeps</code>. These are needed only for publishing (L181).</li>
+  </ul>
+  <p>The rule underneath: a profile may add checks and extra artifacts, but the main jar must have the same content whichever profiles are active. A profile that swaps a dependency or a config file ("<code>-Pprod</code> includes the Oracle driver") produces artifacts nobody can reproduce from the tag alone. Runtime differences between environments belong in Spring profiles and external configuration, not Maven profiles.</p>
+
+  <h3>settings.xml: servers, mirrors, proxies</h3>
+  <p>Maven reads two files and merges them: the global <code>&#36;{maven.home}/conf/settings.xml</code> and the user's <code>~/.m2/settings.xml</code>, with the user file winning. Per-project command-line defaults go in <code>.mvn/maven.config</code> (for example <code>-B -ntp</code>), which <em>is</em> committed.</p>
+  <pre><code class="plain">&lt;settings&gt;
+  &lt;mirrors&gt;
+    &lt;mirror&gt;
+      &lt;id&gt;acme-all&lt;/id&gt;
+      &lt;mirrorOf&gt;*&lt;/mirrorOf&gt;                          &lt;!-- every repository goes through Nexus --&gt;
+      &lt;url&gt;https://nexus.acme.internal/repository/maven-all/&lt;/url&gt;
+    &lt;/mirror&gt;
+  &lt;/mirrors&gt;
+  &lt;servers&gt;
+    &lt;server&gt;                                         &lt;!-- matched by id to a mirror or repository --&gt;
+      &lt;id&gt;acme-all&lt;/id&gt;
+      &lt;username&gt;&#36;{env.NEXUS_USER}&lt;/username&gt;
+      &lt;password&gt;&#36;{env.NEXUS_TOKEN}&lt;/password&gt;       &lt;!-- injected by CI from its secret store --&gt;
+    &lt;/server&gt;
+    &lt;server&gt;&lt;id&gt;acme-releases&lt;/id&gt;&lt;username&gt;…&lt;/username&gt;&lt;password&gt;{COQLCE6DU6GtcS5P=}&lt;/password&gt;&lt;/server&gt;
+  &lt;/servers&gt;
+  &lt;proxies&gt;
+    &lt;proxy&gt;&lt;id&gt;corp&lt;/id&gt;&lt;active&gt;true&lt;/active&gt;&lt;protocol&gt;https&lt;/protocol&gt;
+      &lt;host&gt;proxy.acme.internal&lt;/host&gt;&lt;port&gt;3128&lt;/port&gt;&lt;nonProxyHosts&gt;*.acme.internal&lt;/nonProxyHosts&gt;&lt;/proxy&gt;
+  &lt;/proxies&gt;
+  &lt;activeProfiles&gt;&lt;activeProfile&gt;acme-repos&lt;/activeProfile&gt;&lt;/activeProfiles&gt;
+&lt;/settings&gt;</code></pre>
+  <p><b>Encrypting passwords.</b> <code>mvn --encrypt-master-password</code> stores a master key in <code>~/.m2/settings-security.xml</code>. <code>mvn --encrypt-password</code> then prints a <code>{…}</code> string to paste into <code>&lt;password&gt;</code>. Be clear about what this buys you: the master key sits on the same disk, so it protects against shoulder-surfing and accidental pastes, not against someone who can read your home directory. (Maven 4 replaces this mechanism.) In CI, inject tokens as environment variables, and prefer short-lived tokens over personal passwords.</p>
+
+  <h3>Repositories and mirroring everything</h3>
+  <p>A <code>&lt;repository&gt;</code> declares where to look for <em>dependencies</em>, with separate switches for releases and snapshots. A <code>&lt;pluginRepository&gt;</code> declares where to look for <em>plugins</em>. Central is predeclared in the Super POM with id <code>central</code>. In a company, these definitions usually sit in a settings profile (<code>acme-repos</code> above), not in each POM, and a mirror routes all traffic through one repository manager.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 232" role="img" aria-label="Maven sends every request through a mirror to a Nexus or Artifactory group, which proxies Maven Central and other public repositories and hosts internal releases and snapshots">
+      <defs><marker id="ah-l177" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="15" y="85" width="150" height="56" rx="6" class="s-node"/><text x="90" y="108" class="s-mid">./mvnw</text><text x="90" y="127" class="s-mid s-sm s-ink3">laptop or CI</text>
+      <rect x="235" y="70" width="170" height="86" rx="8" class="s-node-mod"/><text x="320" y="96" class="s-mid">Nexus / Artifactory</text><text x="320" y="116" class="s-mid s-sm">group: maven-all</text><text x="320" y="136" class="s-mid s-sm s-ink3">cache · scan · audit</text>
+      <rect x="470" y="20" width="175" height="34" rx="5" class="s-node"/><text x="557" y="41" class="s-mid s-sm">proxy: Maven Central</text>
+      <rect x="470" y="70" width="175" height="34" rx="5" class="s-node"/><text x="557" y="91" class="s-mid s-sm">proxy: other public</text>
+      <rect x="470" y="120" width="175" height="34" rx="5" class="s-node"/><text x="557" y="141" class="s-mid s-sm">hosted: acme-releases</text>
+      <rect x="470" y="170" width="175" height="34" rx="5" class="s-node"/><text x="557" y="191" class="s-mid s-sm">hosted: acme-snapshots</text>
+      <line x1="165" y1="113" x2="233" y2="113" class="s-ln-ink" marker-end="url(#ah-l177)"/><text x="199" y="104" class="s-mid s-sm">mirrorOf *</text>
+      <line x1="405" y1="105" x2="468" y2="37" class="s-ln" marker-end="url(#ah-l177)"/>
+      <line x1="405" y1="110" x2="468" y2="87" class="s-ln" marker-end="url(#ah-l177)"/>
+      <line x1="405" y1="118" x2="468" y2="137" class="s-ln" marker-end="url(#ah-l177)"/>
+      <line x1="405" y1="125" x2="468" y2="187" class="s-ln" marker-end="url(#ah-l177)"/>
+      <text x="330" y="224" class="s-mid s-sm s-ink3">credentials: matching server id in settings.xml, never in pom.xml</text>
+    </svg>
+    <figcaption><b>One door in and out.</b> Builds get faster (artifacts are cached next to CI) and keep working when a public repository is down. Every artifact is scanned and its download logged, and malicious or banned packages can be blocked in one place.</figcaption>
+  </figure>
+  <p>Maven 3.8.1+ also blocks plain-HTTP repositories by default, through a built-in mirror called <code>maven-default-http-blocker</code>. If an old POM declares an <code>http://</code> repository, the fix is an HTTPS mirror, not unblocking.</p>
+
+  <h3>Why credentials never go in pom.xml</h3>
+  <p>The POM is committed, and it is <em>published</em> with every artifact you deploy, so anyone who can read your repository manager can read its contents. <code>&lt;distributionManagement&gt;</code> therefore carries only a repository <code>id</code> and URL, and Maven looks up the matching <code>&lt;server&gt;</code> in settings.xml at deploy time. The same <code>id</code> appearing in both places is the entire link between them.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>401 Unauthorized on deploy.</b> The <code>&lt;server&gt;&lt;id&gt;</code> does not exactly match the repository id in <code>distributionManagement</code>. Ids are case-sensitive.</li>
+      <li><b>A token committed in a POM or <code>.mvn/maven.config</code>.</b> It is in git history forever. Rotate it, then move it to the CI secret store.</li>
+      <li><b>Builds that work locally and fail in CI.</b> The local <code>~/.m2/settings.xml</code> has a repository or active profile the CI image lacks. Check <code>help:effective-settings</code> on both.</li>
+      <li><b>A profile that changes the shipped jar.</b> Two builds of the same tag differ, and a bug reproduces in only one of them.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 35 min</h4>
+    <ol>
+      <li>Add the <code>ci</code>, <code>release</code> and <code>docker-tests</code> profiles. Run <code>help:active-profiles</code> with and without <code>CI=true</code> set, then deactivate one with <code>-P!</code>.</li>
+      <li>Add an <code>activeByDefault</code> profile, then activate a different profile and confirm the default one switched off.</li>
+      <li>Start a local Nexus (<code>docker run -p 8081:8081 sonatype/nexus3</code>), configure a <code>mirrorOf *</code> mirror, empty a scratch local repository (<code>-Dmaven.repo.local=/tmp/m2</code>), and watch every download go through Nexus.</li>
+      <li>Encrypt a password with <code>--encrypt-password</code>, deploy a SNAPSHOT to the Nexus hosted repository, and run <code>help:effective-settings</code> to see how passwords are shown.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Apache Maven, “Introduction to Build Profiles” · Maven “Settings Reference” · Apache Maven, “Guide to Mirror Settings” and “Password Encryption” · Maven 3.8.1 release notes (HTTP repository blocking) · Sonatype Nexus Repository documentation, “Repository Types” (proxy, hosted, group)</p>
+</article>
+<!-- ================================================================ L178 -->
+<article class="day" id="l178">
+  <header class="day-head">
+    <span class="day-no">L178 · DAY 178</span>
+    <h2>Multi-Module Maven Project Design</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">55m practice</span></p>
+  </header>
+
+  <p class="thesis">Splitting one service into modules turns architecture rules into compile errors. If <code>domain</code> doesn't declare a dependency on <code>infrastructure</code>, it cannot import a JPA class, however tempting that is. The reactor then builds the modules in dependency order as one build.</p>
+
+  <h3>Aggregator and parent: two roles</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Role</th><th>Declared by</th><th>Direction</th><th>Gives you</th></tr></thead>
+    <tbody>
+      <tr><td>Aggregator</td><td><code>&lt;packaging&gt;pom&lt;/packaging&gt;</code> + <code>&lt;modules&gt;</code></td><td>points down to module directories</td><td>one command builds them all, in the right order</td></tr>
+      <tr><td>Parent</td><td>each child's <code>&lt;parent&gt;</code></td><td>points up</td><td>inherited properties, dependencyManagement, plugin configuration</td></tr>
+    </tbody>
+  </table></div>
+  <p>In most repositories, the root POM plays both roles, and the two are easy to confuse. They are independent. A parent doesn't know its children, and an aggregator's modules need not inherit from it. Large codebases sometimes separate them: a <code>build-parent</code> module holds configuration, and a thin root POM only lists modules.</p>
+  <pre><code class="plain">&lt;!-- pom.xml (root): parent of all modules AND aggregator --&gt;
+&lt;parent&gt;
+  &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;&lt;artifactId&gt;spring-boot-starter-parent&lt;/artifactId&gt;
+  &lt;version&gt;3.5.0&lt;/version&gt;&lt;relativePath/&gt;
+&lt;/parent&gt;
+&lt;groupId&gt;com.acme.orders&lt;/groupId&gt;
+&lt;artifactId&gt;orders-parent&lt;/artifactId&gt;
+&lt;version&gt;&#36;{revision}&lt;/version&gt;
+&lt;packaging&gt;pom&lt;/packaging&gt;
+&lt;properties&gt;&lt;revision&gt;1.4.0-SNAPSHOT&lt;/revision&gt;&lt;java.version&gt;21&lt;/java.version&gt;&lt;/properties&gt;
+&lt;modules&gt;
+  &lt;module&gt;orders-api&lt;/module&gt;   &lt;module&gt;orders-domain&lt;/module&gt;   &lt;module&gt;orders-application&lt;/module&gt;
+  &lt;module&gt;orders-infrastructure&lt;/module&gt;   &lt;module&gt;orders-web&lt;/module&gt;   &lt;module&gt;orders-bootstrap&lt;/module&gt;
+&lt;/modules&gt;
+&lt;dependencyManagement&gt;&lt;dependencies&gt;               &lt;!-- sibling versions in one place --&gt;
+  &lt;dependency&gt;&lt;groupId&gt;com.acme.orders&lt;/groupId&gt;&lt;artifactId&gt;orders-domain&lt;/artifactId&gt;&lt;version&gt;&#36;{project.version}&lt;/version&gt;&lt;/dependency&gt;
+  &lt;!-- … one entry per module … --&gt;
+&lt;/dependencies&gt;&lt;/dependencyManagement&gt;
+
+&lt;!-- orders-domain/pom.xml --&gt;
+&lt;parent&gt;&lt;groupId&gt;com.acme.orders&lt;/groupId&gt;&lt;artifactId&gt;orders-parent&lt;/artifactId&gt;&lt;version&gt;&#36;{revision}&lt;/version&gt;&lt;/parent&gt;
+&lt;artifactId&gt;orders-domain&lt;/artifactId&gt;                &lt;!-- groupId and version inherited --&gt;</code></pre>
+
+  <h3>A real service layout</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 260" role="img" aria-label="Module dependency graph: bootstrap depends on web and infrastructure; web on application and api; infrastructure on application and domain; application on domain. Reactor order shown at bottom right">
+      <defs><marker id="ah-l178" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="270" y="15" width="120" height="36" rx="6" class="s-node-mod"/><text x="330" y="38" class="s-mid">bootstrap</text>
+      <rect x="60" y="85" width="120" height="36" rx="6" class="s-node"/><text x="120" y="108" class="s-mid">web</text>
+      <rect x="480" y="85" width="140" height="36" rx="6" class="s-node"/><text x="550" y="108" class="s-mid">infrastructure</text>
+      <rect x="270" y="145" width="120" height="36" rx="6" class="s-node"/><text x="330" y="168" class="s-mid">application</text>
+      <rect x="60" y="175" width="120" height="36" rx="6" class="s-node"/><text x="120" y="198" class="s-mid">api</text>
+      <rect x="270" y="215" width="120" height="36" rx="6" class="s-node"/><text x="330" y="238" class="s-mid">domain</text>
+      <line x1="300" y1="51" x2="152" y2="84" class="s-ln-ink" marker-end="url(#ah-l178)"/>
+      <line x1="360" y1="51" x2="538" y2="84" class="s-ln-ink" marker-end="url(#ah-l178)"/>
+      <line x1="180" y1="110" x2="268" y2="155" class="s-ln-ink" marker-end="url(#ah-l178)"/>
+      <line x1="120" y1="121" x2="120" y2="173" class="s-ln-ink" marker-end="url(#ah-l178)"/>
+      <line x1="480" y1="112" x2="392" y2="155" class="s-ln-ink" marker-end="url(#ah-l178)"/>
+      <line x1="540" y1="121" x2="392" y2="224" class="s-ln-ink" marker-end="url(#ah-l178)"/>
+      <line x1="330" y1="181" x2="330" y2="213" class="s-ln-ink" marker-end="url(#ah-l178)"/>
+      <text x="470" y="205" class="s-sm s-ink3">reactor order:</text>
+      <text x="470" y="222" class="s-sm">api → domain → application</text>
+      <text x="470" y="239" class="s-sm">→ infra → web → bootstrap</text>
+      <text x="20" y="40" class="s-sm s-ink3">arrow = depends on</text>
+    </svg>
+    <figcaption><b>Dependencies point inward.</b> <code>domain</code> depends on nothing of yours. Adapters (<code>web</code>, <code>infrastructure</code>) depend on the core. Only <code>bootstrap</code> sees everything, because it wires the app together. The reactor sorts modules topologically, so the order in <code>&lt;modules&gt;</code> doesn't matter, and a cycle is a build error.</figcaption>
+  </figure>
+  <ul>
+    <li><b><code>api</code></b>: request/response DTOs and the OpenAPI contract. Clients can depend on it, so keep it free of Spring.</li>
+    <li><b><code>domain</code></b>: entities, value objects, domain services, plain Java. Its POM has almost no dependencies, which is the point.</li>
+    <li><b><code>application</code></b>: use cases and the <em>ports</em> (interfaces) they need, such as <code>OrderRepository</code> and <code>PaymentGateway</code>.</li>
+    <li><b><code>infrastructure</code></b>: adapters that implement those ports, such as JPA repositories, Kafka producers and HTTP clients.</li>
+    <li><b><code>web</code></b>: controllers and exception handlers that map <code>api</code> DTOs to use cases.</li>
+    <li><b><code>bootstrap</code></b>: the <code>@SpringBootApplication</code> class, <code>application.yml</code>, and the <em>only</em> module that declares <code>spring-boot-maven-plugin</code> in <code>&lt;build&gt;&lt;plugins&gt;</code>. The parent has it only in pluginManagement, so the library modules stay plain jars.</li>
+  </ul>
+  <p>Shared code across services goes in small, focused libraries or in a company <b>starter</b> (an auto-configuration module plus a dependency-only starter POM), versioned through the platform BOM (L175). Avoid a <code>common</code> module. It turns into a dumping ground that every module depends on, so every change to it rebuilds and retests everything.</p>
+
+  <h3>Building a subset</h3>
+  <pre><code class="plain">&#36; ./mvnw -pl orders-web -am verify        # web plus everything it needs (also-make)
+&#36; ./mvnw -pl orders-domain -amd verify    # domain plus everything that depends on it (also-make-dependents)
+&#36; ./mvnw -pl :orders-web,:orders-api test # select by artifactId with a leading colon
+&#36; ./mvnw verify -rf :orders-web           # resume from a failed module
+&#36; ./mvnw -T 1C verify                     # independent modules (api, domain) build in parallel</code></pre>
+  <p>Siblings are resolved from the reactor (their <code>target/</code> output), not from <code>~/.m2</code>. That is why <code>verify</code> works without <code>install</code> (L173). <code>-pl x</code> without <code>-am</code> resolves siblings from the local repository instead, and may silently use a stale jar.</p>
+
+  <h3>Versioning and CI-friendly versions</h3>
+  <p><b>Unified versioning</b> (every module shares one version, released together) is right for the modules of one service, and it is what the root POM above does. <b>Independent versioning</b> fits a repository of libraries consumed separately, at the cost of tracking which module versions work together. To change a unified version everywhere: <code>./mvnw versions:set -DnewVersion=1.4.0 -DgenerateBackupPoms=false</code>.</p>
+  <div class="box def"><span class="tag">Definition · CI-friendly versions</span>
+    <p>Since Maven 3.5, <code>&lt;version&gt;</code> may use the properties <code>&#36;{revision}</code>, <code>&#36;{sha1}</code> and <code>&#36;{changelist}</code>, so CI can set the version without editing files: <code>./mvnw -Drevision=1.4.0 deploy</code>. The installed and deployed POMs must contain the <em>resolved</em> version, or consumers cannot resolve the parent. <code>flatten-maven-plugin</code> with <code>flattenMode=resolveCiFriendliesOnly</code> writes that resolved copy (Appendix B binds it to <code>process-resources</code>, and its clean goal to <code>clean</code>).</p>
+  </div>
+
+  <h3>When a multi-module monolith beats microservices</h3>
+  <p>Modules give you compile-time boundaries, one deployable, atomic refactors across layers, in-process calls without network failure modes, and one pipeline. Microservices give independent deploys and scaling, at the price of network calls, distributed data and a fleet to operate. For one team, or a domain whose boundaries are still moving, the modular monolith is usually the better start. When a module really needs its own release cadence or scaling, extract it along the boundary the modules already enforce. Spring Modulith offers a similar discipline inside a single module, using package conventions and tests instead of POMs.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Depending on a repackaged Boot jar.</b> If a library module also runs <code>repackage</code>, its classes move under <code>BOOT-INF/classes</code>, and dependents fail with <code>ClassNotFoundException</code>.</li>
+      <li><b>Deploying POMs with an unresolved <code>&#36;{revision}</code>.</b> Without flatten, consumers see a parent version of literally <code>&#36;{revision}</code> and the build fails.</li>
+      <li><b>A <code>common</code> module everyone depends on.</b> Every one-line change rebuilds and redeploys all of it, so the modules stop meaning anything.</li>
+      <li><b><code>-pl</code> without <code>-am</code> in CI.</b> The build compiles against yesterday's sibling jar from the cache and passes, and the next full build breaks.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 55 min</h4>
+    <ol>
+      <li>Split an existing single-module Boot app into the six modules above, with <code>&#36;{revision}</code> and flatten. Only <code>bootstrap</code> may produce a Boot jar.</li>
+      <li>Add an import of a JPA class to <code>domain</code> and confirm it fails to compile. Revert it.</li>
+      <li>Run <code>verify</code> and record the reactor order. Then try <code>-pl orders-web -am</code> and <code>-pl orders-domain -amd</code>, and explain each module list.</li>
+      <li>Create a cycle (make <code>domain</code> depend on <code>application</code>) and read the reactor's error.</li>
+      <li>Run <code>./mvnw -Drevision=1.4.0 install</code> and inspect the installed POM in <code>~/.m2</code>. Is the version resolved?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Apache Maven, “Guide to Working with Multiple Modules” and “Maven CI Friendly Versions” · Maven “POM Reference”, Aggregation vs. Inheritance · MojoHaus Flatten Maven Plugin and Versions Maven Plugin, <code>versions:set</code> · Spring Modulith reference documentation</p>
+</article>
+<!-- ================================================================ L179 -->
+<article class="day" id="l179">
+  <header class="day-head">
+    <span class="day-no">L179 · DAY 179</span>
+    <h2>Gradle Basics: DSLs, Tasks &amp; Configurations</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A Gradle build is a program that constructs a graph of tasks and then runs the parts of it that are out of date. Learn the three phases, what makes a task UP-TO-DATE, and how dependency configurations map to Maven scopes, and Gradle stops looking like magic.</p>
+
+  <h3>Groovy DSL or Kotlin DSL</h3>
+  <p>Both DSLs drive the same Gradle API. The Groovy DSL (<code>build.gradle</code>) is dynamic: typos and wrong types show up only when the script runs, and IDE completion is guesswork. The <b>Kotlin DSL</b> (<code>build.gradle.kts</code>) is statically typed. The IDE completes every block and property, shows documentation, and flags errors before you run anything. It is the default for <code>gradle init</code> since Gradle 8.2 and the right choice for new projects. Its cost is a slower first compilation of changed scripts. Most old Groovy answers on the web translate mechanically: <code>"…"</code> strings, <code>id("…")</code> instead of <code>id '…'</code>, and <code>=</code> for assignments.</p>
+
+  <h3>settings.gradle.kts and build.gradle.kts</h3>
+  <pre><code class="plain">// settings.gradle.kts: read first; defines the build's projects
+rootProject.name = "order-service"
+// include("orders-domain", "orders-web")   // multi-project (L180)
+
+// build.gradle.kts
+plugins {
+    java
+    id("org.springframework.boot") version "3.5.0"
+    id("io.spring.dependency-management") version "1.1.7"   // applies Boot's BOM (L175)
+}
+
+group = "com.acme.orders"
+version = "1.0.0-SNAPSHOT"
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }  // Gradle finds or provisions a JDK 21
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-web")   // no versions: managed
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
+    runtimeOnly("org.postgresql:postgresql")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test { useJUnitPlatform() }</code></pre>
+  <p>A <b>toolchain</b> separates the JDK that runs Gradle from the JDK that compiles your code. It is Gradle's answer to Maven's <code>&lt;release&gt;</code>, and stronger, because tests also run on JDK 21.</p>
+
+  <h3>The build lifecycle</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 228" role="img" aria-label="Gradle's three phases (initialization, configuration, execution) and below them the simplified task graph for gradle build">
+      <defs><marker id="ah-l179" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="15" y="20" width="190" height="70" rx="8" class="s-node"/><text x="110" y="42" class="s-mid s-ttl">1 · Initialization</text><text x="110" y="62" class="s-mid s-sm">reads settings.gradle.kts</text><text x="110" y="78" class="s-mid s-sm">decides which projects</text>
+      <rect x="235" y="20" width="190" height="70" rx="8" class="s-node-mod"/><text x="330" y="42" class="s-mid s-ttl">2 · Configuration</text><text x="330" y="62" class="s-mid s-sm">runs every build script</text><text x="330" y="78" class="s-mid s-sm">builds the task graph</text>
+      <rect x="455" y="20" width="190" height="70" rx="8" class="s-node"/><text x="550" y="42" class="s-mid s-ttl">3 · Execution</text><text x="550" y="62" class="s-mid s-sm">runs requested tasks</text><text x="550" y="78" class="s-mid s-sm">skips UP-TO-DATE ones</text>
+      <line x1="205" y1="55" x2="233" y2="55" class="s-ln-ink" marker-end="url(#ah-l179)"/>
+      <line x1="425" y1="55" x2="453" y2="55" class="s-ln-ink" marker-end="url(#ah-l179)"/>
+      <text x="330" y="118" class="s-mid s-sm s-ink3">./gradlew build: the graph phase 2 builds (arrow = runs before)</text>
+      <rect x="15" y="135" width="110" height="28" rx="4" class="s-node"/><text x="70" y="153" class="s-mid s-sm">compileJava</text>
+      <rect x="15" y="185" width="110" height="28" rx="4" class="s-node"/><text x="70" y="203" class="s-mid s-sm">processResources</text>
+      <rect x="155" y="160" width="90" height="28" rx="4" class="s-node"/><text x="200" y="178" class="s-mid s-sm">classes</text>
+      <rect x="280" y="135" width="90" height="28" rx="4" class="s-node"/><text x="325" y="153" class="s-mid s-sm">bootJar, jar</text>
+      <rect x="280" y="185" width="90" height="28" rx="4" class="s-node"/><text x="325" y="203" class="s-mid s-sm">test</text>
+      <rect x="405" y="135" width="100" height="28" rx="4" class="s-node"/><text x="455" y="153" class="s-mid s-sm">assemble</text>
+      <rect x="405" y="185" width="100" height="28" rx="4" class="s-node"/><text x="455" y="203" class="s-mid s-sm">check</text>
+      <rect x="545" y="160" width="90" height="28" rx="4" class="s-node-mod"/><text x="590" y="178" class="s-mid s-sm">build</text>
+      <line x1="125" y1="149" x2="153" y2="170" class="s-ln" marker-end="url(#ah-l179)"/>
+      <line x1="125" y1="199" x2="153" y2="178" class="s-ln" marker-end="url(#ah-l179)"/>
+      <line x1="245" y1="170" x2="278" y2="149" class="s-ln" marker-end="url(#ah-l179)"/>
+      <line x1="245" y1="178" x2="278" y2="199" class="s-ln" marker-end="url(#ah-l179)"/>
+      <line x1="370" y1="149" x2="403" y2="149" class="s-ln" marker-end="url(#ah-l179)"/>
+      <line x1="370" y1="199" x2="403" y2="199" class="s-ln" marker-end="url(#ah-l179)"/>
+      <line x1="505" y1="149" x2="543" y2="170" class="s-ln" marker-end="url(#ah-l179)"/>
+      <line x1="505" y1="199" x2="543" y2="178" class="s-ln" marker-end="url(#ah-l179)"/>
+    </svg>
+    <figcaption><b>Phases, then a graph, not a fixed list.</b> Unlike Maven's lifecycle, there is no fixed sequence. <code>build</code> is just a task that depends on <code>assemble</code> and <code>check</code>, and Gradle runs whatever subgraph the requested tasks need (simplified: <code>test</code> also needs <code>testClasses</code>).</figcaption>
+  </figure>
+  <p>The configuration phase runs on <em>every</em> invocation, even <code>./gradlew help</code>, so work done there is paid every time. Use <code>tasks.register</code> (lazy, created only if needed) rather than <code>tasks.create</code>, and never do I/O or network calls at the top level of a build script.</p>
+
+  <h3>Tasks, inputs, outputs, up-to-date checks</h3>
+  <div class="box def"><span class="tag">Definition · Incremental task</span>
+    <p>A task that declares its <b>inputs</b> (files, properties, the classpath) and <b>outputs</b> (files or directories). Before it runs, Gradle fingerprints both. If nothing changed since the last run and the outputs are still there, the task is reported <b>UP-TO-DATE</b> and skipped. If the build cache holds a matching result, it is <b>FROM-CACHE</b> (L180). A task with no declared outputs is never up to date.</p>
+  </div>
+  <pre><code class="plain">abstract class GenerateBuildStamp : DefaultTask() {
+    @get:Input abstract val appVersion: Property&lt;String&gt;
+    @get:OutputFile abstract val stampFile: RegularFileProperty
+
+    @TaskAction
+    fun write() {
+        stampFile.get().asFile.writeText("version=&#36;{appVersion.get()}\n")
+    }
+}
+
+val buildStamp = tasks.register&lt;GenerateBuildStamp&gt;("buildStamp") {
+    appVersion = project.version.toString()
+    stampFile = layout.buildDirectory.file("stamp/build-stamp.properties")
+}
+
+tasks.processResources { from(buildStamp) }   // wiring an output also wires the dependency</code></pre>
+  <p>Run <code>./gradlew processResources</code> twice: the second time <code>buildStamp</code> is UP-TO-DATE. Change the version and it runs again. Use explicit ordering only when no input/output link exists: <code>dependsOn</code> (must run first), <code>mustRunAfter</code> (ordering without dependency), <code>finalizedBy</code> (cleanup afterwards).</p>
+
+  <h3>Plugins and configurations</h3>
+  <ul>
+    <li><b><code>java</code></b>: source sets, <code>compileJava</code>, <code>test</code>, <code>jar</code>, and the configurations below. <b><code>java-library</code></b> adds <code>api</code> for libraries consumed by other projects. <b><code>application</code></b> adds <code>run</code>, <code>installDist</code> and <code>distZip</code> for a plain <code>mainClass</code>.</li>
+    <li><b><code>org.springframework.boot</code></b>: <code>bootJar</code>, <code>bootRun</code> and <code>bootBuildImage</code>, the Gradle twins of the Maven goals (L176). <b><code>io.spring.dependency-management</code></b>: Maven-style <code>dependencyManagement</code> that imports the Boot BOM automatically. Its Gradle-native alternative is <code>platform()</code> (L180).</li>
+  </ul>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Configuration</th><th>Your compile</th><th>Your runtime</th><th>Consumers' compile</th><th>Maven analogue</th></tr></thead>
+    <tbody>
+      <tr><td><code>api</code> (java-library)</td><td>yes</td><td>yes</td><td>yes</td><td><code>compile</code></td></tr>
+      <tr><td><code>implementation</code></td><td>yes</td><td>yes</td><td>no (runtime only)</td><td><code>compile</code>, but not leaked</td></tr>
+      <tr><td><code>compileOnly</code></td><td>yes</td><td>no</td><td>no</td><td><code>provided</code></td></tr>
+      <tr><td><code>runtimeOnly</code></td><td>no</td><td>yes</td><td>no</td><td><code>runtime</code></td></tr>
+      <tr><td><code>annotationProcessor</code></td><td colspan="3">processor path only, separate from the classpath</td><td><code>annotationProcessorPaths</code></td></tr>
+      <tr><td><code>testImplementation</code> / <code>testRuntimeOnly</code></td><td colspan="3">test source set only</td><td><code>test</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>The old <code>compile</code> configuration was removed in Gradle 7. It behaved like <code>api</code> for everything, so every library leaked its whole dependency set onto consumers' compile classpaths. That created accidental coupling and recompilation cascades. With <code>implementation</code>, a change in a hidden dependency doesn't recompile consumers. Use <code>api</code> only when a type from the dependency appears in your public signatures. Also note that when versions conflict, Gradle picks the <b>highest</b> requested version, not the nearest one as Maven does (L174).</p>
+
+  <h3>The daemon and incremental builds</h3>
+  <p>The first <code>./gradlew</code> starts a <b>daemon</b>, a long-lived background JVM that keeps the Gradle runtime loaded, JIT-warmed, and file-system state cached. Later builds skip that start-up, which is much of why the second build is fast. On top of that, Java compilation is incremental (only affected classes recompile), and compile avoidance skips downstream compilation entirely when a dependency's ABI didn't change. Useful commands: <code>./gradlew tasks</code>, <code>./gradlew dependencies --configuration runtimeClasspath</code>, <code>./gradlew dependencyInsight --dependency jackson-databind</code> (the equivalent of Maven's <code>dependency:tree -Dincludes</code>), and <code>./gradlew --stop</code>.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Slow builds from configuration-time work.</b> A script that reads files or calls git at the top level runs it on every invocation, for every project.</li>
+      <li><b>A custom task with undeclared outputs</b> always runs, and it can never be cached. One with undeclared <em>inputs</em> is worse: it stays UP-TO-DATE when it shouldn't and ships stale files.</li>
+      <li><b><code>api</code> everywhere</b> recreates the <code>compile</code> problem. A transitive change then recompiles the whole build.</li>
+      <li><b>Lombok only in <code>compileOnly</code>.</b> Without the <code>annotationProcessor</code> line it compiles nothing, and you get "cannot find symbol" for every getter.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Generate a Gradle (Kotlin) project from start.spring.io. Run <code>./gradlew build</code> twice and compare the task outcomes (<code>--console=plain</code>).</li>
+      <li>Add the <code>buildStamp</code> task and show the UP-TO-DATE behavior. Then remove <code>@get:OutputFile</code>, see what Gradle says, and restore it.</li>
+      <li>Create a <code>java-library</code> subproject that exposes a Guava type in a public method. Try <code>implementation</code>, then <code>api</code>, and explain the consumer's compile error.</li>
+      <li>Run <code>dependencyInsight</code> on <code>jackson-databind</code> and find which rule chose its version.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Gradle User Manual, “Build Lifecycle”, “Incremental build”, “Java Library Plugin” (api vs implementation), “Toolchains for JVM projects” and “Gradle Kotlin DSL Primer” · Spring Boot Gradle Plugin reference · Gradle 7.0 upgrade guide (removal of <code>compile</code>)</p>
+</article>
+<!-- ================================================================ L180 -->
+<article class="day" id="l180">
+  <header class="day-head">
+    <span class="day-no">L180 · DAY 180</span>
+    <h2>Gradle Advanced: Version Catalogs, Multi-Project &amp; Caching</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Gradle's real advantages show at scale: one typed catalog of versions, shared build logic in convention plugins instead of copy-paste, and caches that let one machine reuse the task outputs another machine already produced. Each of them also has a failure mode you should know before you adopt it.</p>
+
+  <h3>Version catalogs</h3>
+  <pre><code class="plain"># gradle/libs.versions.toml (picked up automatically)
+[versions]
+springBoot = "3.5.0"
+springDepMgmt = "1.1.7"
+mapstruct = "1.6.3"
+archunit = "1.3.0"
+
+[libraries]
+boot-web            = { module = "org.springframework.boot:spring-boot-starter-web" }   # version from the BOM
+boot-test           = { module = "org.springframework.boot:spring-boot-starter-test" }
+mapstruct-core      = { module = "org.mapstruct:mapstruct", version.ref = "mapstruct" }
+mapstruct-processor = { module = "org.mapstruct:mapstruct-processor", version.ref = "mapstruct" }
+archunit            = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+
+[bundles]
+testing = ["boot-test", "archunit"]
+
+[plugins]
+spring-boot     = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dep-mgmt = { id = "io.spring.dependency-management", version.ref = "springDepMgmt" }</code></pre>
+  <pre><code class="plain">// build.gradle.kts
+plugins {
+    java
+    alias(libs.plugins.spring.boot)
+    alias(libs.plugins.spring.dep.mgmt)
+}
+dependencies {
+    implementation(libs.boot.web)                 // "boot-web" becomes libs.boot.web
+    implementation(libs.mapstruct.core)
+    annotationProcessor(libs.mapstruct.processor)
+    testImplementation(libs.bundles.testing)      // a bundle adds several at once
+}</code></pre>
+  <p>Separators (<code>-</code>, <code>_</code>, <code>.</code>) in an alias become dots in the generated accessor, so an alias <code>spring-boot-starter-web</code> becomes <code>libs.spring.boot.starter.web</code>. The appendix's shorter <code>boot-web</code> gives <code>libs.boot.web</code>. Compared with the old <code>ext { set("mapstructVersion", …) }</code> blocks, a catalog is one file shared by every project. Its accessors are generated and typed, so a typo fails at compile time with completion in the IDE. Dependabot and Renovate also understand the format.</p>
+
+  <h3>platform() and enforcedPlatform()</h3>
+  <pre><code class="plain">dependencies {
+    implementation(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
+    // or: implementation(enforcedPlatform("org.springframework.boot:spring-boot-dependencies:3.5.0"))
+}</code></pre>
+  <div class="box def"><span class="tag">Definition · Platform</span>
+    <p><code>platform(bom)</code> turns a Maven BOM into Gradle <em>dependency constraints</em>. They take part in normal conflict resolution, so the BOM's version is used unless something in the graph asks for a <em>higher</em> one, in which case the higher one wins. <code>enforcedPlatform(bom)</code> makes the versions strict, downgrading anything higher. Use enforced platforms only in applications. A library that publishes one forces its versions on every consumer.</p>
+  </div>
+  <p>That is the main difference from Maven's import scope and from the <code>io.spring.dependency-management</code> plugin, both of which behave like "the BOM wins". The plugin is the closer match for a team coming from Maven. <code>platform()</code> is the Gradle-native path and needs no extra plugin.</p>
+
+  <h3>Multi-project builds and convention plugins</h3>
+  <pre><code class="plain">// settings.gradle.kts
+rootProject.name = "orders"
+include("orders-domain", "orders-application", "orders-web", "orders-bootstrap")
+includeBuild("../payments-client")          // composite build: use the local source, not the published jar
+
+// buildSrc/build.gradle.kts
+plugins { `kotlin-dsl` }
+repositories { gradlePluginPortal() }
+
+// buildSrc/src/main/kotlin/acme.java-conventions.gradle.kts   (a precompiled script plugin)
+plugins { java }
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+repositories { mavenCentral() }
+tasks.withType&lt;Test&gt;().configureEach { useJUnitPlatform() }
+
+// orders-web/build.gradle.kts
+plugins { id("acme.java-conventions") }
+dependencies { implementation(project(":orders-application")) }</code></pre>
+  <p><code>subprojects { … }</code> and <code>allprojects { … }</code> in the root script also share configuration, but they inject it from outside. A subproject's own script no longer shows what applies to it, every project is coupled to the root, and newer Gradle features (configuration on demand, isolated projects) can't work with that coupling. A <b>convention plugin</b> reverses this: each project opts in with one <code>plugins { id(…) }</code> line, and the logic lives in versioned, testable Kotlin. Larger organizations move <code>buildSrc</code> into an included <code>build-logic</code> build so that a change to it doesn't invalidate the whole build.</p>
+  <p><b>Composite builds</b> (<code>includeBuild</code>) substitute a published dependency (<code>com.acme:payments-client</code>) with a project built from source, so you can fix a library and its consumer in one IDE session without publishing a SNAPSHOT (L181).</p>
+
+  <h3>Build cache and configuration cache</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 220" role="img" aria-label="Task inputs are hashed into a cache key; the task is then UP-TO-DATE, restored FROM-CACHE from a local or remote cache, or EXECUTED and stored">
+      <defs><marker id="ah-l180" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="15" y="30" width="190" height="160" rx="8" class="s-node"/>
+      <text x="110" y="55" class="s-mid s-ttl">Task inputs</text>
+      <text x="30" y="82" class="s-sm">source files (content)</text>
+      <text x="30" y="104" class="s-sm">classpath (ABI)</text>
+      <text x="30" y="126" class="s-sm">JDK / toolchain</text>
+      <text x="30" y="148" class="s-sm">task type + parameters</text>
+      <text x="30" y="170" class="s-sm s-ink3">relative paths only</text>
+      <rect x="245" y="85" width="150" height="50" rx="6" class="s-node-mod"/><text x="320" y="106" class="s-mid">cache key</text><text x="320" y="124" class="s-mid s-sm">hash of all inputs</text>
+      <rect x="440" y="20" width="205" height="46" rx="6" class="s-node"/><text x="542" y="39" class="s-mid s-sm s-mod">UP-TO-DATE</text><text x="542" y="56" class="s-mid s-sm">outputs already in build/</text>
+      <rect x="440" y="87" width="205" height="46" rx="6" class="s-node"/><text x="542" y="106" class="s-mid s-sm s-mod">FROM-CACHE</text><text x="542" y="123" class="s-mid s-sm">unpacked: local or remote</text>
+      <rect x="440" y="154" width="205" height="46" rx="6" class="s-node"/><text x="542" y="173" class="s-mid s-sm s-warn">EXECUTED</text><text x="542" y="190" class="s-mid s-sm">then stored; CI pushes</text>
+      <line x1="205" y1="110" x2="243" y2="110" class="s-ln-ink" marker-end="url(#ah-l180)"/>
+      <line x1="395" y1="104" x2="438" y2="45" class="s-ln" marker-end="url(#ah-l180)"/>
+      <line x1="395" y1="110" x2="438" y2="110" class="s-ln" marker-end="url(#ah-l180)"/>
+      <line x1="395" y1="116" x2="438" y2="175" class="s-ln" marker-end="url(#ah-l180)"/>
+    </svg>
+    <figcaption><b>Outputs are reused by content, not by time.</b> If the key matches, the outputs can come from anywhere, including a CI run on another branch an hour ago. A task whose inputs are declared incompletely poisons the cache for everyone.</figcaption>
+  </figure>
+  <pre><code class="plain"># gradle.properties (committed)
+org.gradle.caching=true
+org.gradle.configuration-cache=true
+org.gradle.parallel=true
+
+// settings.gradle.kts: shared remote cache; only CI writes to it
+buildCache {
+    remote&lt;HttpBuildCache&gt; {
+        url = uri("https://gradle-cache.acme.internal/cache/")
+        isPush = System.getenv("CI") != null
+    }
+}</code></pre>
+  <p>The <b>build cache</b> stores task outputs keyed by their inputs, locally under <code>~/.gradle/caches</code> and optionally on a remote node shared by the team. The <b>configuration cache</b> is different: it stores the result of the configuration phase, the task graph itself, so an unchanged build skips configuration entirely. It requires tasks that do not reach back into <code>Project</code> at execution time, and Gradle reports every violation. <code>./gradlew build --scan</code> uploads a Build Scan with the task timeline, cache hits and misses, and configuration time. It is the fastest way to find where a build spends its minutes. The upload goes to an external service, so check policy first (Develocity can be self-hosted).</p>
+
+  <h3>Locking, migrating, and an honest evaluation</h3>
+  <pre><code class="plain">// build.gradle.kts
+dependencyLocking { lockAllConfigurations() }
+
+&#36; ./gradlew dependencies --write-locks                          # writes gradle.lockfile; commit it
+&#36; ./gradlew --write-verification-metadata sha256 help          # checksums in gradle/verification-metadata.xml</code></pre>
+  <p><b>Locking</b> records every resolved version, transitive ones included, so a dynamic version (<code>1.+</code>) or a new release of a transitive dependency can't change the build without a visible lockfile diff. Verification metadata adds checksums so that a tampered artifact fails the build. <b>Migration</b>: <code>gradle init</code> run in a Maven project converts the POMs on a best-effort basis (dependencies, repositories, basic plugins), but custom plugin configuration and profile logic are yours to rewrite. Be honest about the payoff. Gradle wins clearly for large multi-project builds with a remote cache. For a single service whose Maven build takes three minutes, migrating rarely repays the retraining and the build code you then have to maintain. Maven also has an official build cache extension and Develocity support. Measure first.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Developers pushing to the remote cache.</b> One machine with an odd local state poisons outputs for everyone. Push only from CI.</li>
+      <li><b><code>enforcedPlatform</code> in a published library.</b> Consumers get their versions downgraded without asking.</li>
+      <li><b>A <code>buildSrc</code> change.</b> Any edit invalidates the configuration of every project and makes the next build cold. Keep it small or move it to an included build.</li>
+      <li><b>A lockfile nobody updates.</b> Security patches never arrive. Schedule <code>--write-locks</code> through your dependency bot.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Port L179's build to a version catalog and a <code>buildSrc</code> convention plugin, with three subprojects.</li>
+      <li>Switch from the dependency-management plugin to <code>platform()</code>, add a dependency that pulls a newer Jackson, and compare <code>dependencyInsight</code> under <code>platform</code> and <code>enforcedPlatform</code>.</li>
+      <li>Enable the build cache, run <code>./gradlew clean build</code> twice, and count the FROM-CACHE tasks. Then turn on the configuration cache and fix any problem it reports.</li>
+      <li>Run <code>gradle init</code> on the Maven project from L178 and list what it did not convert.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Gradle User Manual, “Version Catalogs”, “Platforms”, “Sharing Build Logic between Subprojects” (convention plugins), “Composite Builds”, “Build Cache”, “Configuration Cache” and “Locking dependency versions” · Spring Boot Gradle Plugin reference, “Managing Dependencies” · Gradle, “Migrating Builds From Apache Maven”</p>
+</article>
+<!-- ================================================================ L181 -->
+<article class="day" id="l181">
+  <header class="day-head">
+    <span class="day-no">L181 · DAY 181</span>
+    <h2>Versioning, Releases &amp; Artifact Repositories</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A version number is a promise to whoever consumes the artifact. For a library, it promises compatibility. For a service, it identifies exactly which build is running. Releasing means producing an immutable artifact under that number, from a tag, automatically, and putting it somewhere others can trust.</p>
+
+  <h3>Semantic versioning, and what breaks a Java library</h3>
+  <div class="box def"><span class="tag">Definition · Semantic Versioning 2.0.0</span>
+    <p><code>MAJOR.MINOR.PATCH</code>: bump MAJOR for incompatible API changes, MINOR for backwards-compatible additions, PATCH for backwards-compatible fixes. A <b>pre-release</b> follows a hyphen (<code>2.0.0-rc.1</code>) and sorts <em>before</em> its release: <code>2.0.0-alpha &lt; 2.0.0-alpha.1 &lt; 2.0.0-beta &lt; 2.0.0-rc.1 &lt; 2.0.0</code>. <b>Build metadata</b> follows a plus sign (<code>+sha.5114f85</code>) and is ignored for precedence. Under <code>0.y.z</code>, anything may change at any time.</p>
+  </div>
+  <p>For a Java library, "incompatible" has two meanings (JLS ch. 13). Source compatibility asks whether consumers still compile. Binary compatibility asks whether already-compiled consumers still link and run. Changes that need a MAJOR bump:</p>
+  <ul>
+    <li>removing or renaming a public type, method or field, or changing a parameter type. Even <em>narrowing a return type</em> changes the method descriptor, which breaks binary compatibility;</li>
+    <li>adding an abstract method to an interface that users implement (a <code>default</code> method avoids this), making a class <code>final</code>, or reducing visibility;</li>
+    <li>raising the minimum Java version, or bumping the major version of a dependency whose types appear in your API;</li>
+    <li>behavior and format changes, such as a different default, a stricter validation, or a new serialization format.</li>
+  </ul>
+  <p>Some traps are subtle. Changing the value of a <code>public static final</code> constant does nothing for existing consumers until they recompile, because javac inlines the old value. Adding a checked exception breaks source compatibility but not binary compatibility. Run <b>japicmp</b> or <b>Revapi</b> in CI against the last release so these are checked automatically instead of by memory.</p>
+
+  <h3>CalVer for services, and the danger of SNAPSHOTs</h3>
+  <p>A deployable service has no compile-time consumers. Its compatibility contract is the HTTP or event API, which is versioned separately. So SemVer's promise means little there, and many teams use <b>CalVer</b> (<code>2026.10.3</code>) or <code>{date}-{short sha}</code>. The version then tells you what is running and when it was built, and it maps straight back to a commit.</p>
+  <p><b>SNAPSHOTs</b> (L172) are mutable by design. That is convenient between teams mid-sprint, but every build that resolves one depends on when it ran. Tests can pass on Monday and fail on Tuesday with no change on your side, and a hotfix built from an old tag picks up today's snapshot. Keep them out of anything released (<code>requireReleaseDeps</code>, L176). If you need someone's unreleased work, ask for a real pre-release (<code>1.5.0-rc.1</code>) or a per-commit version.</p>
+
+  <h3>maven-release-plugin versus tag-driven CI</h3>
+  <p><code>release:prepare</code> checks for SNAPSHOT dependencies, rewrites the version to <code>1.4.0</code>, commits and tags, rewrites to <code>1.5.0-SNAPSHOT</code>, and commits again. <code>release:perform</code> then checks out the tag and runs <code>deploy</code>. It works, but it makes two commits per release, needs CI to push to the main branch, builds twice, and leaves a half-done state when it fails midway. The modern alternative inverts the flow: the <b>tag is the source of truth</b>, and CI derives the version from it using CI-friendly versions (L178).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 190" role="img" aria-label="Two pipelines: every merge to main builds and deploys a SNAPSHOT to the snapshots repository; every release tag builds with the version from the tag and deploys to the immutable releases repository">
+      <defs><marker id="ah-l181" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="15" y="26" class="s-sm s-ink3">every merge to main</text>
+      <rect x="15" y="36" width="120" height="36" rx="5" class="s-node"/><text x="75" y="58" class="s-mid s-sm">push to main</text>
+      <rect x="165" y="36" width="140" height="36" rx="5" class="s-node"/><text x="235" y="58" class="s-mid s-sm">./mvnw verify</text>
+      <rect x="335" y="36" width="170" height="36" rx="5" class="s-node"/><text x="420" y="58" class="s-mid s-sm">deploy 1.5.0-SNAPSHOT</text>
+      <rect x="535" y="36" width="110" height="36" rx="5" class="s-node"/><text x="590" y="58" class="s-mid s-sm">acme-snapshots</text>
+      <text x="590" y="90" class="s-mid s-sm s-ink3">cleaned after N days</text>
+      <text x="15" y="108" class="s-sm s-ink3">every release tag</text>
+      <rect x="15" y="116" width="120" height="36" rx="5" class="s-node-mod"/><text x="75" y="138" class="s-mid s-sm">tag v1.4.0</text>
+      <rect x="165" y="116" width="140" height="36" rx="5" class="s-node"/><text x="235" y="138" class="s-mid s-sm">-Drevision=1.4.0</text>
+      <rect x="335" y="116" width="170" height="36" rx="5" class="s-node"/><text x="420" y="138" class="s-mid s-sm">-Prelease deploy</text>
+      <rect x="535" y="116" width="110" height="36" rx="5" class="s-node-mod"/><text x="590" y="138" class="s-mid s-sm">acme-releases</text>
+      <text x="590" y="170" class="s-mid s-sm s-mod">never overwritten</text>
+      <line x1="135" y1="54" x2="163" y2="54" class="s-ln-ink" marker-end="url(#ah-l181)"/>
+      <line x1="305" y1="54" x2="333" y2="54" class="s-ln-ink" marker-end="url(#ah-l181)"/>
+      <line x1="505" y1="54" x2="533" y2="54" class="s-ln-ink" marker-end="url(#ah-l181)"/>
+      <line x1="135" y1="134" x2="163" y2="134" class="s-ln-ink" marker-end="url(#ah-l181)"/>
+      <line x1="305" y1="134" x2="333" y2="134" class="s-ln-ink" marker-end="url(#ah-l181)"/>
+      <line x1="505" y1="134" x2="533" y2="134" class="s-ln-ink" marker-end="url(#ah-l181)"/>
+      <text x="420" y="170" class="s-mid s-sm s-ink3">sign · sources · javadoc</text>
+    </svg>
+    <figcaption><b>No commits from CI.</b> The POM always says <code>&#36;{revision}</code>. The tag supplies the number, so the release is exactly the tagged commit, built once.</figcaption>
+  </figure>
+  <pre><code class="plain"># .github/workflows/release.yml
+on:
+  push:
+    tags: ['v*']
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: acme-releases          # writes settings.xml with this server
+          server-username: NEXUS_USER       # names of env vars, not values
+          server-password: NEXUS_TOKEN
+      - run: ./mvnw -B -ntp -Drevision=&#36;{GITHUB_REF_NAME#v} -Prelease deploy
+        env:
+          NEXUS_USER: &#36;{{ secrets.NEXUS_USER }}
+          NEXUS_TOKEN: &#36;{{ secrets.NEXUS_TOKEN }}</code></pre>
+  <p>Tools such as JReleaser, release-please or semantic-release can go further. They compute the next version from conventional commit messages, write the changelog, and create the tag.</p>
+
+  <h3>Publishing: Nexus, Artifactory, GitHub Packages, Maven Central</h3>
+  <pre><code class="plain">&lt;distributionManagement&gt;                         &lt;!-- ids match settings.xml servers (L177) --&gt;
+  &lt;repository&gt;&lt;id&gt;acme-releases&lt;/id&gt;&lt;url&gt;https://nexus.acme.internal/repository/maven-releases/&lt;/url&gt;&lt;/repository&gt;
+  &lt;snapshotRepository&gt;&lt;id&gt;acme-snapshots&lt;/id&gt;&lt;url&gt;https://nexus.acme.internal/repository/maven-snapshots/&lt;/url&gt;&lt;/snapshotRepository&gt;
+&lt;/distributionManagement&gt;</code></pre>
+  <ul>
+    <li><b>Nexus / Artifactory</b>: hosted release and snapshot repositories. <code>deploy</code> picks one by whether the version ends in <code>-SNAPSHOT</code>.</li>
+    <li><b>GitHub Packages</b>: <code>https://maven.pkg.github.com/OWNER/REPO</code> with a token that has <code>write:packages</code>. Consumers need a token even to <em>read</em> packages there.</li>
+    <li><b>Maven Central</b>, through Sonatype's Central Publisher Portal: you verify a namespace (your domain via DNS, or <code>io.github.&lt;user&gt;</code>), and every file needs a GPG signature (<code>.asc</code>). The POM must carry <code>name</code>, <code>description</code>, <code>url</code>, <code>licenses</code>, <code>developers</code> and <code>scm</code>, and sources and javadoc jars are required. Releases there can never be deleted, so treat every publish as permanent.</li>
+  </ul>
+  <pre><code class="plain">// Gradle: build.gradle.kts with maven-publish
+plugins { `java-library`; `maven-publish`; signing }
+java { withSourcesJar(); withJavadocJar() }
+publishing {
+    publications {
+        create&lt;MavenPublication&gt;("lib") {
+            from(components["java"])
+            pom { name = "payments-client"; description = "Client for the payments API" }
+        }
+    }
+    repositories {
+        maven {
+            name = "acme"                                     // credentials from acmeUsername / acmePassword
+            url = uri("https://nexus.acme.internal/repository/maven-releases/")
+            credentials(PasswordCredentials::class)
+        }
+    }
+}
+signing { sign(publishing.publications["lib"]) }</code></pre>
+
+  <h3>Layout, retention, and consuming from CI</h3>
+  <p>Every Maven repository has the same layout as <code>~/.m2</code> (L171): <code>group/path/artifact/version/artifact-version[-classifier].ext</code>, plus <code>.sha1</code>/<code>.md5</code> checksums and <code>maven-metadata.xml</code> files listing versions (and, for snapshots, the latest timestamp). A repository manager adds <b>proxy</b> repositories that cache remote ones, with a metadata TTL that decides how quickly new upstream versions appear, and <b>retention policies</b>. Delete snapshots older than N days or beyond the last K builds, never delete or redeploy releases, and alert on storage. To consume from CI, generate settings.xml with a read-only token from the secret store (as <code>setup-java</code> does above), route everything through the group mirror, and cache <code>~/.m2/repository</code> keyed on a hash of the POMs. In Gradle, use the environment variables <code>ORG_GRADLE_PROJECT_acmeUsername</code>/<code>…Password</code>.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A changed constant.</b> Consumers keep the inlined old value until they recompile, so two services disagree about the same "constant".</li>
+      <li><b>Redeploying a release</b> after a quick fix with the same number. Caches and proxies already hold the first build, so different machines run different code under one version.</li>
+      <li><b>A "patch" release that bumps a dependency's major version</b> exposed in your API. Consumers hit <code>NoSuchMethodError</code> (L174).</li>
+      <li><b>No snapshot retention.</b> The repository manager's disk fills up and every deploy across the company fails.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Classify each change as MAJOR, MINOR or PATCH for a library: add an overload, change a return type from <code>List</code> to <code>ArrayList</code>, add a default method, change a <code>static final int</code>. <details><summary>Answer</summary>Adding an overload is MINOR (it can create source ambiguities, so check). Changing the return type is MAJOR, because the descriptor changes and binary compatibility breaks. Adding a default method is MINOR. Changing the constant is effectively MAJOR, because consumers keep the old inlined value until they recompile.</details></li>
+      <li>Add japicmp to a small library and make it fail on a removed method.</li>
+      <li>Against a local Nexus (L177), deploy a SNAPSHOT twice and inspect the timestamped files and <code>maven-metadata.xml</code>. Then try to deploy the same release twice and read the error.</li>
+      <li>Write the tag-driven release workflow for your project, using CI-friendly versions and no release plugin.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> semver.org, “Semantic Versioning 2.0.0” · calver.org · JLS (Java SE 21) ch. 13, “Binary Compatibility” · Maven Release Plugin documentation · Sonatype Central documentation, “Requirements” and “Publishing by Using the Maven Plugin” · Gradle User Manual, “Maven Publish Plugin” and “Signing Plugin” · GitHub Docs, “Working with the Apache Maven registry”</p>
+</article>
+<!-- ================================================================ L182 -->
+<article class="day project" id="l182">
+  <header class="day-head">
+    <span class="day-no">L182 · DAY 182</span>
+    <h2>Code Quality Gates: Checkstyle, PMD, SpotBugs, JaCoCo, Sonar &amp; ArchUnit</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">55m practice</span><span class="tagx">milestone project</span></p>
+  </header>
+
+  <p class="thesis">Each analysis tool catches a different class of mistake at a different cost. A quality gate puts them in one <code>./mvnw verify</code>, cheapest first, so the build fails before review whenever a rule is broken. Today's milestone wires the gates into the multi-module build from L178.</p>
+
+  <h3>What each category catches</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Tool</th><th>Reads</th><th>Catches</th></tr></thead>
+    <tbody>
+      <tr><td>Spotless + google-java-format</td><td>source text</td><td>formatting, which it fixes rather than reports (<code>spotless:apply</code> locally, <code>spotless:check</code> in the build)</td></tr>
+      <tr><td>Checkstyle</td><td>source tokens</td><td>conventions: naming, imports, Javadoc, braces, line length (bundled <code>google_checks.xml</code> / <code>sun_checks.xml</code>)</td></tr>
+      <tr><td>PMD + CPD</td><td>source AST</td><td>smells: empty catch blocks, unused private members, overly complex methods; CPD finds copy-pasted token runs</td></tr>
+      <tr><td>Error Prone + NullAway</td><td>javac's AST, during compilation</td><td>bug patterns as compile errors (ignored return values, bad <code>equals</code>, format-string mismatches); NullAway: possible null dereferences</td></tr>
+      <tr><td>SpotBugs + find-sec-bugs</td><td>bytecode</td><td>null-pointer paths, exposed mutable internals, inconsistent synchronization; with the plugin, SQL injection, path traversal, weak crypto, XXE</td></tr>
+      <tr><td>JaCoCo</td><td>executed bytecode</td><td>untested lines and branches (a measurement, not an analysis)</td></tr>
+      <tr><td>ArchUnit</td><td>compiled classes, in a test</td><td>broken layering, naming and dependency rules</td></tr>
+      <tr><td>SonarQube / SonarCloud</td><td>all of the above, on a server</td><td>trends, new-code gate, security hotspots, debt</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Style, smells and bug patterns</h3>
+  <pre><code class="plain">&lt;plugin&gt;
+  &lt;artifactId&gt;maven-checkstyle-plugin&lt;/artifactId&gt;
+  &lt;configuration&gt;
+    &lt;configLocation&gt;google_checks.xml&lt;/configLocation&gt;
+    &lt;violationSeverity&gt;warning&lt;/violationSeverity&gt;    &lt;!-- google_checks reports as warnings --&gt;
+    &lt;suppressionsLocation&gt;config/checkstyle-suppressions.xml&lt;/suppressionsLocation&gt;
+  &lt;/configuration&gt;
+  &lt;executions&gt;&lt;execution&gt;&lt;phase&gt;validate&lt;/phase&gt;&lt;goals&gt;&lt;goal&gt;check&lt;/goal&gt;&lt;/goals&gt;&lt;/execution&gt;&lt;/executions&gt;
+&lt;/plugin&gt;</code></pre>
+  <p>Once Spotless owns formatting, cut Checkstyle down to the rules a formatter cannot fix, such as naming and forbidden imports. Otherwise two tools argue about whitespace. PMD (<code>pmd:check</code>, <code>pmd:cpd-check</code>) runs a ruleset of your choice. Start from its <code>quickstart</code> set rather than everything. SpotBugs (<code>spotbugs:check</code>, the successor of FindBugs) analyzes compiled classes, so it sees what the code really does after desugaring. Add <code>com.h3xstream.findsecbugs:findsecbugs-plugin</code> as a SpotBugs plugin for the security detectors. Error Prone runs <em>inside</em> javac as a plugin, through the compiler's processor path, so its findings are compile errors at no extra build step:</p>
+  <pre><code class="plain">&lt;compilerArgs&gt;
+  &lt;arg&gt;-XDcompilePolicy=simple&lt;/arg&gt;
+  &lt;arg&gt;--should-stop=ifError=FLOW&lt;/arg&gt;
+  &lt;arg&gt;-Xplugin:ErrorProne -XepOpt:NullAway:AnnotatedPackages=com.acme&lt;/arg&gt;
+&lt;/compilerArgs&gt;
+&lt;!-- plus error_prone_core and nullaway in annotationProcessorPaths, and the
+     --add-exports=jdk.compiler/... flags in .mvn/jvm.config that its docs list --&gt;</code></pre>
+  <p>NullAway trusts your annotations (JSpecify's <code>@Nullable</code>). Everything not annotated nullable is treated as non-null, and the build fails wherever a possibly-null value is dereferenced. That is cheap enough to run on every compile, unlike full nullness checkers.</p>
+
+  <h3>JaCoCo: what coverage measures</h3>
+  <div class="box def"><span class="tag">Definition · Coverage instrumentation</span>
+    <p><code>jacoco:prepare-agent</code> sets the <code>argLine</code> property to <code>-javaagent:jacocoagent.jar=…</code>, and Surefire passes it to the test JVM. As each class loads, the agent inserts <b>probes</b> into its bytecode and records which ones executed, writing them to <code>target/jacoco.exec</code>. <b>Line coverage</b> counts lines with at least one executed instruction. <b>Branch coverage</b> counts the outcomes of each <code>if</code>/<code>switch</code> that ran, so <code>if (a &amp;&amp; b)</code> has four branches. <code>report</code> renders HTML and XML (Sonar reads the XML), and <code>check</code> fails the build below thresholds.</p>
+  </div>
+  <pre><code class="plain">&lt;execution&gt;&lt;id&gt;check&lt;/id&gt;&lt;phase&gt;verify&lt;/phase&gt;&lt;goals&gt;&lt;goal&gt;check&lt;/goal&gt;&lt;/goals&gt;
+  &lt;configuration&gt;&lt;rules&gt;&lt;rule&gt;
+    &lt;element&gt;BUNDLE&lt;/element&gt;
+    &lt;limits&gt;
+      &lt;limit&gt;&lt;counter&gt;LINE&lt;/counter&gt;&lt;value&gt;COVEREDRATIO&lt;/value&gt;&lt;minimum&gt;0.80&lt;/minimum&gt;&lt;/limit&gt;
+      &lt;limit&gt;&lt;counter&gt;BRANCH&lt;/counter&gt;&lt;value&gt;COVEREDRATIO&lt;/value&gt;&lt;minimum&gt;&#36;{jacoco.branch.min}&lt;/minimum&gt;&lt;/limit&gt;
+    &lt;/limits&gt;
+  &lt;/rule&gt;&lt;/rules&gt;&lt;/configuration&gt;
+&lt;/execution&gt;</code></pre>
+  <p>Coverage shows what tests <em>executed</em>, not what they <em>checked</em>. A test with no assertions reaches 100% just as well. Treat a threshold of about 80% (Appendix B uses <code>jacoco.branch.min = 0.80</code>) as a floor that catches untested modules. Pushing toward 100% produces tests of getters and generated code and makes refactoring expensive. To measure test quality, use mutation testing (PIT, Phase 8).</p>
+
+  <h3>Sonar, ArchUnit and Spotless</h3>
+  <p><b>SonarQube</b> (self-hosted) or <b>SonarCloud</b> runs its own analyzers, imports JaCoCo's XML, and evaluates a <b>quality gate</b>: a set of conditions such as coverage on new code at least 80%, duplication on new code at most 3%, no new issues, and all security hotspots reviewed. The key idea is the <b>new-code period</b>. The gate judges only code changed since a baseline (the previous version, or N days), so a legacy codebase can adopt it on day one without fixing ten years of debt first. Security hotspots are code that needs a human decision (is this regex exposed to user input?), not confirmed bugs. Technical debt is reported as the estimated time to fix all issues. Run it with <code>./mvnw sonar:sonar -Dsonar.qualitygate.wait=true</code> so that a red gate fails the CI step.</p>
+  <pre><code>import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.junit.AnalyzeClasses;
+import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchRule;
+import org.springframework.web.bind.annotation.RestController;
+
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
+
+@AnalyzeClasses(packages = "com.acme.orders", importOptions = ImportOption.DoNotIncludeTests.class)
+class ArchitectureTest {
+
+    @ArchTest
+    static final ArchRule layers = layeredArchitecture().consideringOnlyDependenciesInLayers()
+            .layer("Web").definedBy("..web..")
+            .layer("Application").definedBy("..application..")
+            .layer("Domain").definedBy("..domain..")
+            .layer("Infrastructure").definedBy("..infrastructure..")
+            .whereLayer("Web").mayNotBeAccessedByAnyLayer()
+            .whereLayer("Application").mayOnlyBeAccessedByLayers("Web", "Infrastructure")
+            .whereLayer("Infrastructure").mayNotBeAccessedByAnyLayer();
+
+    @ArchTest
+    static final ArchRule domainIsPlainJava = noClasses().that().resideInAPackage("..domain..")
+            .should().dependOnClassesThat().resideInAnyPackage("org.springframework..", "jakarta.persistence..");
+
+    @ArchTest
+    static final ArchRule controllersAreNamed = classes().that().areAnnotatedWith(RestController.class)
+            .should().haveSimpleNameEndingWith("Controller");
+}</code></pre>
+  <p><b>ArchUnit</b> runs these rules as ordinary JUnit 5 tests, so a violation fails <code>test</code> with the offending class and line. Modules (L178) already enforce coarse boundaries at compile time. ArchUnit covers the finer rules modules cannot express, such as package layering inside a module, naming, "no field injection" and "no cycles between slices". <b>Spotless</b> with <code>google-java-format</code> ends formatting debates: <code>spotless:apply</code> rewrites files, and <code>spotless:check</code> fails CI. On an existing codebase, <code>ratchetFrom origin/main</code> limits it to files you touched.</p>
+
+  <h3>One verify run, then CI</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 215" role="img" aria-label="Quality tools placed on the Maven phases validate, compile, test and verify, followed by the Sonar quality gate in CI">
+      <defs><marker id="ah-l182" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="20" width="120" height="34" rx="5" class="s-node"/><text x="80" y="42" class="s-mid">validate</text>
+      <rect x="155" y="20" width="120" height="34" rx="5" class="s-node"/><text x="215" y="42" class="s-mid">compile</text>
+      <rect x="290" y="20" width="120" height="34" rx="5" class="s-node"/><text x="350" y="42" class="s-mid">test</text>
+      <rect x="425" y="20" width="120" height="34" rx="5" class="s-node"/><text x="485" y="42" class="s-mid">verify</text>
+      <rect x="560" y="20" width="110" height="34" rx="5" class="s-node-mod"/><text x="615" y="42" class="s-mid">CI step</text>
+      <line x1="140" y1="37" x2="153" y2="37" class="s-ln-ink" marker-end="url(#ah-l182)"/>
+      <line x1="275" y1="37" x2="288" y2="37" class="s-ln-ink" marker-end="url(#ah-l182)"/>
+      <line x1="410" y1="37" x2="423" y2="37" class="s-ln-ink" marker-end="url(#ah-l182)"/>
+      <line x1="545" y1="37" x2="558" y2="37" class="s-ln-ink" marker-end="url(#ah-l182)"/>
+      <text x="80" y="80" class="s-mid s-sm">Enforcer</text><text x="80" y="98" class="s-mid s-sm">Spotless check</text><text x="80" y="116" class="s-mid s-sm">Checkstyle</text>
+      <text x="215" y="80" class="s-mid s-sm">Error Prone</text><text x="215" y="98" class="s-mid s-sm">NullAway</text>
+      <text x="350" y="80" class="s-mid s-sm">JaCoCo agent</text><text x="350" y="98" class="s-mid s-sm">unit tests</text><text x="350" y="116" class="s-mid s-sm">ArchUnit</text>
+      <text x="485" y="80" class="s-mid s-sm">Failsafe ITs</text><text x="485" y="98" class="s-mid s-sm">JaCoCo check</text><text x="485" y="116" class="s-mid s-sm">SpotBugs</text><text x="485" y="134" class="s-mid s-sm">PMD + CPD</text>
+      <text x="615" y="80" class="s-mid s-sm">Sonar analysis</text><text x="615" y="98" class="s-mid s-sm">gate: wait</text>
+      <line x1="20" y1="160" x2="545" y2="160" class="s-ln-mod"/><text x="282" y="176" class="s-mid s-sm s-mod">./mvnw verify: identical on laptop and CI</text>
+      <text x="340" y="204" class="s-mid s-sm s-ink3">cheapest first: a format error fails in seconds, not after the IT suite</text>
+    </svg>
+    <figcaption><b>Gates on the lifecycle.</b> Everything except Sonar runs inside <code>verify</code>, so a developer can reproduce any CI failure with one command. Sonar runs after it in CI and reuses the JaCoCo XML report.</figcaption>
+  </figure>
+  <pre><code class="plain">&#36; ./mvnw -B -ntp verify                                         # every gate in the figure
+&#36; ./mvnw -B -ntp sonar:sonar -Dsonar.qualitygate.wait=true      # CI only; token from secrets</code></pre>
+
+  <h3>Milestone: a reproducible, CI-ready multi-module build</h3>
+  <ul class="deliverables">
+    <li>Multi-module layout from L178 with <code>&#36;{revision}</code> + flatten, only <code>bootstrap</code> repackaged, wrappers committed (L171)</li>
+    <li>Versions from the Boot BOM (or a platform BOM) with no stray <code>&lt;version&gt;</code> tags; Enforcer with <code>dependencyConvergence</code>, <code>requireUpperBoundDeps</code>, <code>requireJavaVersion</code></li>
+    <li>Spotless, Checkstyle, Error Prone + NullAway, SpotBugs + find-sec-bugs, PMD + CPD, JaCoCo check at 80% branch, ArchUnit layering rules: all green in one <code>./mvnw verify</code></li>
+    <li><code>ci</code> and <code>release</code> profiles (L177), credentials only in CI secrets</li>
+    <li>Reproducible output: <code>project.build.outputTimestamp</code> set, two clean builds producing byte-identical jars (<code>verify artifact:compare</code> after an <code>install</code>)</li>
+    <li>CI workflow running <code>verify</code> on every push, a Sonar gate on pull requests, and tag-driven deploy (L181)</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>0% coverage after adding a Surefire <code>&lt;argLine&gt;</code>.</b> It replaced JaCoCo's agent. Write <code>&lt;argLine&gt;@{argLine} -Xmx1g&lt;/argLine&gt;</code> so the agent is kept.</li>
+      <li><b>Every tool switched on at once on legacy code.</b> Thousands of violations appear, and the team disables the gate within a week. Baseline first (Sonar new code, Spotless ratchet, SpotBugs exclude file), then fail only on new violations.</li>
+      <li><b>A Sonar step that doesn't wait for the gate.</b> CI stays green while the dashboard is red, and nobody looks.</li>
+      <li><b>Gaming coverage with assertion-free tests.</b> The number goes up while defect rates don't change.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 55 min</h4>
+    <ol>
+      <li>Add Spotless and Checkstyle (<code>google_checks.xml</code>), apply the formatter, and make <code>validate</code> green.</li>
+      <li>Add SpotBugs with find-sec-bugs, plant <code>"SELECT * FROM orders WHERE id = '" + id + "'"</code> in a JDBC call, and read the finding.</li>
+      <li>Set the JaCoCo branch threshold to 0.80, watch <code>verify</code> fail, and add the missing branch tests.</li>
+      <li>Add the ArchUnit test, make a domain class import <code>org.springframework.stereotype.Component</code>, and read the failure. Revert it.</li>
+      <li>Start SonarQube locally (<code>docker run -p 9000:9000 sonarqube:community</code>), analyze with the gate wait on, and record which new-code condition fails first. Then finish the milestone checklist.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Maven Checkstyle, PMD and SpotBugs plugin documentation · find-sec-bugs bug patterns · Error Prone “Installation” (Maven) and NullAway README · JaCoCo documentation, “Coverage Counters” and the <code>check</code> goal · SonarQube documentation, “Quality gates” and “Defining new code” · ArchUnit User Guide · Spotless Maven plugin README · Apache Maven, “Guide to Configuring for Reproducible Builds”</p>
+</article>
+
+<nav class="modnav">
+  <a href="p06.html"><small>Previous · Days 153–170</small>◂ Phase 6 — JVM Internals, GC &amp; Performance</a>
+  <a class="next" href="p08.html"><small>Next · Days 183–198</small>Phase 8 — Testing ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

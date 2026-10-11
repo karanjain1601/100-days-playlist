@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 6 — Planning, Models &amp; Search · 130 Days of RL</title>
+<meta name="description" content="Days 54–60: models and planning, Dyna-Q and Dyna-Q+, prioritized sweeping, expected vs sample updates, trajectory sampling and RTDP, Monte Carlo Tree Search with UCT, and an MCTS Connect Four engine.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m6">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 6 · Planning, Models &amp; Search · Days 54–60</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 6 · Planning &amp; Search</h4>
+  <nav>
+    <a href="#d54"><span class="n">D54</span>Models &amp; Planning</a>
+    <a href="#d55"><span class="n">D55</span>Dyna-Q</a>
+    <a href="#d56"><span class="n">D56</span>Dyna-Q+ &amp; Change</a>
+    <a href="#d57"><span class="n">D57</span>Prioritized Sweeping</a>
+    <a href="#d58"><span class="n">D58</span>Expected vs Sample</a>
+    <a href="#d59"><span class="n">D59</span>Monte Carlo Tree Search</a>
+    <a href="#d60"><span class="n">D60</span>Project 5: MCTS Agent</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="6"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m05.html">◂ Module 5</a><a href="m07.html">Module 7 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 6 · Days 54–60 · Weeks 11–12</p>
+<h1>Planning, Models &amp; Search</h1>
+<p class="dek">Modules 3–5 sat at two extremes: dynamic programming assumed a perfect model and never touched the world, while Monte Carlo and TD learned from the world and never used a model. This module fills in the middle. The agent learns a model from its own experience and plans with it (Dyna), chooses which imagined updates are worth the computation (prioritized sweeping, trajectory sampling, RTDP), and finally spends its computation at decision time on the state in front of it (Monte Carlo Tree Search). Everything is still tabular. Module 7 replaces the table with a function approximator, and Module 10 comes back to planning with learned deep models.</p>
+<ul class="chips">
+  <li><b>7</b> lessons</li>
+  <li><b>4h 20m</b> video</li>
+  <li><b>11h 30m</b> practice</li>
+  <li>Reading: <b>Sutton &amp; Barto Ch. 8</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Say whether a method needs a distribution model, a sample model or no model, and whether it plans in the background or at decision time.</li>
+    <li>Implement Dyna-Q and reproduce the Dyna Maze result that 50 planning steps per real step cut learning from about 25 episodes to about 3.</li>
+    <li>Explain why Dyna-Q never finds a newly opened shortcut, and fix it with the Dyna-Q+ bonus \(\kappa\sqrt{\tau}\).</li>
+    <li>Implement prioritized sweeping with predecessor tracking and a de-duplicated priority queue, and measure how many updates it saves.</li>
+    <li>Derive the \(\sqrt{(b-1)/(bt)}\) error of sample updates and use it to argue when sample updates beat expected ones.</li>
+    <li>State the conditions under which RTDP converges to an optimal policy on the relevant states without sweeping the whole state space.</li>
+    <li>Build a UCT engine with tree reuse and heuristic rollouts that plays Connect Four, and measure its strength against its simulation budget.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 54 -->
+<article class="day" id="d54">
+  <header class="day-head">
+    <span class="day-no">DAY 54</span>
+    <h2>Models, Planning &amp; Learning</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">A model is anything the agent can consult to predict how the environment will respond to an action. Planning is any computation that turns a model into a better policy, and it uses exactly the same update rules as learning. The only difference is whether the experience came from the world or was imagined.</p>
+
+  <h3>Distribution models and sample models</h3>
+  <p>Given a state and an action, a model predicts the next state and reward. Models come in two strengths, and which one you have decides which algorithms you can run.</p>
+  <div class="box def"><span class="tag">Definition</span>
+    <ul>
+      <li>A <b>distribution model</b> returns every possible outcome with its probability: \(\hat p(s', r \mid s, a)\) for all \(s', r\).</li>
+      <li>A <b>sample model</b> returns one outcome \((S', R)\) drawn from \(\hat p(\cdot \mid s, a)\).</li>
+    </ul>
+  </div>
+  <p>Sutton &amp; Barto's example is the sum of a dozen dice. A distribution model lists every sum from 12 to 72 with its probability; a sample model rolls twelve dice and reports one total. A distribution model can always generate samples, but recovering the distribution from a sample model means averaging many samples. In exchange, sample models are often far easier to build: a physics simulator, a game engine, or a learned network that outputs one plausible next state never has to enumerate anything. Dynamic programming (Module 3) needs a distribution model, because its expected update sums over all next states. Monte Carlo, TD, Dyna and tree search need only samples.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Model</th><th>Answers</th><th>Typical source</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td><b>Distribution</b></td><td>all \((s', r)\) with \(\hat p\)</td><td>hand-written dynamics (FrozenLake's <code>env.unwrapped.P</code>), outcome counts</td><td>DP, expected updates, stochastic prioritized sweeping, RTDP</td></tr>
+      <tr><td><b>Sample</b></td><td>one draw \((S', R)\)</td><td>a cloneable simulator or game engine, a stored transition, a generative network</td><td>Dyna-Q, rollouts, MCTS, MuZero-style latent planning (Day 101)</td></tr>
+      <tr><td><b>None</b></td><td>nothing; only the real environment</td><td>—</td><td>MC, SARSA, Q-learning, policy gradients</td></tr>
+    </tbody>
+  </table></div>
+  <p>A model you learn by counting can serve both ways at once:</p>
+  <pre><code>import random
+from collections import Counter, defaultdict
+
+class TabularModel:
+    """Counts outcomes of each (s, a). Answers as a distribution model or as a sample model."""
+    def __init__(self, seed=0):
+        self.counts = defaultdict(Counter)       # (s, a) -&gt; Counter{(s', r, terminal): n}
+        self.rng = random.Random(seed)
+
+    def update(self, s, a, r, s2, terminal):
+        self.counts[(s, a)][(s2, r, terminal)] += 1
+
+    def distribution(self, s, a):                # every outcome with its estimated probability
+        c = self.counts[(s, a)]
+        n = sum(c.values())
+        return [(outcome, k / n) for outcome, k in c.items()]
+
+    def sample(self, s, a):                      # one outcome drawn from p_hat(. | s, a)
+        outcomes, weights = zip(*self.counts[(s, a)].items())
+        return self.rng.choices(outcomes, weights)[0]
+
+def expected_target(model, s, a, V, gamma):      # exact average over the model: costs b terms
+    return sum(p * (r + (0.0 if term else gamma * V[s2]))
+               for (s2, r, term), p in model.distribution(s, a))
+
+def sample_target(model, s, a, V, gamma):        # one draw: noisy, but costs one term
+    s2, r, term = model.sample(s, a)
+    return r + (0.0 if term else gamma * V[s2])</code></pre>
+  <p class="code-cap">Store the <code>terminal</code> flag in the model. A simulated transition obeys the same terminated-vs-truncated rule as a real one (Day 8): only true termination removes the bootstrap.</p>
+
+  <h3>Planning is computation on a model</h3>
+  <p>Sutton &amp; Barto define planning as any computational process that takes a model as input and produces or improves a policy. This course only uses <em>state-space</em> planning, which searches through states and computes value functions, as opposed to plan-space planning, which searches over whole plans. All state-space planning methods share one pipeline, and learning shares most of it.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 215" role="img" aria-label="Planning and learning feed the same update rule, which improves values and hence the policy">
+      <defs>
+        <marker id="ah-d54" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d54m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="240" y="14" class="s-ink3 s-mid s-sm">planning: computation only</text>
+      <rect x="20" y="22" width="110" height="40" rx="6" class="s-node"/>
+      <text x="75" y="46" class="s-mid">model</text>
+      <rect x="165" y="22" width="150" height="40" rx="6" class="s-node"/>
+      <text x="240" y="46" class="s-mid">simulated experience</text>
+      <rect x="20" y="132" width="110" height="40" rx="6" class="s-node"/>
+      <text x="75" y="156" class="s-mid">environment</text>
+      <rect x="165" y="132" width="150" height="40" rx="6" class="s-node"/>
+      <text x="240" y="156" class="s-mid">real experience</text>
+      <text x="240" y="187" class="s-ink3 s-mid s-sm">learning: interaction</text>
+      <rect x="355" y="77" width="135" height="40" rx="6" class="s-node-mod"/>
+      <text x="422" y="96" class="s-mod s-mid">same update</text>
+      <text x="422" y="110" class="s-ink2 s-mid s-sm">Q-learning, TD…</text>
+      <rect x="525" y="32" width="135" height="40" rx="6" class="s-node"/>
+      <text x="592" y="56" class="s-mid">values Q(s, a)</text>
+      <rect x="525" y="122" width="135" height="40" rx="6" class="s-node"/>
+      <text x="592" y="146" class="s-mid">policy π</text>
+      <path d="M130,42 L163,42" class="s-ln" marker-end="url(#ah-d54)"/>
+      <path d="M130,152 L163,152" class="s-ln" marker-end="url(#ah-d54)"/>
+      <path d="M315,42 C340,42 340,88 353,90" class="s-ln-mod" marker-end="url(#ah-d54m)"/>
+      <path d="M315,152 C340,152 340,106 353,104" class="s-ln-mod" marker-end="url(#ah-d54m)"/>
+      <path d="M490,90 C505,90 505,52 523,52" class="s-ln" marker-end="url(#ah-d54)"/>
+      <path d="M592,72 L592,120" class="s-ln" marker-end="url(#ah-d54)"/>
+      <path d="M592,162 L592,203 L75,203 L75,174" class="s-ln" marker-end="url(#ah-d54)"/>
+      <text x="460" y="197" class="s-ink2 s-mid s-sm">acting</text>
+    </svg>
+    <figcaption><b>One update rule, two sources of experience.</b> Value iteration is the top row with a distribution model and expected updates over every state. Q-learning is the bottom row. Dyna (Day 55) runs both rows at once and adds an arrow from real experience to the model.</figcaption>
+  </figure>
+
+  <h3>Learning and planning share the updates</h3>
+  <p>Because the update doesn't care where its transition came from, any learning method becomes a planning method once you feed it simulated experience. The simplest example replaces the environment in Q-learning with a sample model:</p>
+  <div class="box algo"><span class="tag">Algorithm · Random-sample one-step tabular Q-planning</span>
+    <ol>
+      <li>Loop forever:
+        <ol>
+          <li>Select a state \(S\) and an action \(A \in \mathcal A(S)\) at random.</li>
+          <li>Send \(S, A\) to the sample model and obtain a next reward \(R\) and next state \(S'\).</li>
+          <li>Apply one-step Q-learning: \(Q(S, A) \leftarrow Q(S, A) + \alpha\big[R + \gamma \max_a Q(S', a) - Q(S, A)\big]\).</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <div class="box thm"><span class="tag">Result · S&amp;B §8.1</span>
+    <p>Random-sample one-step tabular Q-planning converges to the optimal policy <em>for the model</em> under the same conditions under which one-step tabular Q-learning converges to the optimal policy for the real environment: every state–action pair is selected infinitely often, and \(\alpha\) decreases according to the Robbins–Monro conditions (Day 5).</p>
+  </div>
+  <p>The phrase "for the model" carries the whole risk of model-based RL. If the model is wrong, the planner converges, reliably and efficiently, to the wrong answer. The rest of this module keeps the update fixed (almost always Q-learning) and varies everything around it: where the model comes from, which simulated transitions to generate (<em>search control</em>), and when to do the computation.</p>
+
+  <h3>Background planning vs decision-time planning</h3>
+  <p>There are two very different moments to spend planning computation.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Background planning</th><th>Decision-time planning</th></tr></thead>
+    <tbody>
+      <tr><td><b>When</b></td><td>continuously, independent of the current state</td><td>after a state is encountered, before acting in it</td></tr>
+      <tr><td><b>Improves</b></td><td>a value table or policy for many states</td><td>the choice of action in this one state</td></tr>
+      <tr><td><b>Afterwards</b></td><td>results persist and are reused</td><td>results are mostly discarded (partly reused, Day 59)</td></tr>
+      <tr><td><b>Cost of acting</b></td><td>a table lookup</td><td>a whole search per move</td></tr>
+      <tr><td><b>Fits</b></td><td>fast control loops, small or repeated state spaces</td><td>games with seconds per move, huge state spaces</td></tr>
+      <tr><td><b>Examples</b></td><td>DP, Dyna, prioritized sweeping</td><td>heuristic search, rollout algorithms, MCTS</td></tr>
+    </tbody>
+  </table></div>
+  <p>A chess engine is a decision-time planner: only the position on the board matters, and it has seconds to think. A controller running at 100 Hz can't search at every tick and needs its planning done in the background. Strong systems often do both. AlphaZero (Day 100) trains a value and policy network in the background and runs MCTS at decision time, with each improving the other.</p>
+
+  <h3>Why plan at all: sample efficiency</h3>
+  <p>Real experience is expensive: robot time, money, wear, risk, or simply the wall-clock of a slow simulator. Computation is cheap by comparison. A tabular Q-update costs microseconds; a real robot step can take a large fraction of a second. If a model lets every real transition be replayed in tens or hundreds of updates, you trade cheap computation for expensive data. Tomorrow's Dyna Maze makes this concrete: 50 planning updates per real step reduce the number of episodes needed from about 25 to about 3.</p>
+  <div class="box intuition"><span class="tag">Intuition · a replay buffer is a model</span>
+    <p>TD learning already reuses experience a little: bootstrapping moves information one step back per update. A model lets you revisit any remembered transition, as often as you like, in any order. The replay buffer in DQN (Day 72) is exactly a non-parametric sample model that can only answer for transitions it has seen. "Model-based" vs "model-free" is a spectrum, not a binary.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks · planning with a wrong model</span>
+    <ul>
+      <li><b>The planner exploits model errors.</b> It optimizes the model, not the world, and any error that makes some action look better than it is will be found and used. In deep model-based RL this is called model exploitation (Days 97–98).</li>
+      <li><b>Learned models are worst where data is thinnest</b>, and the planner tends to steer exactly there, because that is where optimistic errors survive.</li>
+      <li><b>Distribution models scale badly.</b> Storing \(\hat p\) costs up to \(|\mathcal S|^2|\mathcal A|\) entries, and every expected update pays the branching factor \(b\) (Day 58).</li>
+      <li><b>Long imagined rollouts compound errors.</b> One-step tabular models avoid this, which is part of why Dyna is so robust. Day 97 measures how quickly errors grow with rollout length.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Take 500, 2,000 and 20,000 uniformly random steps in <code>FrozenLake-v1</code> (slippery) and fit a <code>TabularModel</code> from each. Compare <code>model.distribution(s, a)</code> with <code>env.unwrapped.P[s][a]</code> and plot the largest probability error against the number of steps.</li>
+      <li>Run value iteration on the learned model (using <code>expected_target</code>) and on the true <code>P</code>. Evaluate both greedy policies in the real environment over 1,000 episodes. How much data does the learned model need before the two policies agree?</li>
+      <li>With no further real interaction, run random-sample Q-planning on the learned model with <code>sample_target</code>. Check that its greedy policy matches the one value iteration found on the same model.</li>
+      <li>Place each of these on two axes (no model / sample model / distribution model; background / decision-time / neither): value iteration, Q-learning, Dyna-Q, DQN with replay, MCTS with a game engine, AlphaZero, MuZero.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §8.1, §8.8 · Sutton 1991, “Dyna, an Integrated Architecture for Learning, Planning, and Reacting” · Moerland et al. 2023, “Model-based Reinforcement Learning: A Survey”, §1–3</p>
+</article>
+
+<!-- ================================================================ DAY 55 -->
+<article class="day" id="d55">
+  <header class="day-head">
+    <span class="day-no">DAY 55</span>
+    <h2>Dyna-Q</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">Dyna-Q is Q-learning with a memory. Each real transition is used once for a direct update, stored in a model, and then replayed as simulated experience in \(n\) further updates. On the Dyna Maze, \(n = 50\) learns the task in about three episodes where plain Q-learning needs about twenty-five.</p>
+
+  <h3>Direct and indirect reinforcement learning</h3>
+  <p>Real experience can improve the policy by two routes. <b>Direct RL</b> uses it to update values immediately, as Q-learning does. <b>Indirect RL</b> uses it to improve a model, and the model then improves the values through planning. Indirect methods squeeze more out of each real step. Direct methods are simpler and cannot be misled by a biased model. Dyna runs both routes at once with the same update rule.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 290" role="img" aria-label="The Dyna architecture: real experience feeds direct RL and model learning; the model, driven by search control, generates simulated experience for planning updates">
+      <defs>
+        <marker id="ah-d55" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d55m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="235" y="15" width="210" height="44" rx="8" class="s-node-mod"/>
+      <text x="340" y="42" class="s-ttl s-mid">policy / value function</text>
+      <rect x="30" y="125" width="160" height="44" rx="6" class="s-node"/>
+      <text x="110" y="151" class="s-mid">real experience</text>
+      <rect x="30" y="230" width="160" height="44" rx="6" class="s-node"/>
+      <text x="110" y="256" class="s-mid">environment</text>
+      <rect x="260" y="230" width="160" height="44" rx="6" class="s-node"/>
+      <text x="340" y="256" class="s-mid">search control</text>
+      <rect x="490" y="230" width="160" height="44" rx="6" class="s-node"/>
+      <text x="570" y="256" class="s-mid">model</text>
+      <rect x="480" y="125" width="180" height="44" rx="6" class="s-node"/>
+      <text x="570" y="151" class="s-mid">simulated experience</text>
+      <path d="M235,37 H14 V252 H28" class="s-ln" marker-end="url(#ah-d55)"/>
+      <text x="125" y="31" class="s-ink2 s-mid s-sm">acting</text>
+      <path d="M110,230 V171" class="s-ln" marker-end="url(#ah-d55)"/>
+      <text x="118" y="205" class="s-ink2 s-sm">Sₜ₊₁, Rₜ₊₁</text>
+      <path d="M170,125 Q200,64 262,61" class="s-ln-mod" marker-end="url(#ah-d55m)"/>
+      <text x="36" y="116" class="s-mod s-sm">direct RL update</text>
+      <path d="M190,160 C300,200 400,205 488,240" class="s-ln" marker-end="url(#ah-d55)"/>
+      <text x="300" y="180" class="s-ink2 s-mid s-sm">model learning</text>
+      <path d="M420,252 H488" class="s-ln" marker-end="url(#ah-d55)"/>
+      <path d="M570,230 V171" class="s-ln" marker-end="url(#ah-d55)"/>
+      <path d="M520,125 Q480,64 420,61" class="s-ln-mod" marker-end="url(#ah-d55m)"/>
+      <text x="600" y="116" class="s-mod s-mid s-sm">planning update</text>
+    </svg>
+    <figcaption><b>The Dyna architecture</b> (after S&amp;B Figure 8.1). The left column is ordinary model-free RL. The right column replays the model's predictions through the same update. Search control decides which state–action pairs to ask the model about, and is where Day 57 will make Dyna smarter.</figcaption>
+  </figure>
+
+  <h3>The tabular model and search control</h3>
+  <p>For a deterministic environment the model is a lookup table: after taking \(A\) in \(S\) and observing \(R, S'\), set \(\mathit{Model}(S, A) \leftarrow (R, S')\). The model can only answer for pairs it has seen, so search control samples a <em>previously observed</em> state uniformly at random and then an action previously taken in it. Two details matter in code. Store a terminal flag with each entry, so planning updates never bootstrap from a terminal state. And in a stochastic environment, don't store only the last outcome: keep counts and sample from them (the <code>TabularModel</code> of Day 54), or the model believes whatever happened most recently.</p>
+  <div class="box algo"><span class="tag">Algorithm · Tabular Dyna-Q (S&amp;B §8.2)</span>
+    <ol>
+      <li>Initialize \(Q(s, a)\) and \(\mathit{Model}(s, a)\) for all \(s, a\).</li>
+      <li>Loop forever:
+        <ol>
+          <li>\(S \leftarrow\) current (non-terminal) state.</li>
+          <li>\(A \leftarrow \varepsilon\text{-greedy}(S, Q)\).</li>
+          <li>Take action \(A\); observe reward \(R\) and next state \(S'\).</li>
+          <li>\(Q(S, A) \leftarrow Q(S, A) + \alpha\big[R + \gamma \max_a Q(S', a) - Q(S, A)\big]\) <span class="step">(direct RL)</span></li>
+          <li>\(\mathit{Model}(S, A) \leftarrow R, S'\) <span class="step">(model learning, deterministic environment)</span></li>
+          <li>Repeat \(n\) times: <span class="step">(planning)</span>
+            <ol>
+              <li>\(S \leftarrow\) a random previously observed state; \(A \leftarrow\) a random action previously taken in \(S\).</li>
+              <li>\(R, S' \leftarrow \mathit{Model}(S, A)\).</li>
+              <li>\(Q(S, A) \leftarrow Q(S, A) + \alpha\big[R + \gamma \max_a Q(S', a) - Q(S, A)\big]\).</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>Steps (d) and (f) are literally the same line of code. With \(n = 0\), Dyna-Q is one-step Q-learning.</p>
+
+  <h3>The Dyna Maze</h3>
+  <p>S&amp;B Example 8.1 is a 6 × 9 grid with seven wall cells, so 47 states. There are four actions, the dynamics are deterministic, and moving into a wall or off the edge leaves the agent in place. Every reward is 0 except the transition into G, which gives +1 and ends the episode; the agent then restarts at S. The settings are \(\gamma = 0.95\), \(\alpha = 0.1\), \(\varepsilon = 0.1\), initial \(Q = 0\), and ties broken at random. The shortest path from S to G is 14 steps.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 650 232" role="img" aria-label="Dyna Maze greedy policy halfway through the second episode: one arrow without planning, fourteen arrows with fifty planning steps">
+      <text x="156" y="20" class="s-ttl s-mid">n = 0 (Q-learning)</text>
+      <text x="486" y="20" class="s-ttl s-mid">n = 50</text>
+      <path d="M30,30h252M30,58h252M30,86h252M30,114h252M30,142h252M30,170h252M30,198h252M30,30v168M58,30v168M86,30v168M114,30v168M142,30v168M170,30v168M198,30v168M226,30v168M254,30v168M282,30v168" class="s-grid"/>
+      <rect x="86" y="58" width="28" height="84" class="s-ink3"/>
+      <rect x="226" y="30" width="28" height="84" class="s-ink3"/>
+      <rect x="170" y="142" width="28" height="28" class="s-ink3"/>
+      <text x="44" y="104.5" class="s-ttl s-mid">S</text>
+      <text x="268" y="48.5" class="s-ttl s-mid">G</text>
+      <text x="268" y="76.5" class="s-mod s-mid">↑</text>
+      <path d="M360,30h252M360,58h252M360,86h252M360,114h252M360,142h252M360,170h252M360,198h252M360,30v168M388,30v168M416,30v168M444,30v168M472,30v168M500,30v168M528,30v168M556,30v168M584,30v168M612,30v168" class="s-grid"/>
+      <rect x="416" y="58" width="28" height="84" class="s-ink3"/>
+      <rect x="556" y="30" width="28" height="84" class="s-ink3"/>
+      <rect x="500" y="142" width="28" height="28" class="s-ink3"/>
+      <text x="374" y="104.5" class="s-ttl s-mid">S</text>
+      <text x="598" y="48.5" class="s-ttl s-mid">G</text>
+      <g class="s-mod s-mid">
+        <text x="598" y="76.5">↑</text><text x="598" y="104.5">↑</text><text x="598" y="132.5">↑</text>
+        <text x="514" y="132.5">→</text><text x="542" y="132.5">→</text><text x="570" y="132.5">→</text>
+        <text x="542" y="160.5">↑</text><text x="570" y="160.5">↑</text><text x="598" y="160.5">↑</text>
+        <text x="486" y="188.5">→</text><text x="514" y="188.5">→</text><text x="542" y="188.5">↑</text>
+        <text x="570" y="188.5">↑</text><text x="598" y="188.5">↑</text>
+      </g>
+      <text x="156" y="220" class="s-ink3 s-mid s-sm">greedy arrows where max Q &gt; 0</text>
+      <text x="486" y="220" class="s-ink3 s-mid s-sm">same seed, same first episode</text>
+    </svg>
+    <figcaption><b>Halfway through episode 2</b> (one run of the code below, in the style of S&amp;B Figure 8.3). Without planning, the first episode has taught exactly one thing: the action into the goal. With \(n = 50\), the values have already flowed back along every remembered transition in the region the first episode explored. The exact pattern depends on the seed.</figcaption>
+  </figure>
+  <p>S&amp;B's Figure 8.2 plots steps per episode, averaged over 30 repetitions, for \(n = 0, 5, 50\). The first episode is identical for every \(n\) (about 1,700 steps in their runs, since the seed was shared): nothing can be learned before the goal is first reached, because every reward until then is zero. After that the difference is large. The non-planning agent took about 25 episodes to reach \(\varepsilon\)-optimal performance, even though \(\alpha\) and \(\varepsilon\) were tuned for it; the \(n = 5\) agent took about 5; the \(n = 50\) agent took about 3.</p>
+  <div class="box intuition"><span class="tag">Intuition · why planning helps this much</span>
+    <p>One-step Q-learning moves value back by one state per real visit, so a 14-step path needs many passes before the start state learns anything. In Dyna-Q, every real step is followed by \(n\) replays of remembered transitions, so value propagates back along the stored path without the agent walking it again. The direct update tells the model-free half the news; planning tells every predecessor the agent has ever seen.</p>
+  </div>
+
+  <pre><code>import numpy as np
+
+H, W = 6, 9
+WALLS = {(1, 2), (2, 2), (3, 2), (4, 5), (0, 7), (1, 7), (2, 7)}
+START, GOAL = (2, 0), (0, 8)
+MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]              # up, down, left, right
+
+def env_step(s, a):
+    r, c = s[0] + MOVES[a][0], s[1] + MOVES[a][1]
+    if not (0 &lt;= r &lt; H and 0 &lt;= c &lt; W) or (r, c) in WALLS:
+        r, c = s                                        # bumped into a wall: stay put
+    return (r, c), float((r, c) == GOAL), (r, c) == GOAL
+
+def dyna_q(n, episodes=50, alpha=0.1, gamma=0.95, eps=0.1, seed=0):
+    rng = np.random.default_rng(seed)
+    Q = np.zeros((H, W, 4))
+    model, seen = {}, []                                # (s, a) -&gt; (r, s', terminal)
+    def backup(s, a, r, s2, done):                      # one update rule for real and simulated
+        target = r + (0.0 if done else gamma * Q[s2].max())
+        Q[s][a] += alpha * (target - Q[s][a])
+    def greedy(s):                                      # random tie-breaking matters with Q = 0
+        return int(rng.choice(np.flatnonzero(Q[s] == Q[s].max())))
+    lengths = []
+    for _ in range(episodes):
+        s, t, done = START, 0, False
+        while not done:
+            a = int(rng.integers(4)) if rng.random() &lt; eps else greedy(s)
+            s2, r, done = env_step(s, a)                # (c) one real step
+            backup(s, a, r, s2, done)                   # (d) direct RL
+            if (s, a) not in model:
+                seen.append((s, a))
+            model[(s, a)] = (r, s2, done)               # (e) model learning
+            for _ in range(n):                          # (f) planning
+                ps, pa = seen[rng.integers(len(seen))]  # search control: uniform over seen pairs
+                backup(ps, pa, *model[(ps, pa)])
+            s, t = s2, t + 1
+        lengths.append(t)
+    return lengths
+
+for n in (0, 5, 50):
+    print(n, np.mean([dyna_q(n, seed=k) for k in range(30)], axis=0)[:10].round())</code></pre>
+  <p class="code-cap">About 30 seconds in pure Python. The first episode is a random walk until the goal is found, so its length varies a lot across seeds (several hundred to a few thousand steps); after it, the ordering \(n = 50 &lt; 5 &lt; 0\) is unmistakable, and all three settle near 16 steps (the 14-step path plus \(\varepsilon\)-exploration).</p>
+
+  <h3>What \(n\) buys and what it costs</h3>
+  <p>Each real step now costs \(n + 1\) updates. Plotted against real experience, more planning is almost always better. Plotted against total computation, the picture changes: once the values on the remembered transitions have converged, further planning changes nothing until new experience arrives, and uniform search control spends most updates on pairs whose values are already right (Day 57 measures this). Report both axes when you compare planning agents.</p>
+  <div class="box note"><span class="tag">Practical settings</span>
+    <ul>
+      <li>In a deterministic environment the model gives the exact target, so \(\alpha = 1\) is safe for planning updates and speeds things up.</li>
+      <li>In a stochastic environment, sample planning outcomes from counts, or use the expected target over the counted distribution.</li>
+      <li>Always break ties at random. With all-zero initial values, <code>np.argmax</code> picks action 0 every time and the agent can bump into the same wall for thousands of steps.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>A last-outcome model in a stochastic world.</b> The model believes the most recent outcome is certain, and planning amplifies that noise into the values.</li>
+      <li><b>No terminal flag in the model.</b> Planning updates bootstrap from the goal's (meaningless) action values, and episodic values leak past the end of the episode.</li>
+      <li><b>Storing a time-limit truncation as termination.</b> The model then contains a fake terminal transition that planning will replay forever.</li>
+      <li><b>The world changes.</b> The model keeps describing the old world, and the planner confidently optimizes it. That is Day 56.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Reproduce S&amp;B Figure 8.2: steps per episode for episodes 2–50 with \(n \in \{0, 5, 50\}\), averaged over 30 seeds, with bootstrap 95% bands (Day 7).</li>
+      <li>Re-plot the same runs with total updates, \((n + 1) \times\) real steps, on the x-axis. Which \(n\) reaches 20 steps per episode with the fewest updates? Add \(n \in \{1, 10, 200\}\).</li>
+      <li>Snapshot the greedy policy halfway through episode 2 for \(n = 0\) and \(n = 50\) and draw it as arrows, as in the figure. Repeat for three seeds.</li>
+      <li>Make the maze stochastic: with probability 0.2 the chosen move is replaced by a random one. Compare a last-outcome model with a count-based model sampled during planning, both with \(n = 10\). Which converges to better final performance, and why?</li>
+      <li>Replace the Q-learning target with Expected SARSA's (Day 46) in both the direct and the planning update. Does planning still help as much?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §8.2 · Sutton 1990, “Integrated Architectures for Learning, Planning, and Reacting Based on Approximating Dynamic Programming”</p>
+</article>
+
+<!-- ================================================================ DAY 56 -->
+<article class="day" id="d56">
+  <header class="day-head">
+    <span class="day-no">DAY 56</span>
+    <h2>Dyna-Q+ &amp; Changing Environments</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">A learned model is a memory of how the world used to be. If the world gets worse, following the model exposes the error and Dyna-Q repairs it. If the world gets better, nothing makes the agent look, and Dyna-Q never notices. Dyna-Q+ adds a bonus \(\kappa\sqrt{\tau}\) that makes long-untested transitions attractive to the planner.</p>
+
+  <h3>Model staleness</h3>
+  <p>When the environment changes, the model is wrong until the agent experiences the change. Model errors come in two kinds, and they behave completely differently.</p>
+  <ul>
+    <li><b>Optimistic errors:</b> the model promises more than the world delivers (a path it remembers has been blocked). The planner sends the agent down that path, the agent meets the wall, the model is corrected. These errors are self-correcting.</li>
+    <li><b>Pessimistic errors:</b> the world has improved somewhere the model says nothing good happens (a shortcut has opened). The planner never sends the agent there, so the model is never corrected. These errors can last forever.</li>
+  </ul>
+  <p>The second kind is an exploration problem, but one that planning makes worse: the better the planner, the more faithfully it avoids the region its model calls useless.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 172" role="img" aria-label="Blocking maze before and after the change, and shortcut maze before and after the change, with shortest paths drawn">
+      <text x="87" y="30" class="s-ink2 s-mid s-sm">blocking · t &lt; 1000</text>
+      <text x="252" y="30" class="s-ink2 s-mid s-sm">blocking · t ≥ 1000</text>
+      <text x="427" y="30" class="s-ink2 s-mid s-sm">shortcut · t &lt; 3000</text>
+      <text x="592" y="30" class="s-ink2 s-mid s-sm">shortcut · t ≥ 3000</text>
+      <path d="M20,40h135M20,55h135M20,70h135M20,85h135M20,100h135M20,115h135M20,130h135M20,40v90M35,40v90M50,40v90M65,40v90M80,40v90M95,40v90M110,40v90M125,40v90M140,40v90M155,40v90" class="s-grid"/>
+      <rect x="20" y="85" width="120" height="15" class="s-ink3"/>
+      <polyline points="72.5,122.5 72.5,107.5 147.5,107.5 147.5,47.5" class="s-ln-mod"/>
+      <text x="72.5" y="126" class="s-ink s-mid s-sm">S</text>
+      <text x="147.5" y="51" class="s-ink s-mid s-sm">G</text>
+      <path d="M185,40h135M185,55h135M185,70h135M185,85h135M185,100h135M185,115h135M185,130h135M185,40v90M200,40v90M215,40v90M230,40v90M245,40v90M260,40v90M275,40v90M290,40v90M305,40v90M320,40v90" class="s-grid"/>
+      <rect x="200" y="85" width="120" height="15" class="s-ink3"/>
+      <polyline points="237.5,122.5 237.5,107.5 312.5,107.5 312.5,47.5" class="s-ln s-dash"/>
+      <polyline points="237.5,122.5 237.5,107.5 192.5,107.5 192.5,47.5 312.5,47.5" class="s-ln-mod"/>
+      <text x="237.5" y="126" class="s-ink s-mid s-sm">S</text>
+      <text x="312.5" y="51" class="s-ink s-mid s-sm">G</text>
+      <path d="M360,40h135M360,55h135M360,70h135M360,85h135M360,100h135M360,115h135M360,130h135M360,40v90M375,40v90M390,40v90M405,40v90M420,40v90M435,40v90M450,40v90M465,40v90M480,40v90M495,40v90" class="s-grid"/>
+      <rect x="375" y="85" width="120" height="15" class="s-ink3"/>
+      <polyline points="412.5,122.5 412.5,107.5 367.5,107.5 367.5,47.5 487.5,47.5" class="s-ln-mod"/>
+      <text x="412.5" y="126" class="s-ink s-mid s-sm">S</text>
+      <text x="487.5" y="51" class="s-ink s-mid s-sm">G</text>
+      <path d="M525,40h135M525,55h135M525,70h135M525,85h135M525,100h135M525,115h135M525,130h135M525,40v90M540,40v90M555,40v90M570,40v90M585,40v90M600,40v90M615,40v90M630,40v90M645,40v90M660,40v90" class="s-grid"/>
+      <rect x="540" y="85" width="105" height="15" class="s-ink3"/>
+      <polyline points="577.5,122.5 577.5,107.5 532.5,107.5 532.5,47.5 652.5,47.5" class="s-ln s-dash"/>
+      <polyline points="577.5,122.5 577.5,107.5 652.5,107.5 652.5,47.5" class="s-ln-mod"/>
+      <text x="577.5" y="126" class="s-ink s-mid s-sm">S</text>
+      <text x="652.5" y="51" class="s-ink s-mid s-sm">G</text>
+      <text x="87" y="150" class="s-mod s-mid s-sm">10 steps</text>
+      <text x="252" y="150" class="s-mod s-mid s-sm">16 (old path blocked)</text>
+      <text x="427" y="150" class="s-mod s-mid s-sm">16 steps</text>
+      <text x="592" y="150" class="s-mod s-mid s-sm">10 (old path still open)</text>
+    </svg>
+    <figcaption><b>The two changing mazes</b> (layouts after S&amp;B Figures 8.4 and 8.5). Solid lines are shortest paths after each change, dashed lines the previous ones. Blocking makes the model optimistic, which is easy to discover. The shortcut makes it pessimistic, which is not.</figcaption>
+  </figure>
+
+  <h3>The blocking maze</h3>
+  <p>In S&amp;B Example 8.2 a barrier runs across the grid with a gap at its right end, giving a short path from S to G. After 1,000 time steps the gap moves to the left end: the short path is blocked and a longer one opens. S&amp;B plot cumulative reward against time steps (Figure 8.4). Both Dyna-Q and Dyna-Q+ find the short path within the first 1,000 steps. When the change happens both curves go flat, a period with no reward while each agent wanders behind the barrier, following a plan that no longer works. Each walk into the wall corrects the model, the planner propagates the corrections, and both agents eventually find the new opening. Dyna-Q+ does better in both phases.</p>
+
+  <h3>The shortcut maze</h3>
+  <p>S&amp;B Example 8.3 reverses the situation. Initially the only gap is on the left. After 3,000 steps a second gap opens on the right, creating a shorter path without disturbing the old one. In S&amp;B's Figure 8.5, the regular Dyna-Q agent never switched to the shortcut. In S&amp;B's words, it "never realized that it existed. Its model said that there was no shortcut, so the more it planned, the less likely it was to step to the right and discover it." Dyna-Q+ finds the shortcut and its cumulative reward pulls away.</p>
+  <div class="box intuition"><span class="tag">Why ε-greedy doesn't rescue Dyna-Q</span>
+    <p>To discover the right-hand gap the agent has to walk about five cells to the right along the barrier, against a greedy policy that points left at every one of them. With \(\varepsilon = 0.1\) and four actions, one particular exploratory action has probability \(0.025\) per step, and five consecutive ones about \(0.025^5 \approx 10^{-8}\). Undirected, one-step dithering almost never produces a deliberate multi-step excursion. (This is a rough estimate, but the order of magnitude is the point.)</p>
+  </div>
+
+  <h3>The exploration bonus κ√τ</h3>
+  <div class="box def"><span class="tag">Definition · Dyna-Q+ bonus</span>
+    <p>For each state–action pair keep \(\tau(s, a)\), the number of time steps since \((s, a)\) was last tried in the real environment. In planning updates, a modelled transition with reward \(r\) is backed up as if its reward were</p>
+    $$r + \kappa\sqrt{\tau(s, a)},$$
+    <p>for some small \(\kappa &gt; 0\). Actions never tried from a visited state are added to the model as leading back to the same state with reward 0, so they collect the bonus too.</p>
+  </div>
+  <p>The bonus lives in the planning update, and that is what makes it work. A transition that hasn't been tried for a long time looks rewarding; planning propagates that value backwards, so the whole route towards it looks rewarding; the greedy policy then <em>walks the route deliberately</em>, several steps in a row. Exploration happens by planning rather than by dithering. S&amp;B's Exercise 8.4 asks you to put the bonus only in action selection, \(\arg\max_a \big[Q(S_t, a) + \kappa\sqrt{\tau(S_t, a)}\big]\), instead: the bonus then stops propagating and the agent can only be tempted one step at a time.</p>
+  <div class="box deriv"><span class="tag">Where √τ comes from (a heuristic, not a theorem)</span>
+    <p>Suppose a transition's true value drifts like a random walk, gaining independent noise of variance \(\sigma^2\) each step. After \(\tau\) steps without checking, its change has variance \(\tau\sigma^2\) and standard deviation \(\sigma\sqrt\tau\). Adding \(\kappa\sqrt\tau\) is an optimistic bonus proportional to that uncertainty: optimism in the face of uncertainty, as in UCB (Day 14), with uncertainty that <em>grows</em> with time since the last visit instead of shrinking with the visit count. S&amp;B present Dyna-Q+ as a heuristic, and it carries no optimality guarantee.</p>
+  </div>
+  <div class="box algo"><span class="tag">Algorithm · Dyna-Q+ (changes to Dyna-Q)</span>
+    <ol>
+      <li>Keep \(\mathit{last}(s, a)\), the time step at which \((s, a)\) was last taken for real.</li>
+      <li>When a state is visited for the first time, add \(\mathit{Model}(s, b) \leftarrow (0, s)\) and \(\mathit{last}(s, b) \leftarrow t\) for every action \(b\) not yet tried there.</li>
+      <li>Planning samples among all modelled pairs and uses the target \(R + \kappa\sqrt{t - \mathit{last}(S, A)} + \gamma \max_a Q(S', a)\).</li>
+      <li>Acting and the direct update are unchanged.</li>
+    </ol>
+  </div>
+  <pre><code># Inside the real-step loop of the Day 55 code. t counts real steps; last = {}.
+s2, r, done = env_step(s, a)
+backup(s, a, r, s2, done)                              # direct RL: no bonus
+if not any((s, b) in model for b in range(4)):         # first visit to s: model untried actions
+    for b in range(4):                                 #   as "stay in s, reward 0"
+        model[(s, b)], last[(s, b)] = (0.0, s, False), t
+        seen.append((s, b))
+model[(s, a)], last[(s, a)] = (r, s2, done), t         # the real outcome overwrites the guess
+for _ in range(n):
+    ps, pa = seen[rng.integers(len(seen))]
+    pr, ps2, pdone = model[(ps, pa)]
+    bonus = kappa * np.sqrt(t - last[(ps, pa)])        # kappa * sqrt(tau)
+    backup(ps, pa, pr + bonus, ps2, pdone)</code></pre>
+  <p class="code-cap">A fragment of the Day 55 loop. <code>seen</code> stays duplicate-free because a pair enters it only on the first visit to its state. Both changing mazes are 6 × 9 with S at row 5, column 3 and G in the top-right corner; the barrier is row 3.</p>
+
+  <h3>Optimism under nonstationarity</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Mechanism</th><th>Bonus over time</th><th>Directed?</th><th>Copes with change?</th></tr></thead>
+    <tbody>
+      <tr><td>ε-greedy</td><td>none</td><td>no, one random step at a time</td><td>slowly, by luck</td></tr>
+      <tr><td>Optimistic initial values (Day 13)</td><td>large at the start, then gone</td><td>yes, early on</td><td>no</td></tr>
+      <tr><td>UCB (Day 14)</td><td>shrinks with the visit count</td><td>yes</td><td>no, the bonus vanishes</td></tr>
+      <tr><td>Dyna-Q+</td><td>grows with time since the last visit</td><td>yes, via planning</td><td>yes</td></tr>
+    </tbody>
+  </table></div>
+  <p>The price is a permanent exploration tax. In a world that never changes, Dyna-Q+ keeps re-checking transitions that are fine, and each check costs reward. S&amp;B's Exercise 8.3 notes that the gap between the two agents narrows slightly during the first part of the shortcut experiment. In the course's reference runs with \(\kappa = 10^{-3}\), Dyna-Q+ actually collected somewhat <em>less</em> reward than Dyna-Q before the shortcut opened, then overtook it once it found the shortcut. How large the tax is depends on \(\kappa\).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>κ is on the reward scale.</b> To pull the agent onto a detour, the bonus has to beat the value it gives up by detouring. Too small and nothing happens; too large and the agent spends its life re-checking. Rescale \(\kappa\) whenever you rescale rewards.</li>
+      <li><b>The bonus never stops growing.</b> In a large state space there are always long-untried pairs somewhere, and the agent can be dragged around indefinitely. This is a tabular idea; Module 11 covers exploration bonuses that scale.</li>
+      <li><b>Noise looks like change.</b> In a stochastic environment the bonus can't distinguish "this transition changed" from "this transition is noisy".</li>
+      <li><b>Q now includes the bonus.</b> The values are no longer estimates of real return, so don't report them as such. Keep a separate bonus-free table for evaluation if you need one.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Build both changing mazes and plot cumulative reward over 3,000 steps (blocking) and 6,000 steps (shortcut) for Dyna-Q and Dyna-Q+, averaged over 20 seeds. Suggested settings: \(n = 10\), \(\alpha = 0.5\), \(\varepsilon = 0.1\), \(\gamma = 0.95\), \(\kappa \in \{10^{-4}, 10^{-3}, 10^{-2}\}\).</li>
+      <li>Exercise 8.4: move the bonus into action selection only and remove it from planning. Compare on the shortcut maze and explain the difference in terms of how far the bonus propagates.</li>
+      <li>Measure the exploration tax: in the shortcut maze with the shortcut never opened, how much cumulative reward does Dyna-Q+ give up over 6,000 steps for each \(\kappa\)?</li>
+      <li>After the shortcut opens, count how many times plain Dyna-Q passes through the right-hand gap in 10,000 further steps.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §8.3 · Sutton 1990, “Integrated Architectures for Learning, Planning, and Reacting Based on Approximating Dynamic Programming”</p>
+</article>
+
+<!-- ================================================================ DAY 57 -->
+<article class="day" id="d57">
+  <header class="day-head">
+    <span class="day-no">DAY 57</span>
+    <h2>Prioritized Sweeping</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Uniform search control spends almost every planning update on a transition whose value cannot change. Prioritized sweeping works backwards from wherever a value just changed: it keeps a queue of state–action pairs ordered by how much their values would move, and after each update it re-scores the predecessors of the state it touched.</p>
+
+  <h3>Uniform sampling wastes updates</h3>
+  <p>At the start of the second Dyna Maze episode exactly one action value is non-zero: the step into G. A planning update changes \(Q(s, a)\) only if its target \(r + \gamma \max_{a'} Q(s', a')\) differs from \(Q(s, a)\). For almost every remembered transition both are zero, so the update does nothing. With well over a hundred remembered pairs, a uniformly chosen planning update is useful roughly once in a hundred tries at this stage. As values spread, the useful updates stay concentrated on a thin frontier next to the states that most recently changed. In larger state spaces the useful fraction shrinks towards zero, so Dyna-Q's planning budget is mostly burned on no-ops.</p>
+
+  <h3>Backward focusing</h3>
+  <p>When the value of a state \(s\) changes, the only targets that change are those of transitions leading <em>into</em> \(s\): its predecessors. So planning should work backwards from any state whose value changed, which Sutton &amp; Barto call <em>backward focusing</em>. The predecessors of a changed state may themselves change by different amounts. Those whose values would move most should go first, so we rank pairs by the magnitude of their TD error, the size of the change an update would make.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 232" role="img" aria-label="A priority queue of state-action pairs beside a predecessor graph; value changes spread backwards from the goal with priorities 1, gamma, gamma squared">
+      <defs>
+        <marker id="ah-d57" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <text x="120" y="20" class="s-ink2 s-mid s-sm">priority queue (largest first)</text>
+      <rect x="15" y="30" width="210" height="172" rx="6" class="s-node"/>
+      <text x="30" y="58" class="s-mod">1.000  (1, ↑)  ◂ pop</text>
+      <text x="30" y="84">0.950  (2, →)</text>
+      <text x="30" y="110">0.950  (3, ↓)</text>
+      <text x="30" y="136">0.903  (4, →)</text>
+      <text x="30" y="162">0.903  (5, ↓)</text>
+      <text x="30" y="188" class="s-ink3">…</text>
+      <path d="M535,115 L593,115" class="s-ln" marker-end="url(#ah-d57)"/>
+      <path d="M443.1,72.3 L505.1,106.8" class="s-ln" marker-end="url(#ah-d57)"/>
+      <path d="M443.1,157.7 L505.1,123.2" class="s-ln" marker-end="url(#ah-d57)"/>
+      <path d="M354.2,39.7 L413.9,59.6" class="s-ln" marker-end="url(#ah-d57)"/>
+      <path d="M354.2,90.3 L413.9,70.4" class="s-ln" marker-end="url(#ah-d57)"/>
+      <path d="M354.5,144 L413.6,160.4" class="s-ln" marker-end="url(#ah-d57)"/>
+      <path d="M354.2,190.3 L413.9,170.4" class="s-ln" marker-end="url(#ah-d57)"/>
+      <circle cx="610" cy="115" r="15" class="s-node-mod"/><text x="610" y="119" class="s-mid">G</text>
+      <circle cx="520" cy="115" r="15" class="s-node-mod"/><text x="520" y="119" class="s-mid">1</text>
+      <circle cx="430" cy="65" r="15" class="s-node"/><text x="430" y="69" class="s-mid">2</text>
+      <circle cx="430" cy="165" r="15" class="s-node"/><text x="430" y="169" class="s-mid">3</text>
+      <circle cx="340" cy="35" r="15" class="s-node"/><text x="340" y="39" class="s-mid">4</text>
+      <circle cx="340" cy="95" r="15" class="s-node"/><text x="340" y="99" class="s-mid">5</text>
+      <circle cx="340" cy="140" r="15" class="s-node"/><text x="340" y="144" class="s-mid">6</text>
+      <circle cx="340" cy="195" r="15" class="s-node"/><text x="340" y="199" class="s-mid">7</text>
+      <text x="520" y="93" class="s-mod s-mid s-sm">|δ| = 1</text>
+      <text x="430" y="43" class="s-mod s-mid s-sm">γ</text>
+      <text x="430" y="197" class="s-mod s-mid s-sm">γ</text>
+      <text x="318" y="39" class="s-mod s-end s-sm">γ²</text>
+      <text x="318" y="99" class="s-mod s-end s-sm">γ²</text>
+      <text x="318" y="144" class="s-mod s-end s-sm">γ²</text>
+      <text x="318" y="199" class="s-mod s-end s-sm">γ²</text>
+      <text x="470" y="226" class="s-ink2 s-mid s-sm">arrows are transitions; updates flow against them</text>
+    </svg>
+    <figcaption><b>Backward focusing with \(\gamma = 0.95\).</b> The first time the goal is reached, the pair \((1, \uparrow)\) has TD error 1. Updating it changes \(V(1)\), so its predecessors 2 and 3 enter the queue with priority \(\gamma\); updating those queues 4–7 at \(\gamma^2\), and so on. The sweep follows the shape of the predecessor graph, not the order the agent happened to visit states.</figcaption>
+  </figure>
+
+  <h3>The algorithm</h3>
+  <div class="box algo"><span class="tag">Algorithm · Prioritized sweeping, deterministic environment (S&amp;B §8.4)</span>
+    <ol>
+      <li>Initialize \(Q(s, a)\), \(\mathit{Model}(s, a)\) for all \(s, a\), and an empty priority queue \(\mathit{PQueue}\).</li>
+      <li>Loop forever:
+        <ol>
+          <li>\(S \leftarrow\) current (non-terminal) state; \(A \leftarrow \text{policy}(S, Q)\).</li>
+          <li>Take action \(A\); observe \(R, S'\). Set \(\mathit{Model}(S, A) \leftarrow R, S'\).</li>
+          <li>\(P \leftarrow \big|R + \gamma \max_a Q(S', a) - Q(S, A)\big|\).</li>
+          <li>If \(P &gt; \theta\), insert \(S, A\) into \(\mathit{PQueue}\) with priority \(P\). <span class="step">(if already queued, keep only the higher priority)</span></li>
+          <li>Repeat \(n\) times, while \(\mathit{PQueue}\) is not empty:
+            <ol>
+              <li>\(S, A \leftarrow \text{first}(\mathit{PQueue})\); \(R, S' \leftarrow \mathit{Model}(S, A)\).</li>
+              <li>\(Q(S, A) \leftarrow Q(S, A) + \alpha\big[R + \gamma \max_a Q(S', a) - Q(S, A)\big]\).</li>
+              <li>For all \(\bar S, \bar A\) predicted to lead to \(S\): \(\bar R \leftarrow\) predicted reward; \(P \leftarrow \big|\bar R + \gamma \max_a Q(S, a) - Q(\bar S, \bar A)\big|\); if \(P &gt; \theta\), insert \(\bar S, \bar A\) with priority \(P\).</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>Two new data structures appear. The <b>predecessor table</b> maps each state to the set of remembered pairs that lead into it, and is filled in as the model is learned. The <b>priority queue</b> holds pairs ordered by priority, and the threshold \(\theta\) keeps negligible changes out of it.</p>
+
+  <h3>Implementation: one queue entry per pair</h3>
+  <p>Python's <code>heapq</code> is a min-heap without a decrease-key operation. Push \((-p, s, a)\), keep a dictionary of each pair's live priority, and skip any popped entry whose priority no longer matches (lazy deletion). The parenthetical "keep only the higher priority" in the algorithm is not an optimization you can skip, as the trap box below explains.</p>
+  <pre><code>import heapq
+from collections import defaultdict
+
+class PrioritizedSweeping:
+    """Deterministic-model prioritized sweeping (S&amp;B §8.4) with one live queue entry per pair."""
+    def __init__(self, Q, n=5, alpha=1.0, gamma=0.95, theta=1e-4):
+        self.Q, self.n, self.alpha, self.gamma, self.theta = Q, n, alpha, gamma, theta
+        self.model, self.preds = {}, defaultdict(set)  # (s,a) -&gt; (r,s',done);  s' -&gt; {(s,a)}
+        self.heap, self.prio = [], {}                  # heap of (-p, s, a); live priority per pair
+
+    def _push(self, s, a, p):
+        if p &gt; self.theta and p &gt; self.prio.get((s, a), 0.0):   # keep only the higher priority
+            self.prio[(s, a)] = p
+            heapq.heappush(self.heap, (-p, s, a))
+
+    def _target(self, s, a):
+        r, s2, done = self.model[(s, a)]
+        return r + (0.0 if done else self.gamma * self.Q[s2].max())
+
+    def observe(self, s, a, r, s2, done):              # call once per real transition
+        self.model[(s, a)] = (r, s2, done)
+        self.preds[s2].add((s, a))
+        self._push(s, a, abs(self._target(s, a) - self.Q[s][a]))
+        updates = 0
+        while self.heap and updates &lt; self.n:
+            negp, ps, pa = heapq.heappop(self.heap)
+            if self.prio.get((ps, pa)) != -negp:       # stale: superseded or already updated
+                continue
+            del self.prio[(ps, pa)]
+            self.Q[ps][pa] += self.alpha * (self._target(ps, pa) - self.Q[ps][pa])
+            updates += 1
+            for qs, qa in self.preds[ps]:              # V(ps) may have moved: re-score predecessors
+                self._push(qs, qa, abs(self._target(qs, qa) - self.Q[qs][qa]))
+        return updates</code></pre>
+  <p class="code-cap">Drop-in for steps (d)–(f) of the Day 55 loop: act ε-greedily on <code>Q</code>, step the environment, call <code>ps.observe(s, a, r, s2, done)</code>. There is no separate direct update; the real transition enters the queue like any other. With a deterministic model, \(\alpha = 1\) makes each update exact.</p>
+
+  <h3>How much it saves</h3>
+  <p>S&amp;B's Example 8.4 reports results (from Peng &amp; Williams, 1993) on a sequence of mazes with the same structure as the Dyna Maze at increasing grid resolution, from 47 to roughly 6,000 states. Both prioritized sweeping and Dyna-Q were limited to \(n = 5\) updates per real step, and the measure was the number of updates until an optimal solution was found. Prioritized sweeping kept a decisive advantage at every size. S&amp;B summarise its effect on maze tasks as speeding up the discovery of optimal solutions "often by a factor of 5 to 10".</p>
+  <p>The size of the factor depends on details: \(\alpha\), \(\varepsilon\), the optimality test, and how the larger mazes are built. In the course's reference runs of the code above (each Dyna Maze cell blown up into a \(k \times k\) block, deterministic model, \(\alpha = 1\), \(n = 5\), \(\varepsilon = 0.1\), five seeds, stopping when the greedy path from S is a shortest path), prioritized sweeping needed roughly 30 times fewer updates than Dyna-Q at 47 states and roughly 50 times fewer at 1,692 states. That is the "orders of magnitude" effect, but it is a count of updates, not of seconds: each prioritized update also pays for a heap operation and a scan of the predecessors.</p>
+
+  <h3>Stochastic environments</h3>
+  <p>With stochastic dynamics, keep counts for each \((s, a)\) and the outcomes seen after it (the Day 54 <code>TabularModel</code>), and replace the sample update with an expected one over the estimated distribution:</p>
+  $$Q(s, a) \leftarrow \sum_{s', r} \hat p(s', r \mid s, a)\Big[r + \gamma \max_{a'} Q(s', a')\Big].$$
+  <p>Priorities become the magnitude of the change this expected update would make, and every pair with a non-zero estimated probability of reaching \(s\) counts as a predecessor of \(s\). The weakness is cost: each expected update sums over all \(b\) observed successors, including very unlikely ones, so a large branching factor makes every update expensive. Van Seijen &amp; Sutton (2013) proposed "small backups", which fold in one successor's change at a time and make the cost independent of \(b\). Day 58 makes the expected-vs-sample trade-off precise.</p>
+  <div class="box note"><span class="tag">Beyond tables</span>
+    <p>Prioritized experience replay (Day 77) keeps "prioritize by \(|\delta|\)" but drops the predecessor structure. With function approximation there is no table of "pairs that lead into this state" to re-score, so PER only refreshes the priorities of transitions it happens to sample, and it corrects the sampling bias with importance weights.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>No de-duplication.</b> If every re-score pushes a fresh entry, each stale duplicate that is later popped re-pushes all of its still-pending predecessors. The number of entries then grows with the number of backward <em>paths</em>, which in a grid is combinatorial. In the course's reference implementation this bug made prioritized sweeping worse than Dyna-Q on a 188-state maze: the queue grew to tens of thousands of entries and no value reached the start state for dozens of episodes.</li>
+      <li><b>Fast planning on a partial model commits early.</b> Prioritized sweeping computes exact values for the transitions it knows, so the greedy policy locks onto the first route it found, and ε-dithering rarely discovers a better one. Two of the five 752-state reference runs never found the shortest path within 300,000 steps. Combine it with optimistic initial values or a Dyna-Q+ bonus.</li>
+      <li><b>θ too large.</b> Priorities shrink geometrically with distance from the change (\(1, \gamma, \gamma^2, \dots\)), so a coarse threshold stops the sweep before it reaches the far side of a large maze.</li>
+      <li><b>Memory.</b> The predecessor table is as large as the model, and in stochastic environments each pair can have many predecessors.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Plug <code>PrioritizedSweeping</code> into the Dyna Maze. Confirm the greedy path reaches 14 steps, and count the planning updates it took.</li>
+      <li>Scale the maze by \(k \in \{1, 2, 3, 4, 6\}\) (each cell becomes a \(k \times k\) block). For prioritized sweeping and Dyna-Q with \(n = 5\), count updates until the greedy path from S is a shortest path (find its length with BFS). Plot updates against the number of states on log–log axes, five seeds each.</li>
+      <li>Remove the de-duplication (always push) and log the queue length per episode on the \(k = 2\) maze. Explain the growth.</li>
+      <li>Make the maze slippery (probability 0.2 of a random move). Implement the count-based expected update and its priorities, and compare against Dyna-Q with a count model.</li>
+      <li>Add optimistic initial values (for example \(Q_0 = 1\)) to prioritized sweeping on the \(k = 4\) maze. Do the failures to find the shortest path disappear, and what does it cost?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §8.4 · Moore &amp; Atkeson 1993, “Prioritized Sweeping: Reinforcement Learning with Less Data and Less Time” · Peng &amp; Williams 1993, “Efficient Learning and Planning Within the Dyna Framework” · van Seijen &amp; Sutton 2013, “Planning by Prioritized Sweeping with Small Backups”</p>
+</article>
+
+<!-- ================================================================ DAY 58 -->
+<article class="day" id="d58">
+  <header class="day-head">
+    <span class="day-no">DAY 58</span>
+    <h2>Expected vs Sample Updates &amp; Trajectory Sampling</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">An expected update is exact but costs as much as the branching factor \(b\); a sample update costs one successor and is noisy. When \(b\) is large, a few dozen sample updates remove most of the error for a small fraction of the price of one expected update. And spending updates where the policy actually goes (trajectory sampling, RTDP) beats sweeping states that never matter.</p>
+
+  <h3>The space of one-step updates</h3>
+  <p>Every one-step update in Modules 3–5 is fixed by three binary choices: state values or action values; evaluating a policy \(\pi\) or the optimal policy (an expectation over \(\pi\) or a max); and an expected update over all successors or a sample update from one.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Value estimated</th><th>Expected update (needs a distribution model)</th><th>Sample update (needs only samples)</th></tr></thead>
+    <tbody>
+      <tr><td>\(v_\pi\)</td><td>iterative policy evaluation (Day 28)</td><td>TD(0) (Day 42)</td></tr>
+      <tr><td>\(v_*\)</td><td>value iteration (Day 31)</td><td>—</td></tr>
+      <tr><td>\(q_\pi\)</td><td>q-policy evaluation</td><td>SARSA (Day 44)</td></tr>
+      <tr><td>\(q_*\)</td><td>q-value iteration</td><td>Q-learning (Day 45)</td></tr>
+    </tbody>
+  </table></div>
+  <p>(S&amp;B Figure 8.6 draws backup diagrams for these seven.) For \(q_*\) the two updates are</p>
+  $$\text{expected:}\quad Q(s, a) \leftarrow \sum_{s', r} \hat p(s', r \mid s, a)\Big[r + \gamma \max_{a'} Q(s', a')\Big],$$
+  $$\text{sample:}\quad Q(s, a) \leftarrow Q(s, a) + \alpha\Big[R + \gamma \max_{a'} Q(S', a') - Q(s, a)\Big], \qquad (S', R) \sim \hat p(\cdot \mid s, a).$$
+  <figure class="fig">
+    <svg viewBox="0 0 600 192" role="img" aria-label="Backup diagrams: the expected update branches to every successor state; the sample update follows one sampled successor">
+      <g class="s-ln">
+        <path d="M150,36 L92,76"/><path d="M150,36 L150,76"/><path d="M150,36 L208,76"/>
+        <path d="M90,94 L75,134"/><path d="M90,94 L105,134"/><path d="M150,94 L135,134"/><path d="M150,94 L165,134"/><path d="M210,94 L195,134"/><path d="M210,94 L225,134"/>
+        <path d="M84,106 Q90,112 96,106"/><path d="M144,106 Q150,112 156,106"/><path d="M204,106 Q210,112 216,106"/>
+        <path d="M450,36 L450,76"/>
+        <path d="M450,94 L435,134"/><path d="M450,94 L465,134"/>
+        <path d="M444,106 Q450,112 456,106"/>
+      </g>
+      <path d="M450,36 L392,76" class="s-grid s-dash"/><path d="M450,36 L508,76" class="s-grid s-dash"/>
+      <circle cx="390" cy="85" r="9" class="s-grid s-dash"/><circle cx="510" cy="85" r="9" class="s-grid s-dash"/>
+      <circle cx="150" cy="30" r="6" class="s-ink"/><circle cx="450" cy="30" r="6" class="s-ink"/>
+      <circle cx="90" cy="85" r="9" class="s-node"/><circle cx="150" cy="85" r="9" class="s-node"/><circle cx="210" cy="85" r="9" class="s-node"/>
+      <circle cx="450" cy="85" r="9" class="s-node-mod"/>
+      <g class="s-ink">
+        <circle cx="75" cy="140" r="5"/><circle cx="105" cy="140" r="5"/><circle cx="135" cy="140" r="5"/><circle cx="165" cy="140" r="5"/><circle cx="195" cy="140" r="5"/><circle cx="225" cy="140" r="5"/>
+        <circle cx="435" cy="140" r="5"/><circle cx="465" cy="140" r="5"/>
+      </g>
+      <text x="162" y="34" class="s-ink2 s-sm">s, a</text><text x="462" y="34" class="s-ink2 s-sm">s, a</text>
+      <text x="222" y="89" class="s-ink2 s-sm">s′ (all b)</text><text x="462" y="89" class="s-mod s-sm">S′</text>
+      <text x="240" y="144" class="s-ink2 s-sm">max a′</text><text x="477" y="144" class="s-ink2 s-sm">max a′</text>
+      <text x="150" y="176" class="s-mid">expected update · cost ≈ b</text>
+      <text x="450" y="176" class="s-mid">sample update · cost 1</text>
+    </svg>
+    <figcaption><b>Backup diagrams for \(q_*\).</b> Solid dots are state–action pairs, open circles states, and the arcs mark the max over next actions. The sample update follows one successor drawn from the model (or the world) and ignores the rest.</figcaption>
+  </figure>
+
+  <h3>Comparing them under a compute budget</h3>
+  <p>Count computation in evaluations of \(\max_{a'} Q(s', a')\). An expected update of a pair with \(b\) possible successors costs \(b\) of them and has no sampling error; a sample update costs one and has sampling error. In the time of one expected update you could do \(b\) sample updates, possibly spread over \(b\) different pairs. Which is better?</p>
+  <div class="box deriv"><span class="tag">Derivation · error of sample updates (S&amp;B §8.5)</span>
+    <p>Take one pair with \(b\) equally likely successors and suppose the successors' values are already correct, so the expected update gives the exact answer. Write \(x_i = r_i + \gamma \max_{a'} Q(s'_i, a')\) for the \(b\) possible targets; the true value is their mean \(\bar x\). Start from an estimate whose error is 1 and use sample averages, \(\alpha_t = 1/t\). The first sample update replaces the initial estimate entirely, and after \(t\) updates the estimate is the mean of \(t\) targets drawn uniformly, with replacement, from \(\{x_1, \dots, x_b\}\). One draw has variance \(s^2 = \frac1b \sum_i (x_i - \bar x)^2\), so the mean of \(t\) independent draws has</p>
+    $$\E\big[(\hat Q_t - \bar x)^2\big] = \frac{s^2}{t}.$$
+    <p>If the \(b\) targets are themselves spread with unit variance (independent draws with variance 1), then \(\E[s^2] = \frac{b-1}{b}\), the usual bias of the \(1/b\)-normalized sample variance. The RMS error after \(t\) sample updates is therefore</p>
+    $$\sqrt{\frac{b-1}{b\,t}},$$
+    <p>which is the curve S&amp;B plot in Figure 8.7. An expected update drives the error from 1 to 0, but only once all \(b\) computations are done.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 238" role="img" aria-label="RMS error against computation: the expected update stays at error 1 until b computations, while sample updates fall quickly, faster for larger b">
+      <line x1="70" y1="200" x2="450" y2="200" class="s-ln"/><line x1="70" y1="30" x2="70" y2="200" class="s-ln"/>
+      <line x1="70" y1="115" x2="450" y2="115" class="s-grid s-dash"/>
+      <text x="62" y="34" class="s-ink3 s-end s-sm">1</text><text x="62" y="119" class="s-ink3 s-end s-sm">0.5</text><text x="62" y="204" class="s-ink3 s-end s-sm">0</text>
+      <text x="70" y="216" class="s-ink3 s-mid s-sm">0</text><text x="260" y="216" class="s-ink3 s-mid s-sm">1b</text><text x="450" y="216" class="s-ink3 s-mid s-sm">2b</text>
+      <text x="260" y="233" class="s-ink3 s-mid s-sm">number of max Q(s′, ·) computations</text>
+      <text x="22" y="115" class="s-ink3 s-mid s-sm">RMS</text><text x="22" y="128" class="s-ink3 s-mid s-sm">error</text>
+      <polyline points="70,30 260,30 260,200 450,200" class="s-ln-bad s-dash"/>
+      <polyline points="70,30 165,79.8 260,115 355,130.6 450,139.9" class="s-ln-warn"/>
+      <polyline points="70,30 89,38.7 108,86 127,106.9 146,119.4 165,127.9 184,134.2 203,139 222,143 241,146.2 260,149 298,153.4 336,156.9 374,159.7 412,162 450,163.9" class="s-ln-acc"/>
+      <polyline points="70,30 71.9,30.9 73.8,80.4 75.7,102.3 77.6,115.4 81.4,130.9 85.2,140.2 90.9,149 98.5,156.3 109.9,163.1 123.2,168 138.4,171.8 161.2,175.6 187.8,178.5 223.9,181.2 273.3,183.6 336,185.7 417.7,187.5 450,188" class="s-ln-info"/>
+      <polyline points="70,30 70.2,30.1 70.4,79.9 70.6,101.9 71,124 71.5,139.9 72.3,150.9 73.6,161 75.3,167.9 78,173.8 81.8,178.4 87.3,182.2 95.5,185.3 107.4,187.9 125.1,190 150.9,191.8 189.1,193.2 245.4,194.4 328.2,195.4 450,196.2" class="s-ln-mod"/>
+      <g class="s-sm">
+        <line x1="470" y1="44" x2="492" y2="44" class="s-ln-bad s-dash"/><text x="500" y="48">expected update</text>
+        <line x1="470" y1="66" x2="492" y2="66" class="s-ln-warn"/><text x="500" y="70">sample, b = 2</text>
+        <line x1="470" y1="88" x2="492" y2="88" class="s-ln-acc"/><text x="500" y="92">sample, b = 10</text>
+        <line x1="470" y1="110" x2="492" y2="110" class="s-ln-info"/><text x="500" y="114">sample, b = 100</text>
+        <line x1="470" y1="132" x2="492" y2="132" class="s-ln-mod"/><text x="500" y="136">sample, b = 1000</text>
+      </g>
+    </svg>
+    <figcaption><b>Computed from \(\sqrt{(b-1)/(bt)}\)</b> with \(t\) = computations, after S&amp;B Figure 8.7. The x-axis is in units of \(b\). For \(b = 1000\), a tenth of the cost of one expected update (\(t = 100\)) already brings the error to about 0.1. The \(b = 10{,}000\) curve S&amp;B also show would hug the vertical axis.</figcaption>
+  </figure>
+  <p>For moderately large \(b\), the error falls dramatically after a tiny fraction of \(b\) sample updates. In the time one pair receives an expected update, many pairs can each be brought to within a few percent of what an expected update would achieve. There is a second advantage the figure leaves out: in a real problem the successors' values are estimates being updated too, and because sample updates spread computation around, those successors become accurate sooner, which makes the values backed up from them better. S&amp;B suggest that the figure therefore understates the case for sample updates.</p>
+  <p>Expected updates win when \(b\) is small (with \(b = 2\), two computations give an exact answer while two samples leave error 0.5), when the dynamics are nearly deterministic (with \(b = 1\) the two updates coincide), when you need exact final values, or when the distribution model is cheap to sum over.</p>
+
+  <h3>Distributing updates: uniform vs on-policy</h3>
+  <p>Classical DP sweeps the whole state space and gives every state equal time, including states no good policy ever visits. The alternative is to sample states or pairs from some distribution. Uniform sampling is a randomized sweep. The <b>on-policy distribution</b> instead samples states as often as the current policy visits them. Writing that distribution down explicitly would be hard, but <b>trajectory sampling</b> produces it for free: simulate trajectories from the start states under the current policy and update the states and pairs encountered along the way.</p>
+  <p>S&amp;B test this in Figure 8.8 on randomly generated episodic tasks with 1,000 and 10,000 states. Each state has two actions, each leading to one of \(b\) equally likely next states (\(b = 1, 3, 10\)), every transition ends the episode with probability 0.1, and expected rewards are drawn from a standard normal. The uniform planner cycles through all pairs with in-place expected updates; the on-policy planner simulates episodes from one start state and applies expected updates to the pairs visited under an \(\varepsilon\)-greedy policy with \(\varepsilon = 0.1\). The measure is the value of the start state under the current greedy policy. On-policy sampling planned faster at first and more slowly in the long run. The early advantage was larger and lasted longer when \(b\) was small and when the state space was larger.</p>
+  <div class="box intuition"><span class="tag">Intuition</span>
+    <p>Early on, what matters for the start state is the states a few steps downstream of it, and trajectories visit exactly those. Later, the commonly visited states already have correct values and updating them again is wasted, while uniform updates still improve the rarely visited states that occasionally matter. For planning from a known start state in a large problem, the early phase is usually the one you care about.</p>
+  </div>
+
+  <h3>Real-Time Dynamic Programming</h3>
+  <p>RTDP (Barto, Bradtke &amp; Singh, 1995) is the on-policy, trajectory-sampling version of value iteration. It is asynchronous DP (Day 33) in which the order of updates is set by real or simulated trajectories.</p>
+  <div class="box algo"><span class="tag">Algorithm · RTDP</span>
+    <ol>
+      <li>Initialize \(V(s)\) optimistically (for example 0 in a cost-to-go problem), with \(V = 0\) at goal states.</li>
+      <li>For each episode, start at a start state \(s\), and until a goal is reached:
+        <ol>
+          <li>For every action, compute \(Q(s, a) = \sum_{s', r} p(s', r \mid s, a)\big[r + \gamma V(s')\big]\).</li>
+          <li>\(V(s) \leftarrow \max_a Q(s, a)\) <span class="step">(the value-iteration update, at the visited state only)</span></li>
+          <li>Take a greedy action \(a \in \arg\max_a Q(s, a)\) and sample \(s' \sim p(\cdot \mid s, a)\); set \(s \leftarrow s'\).</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · RTDP convergence (Barto, Bradtke &amp; Singh 1995; S&amp;B §8.7)</span>
+    <p>Consider an undiscounted episodic task with absorbing goal states that generate zero reward. If (1) every goal state has initial value 0, (2) there is at least one policy that reaches a goal with probability 1 from any start state, (3) every reward from a non-goal state is strictly negative, and (4) every initial value is at least its optimal value (initializing everything to 0 satisfies this), then RTDP converges with probability 1 to a policy that is optimal on all <em>relevant</em> states, those reachable from a start state under some optimal policy, without necessarily visiting every state infinitely often, or at all.</p>
+  </div>
+  <p>Optimism is what makes it work. Unvisited states look at least as good as they really are, so the greedy policy is drawn to try them, and each update can only lower a value towards the truth. Irrelevant states, those off every good path, eventually stop being tried. In S&amp;B's racetrack example (Example 8.6), only a small fraction of the reachable states were relevant, and RTDP reached policies as good as those of sweeping value iteration with roughly half the updates, and most states were updated far fewer times than a sweep would have updated them.</p>
+  <pre><code>import numpy as np
+
+N, SLIP, START = 30, 0.1, (0, 0)
+GOAL = (0, N - 1)
+MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+def outcomes(s, a):
+    """(prob, next state) pairs: the intended move w.p. 1 - SLIP, plus SLIP spread over all four."""
+    out = []
+    for b, (dr, dc) in enumerate(MOVES):
+        p = (1 - SLIP) * (b == a) + SLIP / 4
+        out.append((p, (min(max(s[0] + dr, 0), N - 1), min(max(s[1] + dc, 0), N - 1))))
+    return out
+
+def q_value(V, s, a):                       # expected update: reward -1 per step, gamma = 1
+    return sum(p * (-1.0 + V[s2]) for p, s2 in outcomes(s, a))
+
+def rtdp(episodes=500, seed=0):
+    rng = np.random.default_rng(seed)
+    V = np.zeros((N, N))                    # 0 &gt;= v* everywhere: optimistic, as the theorem needs
+    n_updates = np.zeros((N, N), dtype=int)
+    for _ in range(episodes):
+        s = START
+        while s != GOAL:                    # V[GOAL] stays 0: the absorbing goal
+            qs = [q_value(V, s, a) for a in range(4)]
+            a = int(np.argmax(qs))          # greedy with respect to the current values
+            V[s] = qs[a]                    # value-iteration update at the visited state only
+            n_updates[s] += 1
+            probs, nexts = zip(*outcomes(s, a))
+            s = nexts[rng.choice(4, p=probs)]
+    return V, n_updates
+
+V, n_updates = rtdp()
+print(V[START], n_updates.sum(), np.median(n_updates))</code></pre>
+  <p class="code-cap">A 30 × 30 grid with 10% slip and a cost of 1 per step. In the course's reference run, RTDP's start-state value was within 0.1 of \(v_*\) after about 34,000 updates, while in-place value iteration needed about 63,000 to converge to \(10^{-4}\). Optimism made RTDP touch every state at least once on this open grid, but the median state was updated about 24 times, against roughly 70 times for every state under value iteration, while states along the main route were updated hundreds of times. The saving comes from where the updates go, not from skipping states.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Starved states.</b> On-policy focusing leaves rarely visited states with poor values. If the start distribution changes, or you need a policy for every state, those values are unusable.</li>
+      <li><b>RTDP without its conditions.</b> With pessimistic initial values (below \(v_*\)) or positive rewards, greedy RTDP can settle on a bad policy and never update the states that would reveal a better one. The guarantee leans on all four conditions.</li>
+      <li><b>Expected updates on a thin model.</b> With a learned \(\hat p\) built from two or three samples, an "expected" update is a sample update in disguise, at \(b\) times the price.</li>
+      <li><b>Counting updates, not computation.</b> One expected update costs \(b\) successor evaluations. Comparisons should count those, as Figure 8.7 does.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Check \(\sqrt{(b-1)/(bt)}\) by simulation: draw \(b\) standard-normal targets, average \(t\) uniform draws from them, and compare the RMS error with the formula for \(b \in \{10, 100, 1000\}\) and several \(t\).</li>
+      <li>Reproduce a small version of S&amp;B Figure 8.8: 1,000 states, \(b \in \{1, 3, 10\}\), uniform vs on-policy expected updates. Plot the start state's value under the greedy policy (computed by policy evaluation) against the number of updates.</li>
+      <li>Run the RTDP snippet, histogram <code>n_updates</code>, and plot \(V(\text{start})\) against cumulative updates beside in-place value iteration.</li>
+      <li>Break RTDP: initialize \(V = -100\) everywhere except the goal. What happens, and which condition of the theorem did you violate?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §8.5–8.7 · Barto, Bradtke &amp; Singh 1995, “Learning to Act Using Real-Time Dynamic Programming” · Korf 1990, “Real-Time Heuristic Search”</p>
+</article>
+
+<!-- ================================================================ DAY 59 -->
+<article class="day" id="d59">
+  <header class="day-head">
+    <span class="day-no">DAY 59</span>
+    <h2>Monte Carlo Tree Search</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">MCTS is decision-time planning with a sample model. From the current state it runs many simulated games, keeps statistics in a tree that grows towards the most promising lines, and then picks a move. UCT makes the choice inside the tree by treating every node as a bandit and applying UCB1.</p>
+
+  <h3>Decision-time planning: from rollouts to trees</h3>
+  <p><b>Heuristic search</b> (S&amp;B §8.9) is the classical form of decision-time planning: expand a tree of continuations from the current state, evaluate the leaves with a heuristic or value function, back the values up to the root with max and expectation, act, and throw the tree away. <b>Rollout algorithms</b> (S&amp;B §8.10) replace the heuristic with simulation. For each action available now, run many simulated trajectories that start with that action and then follow a fixed <em>rollout policy</em>, average their returns, and take the action with the highest average. This is one step of policy improvement on the rollout policy: by the policy improvement theorem (Day 29), acting greedily on accurate rollout estimates is at least as good as the rollout policy itself. Tesauro &amp; Galperin (1997) used rollouts of a backgammon program to improve substantially on the program's own play.</p>
+  <p>A rollout algorithm wastes what it learns: statistics live only at the root, so every simulation re-plays the second move as blindly as the first. MCTS keeps statistics for every node it has visited, so later simulations follow better moves deeper into the tree.</p>
+
+  <h3>The four phases</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 270" role="img" aria-label="The four phases of MCTS: selection down the tree, expansion of one child, a random simulation to a terminal state, and backup of the result along the path">
+      <defs>
+        <marker id="ah-d59m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <g class="s-ttl s-mid"><text x="85" y="18">1 Selection</text><text x="255" y="18">2 Expansion</text><text x="425" y="18">3 Simulation</text><text x="595" y="18">4 Backup</text></g>
+      <g class="s-ln">
+        <path d="M85,45 L40,95 M85,45 L130,95 M85,95 L65,145"/>
+        <path d="M255,45 L210,95 M255,45 L255,95 M255,45 L300,95 M255,95 L235,145 M255,95 L275,145"/>
+        <path d="M425,45 L380,95 M425,45 L425,95 M425,45 L470,95 M425,95 L405,145 M425,95 L445,145 M445,145 L445,195"/>
+        <path d="M595,45 L550,95 M595,45 L640,95 M595,95 L575,145"/>
+      </g>
+      <path d="M85,45 L85,95 L105,145" class="s-ln-mod"/>
+      <path d="M275,145 L275,195" class="s-ln-mod"/>
+      <path d="M445,204 l-8,9 l14,8 l-12,9 l6,8" class="s-ln-mod s-dash"/>
+      <rect x="439" y="238" width="12" height="12" class="s-acc"/>
+      <text x="458" y="249" class="s-ink2 s-sm">z</text>
+      <rect x="609" y="238" width="12" height="12" class="s-acc"/>
+      <text x="628" y="249" class="s-ink2 s-sm">z</text>
+      <path d="M615,236 L615,206" class="s-ln-mod" marker-end="url(#ah-d59m)"/>
+      <path d="M615,186 L615,156" class="s-ln-mod" marker-end="url(#ah-d59m)"/>
+      <path d="M611.3,135.7 L599.1,105.2" class="s-ln-mod" marker-end="url(#ah-d59m)"/>
+      <path d="M595,86 L595,56" class="s-ln-mod" marker-end="url(#ah-d59m)"/>
+      <circle cx="85" cy="45" r="9" class="s-node-mod"/><circle cx="40" cy="95" r="9" class="s-node"/><circle cx="85" cy="95" r="9" class="s-node-mod"/><circle cx="130" cy="95" r="9" class="s-node"/><circle cx="65" cy="145" r="9" class="s-node"/><circle cx="105" cy="145" r="9" class="s-node-mod"/>
+      <circle cx="255" cy="45" r="9" class="s-node"/><circle cx="210" cy="95" r="9" class="s-node"/><circle cx="255" cy="95" r="9" class="s-node"/><circle cx="300" cy="95" r="9" class="s-node"/><circle cx="235" cy="145" r="9" class="s-node"/><circle cx="275" cy="145" r="9" class="s-node"/><circle cx="275" cy="195" r="9" class="s-node-mod"/>
+      <circle cx="425" cy="45" r="9" class="s-node"/><circle cx="380" cy="95" r="9" class="s-node"/><circle cx="425" cy="95" r="9" class="s-node"/><circle cx="470" cy="95" r="9" class="s-node"/><circle cx="405" cy="145" r="9" class="s-node"/><circle cx="445" cy="145" r="9" class="s-node"/><circle cx="445" cy="195" r="9" class="s-node-mod"/>
+      <circle cx="595" cy="45" r="9" class="s-node-mod"/><circle cx="550" cy="95" r="9" class="s-node"/><circle cx="595" cy="95" r="9" class="s-node-mod"/><circle cx="640" cy="95" r="9" class="s-node"/><circle cx="575" cy="145" r="9" class="s-node"/><circle cx="615" cy="145" r="9" class="s-node-mod"/><circle cx="615" cy="195" r="9" class="s-node-mod"/>
+      <g class="s-ink2 s-mid s-sm"><text x="85" y="265">UCB1 at each node</text><text x="255" y="265">add one child</text><text x="425" y="265">rollout policy</text><text x="595" y="265">N += 1, W += z</text></g>
+    </svg>
+    <figcaption><b>One MCTS iteration.</b> Selection descends through fully expanded nodes by UCB1; expansion adds one new node; simulation plays out from it with a cheap rollout policy, storing nothing; backup adds the result \(z\) to every node on the path. Repeat thousands of times, then act.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · MCTS (one iteration, repeated until the budget runs out)</span>
+    <ol>
+      <li><b>Selection.</b> From the root, follow the <em>tree policy</em> through nodes whose actions have all been tried, until reaching a node with an untried action or a terminal state.</li>
+      <li><b>Expansion.</b> Add a child for one untried action.</li>
+      <li><b>Simulation.</b> From the new node, play to the end of the game (or to a depth limit, then evaluate) with the <em>rollout policy</em>, often uniformly random. Nothing from this part is stored.</li>
+      <li><b>Backup.</b> Walk back up the path to the root, incrementing each node's visit count \(N\) and adding the result to its total value \(W\).</li>
+    </ol>
+    <p>When the budget is spent, play the root action whose child has the most visits.</p>
+  </div>
+
+  <h3>Tree policy vs rollout policy</h3>
+  <p>The two policies do different jobs. The <b>tree policy</b> acts where statistics exist, and at every node it faces a bandit problem: exploit the child that looks best, or explore one whose estimate is still uncertain. The <b>rollout policy</b> acts where there are no statistics, and its main requirement is speed, because most of the computation goes into rollouts. Domain knowledge in the rollout policy usually helps, but not always: Gelly &amp; Silver (2007) found in Go that a stronger rollout policy can produce a weaker search, because what matters is whether the rollouts give unbiased <em>evaluations</em>, not whether they play well.</p>
+
+  <h3>UCT: UCB1 at every node</h3>
+  <p>UCT (Kocsis &amp; Szepesvári, 2006) is MCTS whose tree policy is UCB1 (Day 14) applied at every node. With \(N(s)\) the visits of the current node, and \(N(s, a)\), \(W(s, a)\) the visits and total value of the child reached by \(a\):</p>
+  $$a^* = \argmax_a \left[\frac{W(s, a)}{N(s, a)} + c\,\sqrt{\frac{\ln N(s)}{N(s, a)}}\,\right].$$
+  <div class="box deriv"><span class="tag">Derivation · where the bonus comes from</span>
+    <p>For rewards in \([0, 1]\), Hoeffding's inequality bounds the chance that an average of \(n\) samples overestimates its mean by \(\varepsilon\): \(\Pr(\bar X_n \ge \mu + \varepsilon) \le e^{-2n\varepsilon^2}\). Choose \(\varepsilon\) so that this probability is \(t^{-4}\) at time \(t\):</p>
+    $$e^{-2n\varepsilon^2} = t^{-4} \iff \varepsilon = \sqrt{\frac{2\ln t}{n}}.$$
+    <p>That is UCB1's bonus (Auer et al. 2002), the case \(c = \sqrt 2\). Kocsis &amp; Szepesvári write the bonus as \(2C_p\sqrt{\ln n / n_j}\), so \(C_p = 1/\sqrt 2\) recovers UCB1. The bonus shrinks like \(1/\sqrt{N(s, a)}\) for a child that keeps being chosen and grows slowly, like \(\sqrt{\ln N(s)}\), for one that is neglected, so every child is tried infinitely often, but suboptimal ones only logarithmically often.</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · UCT consistency (Kocsis &amp; Szepesvári 2006)</span>
+    <p>In finite-horizon problems with rewards in \([0, 1]\), and with a suitable exploration constant, the probability that UCT selects a suboptimal action at the root converges to zero, at a polynomial rate, as the number of simulations grows, and the estimated value at the root converges to the optimal value. The analysis has to handle the fact that each child's reward distribution drifts as the subtree below it improves; plain UCB1 analysis assumes stationary arms.</p>
+  </div>
+  <p>The guarantee is asymptotic and the constant matters in practice. Treat \(c\) as a hyperparameter tied to the scale of the rewards and to the budget, and tune it per game; Project 5 does exactly that. In a two-player zero-sum game, store each node's \(W\) from the point of view of the player who made the move into it. The parent then simply maximizes, and the same code serves both players.</p>
+  <pre><code>import math
+import random
+
+class Node:
+    def __init__(self, state, parent=None, action=None):
+        self.state, self.parent, self.action = state, parent, action
+        self.children, self.untried = [], list(state.legal_actions())
+        self.N, self.W = 0, 0.0      # visits; total result for the player who moved INTO this node
+
+    def select_child(self, c):       # UCB1 over the children
+        log_n = math.log(self.N)
+        return max(self.children, key=lambda ch: ch.W / ch.N + c * math.sqrt(log_n / ch.N))
+
+def mcts(root_state, n_sims=1000, c=1.4, rng=random):
+    root = Node(root_state)
+    for _ in range(n_sims):
+        node = root
+        while not node.untried and node.children:          # 1. selection
+            node = node.select_child(c)
+        if node.untried:                                   # 2. expansion: one new child
+            a = node.untried.pop(rng.randrange(len(node.untried)))
+            node.children.append(Node(node.state.play(a), node, a))
+            node = node.children[-1]
+        state = node.state                                 # 3. simulation: random rollout
+        while not state.is_terminal():
+            state = state.play(rng.choice(state.legal_actions()))
+        while node is not None:                            # 4. backup
+            node.N += 1
+            if node.parent is not None:
+                node.W += state.result(node.parent.state.to_move)
+            node = node.parent
+    return max(root.children, key=lambda ch: ch.N).action # most-visited ("robust") child</code></pre>
+  <pre><code>class TicTacToe:
+    LINES = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8), (0, 4, 8), (2, 4, 6)]
+
+    def __init__(self, board=(None,) * 9, to_move=0):
+        self.board, self.to_move = board, to_move
+
+    def winner(self):
+        for i, j, k in self.LINES:
+            if self.board[i] is not None and self.board[i] == self.board[j] == self.board[k]:
+                return self.board[i]
+        return None
+
+    def is_terminal(self):
+        return self.winner() is not None or None not in self.board
+
+    def legal_actions(self):           # must be empty at terminal states
+        return [] if self.is_terminal() else [i for i, x in enumerate(self.board) if x is None]
+
+    def play(self, a):                 # returns a new state: the tree keeps the old ones
+        b = list(self.board)
+        b[a] = self.to_move
+        return TicTacToe(tuple(b), 1 - self.to_move)
+
+    def result(self, player):          # 1 win, 0.5 draw, 0 loss, from `player`'s point of view
+        w = self.winner()
+        return 0.5 if w is None else float(w == player)
+
+print(mcts(TicTacToe(), n_sims=2000))  # usually 4, the centre</code></pre>
+  <p class="code-cap">In the course's reference test, 1,000 simulations per move won 96 and drew 4 of 100 games against a random player (alternating who starts) and lost none; MCTS against itself drew 19 of 20 games. Tic-Tac-Toe is a draw under perfect play, so self-play draws are the expected outcome.</p>
+
+  <h3>Anytime behaviour and the final move</h3>
+  <p>MCTS is an <em>anytime</em> algorithm: you can stop after any number of simulations and get a move, and more simulations give a better one. That makes it easy to fit into a time budget. Which child to play is a separate choice from the tree policy. Browne et al. (2012) list several rules: the <em>max child</em> (highest mean value), the <em>robust child</em> (most visits), and combinations. The robust child is the usual default. UCB1 sends most visits to the child it believes is best, and a child with few visits may have a high mean by luck.</p>
+
+  <h3>Tree reuse between moves</h3>
+  <p>After you play \(a\) and the opponent replies \(b\), the subtree below \((a, b)\) is still valid: its statistics were gathered from exactly the position you are now in. Make that node the new root and discard the rest (S&amp;B §8.11 describes this). The inherited simulations are a head start. Early in a game with seven legal replies the inherited share is modest, since the old budget was split across the opponent's options; in forcing lines, where one reply dominates, most of the previous search carries over.</p>
+
+  <h3>Handling stochasticity</h3>
+  <p>Dice, card draws and random transitions add <b>chance nodes</b>. After an action, the environment's outcome is sampled from the model instead of being chosen, and the chance node keeps one child per outcome it has seen. Its value is the visit-weighted average of its children, which converges to the expectation, as in expectimax. Selection at a chance node samples an outcome rather than applying UCB. When outcomes are numerous or continuous, almost every sample would create a new child and no node would gather statistics; <b>progressive widening</b> allows a new child only while the number of children is below \(k N^\alpha\) for constants \(k\) and \(\alpha &lt; 1\) (Coulom 2007; Couëtoux et al. 2011 apply it to both actions and outcomes). The simplest alternative is <b>open-loop</b> MCTS, where nodes are action sequences and statistics average over whatever outcomes occurred; it is easy, but it estimates the value of a fixed plan rather than of a policy that reacts to outcomes. Hidden information (cards in an opponent's hand) is usually handled by <em>determinization</em>, sampling the hidden state, as in Information Set MCTS (Cowling, Powley &amp; Whitehouse 2012).</p>
+  <pre><code>class ChanceNode:
+    """Sits between (state, action) and its random outcomes; one child per outcome seen."""
+    def __init__(self):
+        self.children, self.N, self.W = {}, 0, 0.0      # outcome key -&gt; decision Node
+
+    def select(self, state, action, rng):
+        nxt = state.sample_next(action, rng)            # the sample model rolls the dice
+        if nxt.key() not in self.children:              # new outcome: expand it
+            self.children[nxt.key()] = Node(nxt)
+        return self.children[nxt.key()]</code></pre>
+  <p class="code-cap">A fragment: <code>sample_next</code> and <code>key</code> are methods your stochastic game would provide. Backup through a chance node is the same as through any other node.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Perspective bugs.</b> Back up a result from the wrong player's point of view and the engine plays to lose, often convincingly. Test against a random player first; anything short of near-total domination means a sign error.</li>
+      <li><b>\(c\) is on the reward scale.</b> Moving from rewards in \([0, 1]\) to \([-1, 1]\) doubles the spread of the means, so the same \(c\) explores half as much.</li>
+      <li><b>Random rollouts mislead in tactical positions.</b> A move that loses by force in a few plies can look fine when averaged over random replies: Ramanujan, Sabharwal &amp; Selman (2010) call these shallow traps and show UCT struggles with them in chess-like games, where minimax search does not.</li>
+      <li><b>UCT has bad worst cases.</b> Coquelin &amp; Munos (2007) construct trees on which UCT needs an enormous (hyper-exponential) number of simulations to find the best move. The consistency theorem says nothing about how many is enough.</li>
+      <li><b>Terminal states that still list moves.</b> If <code>legal_actions()</code> returns moves after the game is won, the engine expands past the end of the game and miscounts results.</li>
+      <li><b>Transpositions.</b> The same position reached by different move orders gets separate nodes and split statistics. Graph-based variants share them, at the cost of more complicated backups.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Run the engine on Tic-Tac-Toe: 200 games against a random player (alternate who starts) at 1,000 simulations should produce no losses. Then 20 games of self-play.</li>
+      <li>Write an exact minimax solver for Tic-Tac-Toe. From 100 random non-terminal positions, measure how often MCTS picks a minimax-optimal move for \(n \in \{10, 30, 100, 300, 1000, 3000\}\) simulations.</li>
+      <li>Sweep \(c \in \{0, 0.5, 1, 1.4, 2, 4\}\) at 300 simulations using the same optimal-move rate. What goes wrong at \(c = 0\)?</li>
+      <li>Implement flat Monte Carlo (statistics only at the root, simulations split evenly between root moves) and compare it with UCT at equal budgets.</li>
+      <li>Compare the robust-child and max-child final-move rules at budgets of 20 and 100 simulations.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sutton &amp; Barto §8.9–8.11 · Kocsis &amp; Szepesvári 2006, “Bandit Based Monte-Carlo Planning” · Browne et al. 2012, “A Survey of Monte Carlo Tree Search Methods”, §2–3 · Auer, Cesa-Bianchi &amp; Fischer 2002, “Finite-time Analysis of the Multiarmed Bandit Problem”</p>
+</article>
+
+<!-- ================================================================ DAY 60 -->
+<article class="day project" id="d60">
+  <header class="day-head">
+    <span class="day-no">DAY 60</span>
+    <h2>MCTS Game Agent</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">180m practice</span><span class="proj">Project 5</span></p>
+  </header>
+
+  <p class="thesis">Turn yesterday's forty lines into an engine: a game interface any board game can implement, UCT with tree reuse and pluggable rollouts, Tic-Tac-Toe as the correctness test, and Connect Four as the real opponent. The project is about measurement: how strength scales with simulations, what the exploration constant does, and what reuse and a two-line heuristic buy.</p>
+
+  <h3>The engine's contract</h3>
+  <p>Keep the game interface from Day 59: <code>to_move</code>, <code>legal_actions()</code> (empty at terminal states), <code>play(a)</code> returning a <em>new</em> state, <code>is_terminal()</code>, and <code>result(player)</code> in \(\{0, \tfrac12, 1\}\). Immutability is the important part. The tree stores states, so a <code>play</code> that mutates its state in place silently corrupts every node that shares it.</p>
+  <p>Connect Four is played on 7 columns of 6 rows; a piece drops to the lowest empty cell of the chosen column, and four in a row horizontally, vertically or diagonally wins. The game is solved: the first player wins with perfect play by starting in the centre column (shown independently by James Allen and Victor Allis in 1988). There are at most 7 moves per position and at most 42 plies per game, so random rollouts are cheap, but immediate threats are everywhere, so random rollouts are also noisy evaluators. That combination makes it a good test of MCTS.</p>
+
+  <h3>Bitboards</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Connect Four bitboard layout: bit index 7 times column plus row, with an empty sentinel row on top of each column; a diagonal four uses bits 0, 8, 16 and 24">
+      <rect x="30" y="20" width="210" height="30" class="s-grid s-dash"/>
+      <path d="M30,50h210M30,80h210M30,110h210M30,140h210M30,170h210M30,200h210M30,230h210M30,50v180M60,50v180M90,50v180M120,50v180M150,50v180M180,50v180M210,50v180M240,50v180" class="s-grid"/>
+      <rect x="30" y="200" width="30" height="30" class="s-node-mod"/><rect x="60" y="170" width="30" height="30" class="s-node-mod"/><rect x="90" y="140" width="30" height="30" class="s-node-mod"/><rect x="120" y="110" width="30" height="30" class="s-node-mod"/>
+      <g class="s-mid s-sm">
+        <g class="s-ink3"><text x="45" y="39">6</text><text x="75" y="39">13</text><text x="105" y="39">20</text><text x="135" y="39">27</text><text x="165" y="39">34</text><text x="195" y="39">41</text><text x="225" y="39">48</text></g>
+        <g class="s-ink2">
+          <text x="45" y="69">5</text><text x="45" y="99">4</text><text x="45" y="129">3</text><text x="45" y="159">2</text><text x="45" y="189">1</text>
+          <text x="75" y="69">12</text><text x="75" y="99">11</text><text x="75" y="129">10</text><text x="75" y="159">9</text><text x="75" y="219">7</text>
+          <text x="105" y="69">19</text><text x="105" y="99">18</text><text x="105" y="129">17</text><text x="105" y="189">15</text><text x="105" y="219">14</text>
+          <text x="135" y="69">26</text><text x="135" y="99">25</text><text x="135" y="159">23</text><text x="135" y="189">22</text><text x="135" y="219">21</text>
+          <text x="165" y="69">33</text><text x="165" y="99">32</text><text x="165" y="129">31</text><text x="165" y="159">30</text><text x="165" y="189">29</text><text x="165" y="219">28</text>
+          <text x="195" y="69">40</text><text x="195" y="99">39</text><text x="195" y="129">38</text><text x="195" y="159">37</text><text x="195" y="189">36</text><text x="195" y="219">35</text>
+          <text x="225" y="69">47</text><text x="225" y="99">46</text><text x="225" y="129">45</text><text x="225" y="159">44</text><text x="225" y="189">43</text><text x="225" y="219">42</text>
+        </g>
+        <g class="s-mod"><text x="45" y="219">0</text><text x="75" y="189">8</text><text x="105" y="159">16</text><text x="135" y="129">24</text></g>
+      </g>
+      <text x="135" y="246" class="s-ink3 s-mid s-sm">columns 0–6 · row 0 at the bottom</text>
+      <g class="s-sm">
+        <text x="280" y="44" class="s-ink2">bit(c, r) = 7c + r</text>
+        <text x="280" y="64" class="s-ink2">row 6 of every column is always empty (sentinel)</text>
+        <text x="280" y="98">shift 1 → vertical          (r + 1)</text>
+        <text x="280" y="118">shift 7 → horizontal        (c + 1)</text>
+        <text x="280" y="138">shift 8 → diagonal ↗        (c + 1, r + 1)</text>
+        <text x="280" y="158">shift 6 → diagonal ↘        (c + 1, r − 1)</text>
+        <text x="280" y="192" class="s-mod">m = b &amp; (b &gt;&gt; s)</text>
+        <text x="280" y="212" class="s-mod">four in a row ⇔ m &amp; (m &gt;&gt; 2s) ≠ 0</text>
+      </g>
+    </svg>
+    <figcaption><b>One integer per player.</b> The highlighted diagonal is bits 0, 8, 16, 24, spaced by 8. The empty sentinel row stops shifts from wrapping a line from the top of one column into the bottom of the next.</figcaption>
+  </figure>
+  <div class="box deriv"><span class="tag">Why the shift test works</span>
+    <p>Bit \(i\) of \(m = b \mathbin{\&amp;} (b \gg s)\) is set exactly when bits \(i\) and \(i + s\) of \(b\) are both set: \(m\) marks the start of every pair spaced \(s\) apart. Bit \(i\) of \(m \mathbin{\&amp;} (m \gg 2s)\) is set exactly when pairs start at both \(i\) and \(i + 2s\), that is, when bits \(i, i+s, i+2s, i+3s\) are all set: four in a row in direction \(s\). Because row 6 is never occupied, any run that would cross from the top of one column to the bottom of the next must pass through a zero, so the test has no false positives. Connect Four has 69 lines of four (24 horizontal, 21 vertical, 24 diagonal), a good unit test.</p>
+  </div>
+  <pre><code>class ConnectFour:
+    """Bitboards: bit 7*col + row (row 0 = bottom). Row 6 of each column is an always-empty sentinel."""
+    def __init__(self, boards=(0, 0), heights=tuple(7 * c for c in range(7)), to_move=0, last=None):
+        self.boards, self.heights, self.to_move, self.last = boards, heights, to_move, last
+
+    @staticmethod
+    def four(b):                                   # any four in a row in bitboard b?
+        for shift in (1, 7, 6, 8):                 # vertical, horizontal, the two diagonals
+            m = b &amp; (b &gt;&gt; shift)
+            if m &amp; (m &gt;&gt; 2 * shift):
+                return True
+        return False
+
+    def winner(self):                              # only the player who just moved can have won
+        return self.last if self.last is not None and self.four(self.boards[self.last]) else None
+
+    def is_terminal(self):
+        return self.winner() is not None or all(h == 7 * c + 6 for c, h in enumerate(self.heights))
+
+    def legal_actions(self):
+        return [] if self.is_terminal() else [c for c in range(7) if self.heights[c] &lt; 7 * c + 6]
+
+    def wins_with(self, c, player):                # would `player` dropping in column c make four?
+        return self.four(self.boards[player] | (1 &lt;&lt; self.heights[c]))
+
+    def play(self, c):
+        boards, heights = list(self.boards), list(self.heights)
+        boards[self.to_move] |= 1 &lt;&lt; heights[c]
+        heights[c] += 1
+        return ConnectFour(tuple(boards), tuple(heights), 1 - self.to_move, self.to_move)
+
+    def result(self, player):
+        w = self.winner()
+        return 0.5 if w is None else float(w == player)</code></pre>
+
+  <h3>The engine: reuse and pluggable rollouts</h3>
+  <pre><code>import random
+# Node is Day 59's class.
+
+def random_rollout(state, rng):
+    while not state.is_terminal():
+        state = state.play(rng.choice(state.legal_actions()))
+    return state
+
+def heuristic_rollout(state, rng):
+    """Win now if you can; else block the opponent's immediate win; else play at random."""
+    while not state.is_terminal():
+        moves, me = state.legal_actions(), state.to_move
+        wins = [c for c in moves if state.wins_with(c, me)]
+        blocks = [c for c in moves if state.wins_with(c, 1 - me)]
+        state = state.play(rng.choice(wins or blocks or moves))
+    return state
+
+class MCTS:
+    def __init__(self, state, c=1.4, rollout=random_rollout, seed=0):
+        self.root, self.c, self.rollout, self.rng = Node(state), c, rollout, random.Random(seed)
+
+    def search(self, n_sims):
+        for _ in range(n_sims):
+            node = self.root
+            while not node.untried and node.children:               # selection
+                node = node.select_child(self.c)
+            if node.untried:                                        # expansion
+                a = node.untried.pop(self.rng.randrange(len(node.untried)))
+                node.children.append(Node(node.state.play(a), node, a))
+                node = node.children[-1]
+            final = self.rollout(node.state, self.rng)              # simulation
+            while node is not None:                                 # backup
+                node.N += 1
+                if node.parent is not None:
+                    node.W += final.result(node.parent.state.to_move)
+                node = node.parent
+        return max(self.root.children, key=lambda ch: ch.N).action
+
+    def advance(self, action):
+        """Tree reuse: re-root at the child for the move just played, by either side."""
+        for ch in self.root.children:
+            if ch.action == action:
+                ch.parent, self.root = None, ch
+                return
+        self.root = Node(self.root.state.play(action))              # never expanded: start fresh</code></pre>
+  <p class="code-cap">Call <code>advance</code> on <em>both</em> engines after every move, yours and the opponent's. To switch reuse off for an ablation, reset <code>engine.root = Node(state)</code> before each search.</p>
+
+  <h3>Project</h3>
+  <p><b>Goal.</b> A general MCTS engine, validated on Tic-Tac-Toe, that plays Connect Four well enough that you have to concentrate to beat it at a modest budget, plus a set of measured, reproducible answers to four questions: how does strength scale with simulations, what is a good \(c\), what does tree reuse buy, and what does a heuristic rollout buy at equal simulations and at equal time?</p>
+  <pre><code class="plain">mcts-connect4/
+├── games/
+│   ├── base.py            # the Game protocol (to_move, legal_actions, play, is_terminal, result)
+│   ├── tictactoe.py
+│   └── connect4.py        # bitboards
+├── mcts/
+│   ├── node.py
+│   ├── search.py          # UCT, budgets by simulations or seconds, final-move rule, tree reuse
+│   └── rollouts.py        # random, heuristic
+├── players/
+│   ├── random_player.py
+│   ├── minimax_ttt.py     # exact solver, for testing only
+│   └── human_cli.py
+├── experiments/
+│   ├── tournament.py      # paired games, alternating first player, confidence intervals
+│   ├── budget_sweep.py
+│   ├── c_sweep.py
+│   └── ablations.py       # reuse, rollout policy
+├── tests/
+│   └── test_games.py      # 69 lines of four, full-board draw, no moves after a win
+└── play.py                # you against the engine</code></pre>
+
+  <h3>Experiments</h3>
+  <ol>
+    <li><b>Correctness (Tic-Tac-Toe).</b> 1,000 simulations per move: 200 games against a random player, alternating who starts (expect zero losses), and 100 games against the minimax solver (expect draws, perhaps with occasional losses at low budgets; find the budget at which losses disappear).</li>
+    <li><b>Unit tests (Connect Four).</b> All 69 lines of four are detected; no false positives across column boundaries; a full board with no line is a draw; <code>legal_actions()</code> is empty after a win.</li>
+    <li><b>Exploration constant.</b> \(c \in \{0.25, 0.5, 1.0, 1.4, 2.0, 4.0\}\), each playing 200 games against \(c = 1.4\) at 400 simulations per move, alternating colours. Report the score with a 95% interval; with 200 games the half-width is about \(\pm 0.07\) near a score of 0.5.</li>
+    <li><b>Strength vs budget.</b> Budgets \(\{25, 50, 100, 200, 400, 800, 1600, 3200\}\) against a fixed 200-simulation opponent, 100–200 games each. Plot the score against \(\log_2\) budget, and convert it to an Elo difference with \(\Delta = 400\log_{10}\big(p/(1-p)\big)\) (scores of exactly 0 or 1 have no finite Elo; report them as bounds).</li>
+    <li><b>Tree reuse.</b> At 400 simulations, reuse against no reuse. Also log, at each move, the fraction of the new root's visits that were inherited.</li>
+    <li><b>Heuristic rollouts.</b> Heuristic against random rollouts at equal simulations (400 each), then at equal time per move (for example 0.5 s each).</li>
+    <li><b>Play it.</b> Using <code>play.py</code>, find the smallest budget you can no longer beat in five games.</li>
+  </ol>
+
+  <h3>What to expect</h3>
+  <ul>
+    <li><b>Speed.</b> Pure Python manages roughly 2,000 simulations per second from the Connect Four opening with random rollouts. A heuristic rollout costs about three times as much as a random one, because it checks every column for wins and blocks at every step.</li>
+    <li><b>Budget.</b> Larger budgets win consistently, with diminishing returns: the score of \(2n\) against \(n\) simulations is well above 0.5 at small budgets and drifts towards 0.5 as both grow. In a 20-game reference match, 400 simulations scored 0.70 against 100; your larger samples will tighten that.</li>
+    <li><b>c.</b> Expect a broad optimum below \(\sqrt 2\) with rewards in \([0, 1]\), and clearly worse play at the extremes. In a reference sweep at 200 simulations (40 games per point, so intervals of roughly \(\pm 0.15\)), \(c = 0.5\) and \(c = 1.0\) scored about 0.70 and 0.66 against \(c = 1.4\), while \(c = 0.25\), 2 and 4 all lost to it. The best value shifts with the budget, so re-check it at 3,200 simulations.</li>
+    <li><b>Reuse.</b> A modest gain at a fixed budget. Early in the game only a small share of the previous search survives (the old budget was split across seven replies); in forcing sequences much more does.</li>
+    <li><b>Heuristic.</b> A large gain at equal simulations: in a 20-game reference match at 200 simulations the heuristic engine scored 0.90. At equal wall-clock time the gap narrows because it runs roughly a third as many simulations. Report both; the comparison at equal time is the honest one.</li>
+    <li><b>Against you.</b> A few thousand random-rollout simulations per move usually see every immediate threat, but can still misjudge long-term structure, such as the odd/even threat patterns that strong players and solvers rely on. Expect to win by setting up threats several moves deep, not by tactics.</li>
+  </ul>
+  <div class="box note"><span class="tag">Common bugs</span>
+    <ul>
+      <li>Scoring every game from player 0's point of view while alternating colours, so half the results have the wrong sign.</li>
+      <li>Calling <code>advance</code> only on the engine that moved, so the other engine's root no longer matches the board.</li>
+      <li>Sharing one <code>random.Random</code> across both engines, which correlates their play and narrows your intervals artificially.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 180 min</h4>
+    <ol>
+      <li><b>30 min.</b> Game interface, Tic-Tac-Toe, Connect Four and the unit tests. Don't start the engine until the 69-line test passes.</li>
+      <li><b>30 min.</b> The engine with reuse and both rollout policies; the Tic-Tac-Toe correctness runs against random play and minimax.</li>
+      <li><b>60 min.</b> The \(c\) sweep and the budget sweep on Connect Four. Run them in the background on several cores while you write the next part.</li>
+      <li><b>40 min.</b> The reuse and heuristic ablations, including the equal-time comparison.</li>
+      <li><b>20 min.</b> Play against it, then write the one-page summary with your plots.</li>
+    </ol>
+  </div>
+
+  <ul class="deliverables">
+    <li>A game interface with Tic-Tac-Toe and bitboard Connect Four, with passing unit tests (69 lines, no wrap-around false positives, draws, no moves after a win).</li>
+    <li>A UCT engine with configurable \(c\), budget in simulations or seconds, the robust-child final move, tree reuse, and pluggable rollout policies.</li>
+    <li>A tournament script that alternates the first player, uses independent seeds per engine, and reports scores with 95% intervals.</li>
+    <li>Plots: strength vs budget (score and Elo), the \(c\) sweep, the reuse ablation, and heuristic vs random rollouts at equal simulations and at equal time.</li>
+    <li>A playable command-line game against the engine.</li>
+    <li>A one-page write-up: your best \(c\), the budget you can no longer beat, and what reuse and the heuristic bought, each with its interval.</li>
+  </ul>
+  <p class="refs"><b>Read</b> Browne et al. 2012, “A Survey of Monte Carlo Tree Search Methods” · Kocsis &amp; Szepesvári 2006, “Bandit Based Monte-Carlo Planning” · Sutton &amp; Barto §8.11 · Allis 1988, “A Knowledge-Based Approach of Connect-Four”</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m05.html"><small>Previous · Days 42–53</small>◂ Module 5 — Temporal-Difference Learning</a>
+  <a class="next" href="m07.html"><small>Next · Days 61–69</small>Module 7 — Function Approximation ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

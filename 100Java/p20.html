@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 20 — Caching &amp; NoSQL · 365 Days of Java Backend</title>
+<meta name="description" content="365 Days of Java Backend, phase 20: Caching &amp; NoSQL (lessons 385–396).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+</head>
+<body class="m20" data-lang="java">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>365 Days</b> of Java</a>
+  <span class="meta">Phase 20 · Caching &amp; NoSQL · Days 385–396</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 20 · Caching &amp; NoSQL</h4>
+  <nav>
+    <a href="#l385"><span class="n">L385</span>Caching Theory &amp; Strategies</a>
+    <a href="#l386"><span class="n">L386</span>Spring&#x27;s Cache Abstraction</a>
+    <a href="#l387"><span class="n">L387</span>Caffeine: High-Performance Local…</a>
+    <a href="#l388"><span class="n">L388</span>Redis Fundamentals</a>
+    <a href="#l389"><span class="n">L389</span>Redis as a Spring Cache</a>
+    <a href="#l390"><span class="n">L390</span>Redis Patterns: Locks, Rate Limit…</a>
+    <a href="#l391"><span class="n">L391</span>Cache Consistency, Stampedes &amp; Mu…</a>
+    <a href="#l392"><span class="n">L392</span>MongoDB: Modeling, Indexes &amp; Tran…</a>
+    <a href="#l393"><span class="n">L393</span>MongoDB Advanced: Aggregation, Ch…</a>
+    <a href="#l394"><span class="n">L394</span>Elasticsearch &amp; Full-Text Search</a>
+    <a href="#l395"><span class="n">L395</span>Cassandra, DynamoDB &amp; Wide-Column…</a>
+    <a href="#l396"><span class="n">L396</span>Polyglot Persistence &amp; Choosing a…</a>
+  </nav>
+  <h4>All 480 lessons</h4>
+  <div class="spine" data-spine data-module="20" style="grid-template-columns:repeat(20,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p19.html">◂ Phase 19</a><a href="p21.html">Phase 21 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 20 · Days 385–396 · Lessons 385–396</p>
+<h1>Caching &amp; NoSQL</h1>
+<p class="dek">Phase 20 makes a Spring Boot service fast under read load and teaches you to pick the right datastore for each access pattern: caching theory, Spring's cache abstraction over Caffeine and Redis, Redis as a toolkit for locks, rate limits and streams, then MongoDB, Elasticsearch, Cassandra and DynamoDB. It builds on the JPA and transaction work of the persistence phases and ends with a measured multi-level cache, the shared and consistent state that the microservices of Phase 21 depend on.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Estimate the effect of a hit-ratio change on latency and database load, and choose cache-aside, read-through, write-through, write-behind or refresh-ahead for a given endpoint.</li>
+    <li>Configure <code>@Cacheable</code>, <code>@CachePut</code> and <code>@CacheEvict</code> over Caffeine and Redis with per-cache TTLs, safe serializers, versioned keys and a <code>CacheErrorHandler</code>.</li>
+    <li>Prevent stampedes, penetration and avalanches, and keep an L1/L2 cache consistent across pods with after-commit invalidation and pub/sub.</li>
+    <li>Use Redis data structures for counters, leaderboards, rate limits, streams and locks, and explain why a correctness lock needs a fencing token.</li>
+    <li>Model and index MongoDB collections (embed vs reference, ESR), and write aggregation pipelines and resumable change-stream consumers.</li>
+    <li>Build relevance-ranked, faceted search with Elasticsearch kept in sync by CDC, and design query-first tables for Cassandra and DynamoDB.</li>
+    <li>Justify a datastore choice with CAP, PACELC and consistency models, or argue for Postgres alone.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>12</b> lessons</li><li><b>8h 55m</b> video</li><li><b>9h 35m</b> practice</li><li>Days <b>385–396</b></li>
+</ul>
+
+<!-- ================================================================ L385 -->
+<article class="day" id="l385">
+  <header class="day-head">
+    <span class="day-no">L385 · DAY 385</span>
+    <h2>Caching Theory &amp; Strategies</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">35m practice</span></p>
+  </header>
+  <p class="thesis">A cache is a bet that the recent past predicts the near future; the hit ratio tells you whether the bet pays, and the read/write pattern you choose decides how wrong the cache is allowed to be.</p>
+
+  <h3>Why caching works at all</h3>
+  <p>Real access patterns are not uniform. <b>Temporal locality</b>: an item read now is likely to be read again soon (the product page that is trending, the session of a logged-in user). <b>Spatial locality</b>: items near it are likely to be read too (the next page of results, the other fields of the same row, the next cache line). On top of locality sits <b>skew</b>: in most catalogues, feeds and APIs a small fraction of keys receives most of the traffic, a Pareto- or Zipf-shaped distribution. Skew is why a cache holding 1–5% of the data can absorb most of the reads.</p>
+  <div class="box def"><span class="tag">Definition</span>A <b>cache</b> is a smaller, faster copy of data whose source of truth lives elsewhere. Every cache entry is a <i>derived</i> value: it may be lost at any time without data loss, and it may be stale. If losing it would lose data, it is not a cache, it is a database.</div>
+
+  <h3>The hit ratio governs everything</h3>
+  <p>With hit ratio <i>h</i>, cache latency <i>t<sub>c</sub></i> and origin latency <i>t<sub>o</sub></i>, the average read costs <code>h·t<sub>c</sub> + (1 − h)·t<sub>o</sub></code>, and the origin sees <code>(1 − h)</code> of the traffic. Because <i>t<sub>o</sub></i> is usually 10–100 times <i>t<sub>c</sub></i>, the miss term dominates. What matters is the <b>miss ratio</b>, not the hit ratio.</p>
+  <div class="box intuition"><span class="tag">Worked example</span>Redis hit ≈ 1 ms, database query ≈ 40 ms, 10,000 reads/s.
+    <ul>
+      <li>h = 80%: average = 0.8·1 + 0.2·40 = 8.8 ms; the database serves 2,000 queries/s.</li>
+      <li>h = 95%: average = 0.95·1 + 0.05·40 = 2.95 ms; the database serves 500 queries/s.</li>
+    </ul>
+    A 15-point gain in hit ratio cuts the miss ratio from 20% to 5%: the database load drops by a factor of four and the mean latency by about three. Going from 95% to 99% is another factor of five on the database. This is why a cache that "only" moves from 80% to 95% can turn a database that is about to fall over into one that idles.</div>
+  <p>Measure it per cache name, not globally: one cold cache with a 30% hit ratio hides inside a healthy global average. Spring Boot exports <code>cache.gets{result=hit|miss}</code> through Micrometer for caches that record statistics.</p>
+
+  <h3>The caching layers in a real system</h3>
+  <p>A request can be answered by any of several layers. Each hit stops the request; each miss falls through to the next, slower layer. Under all of them, the CPU's own L1–L3 caches decide how fast your in-process code runs.</p>
+  <figure class="fig"><svg viewBox="0 0 680 230" role="img" aria-label="Request path through browser cache, CDN, application heap cache, Redis, database buffer pool and disk, with rough latencies">
+    <defs><marker id="ah-l385" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <text x="340" y="26" class="s-ttl s-mid">A read falls through until some layer hits</text>
+    <rect x="12" y="56" width="96" height="62" rx="6" class="s-node"/>
+    <rect x="124" y="56" width="96" height="62" rx="6" class="s-node"/>
+    <rect x="236" y="56" width="96" height="62" rx="6" class="s-node-mod"/>
+    <rect x="348" y="56" width="96" height="62" rx="6" class="s-node-mod"/>
+    <rect x="460" y="56" width="96" height="62" rx="6" class="s-node"/>
+    <rect x="572" y="56" width="96" height="62" rx="6" class="s-node"/>
+    <text x="60" y="84" class="s-ink s-mid">Browser</text><text x="60" y="102" class="s-sm s-ink2 s-mid">Cache-Control</text>
+    <text x="172" y="84" class="s-ink s-mid">CDN edge</text><text x="172" y="102" class="s-sm s-ink2 s-mid">public GETs</text>
+    <text x="284" y="84" class="s-ink s-mid">App heap</text><text x="284" y="102" class="s-sm s-ink2 s-mid">Caffeine</text>
+    <text x="396" y="84" class="s-ink s-mid">Redis</text><text x="396" y="102" class="s-sm s-ink2 s-mid">shared</text>
+    <text x="508" y="84" class="s-ink s-mid">DB buffer</text><text x="508" y="102" class="s-sm s-ink2 s-mid">hot pages</text>
+    <text x="620" y="84" class="s-ink s-mid">Disk</text><text x="620" y="102" class="s-sm s-ink2 s-mid">SSD pages</text>
+    <line x1="108" y1="87" x2="122" y2="87" class="s-ln-ink" marker-end="url(#ah-l385)"/>
+    <line x1="220" y1="87" x2="234" y2="87" class="s-ln-ink" marker-end="url(#ah-l385)"/>
+    <line x1="332" y1="87" x2="346" y2="87" class="s-ln-ink" marker-end="url(#ah-l385)"/>
+    <line x1="444" y1="87" x2="458" y2="87" class="s-ln-ink" marker-end="url(#ah-l385)"/>
+    <line x1="556" y1="87" x2="570" y2="87" class="s-ln-ink" marker-end="url(#ah-l385)"/>
+    <text x="60" y="142" class="s-sm s-acc s-mid">no request</text>
+    <text x="172" y="142" class="s-sm s-acc s-mid">~10-40 ms</text>
+    <text x="284" y="142" class="s-sm s-acc s-mid">&lt; 1 µs</text>
+    <text x="396" y="142" class="s-sm s-acc s-mid">~0.2-1 ms</text>
+    <text x="508" y="142" class="s-sm s-acc s-mid">~1 ms query</text>
+    <text x="620" y="142" class="s-sm s-acc s-mid">+ I/O wait</text>
+    <line x1="12" y1="172" x2="668" y2="172" class="s-ln s-dash"/>
+    <text x="12" y="194" class="s-sm s-ink2">closer to user: cheaper hits, harder to invalidate</text>
+    <text x="668" y="214" class="s-sm s-ink2 s-end">closer to data: fresher, costlier</text>
+  </svg><figcaption><b>Layers you control are shaded.</b> Latencies are order-of-magnitude figures inside one data centre (CDN: from the user); measure your own.</figcaption></figure>
+
+  <h3>Read and write patterns</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Pattern</th><th>Who loads / writes</th><th>Strength</th><th>Risk</th></tr></thead><tbody>
+    <tr><td><b>Cache-aside</b> (lazy loading)</td><td>App reads cache; on miss reads DB and fills cache; on write updates DB, deletes key</td><td>Simple, only caches what is read, cache outage degrades to DB</td><td>First read is slow; races between a stale fill and a delete</td></tr>
+    <tr><td><b>Read-through</b></td><td>Cache itself calls a loader on miss (Caffeine <code>LoadingCache</code>)</td><td>Loading logic in one place; per-key load coalescing</td><td>Same staleness as cache-aside</td></tr>
+    <tr><td><b>Write-through</b></td><td>Write goes to cache and DB synchronously</td><td>Cache always warm for written keys</td><td>Write latency of both; caches data nobody reads</td></tr>
+    <tr><td><b>Write-behind</b> (write-back)</td><td>Write to cache; flushed to DB asynchronously in batches</td><td>Very fast writes, coalesces hot counters</td><td>Data loss if the cache dies before flushing; DB lags</td></tr>
+    <tr><td><b>Refresh-ahead</b></td><td>Cache reloads hot entries shortly before expiry</td><td>No miss spike when popular keys expire</td><td>Wasted loads for keys that went cold</td></tr>
+  </tbody></table></div>
+  <p>Cache-aside is the default in Spring (<code>@Cacheable</code> is cache-aside with the method as the loader). Write-behind is rarely the right choice for business data; it fits view counters and metrics, where losing a few seconds of increments is acceptable.</p>
+<pre><code>import java.time.*;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
+/** Cache-aside with a TTL; the loader and writer are the source of truth. */
+public final class CacheAside&lt;K, V&gt; {
+    private record Entry&lt;T&gt;(T value, Instant expiresAt) {}
+
+    private final ConcurrentHashMap&lt;K, Entry&lt;V&gt;&gt; store = new ConcurrentHashMap&lt;&gt;();
+    private final Function&lt;K, Optional&lt;V&gt;&gt; loader;   // e.g. repo::findById
+    private final Duration ttl;
+    private final Clock clock;
+
+    public CacheAside(Function&lt;K, Optional&lt;V&gt;&gt; loader, Duration ttl, Clock clock) {
+        this.loader = loader; this.ttl = ttl; this.clock = clock;
+    }
+
+    public Optional&lt;V&gt; get(K key) {
+        Instant now = clock.instant();
+        Entry&lt;V&gt; e = store.get(key);
+        if (e != null &amp;&amp; now.isBefore(e.expiresAt())) return Optional.of(e.value()); // hit
+        Optional&lt;V&gt; loaded = loader.apply(key);                                      // miss
+        loaded.ifPresent(v -&gt; store.put(key, new Entry&lt;&gt;(v, now.plus(ttl))));
+        return loaded;
+    }
+
+    /** Write path: update the source of truth first, then delete (not update) the entry. */
+    public void write(K key, V value, Consumer&lt;V&gt; dbWriter) {
+        dbWriter.accept(value);
+        store.remove(key);
+    }
+}</code></pre>
+
+  <h3>Eviction and expiry</h3>
+  <p>A bounded cache must choose a victim when full. <b>LRU</b> evicts the least recently used entry and handles recency well but is wrecked by one large scan. <b>LFU</b> evicts the least frequently used and protects popular items but clings to formerly hot keys. <b>FIFO</b> and <b>random</b> are cheap and close to LRU on very skewed loads. <b>TinyLFU</b> keeps a compact frequency sketch and admits a newcomer only if it is estimated to be more popular than the victim; Caffeine's W-TinyLFU (<a href="#l387">L387</a>) adds a small LRU window so new bursts get a chance.</p>
+  <p>Size-based eviction protects memory; <b>time-based expiry</b> bounds staleness. <b>TTL</b> (time to live) expires an entry a fixed time after it was written; <b>TTI</b> (time to idle) expires it after a period without reads, which suits sessions but lets a constantly read entry live, and go stale, forever. Use both kinds of limit.</p>
+
+  <h3>The hard problems, and what never to cache</h3>
+  <ul>
+    <li><b>Invalidation</b>: every write path must delete the key, including batch jobs and manual SQL fixes that bypass the app. TTL is the backstop.</li>
+    <li><b>Staleness tolerance</b> is a product decision: a price may be 30 s old, a stock count used to accept orders may not.</li>
+    <li><b>Stampede / dogpile</b>: a hot key expires and hundreds of requests miss at once and all hit the database.</li>
+    <li><b>Hot keys</b>: one key gets so much traffic that the single Redis shard holding it saturates; replicate it locally.</li>
+    <li><b>Thundering herd on restart</b>: an empty cache after a deploy or flush sends 100% of reads to the origin. Warm up, or roll out gradually.</li>
+  </ul>
+  <p>Never put <b>per-user secrets or authorization-dependent data in a shared cache under a key that omits the user</b> (one user sees another's data), and never cache data with strict consistency needs (balances or stock checked before accepting money). <b>Measure</b> instead of assuming: per-cache hit ratio, load penalty (time spent on misses), eviction count, origin QPS before and after, and memory. A cache that does not move origin load or p99 latency is pure risk.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Caching without a TTL</b>: one missed invalidation path and an entry is wrong forever.</li>
+    <li><b>Unbounded local maps</b>: a <code>ConcurrentHashMap</code> used as a cache (like the sketch above) grows until the heap is full. Use a bounded cache.</li>
+    <li><b>Cache as primary store</b>: a Redis restart or eviction loses data that existed nowhere else.</li>
+    <li><b>Write-behind on business data</b>: the cache node dies and confirmed writes vanish. Stampedes and their fixes are in <a href="#l391">L391</a>.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 35 min</h4><ol>
+    <li>Compute average latency and DB queries per second for h = 50%, 80%, 95%, 99% with t<sub>c</sub> = 0.5 ms, t<sub>o</sub> = 30 ms and 5,000 reads/s. Plot DB load against h.</li>
+    <li>Wrap a slow repository (<code>Thread.sleep(30)</code>) in the <code>CacheAside</code> class above; drive it with keys drawn from a Zipf-like distribution and print the hit ratio for cache sizes of 1%, 5% and 20% of the key space (add a size bound first).</li>
+    <li>For five endpoints of an app you know, pick a pattern (aside, through, behind, refresh-ahead or "do not cache") and a TTL, and justify each in one line.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework reference, “Cache Abstraction” · Hennessy &amp; Patterson, <i>Computer Architecture: A Quantitative Approach</i>, ch. 2 (memory hierarchy) · Nishtala et al. 2013, “Scaling Memcache at Facebook” (NSDI) · Kleppmann, <i>Designing Data-Intensive Applications</i>, ch. 1 and 5</p>
+</article>
+<!-- ================================================================ L386 -->
+<article class="day" id="l386">
+  <header class="day-head">
+    <span class="day-no">L386 · DAY 386</span>
+    <h2>Spring's Cache Abstraction</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">Spring caching is cache-aside implemented by an AOP proxy: annotations describe keys and conditions, a <code>CacheManager</code> supplies the store, and every rule you already know about proxies applies.</p>
+
+  <h3>How it works underneath</h3>
+  <p><code>@EnableCaching</code> registers a <code>CacheInterceptor</code> advisor. Beans with caching annotations get a proxy (JDK or CGLIB, as for <code>@Transactional</code>). On each call the interceptor computes a key, asks the <code>CacheManager</code> for the named <code>Cache</code>, and either returns the cached value or invokes the real method and stores its result. The SPI is small: <code>CacheManager.getCache(name)</code> and <code>Cache.get/put/evict/clear</code>, so any store can be plugged in.</p>
+  <figure class="fig"><svg viewBox="0 0 660 230" role="img" aria-label="Caller calls proxy, CacheInterceptor checks the cache, on miss calls target method and puts result; self-invocation bypasses the proxy">
+    <defs><marker id="ah-l386" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="16" y="70" width="100" height="50" rx="6" class="s-node"/>
+    <text x="66" y="99" class="s-ink s-mid">Caller</text>
+    <rect x="170" y="60" width="150" height="70" rx="6" class="s-node-mod"/>
+    <text x="245" y="88" class="s-ink s-mid">Proxy</text>
+    <text x="245" y="106" class="s-sm s-ink2 s-mid">CacheInterceptor</text>
+    <rect x="390" y="20" width="120" height="50" rx="6" class="s-node"/>
+    <text x="450" y="42" class="s-ink s-mid">Cache</text>
+    <text x="450" y="58" class="s-sm s-ink2 s-mid">get / put</text>
+    <rect x="390" y="130" width="120" height="50" rx="6" class="s-node"/>
+    <text x="450" y="152" class="s-ink s-mid">Target bean</text>
+    <text x="450" y="168" class="s-sm s-ink2 s-mid">real method</text>
+    <line x1="116" y1="95" x2="168" y2="95" class="s-ln-ink" marker-end="url(#ah-l386)"/>
+    <line x1="320" y1="80" x2="388" y2="50" class="s-ln-acc" marker-end="url(#ah-l386)"/>
+    <text x="330" y="52" class="s-sm s-acc">1 key</text>
+    <line x1="320" y1="112" x2="388" y2="148" class="s-ln-warn" marker-end="url(#ah-l386)"/>
+    <text x="300" y="150" class="s-sm s-warn s-end">2 miss</text>
+    <path d="M510,155 C600,155 600,45 512,45" class="s-ln-mod" marker-end="url(#ah-l386)"/>
+    <text x="596" y="104" class="s-sm s-mod">3 put</text>
+    <path d="M450,180 C450,215 560,215 560,190 C560,170 520,160 512,160" class="s-ln-bad s-dash" marker-end="url(#ah-l386)"/>
+    <text x="560" y="222" class="s-sm s-bad s-mid">this.find(): no proxy</text>
+  </svg><figcaption><b>Only calls through the proxy are cached.</b> A method calling another cached method on <code>this</code> skips the interceptor, exactly like self-invoked <code>@Transactional</code>.</figcaption></figure>
+
+  <h3>@Cacheable, @CachePut, @CacheEvict</h3>
+  <ul>
+    <li><b><code>@Cacheable</code></b>: look up first, run the method only on a miss. <code>cacheNames</code> (alias <code>value</code>) names the cache; <code>key</code> is SpEL over the arguments (<code>#id</code>, <code>#user.id</code> calls <code>getId()</code>, <code>#user.id()</code> for a record, <code>#root.methodName</code>, <code>#root.args[0]</code>); <code>keyGenerator</code> names a bean instead. <code>condition</code> is evaluated <i>before</i> the call (false means no lookup and no put); <code>unless</code> is evaluated <i>after</i>, on <code>#result</code>, and only vetoes the put. <code>sync = true</code> makes concurrent misses for the same key wait for one loader, the in-process stampede fix.</li>
+    <li><b><code>@CachePut</code></b>: always run the method, always store the result. Use it on update methods so the cache holds the new value; never put it on the same method as <code>@Cacheable</code>.</li>
+    <li><b><code>@CacheEvict</code></b>: remove <code>key</code>, or every entry with <code>allEntries = true</code>. <code>beforeInvocation = true</code> evicts even if the method throws; the default evicts only after success.</li>
+    <li><b><code>@Caching</code></b> groups several of these on one method; <b><code>@CacheConfig</code></b> sets defaults (cache names, key generator, manager) for a class.</li>
+  </ul>
+<pre><code>@Service
+@CacheConfig(cacheNames = "products")
+class ProductService {
+    private final ProductRepository repo;
+    ProductService(ProductRepository repo) { this.repo = repo; }
+
+    @Cacheable(key = "#id", unless = "#result == null")
+    public Optional&lt;Product&gt; find(long id) { return repo.findById(id); }
+
+    @Cacheable(cacheNames = "productPages", sync = true,
+               key = "#category + ':' + #page", condition = "#page &lt; 5")
+    public List&lt;Product&gt; page(String category, int page) {
+        return repo.findByCategory(category, PageRequest.of(page, 20)).getContent();
+    }
+
+    @CachePut(key = "#result.id()")
+    public Product update(Product p) { return repo.save(p); }
+
+    @Caching(evict = {
+        @CacheEvict(key = "#id"),
+        @CacheEvict(cacheNames = "productPages", allEntries = true) })
+    public void delete(long id) { repo.deleteById(id); }
+}</code></pre>
+  <p>For an <code>Optional</code> return type Spring caches the contained value (or null) and <code>#result</code> refers to the unwrapped value, so <code>unless = "#result == null"</code> works.</p>
+
+  <h3>Nulls, wrappers and negative caching</h3>
+  <p><code>Cache.get(key)</code> returns a <code>Cache.ValueWrapper</code>: a <code>null</code> wrapper means "miss", a wrapper holding <code>null</code> means "we cached that it does not exist". That distinction enables <b>negative caching</b>: remembering misses so a flood of lookups for a missing id does not reach the database. Whether to allow it is a decision: <code>unless = "#result == null"</code> (or Redis's <code>disableCachingNullValues</code>) refuses to store nulls, so a row inserted later appears at once, but missing keys are never protected. A middle path is a separate short-TTL cache for misses.</p>
+
+  <h3>Keys and the default generator</h3>
+  <div class="box def"><span class="tag">Definition</span><code>SimpleKeyGenerator</code>: no arguments gives <code>SimpleKey.EMPTY</code>; one argument is the key itself; several give a <code>SimpleKey</code> of all of them. The method name and class are <b>not</b> part of the key.</div>
+  <p>So two methods sharing a cache name with the same argument values collide: <code>findById(42)</code> and an overload <code>find(42)</code> returning a different type read each other's entries, and the second one gets a <code>ClassCastException</code>. Give every method its own cache name, or register a generator that includes the method:</p>
+<pre><code>@Configuration
+@EnableCaching
+class CacheConfig implements CachingConfigurer {
+    private static final Logger log = LoggerFactory.getLogger(CacheConfig.class);
+
+    @Bean
+    KeyGenerator methodKey() {
+        return (target, method, params) -&gt; method.getDeclaringClass().getSimpleName()
+                + "." + method.getName() + Arrays.deepToString(params);
+    }
+
+    @Override  // a cache outage becomes a miss instead of a 500
+    public CacheErrorHandler errorHandler() {
+        return new CacheErrorHandler() {
+            public void handleCacheGetError(RuntimeException e, Cache c, Object k) {
+                log.warn("cache get failed: {}", c.getName(), e); }
+            public void handleCachePutError(RuntimeException e, Cache c, Object k, Object v) {
+                log.warn("cache put failed: {}", c.getName(), e); }
+            public void handleCacheEvictError(RuntimeException e, Cache c, Object k) {
+                log.error("EVICT FAILED, entry may be stale: {} {}", c.getName(), k, e); }
+            public void handleCacheClearError(RuntimeException e, Cache c) {
+                log.error("clear failed: {}", c.getName(), e); }
+        };
+    }
+}</code></pre>
+  <p>The default <code>SimpleCacheErrorHandler</code> rethrows, so a Redis outage fails every cached endpoint. Swallowing get and put errors degrades to "no cache"; a failed evict deserves an alert, because it leaves stale data until the TTL.</p>
+
+  <h3>Cache managers and the Actuator endpoint</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Manager</th><th>Store</th><th>Use</th></tr></thead><tbody>
+    <tr><td><code>ConcurrentMapCacheManager</code></td><td>Unbounded maps, no TTL</td><td>Tests and demos only</td></tr>
+    <tr><td><code>CaffeineCacheManager</code></td><td>Bounded local heap</td><td>Per-instance hot data (<a href="#l387">L387</a>)</td></tr>
+    <tr><td><code>RedisCacheManager</code></td><td>Shared Redis</td><td>Consistent across pods (<a href="#l389">L389</a>)</td></tr>
+    <tr><td><code>JCacheCacheManager</code></td><td>Any JSR-107 provider</td><td>Ehcache 3, Hazelcast, Infinispan</td></tr>
+    <tr><td><code>CompositeCacheManager</code></td><td>Delegates in order</td><td>Several managers; it does not create two-level caching</td></tr>
+  </tbody></table></div>
+<pre><code class="plain">spring:
+  cache:
+    type: caffeine            # simple | caffeine | redis | jcache | none
+    cache-names: products,productPages
+management:
+  endpoints.web.exposure.include: health,caches
+# GET /actuator/caches lists caches; DELETE /actuator/caches/products clears one</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b><code>sync = true</code> with <code>unless</code></b>: rejected with an <code>IllegalStateException</code> on the first call; sync also allows only one cache and no other cache annotations on the method.</li>
+    <li><b>Self-invocation</b>: <code>this.find(id)</code> inside the service is never cached. Move the cached method to another bean.</li>
+    <li><b>SpEL names without <code>-parameters</code></b>: <code>#id</code> needs parameter names in the bytecode; Spring Boot's build plugins set the flag, hand-rolled builds may not. <code>#p0</code> or <code>#a0</code> always work.</li>
+    <li><b>Mutable cached objects</b>: with a local cache, the caller gets the same instance that is cached; mutating it changes the cache for everyone. Cache records.</li>
+    <li><b><code>ConcurrentMapCacheManager</code> in production</b>: no size bound, no TTL, a slow memory leak.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Add <code>@Cacheable</code> to a repository-backed lookup with a 200 ms artificial delay; prove hits with timing and with <code>/actuator/caches</code>.</li>
+    <li>Write a test showing <code>condition</code> vs <code>unless</code>: one call that is never looked up, one that runs but is not stored.</li>
+    <li>Reproduce the <code>SimpleKeyGenerator</code> collision with two methods on one cache name, then fix it with the custom generator.</li>
+    <li>Fire 50 concurrent requests for one cold key with and without <code>sync = true</code> and count loader invocations.</li>
+    <li>Point the app at a stopped Redis and confirm the <code>CacheErrorHandler</code> turns failures into misses.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Framework reference, “Cache Abstraction” (declarative annotations, SpEL context, configuring the storage) · Spring Boot reference, “Caching” · Javadoc: <code>CacheInterceptor</code>, <code>SimpleKeyGenerator</code>, <code>CacheErrorHandler</code>, <code>Cache.ValueWrapper</code></p>
+</article>
+<!-- ================================================================ L387 -->
+<article class="day" id="l387">
+  <header class="day-head">
+    <span class="day-no">L387 · DAY 387</span>
+    <h2>Caffeine: High-Performance Local Caching</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">Caffeine gives each JVM a bounded, concurrent, near-optimal cache in the heap; the price is that every instance holds its own copy, which you must size against the heap and invalidate across pods yourself.</p>
+
+  <h3>Why Caffeine, and how W-TinyLFU works</h3>
+  <p>Caffeine is the successor to Guava's cache, written by one of Guava cache's authors, and is the local cache Spring Boot auto-configures. Its eviction policy, <b>Window TinyLFU</b>, keeps hit ratios close to the theoretical optimum on most real traces while staying O(1) per operation.</p>
+  <figure class="fig"><svg viewBox="0 0 660 220" role="img" aria-label="W-TinyLFU: new entries enter a small LRU window, then compete via a frequency sketch for admission into the main segmented LRU">
+    <defs><marker id="ah-l387" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <text x="330" y="22" class="s-ttl s-mid">W-TinyLFU</text>
+    <rect x="16" y="70" width="110" height="56" rx="6" class="s-node"/>
+    <text x="71" y="94" class="s-ink s-mid">Window LRU</text><text x="71" y="112" class="s-sm s-ink2 s-mid">~1% of size</text>
+    <rect x="186" y="62" width="140" height="72" rx="6" class="s-node-mod"/>
+    <text x="256" y="88" class="s-ink s-mid">Admission</text><text x="256" y="106" class="s-sm s-ink2 s-mid">freq(cand) &gt;</text><text x="256" y="122" class="s-sm s-ink2 s-mid">freq(victim)?</text>
+    <rect x="390" y="44" width="250" height="110" rx="6" class="s-node"/>
+    <text x="515" y="64" class="s-ink s-mid">Main: segmented LRU</text>
+    <rect x="404" y="76" width="96" height="62" rx="4" class="s-node"/>
+    <text x="452" y="102" class="s-sm s-ink s-mid">probation</text><text x="452" y="120" class="s-sm s-ink2 s-mid">~20%</text>
+    <rect x="530" y="76" width="96" height="62" rx="4" class="s-node"/>
+    <text x="578" y="102" class="s-sm s-ink s-mid">protected</text><text x="578" y="120" class="s-sm s-ink2 s-mid">~80%</text>
+    <line x1="126" y1="98" x2="184" y2="98" class="s-ln-ink" marker-end="url(#ah-l387)"/>
+    <text x="155" y="88" class="s-sm s-ink2 s-mid">evict</text>
+    <line x1="326" y1="98" x2="402" y2="106" class="s-ln-acc" marker-end="url(#ah-l387)"/>
+    <text x="362" y="92" class="s-sm s-acc s-mid">win</text>
+    <line x1="500" y1="107" x2="528" y2="107" class="s-ln-mod" marker-end="url(#ah-l387)"/>
+    <line x1="256" y1="134" x2="256" y2="180" class="s-ln-bad" marker-end="url(#ah-l387)"/>
+    <text x="256" y="198" class="s-sm s-bad s-mid">loser dropped</text>
+    <text x="515" y="182" class="s-sm s-ink2 s-mid">hit in probation promotes</text>
+    <text x="16" y="198" class="s-sm s-ink3">sketch: 4-bit counts, halved periodically</text>
+  </svg><figcaption><b>Recency gets a short trial, frequency decides who stays.</b> A count-min style sketch estimates popularity in a few bytes per entry and is periodically halved so old popularity fades; Caffeine also adapts the window size to the workload.</figcaption></figure>
+  <p>A one-off scan fills only the window and loses the admission contest, so it cannot flush the hot set, the classic LRU failure. A burst of new popular keys survives the window long enough to build frequency.</p>
+
+  <h3>The builder</h3>
+<pre><code>import com.github.benmanes.caffeine.cache.*;
+import java.time.Duration;
+import java.time.Instant;
+
+record Rate(String pair, double value, Instant asOf) {}
+record Token(String value, Instant expiresAt) {}
+
+LoadingCache&lt;String, Rate&gt; rates = Caffeine.newBuilder()
+    .maximumSize(10_000)
+    .expireAfterWrite(Duration.ofMinutes(10))   // hard staleness bound
+    .refreshAfterWrite(Duration.ofMinutes(1))   // serve old value, reload in background
+    .recordStats()
+    .build(pair -&gt; fxClient.fetch(pair));       // CacheLoader: null means "absent"
+
+Cache&lt;String, byte[]&gt; blobs = Caffeine.newBuilder()
+    .maximumWeight(64L * 1024 * 1024)           // about 64 MB of payload
+    .weigher((String k, byte[] v) -&gt; v.length)
+    .build();
+
+Cache&lt;String, Token&gt; tokens = Caffeine.newBuilder()
+    .expireAfter(new Expiry&lt;String, Token&gt;() {  // per-entry (variable) expiry
+        public long expireAfterCreate(String k, Token t, long now) {
+            return Duration.between(Instant.now(), t.expiresAt()).toNanos(); }
+        public long expireAfterUpdate(String k, Token t, long now, long left) {
+            return expireAfterCreate(k, t, now); }
+        public long expireAfterRead(String k, Token t, long now, long left) {
+            return left; }                      // reads do not extend it
+    })
+    .build();</code></pre>
+  <ul>
+    <li><code>maximumSize</code> counts entries; <code>maximumWeight</code> + <code>weigher</code> bounds by cost (bytes, rows). Use one or the other.</li>
+    <li><code>expireAfterWrite</code> is a TTL, <code>expireAfterAccess</code> a TTI; <code>expireAfter(Expiry)</code> gives each entry its own lifetime (inspect it through <code>policy().expireVariably()</code>).</li>
+    <li><code>weakKeys()</code> switches key comparison to identity (<code>==</code>), so equal strings from different requests never match; <code>softValues()</code> lets the GC decide eviction, which is unpredictable and costly under pressure. Prefer explicit bounds.</li>
+  </ul>
+  <div class="box def"><span class="tag">Definition</span><b>Expiry vs refresh.</b> After <code>expireAfterWrite</code> the entry is gone: the next <code>get</code> blocks on the loader. After <code>refreshAfterWrite</code> the entry is merely <i>eligible</i>: the next <code>get</code> returns the old value at once and triggers an asynchronous reload; if the reload fails, the old value stays. Refresh needs a <code>LoadingCache</code> and only happens for keys that are actually read. Combine them: refresh at 1 minute for freshness, expire at 10 minutes as the hard limit.</div>
+
+  <h3>Loading and async caches</h3>
+  <p><code>LoadingCache.get(k)</code> computes atomically per key: concurrent callers for one cold key wait for a single load, so Caffeine has stampede protection built in. <code>getAll(keys)</code> uses <code>CacheLoader.loadAll</code> for batch fetches if you override it. <code>AsyncLoadingCache</code> (<code>buildAsync(loader)</code>) stores <code>CompletableFuture</code>s, so a caller never blocks a thread waiting for another caller's load, and a failed future is removed automatically.</p>
+<pre><code>AsyncLoadingCache&lt;Long, User&gt; users = Caffeine.newBuilder()
+    .maximumSize(50_000).expireAfterWrite(Duration.ofMinutes(5))
+    .buildAsync(id -&gt; userClient.fetch(id));         // runs on ForkJoinPool.commonPool() by default
+CompletableFuture&lt;User&gt; u = users.get(42L);</code></pre>
+
+  <h3>Spring integration and statistics</h3>
+<pre><code class="plain">spring:
+  cache:
+    type: caffeine
+    cache-names: products,users
+    caffeine:
+      spec: maximumSize=1000,expireAfterWrite=10m,recordStats</code></pre>
+  <p>One spec applies to every cache. For different settings per name, build the manager yourself:</p>
+<pre><code>@Bean
+CacheManager cacheManager() {
+    var mgr = new CaffeineCacheManager();
+    mgr.setCaffeine(Caffeine.from(CaffeineSpec.parse("maximumSize=1000,expireAfterWrite=10m,recordStats")));
+    mgr.registerCustomCache("countries", Caffeine.newBuilder()
+        .maximumSize(300).expireAfterWrite(Duration.ofDays(1)).recordStats().build());
+    mgr.registerCustomCache("users", Caffeine.newBuilder()
+        .maximumSize(50_000).expireAfterWrite(Duration.ofMinutes(5)).recordStats().build());
+    return mgr;
+}</code></pre>
+  <p><code>CacheStats</code> gives <code>hitRate()</code>, <code>missCount()</code>, <code>averageLoadPenalty()</code> (nanoseconds per load), and <code>evictionCount()</code>. With <code>recordStats</code>, Boot binds caches known at startup to Micrometer as <code>cache.gets</code>, <code>cache.puts</code>, <code>cache.evictions</code>; caches created lazily later are not bound, so declare cache names. Outside Spring, <code>CaffeineCacheMetrics.monitor(registry, cache, "name")</code> does the same. A high eviction count with a low hit ratio means the cache is too small for the working set.</p>
+
+  <h3>The limits of a local cache</h3>
+  <p>With N pods there are N independent copies. An update handled by pod 1 evicts pod 1's entry; pods 2..N keep serving the old value until their TTL. Fixes: a short TTL when staleness is acceptable, or a pub/sub broadcast of invalidations to every pod (built in <a href="#l391">L391</a>). Each copy also multiplies origin load after a deploy, since every pod warms independently.</p>
+  <p><b>Sizing against the heap</b>: entries are long-lived, so they are promoted to the old generation and enlarge the live set every GC must trace or copy. Estimate entry size (object headers, key, value graph, and roughly a few dozen bytes of cache node overhead), multiply by <code>maximumSize</code>, and keep the result a modest fraction of the heap. Measure with a heap histogram (<code>jcmd &lt;pid&gt; GC.class_histogram</code>) rather than guessing.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b><code>refreshAfterWrite</code> on a plain <code>Cache</code></b>: <code>build()</code> without a loader throws <code>IllegalStateException</code>.</li>
+    <li><b>Refresh without expiry</b>: if the source is down, refreshes keep failing and a cold key's value can live forever.</li>
+    <li><b>Blocking loaders in <code>AsyncLoadingCache</code></b> on the common pool starve every other user of that pool; pass an <code>executor(...)</code>.</li>
+    <li><b>Mutable cached values</b>: callers share one instance; one mutation corrupts the cache for every thread.</li>
+    <li><b>Stale reads after writes on other pods</b>, which surface as "random" bugs that disappear after the TTL.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Replay a Zipf-distributed key stream into Caffeine and into an LRU <code>LinkedHashMap</code> of the same size; compare hit ratios, then add a one-off scan of 10× the cache size in the middle.</li>
+    <li>Build a <code>LoadingCache</code> with refresh at 2 s and expire at 10 s over a loader that logs; show that reads at 3 s return the old value while a reload runs.</li>
+    <li>Configure two caches with different specs in a <code>CaffeineCacheManager</code> and verify their metrics in <code>/actuator/metrics/cache.gets</code>.</li>
+    <li>Fill a 100,000-entry cache of a realistic record and measure the retained heap with a class histogram.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Caffeine wiki: “Eviction”, “Refresh”, “Statistics” · Einziger, Friedman &amp; Manes 2017, “TinyLFU: A Highly Efficient Cache Admission Policy” (ACM TOS) · Spring Boot reference, “Caching: Caffeine” · Javadoc: <code>Caffeine</code>, <code>Expiry</code>, <code>CaffeineCacheManager</code></p>
+</article>
+<!-- ================================================================ L388 -->
+<article class="day" id="l388">
+  <header class="day-head">
+    <span class="day-no">L388 · DAY 388</span>
+    <h2>Redis Fundamentals</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">Redis is a single-threaded server of in-memory data structures: each command is atomic because nothing else runs while it executes, and picking the right structure turns most "cache plus logic" problems into one command.</p>
+
+  <h3>One thread, atomic commands</h3>
+  <div class="box def"><span class="tag">Definition</span><b>Redis</b> is an in-memory key-value server whose values are data structures (strings, hashes, lists, sets, sorted sets, streams…). Commands are executed one at a time on a single main thread; since 6.0 optional I/O threads read and write sockets, but command execution stays serial.</div>
+  <p>Consequences: every single command is atomic (an <code>INCR</code> can never lose an update); a slow command (<code>KEYS *</code>, <code>HGETALL</code> on a million-field hash, a long Lua script) blocks every client; and throughput comes from commands being O(1) or O(log n) on RAM, not from parallelism. Background threads handle lazy freeing (<code>UNLINK</code>), AOF fsync, and RDB snapshots run in a forked child.</p>
+  <figure class="fig"><svg viewBox="0 0 640 210" role="img" aria-label="Many clients feed one event loop which executes commands one at a time against in-memory structures; background threads free memory and persist">
+    <defs><marker id="ah-l388" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="16" y="30" width="90" height="30" rx="5" class="s-node"/><text x="61" y="50" class="s-sm s-ink s-mid">client A</text>
+    <rect x="16" y="80" width="90" height="30" rx="5" class="s-node"/><text x="61" y="100" class="s-sm s-ink s-mid">client B</text>
+    <rect x="16" y="130" width="90" height="30" rx="5" class="s-node"/><text x="61" y="150" class="s-sm s-ink s-mid">client C</text>
+    <rect x="170" y="62" width="160" height="66" rx="6" class="s-node-mod"/>
+    <text x="250" y="88" class="s-ink s-mid">event loop</text><text x="250" y="106" class="s-sm s-ink2 s-mid">1 command at a time</text>
+    <rect x="400" y="50" width="220" height="90" rx="6" class="s-node"/>
+    <text x="510" y="74" class="s-ink s-mid">RAM: dict of keys</text>
+    <text x="510" y="94" class="s-sm s-ink2 s-mid">string hash list set</text>
+    <text x="510" y="112" class="s-sm s-ink2 s-mid">zset stream bitmap HLL</text>
+    <line x1="106" y1="45" x2="168" y2="80" class="s-ln-ink" marker-end="url(#ah-l388)"/>
+    <line x1="106" y1="95" x2="168" y2="95" class="s-ln-ink" marker-end="url(#ah-l388)"/>
+    <line x1="106" y1="145" x2="168" y2="110" class="s-ln-ink" marker-end="url(#ah-l388)"/>
+    <line x1="330" y1="95" x2="398" y2="95" class="s-ln-acc" marker-end="url(#ah-l388)"/>
+    <rect x="400" y="160" width="220" height="34" rx="5" class="s-node"/>
+    <text x="510" y="181" class="s-sm s-ink3 s-mid">bg: UNLINK, fsync, fork for RDB</text>
+    <text x="250" y="160" class="s-sm s-warn s-mid">slow command = all wait</text>
+  </svg><figcaption><b>Serial execution is both the feature and the hazard.</b> Atomicity comes for free; latency for everyone depends on the slowest command in the queue.</figcaption></figure>
+
+  <h3>Data types and what they are for</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Type</th><th>Real use</th><th>Commands</th></tr></thead><tbody>
+    <tr><td>String</td><td>Cached JSON, counters, flags</td><td><code>SET</code> <code>GET</code> <code>INCR</code> <code>INCRBY</code></td></tr>
+    <tr><td>Hash</td><td>Objects with partial updates, small maps</td><td><code>HSET</code> <code>HGET</code> <code>HINCRBY</code></td></tr>
+    <tr><td>List</td><td>Simple queues, "last 20 viewed"</td><td><code>LPUSH</code> <code>LTRIM</code> <code>BRPOP</code></td></tr>
+    <tr><td>Set</td><td>Tags, unique members, intersections</td><td><code>SADD</code> <code>SISMEMBER</code> <code>SINTER</code></td></tr>
+    <tr><td>Sorted set</td><td>Leaderboards, priority queues, sliding-window rate limits</td><td><code>ZADD</code> <code>ZINCRBY</code> <code>ZREVRANGE</code> <code>ZREMRANGEBYSCORE</code></td></tr>
+    <tr><td>Bitmap</td><td>Daily active users: one bit per user id</td><td><code>SETBIT</code> <code>BITCOUNT</code> <code>BITOP</code></td></tr>
+    <tr><td>HyperLogLog</td><td>Approximate distinct counts in at most 12 KB (about 0.81% standard error)</td><td><code>PFADD</code> <code>PFCOUNT</code> <code>PFMERGE</code></td></tr>
+    <tr><td>Stream</td><td>Append-only log with consumer groups</td><td><code>XADD</code> <code>XREADGROUP</code> <code>XACK</code></td></tr>
+    <tr><td>Geo</td><td>"Shops within 5 km" (a sorted set underneath)</td><td><code>GEOADD</code> <code>GEOSEARCH</code></td></tr>
+  </tbody></table></div>
+<pre><code>@Service
+class Signals {
+    private final StringRedisTemplate redis;
+    Signals(StringRedisTemplate redis) { this.redis = redis; }
+
+    Long countView(long productId) {                         // atomic counter
+        return redis.opsForValue().increment("views:" + productId);
+    }
+    void recordRecent(long userId, long productId) {         // capped list
+        String key = "recent:" + userId;
+        redis.opsForList().leftPush(key, Long.toString(productId));
+        redis.opsForList().trim(key, 0, 19);
+    }
+    Set&lt;ZSetOperations.TypedTuple&lt;String&gt;&gt; top10(String board) {
+        return redis.opsForZSet().reverseRangeWithScores(board, 0, 9);
+    }
+    void markActive(long userId, LocalDate day) {            // 1 bit per user
+        redis.opsForValue().setBit("dau:" + day, userId, true);
+    }
+    void visit(String page, String visitorId) {              // HyperLogLog
+        redis.opsForHyperLogLog().add("uv:" + page, visitorId);
+    }
+    List&lt;String&gt; sessionKeys() {                             // SCAN, never KEYS
+        var opts = ScanOptions.scanOptions().match("session:*").count(500).build();
+        try (Cursor&lt;String&gt; c = redis.scan(opts)) { return c.stream().toList(); }
+    }
+}</code></pre>
+
+  <h3>Key commands</h3>
+  <ul>
+    <li><code>SET k v EX 60 NX</code> sets with a TTL only if absent, in one atomic command; it subsumes <code>SETEX</code> and <code>SETNX</code>. <code>SET k v GET</code> replaces the deprecated <code>GETSET</code>.</li>
+    <li><code>EXPIRE</code> sets a TTL, <code>TTL</code> reads it (−1 none, −2 missing key), <code>PERSIST</code> removes it. A plain <code>SET</code> without <code>KEEPTTL</code> clears an existing TTL.</li>
+    <li><code>DEL</code> frees memory synchronously, which can block for a large collection; <code>UNLINK</code> removes the key at once and frees memory in the background.</li>
+    <li><code>KEYS pattern</code> walks the whole keyspace in one blocking call; <code>SCAN</code> iterates with a cursor in small batches (it may return duplicates, so deduplicate).</li>
+    <li><code>MULTI</code>/<code>EXEC</code> queues commands and runs them without interleaving, but there is no rollback and you cannot branch on intermediate results; <code>EVAL</code> runs a Lua script atomically, which is how you do compare-and-set logic.</li>
+  </ul>
+
+  <h3>Expiry, eviction and persistence</h3>
+  <p>Expiry is <b>lazy plus active</b>: a read of an expired key deletes it and returns nothing; a background cycle samples keys that have TTLs and deletes expired ones, repeating while many in the sample were expired. So an expired key can occupy memory for a while after its TTL, though reads will not return it; replicas wait for the primary's <code>DEL</code>.</p>
+  <p>When <code>maxmemory</code> is reached, <code>maxmemory-policy</code> decides: <code>noeviction</code> (the default: writes fail with an OOM error), <code>allkeys-lru</code>/<code>allkeys-lfu</code> (any key; the right choice for a pure cache), <code>volatile-lru</code>/<code>volatile-lfu</code>/<code>volatile-ttl</code> (only keys with a TTL, for mixed cache and data), and random variants. LRU and LFU are approximated by sampling a few keys per eviction.</p>
+  <p><b>Persistence</b>: RDB writes point-in-time snapshots from a forked child (copy-on-write can briefly double memory under heavy writes); AOF logs every write with <code>appendfsync always</code> (safest, slowest), <code>everysec</code> (lose up to about a second), or <code>no</code> (OS decides). A cache that can be rebuilt from the database usually needs neither.</p>
+<pre><code class="plain"># redis.conf for a pure cache
+maxmemory 2gb
+maxmemory-policy allkeys-lfu
+save ""            # no RDB snapshots
+appendonly no      # no AOF</code></pre>
+
+  <h3>Replication, Sentinel, Cluster and tooling</h3>
+  <p><b>Replication</b> is asynchronous: replicas can serve reads and lag, and a failover can lose the last writes. <b>Sentinel</b> monitors a primary and its replicas and promotes one on failure; clients ask Sentinel for the current primary. <b>Cluster</b> shards the keyspace into 16,384 hash slots (<code>CRC16(key) mod 16384</code>) spread over primaries; multi-key commands work only within one slot, which hash tags force: <code>{user:42}:cart</code> and <code>{user:42}:profile</code> share a slot.</p>
+<pre><code class="plain">redis-cli -h cache.internal INFO memory        # used_memory, fragmentation
+redis-cli INFO stats | grep -E 'keyspace_(hits|misses)|evicted_keys'
+redis-cli SLOWLOG GET 10                         # commands over slowlog-log-slower-than
+redis-cli --bigkeys                              # largest key per type, uses SCAN
+redis-cli MONITOR                                # every command; debugging only</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b><code>KEYS *</code> on a large instance</b> blocks the server for seconds; every client times out together.</li>
+    <li><b>Big keys</b>: a multi-MB value or a million-member set makes reads, deletes and cluster migrations slow and creates a hot shard.</li>
+    <li><b><code>noeviction</code> on a cache</b>: memory fills and every write starts failing instead of old keys being evicted.</li>
+    <li><b><code>MONITOR</code> left running</b> can halve throughput.</li>
+    <li><b>Assuming replication is synchronous</b>: data acknowledged by the primary can vanish on failover.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Run Redis in Docker; with <code>redis-cli</code> build a leaderboard, a capped recent-items list, a DAU bitmap for 3 days (<code>BITOP AND</code> for users active on all three), and an HLL counter.</li>
+    <li>Implement the <code>Signals</code> class with Spring Data Redis and a Testcontainers test for each method.</li>
+    <li>Set <code>maxmemory 50mb</code> with <code>noeviction</code>, fill it from a loop, observe the OOM error; switch to <code>allkeys-lfu</code> and watch <code>evicted_keys</code>.</li>
+    <li>Insert 1 million keys, compare <code>KEYS *</code> with a <code>SCAN</code> loop while a second client runs <code>redis-cli --latency</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Redis docs: “Data types”, “Key eviction”, “Persistence”, “Scale with Redis Cluster”, <code>EXPIRE</code> command page · Spring Data Redis reference, “Working with Objects through RedisTemplate” · Carlson, <i>Redis in Action</i>, ch. 1–3</p>
+</article>
+<!-- ================================================================ L389 -->
+<article class="day" id="l389">
+  <header class="day-head">
+    <span class="day-no">L389 · DAY 389</span>
+    <h2>Redis as a Spring Cache</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">Switching <code>@Cacheable</code> to Redis takes one dependency; making it production-safe means choosing serializers, TTLs per cache, a versioned key scheme, and a failure mode where Redis being down costs latency, not availability.</p>
+
+  <h3>RedisCacheManager and RedisCacheConfiguration</h3>
+  <div class="box def"><span class="tag">Definition</span><code>RedisCacheManager</code> creates one <code>RedisCache</code> per cache name. Each is governed by an immutable <code>RedisCacheConfiguration</code> (every method returns a modified copy, so one base configuration can be specialised per cache), and all Redis I/O goes through a <code>RedisCacheWriter</code>.</div>
+  <p>The settings that matter: <code>entryTtl</code> (applied with each write), <code>disableCachingNullValues</code> (otherwise nulls are stored as a marker), <code>prefixCacheNameWith("shop:")</code> (keys become <code>shop:users::42</code>), <code>computePrefixWith(name -&gt; …)</code> for full control of the prefix, and <code>serializeKeysWith</code>/<code>serializeValuesWith</code>.</p>
+<pre><code>@Configuration
+@EnableCaching
+class RedisCacheConfig {
+    record UserView(long id, String name, Instant lastLogin) {}
+    record CountryList(List&lt;String&gt; codes) {}
+
+    @Bean
+    RedisCacheManager cacheManager(RedisConnectionFactory cf, ObjectMapper bootMapper) {
+        ObjectMapper mapper = bootMapper.copy();          // has JavaTimeModule already
+        RedisCacheConfiguration base = RedisCacheConfiguration.defaultCacheConfig()
+            .entryTtl(Duration.ofMinutes(10))
+            .disableCachingNullValues()
+            .computePrefixWith(name -&gt; "shop:v3:" + name + ":")
+            .serializeKeysWith(SerializationPair.fromSerializer(new StringRedisSerializer()))
+            .serializeValuesWith(SerializationPair.fromSerializer(
+                new GenericJackson2JsonRedisSerializer()));
+
+        return RedisCacheManager.builder(
+                RedisCacheWriter.nonLockingRedisCacheWriter(cf, BatchStrategies.scan(1000)))
+            .cacheDefaults(base)
+            .withInitialCacheConfigurations(Map.of(
+                "users", base.entryTtl(Duration.ofMinutes(5))
+                             .serializeValuesWith(json(mapper, UserView.class)),
+                "countries", base.entryTtl(Duration.ofDays(1))
+                             .serializeValuesWith(json(mapper, CountryList.class))))
+            .enableStatistics()
+            .build();
+    }
+
+    private static &lt;T&gt; SerializationPair&lt;T&gt; json(ObjectMapper m, Class&lt;T&gt; type) {
+        return SerializationPair.fromSerializer(new Jackson2JsonRedisSerializer&lt;&gt;(m, type));
+    }
+}</code></pre>
+  <p>With your own manager bean the <code>spring.cache.redis.*</code> properties are ignored; to keep Boot's manager and only add per-cache settings, declare a <code>RedisCacheManagerBuilderCustomizer</code> instead.</p>
+
+  <h3>Choosing serializers deliberately</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Serializer</th><th>Stored as</th><th>Verdict</th></tr></thead><tbody>
+    <tr><td><code>StringRedisSerializer</code></td><td>UTF-8 text</td><td>Keys, always</td></tr>
+    <tr><td><code>GenericJackson2JsonRedisSerializer</code></td><td>JSON plus an <code>@class</code> property</td><td>Readable, any type per cache; class names leak into data</td></tr>
+    <tr><td><code>Jackson2JsonRedisSerializer&lt;T&gt;</code></td><td>Plain JSON of one type</td><td>Best when a cache holds one type; no type metadata, any language can read it</td></tr>
+    <tr><td><code>JdkSerializationRedisSerializer</code> (default)</td><td>Java serialization bytes</td><td>Avoid</td></tr>
+  </tbody></table></div>
+  <div class="box note"><span class="tag">Why the JDK default is a trap</span>The values are unreadable in <code>redis-cli</code>, readable only by Java with the same classes, break on any incompatible class change (an <code>InvalidClassException</code> on every hit after a deploy), and deserializing bytes from a store that an attacker can write to is a classic remote-code-execution vector (Effective Java, Item 85: prefer alternatives to Java serialization).</div>
+  <p><b><code>java.time</code> and polymorphism.</b> A bare <code>new ObjectMapper()</code> fails on <code>Instant</code> unless <code>JavaTimeModule</code> is registered; copying Boot's auto-configured mapper gets it, plus ISO-8601 dates. The generic serializer's no-argument constructor configures its own type metadata but not <code>java.time</code>, which is why the example uses typed serializers for caches holding dates. If you pass a custom mapper to the generic serializer you must enable type information yourself, and the common <code>DefaultTyping.NON_FINAL</code> skips records (they are final), so they come back as <code>LinkedHashMap</code> and fail with <code>ClassCastException</code>. For a sealed hierarchy, annotate the base type with <code>@JsonTypeInfo</code>/<code>@JsonSubTypes</code> rather than enabling global default typing.</p>
+
+  <h3>Key design and versioning</h3>
+  <figure class="fig"><svg viewBox="0 0 620 150" role="img" aria-label="Key anatomy: application prefix, schema version, cache name, entry key">
+    <text x="310" y="24" class="s-ttl s-mid">shop:v3:users:42</text>
+    <rect x="160" y="40" width="64" height="30" rx="4" class="s-node"/><text x="192" y="60" class="s-sm s-ink s-mid">shop</text>
+    <rect x="234" y="40" width="54" height="30" rx="4" class="s-node-mod"/><text x="261" y="60" class="s-sm s-ink s-mid">v3</text>
+    <rect x="298" y="40" width="80" height="30" rx="4" class="s-node"/><text x="338" y="60" class="s-sm s-ink s-mid">users</text>
+    <rect x="388" y="40" width="54" height="30" rx="4" class="s-node"/><text x="415" y="60" class="s-sm s-ink s-mid">42</text>
+    <text x="192" y="94" class="s-sm s-ink2 s-mid">app</text>
+    <text x="261" y="94" class="s-sm s-mod s-mid">version</text>
+    <text x="338" y="94" class="s-sm s-ink2 s-mid">cache</text>
+    <text x="415" y="94" class="s-sm s-ink2 s-mid">key</text>
+    <text x="310" y="128" class="s-sm s-ink3 s-mid">bump v3 → v4 when the cached shape changes; old keys age out by TTL</text>
+  </svg><figcaption><b>A version segment is a free global invalidation.</b> A deploy that changes <code>UserView</code> reads only <code>v4</code> keys, so it never deserializes an old shape, and old pods still running during a rolling update keep their own keys.</figcaption></figure>
+  <p>The app prefix lets several services share a Redis safely, and pattern-based tooling (<code>SCAN MATCH shop:v3:users:*</code>) relies on a consistent separator. Keep keys short but readable; never put PII such as e-mail addresses in a key.</p>
+
+  <h3>Degrading gracefully when Redis is down</h3>
+  <p>Without help, a Redis outage turns every cached endpoint into a 500. Three layers of defence: (1) a short <b>command timeout</b> so a call fails in about 100–250 ms rather than hanging; (2) the <code>CacheErrorHandler</code> from <a href="#l386">L386</a> so a failed get becomes a miss and a failed put is logged; (3) a <b>circuit breaker around the cache</b> (a Resilience4j breaker inside a <code>Cache</code> decorator, <a href="p21.html#l408">L408</a>) so that when Redis is clearly down the app skips it instantly instead of paying the timeout on every request. Check that the database can take the full read load for a while; if it cannot, an outage of the cache is an outage of the service.</p>
+
+  <h3>Writers, locking, connections and monitoring</h3>
+  <ul>
+    <li><b><code>RedisCacheWriter</code></b> does the raw Redis I/O. The non-locking writer is the default and the right choice; <code>lockingRedisCacheWriter</code> adds a per-cache lock key around <code>putIfAbsent</code> and clear, which costs a round trip and is rarely needed. <code>BatchStrategies.scan(1000)</code> makes <code>@CacheEvict(allEntries = true)</code> delete with <code>SCAN</code> instead of the default <code>KEYS</code>.</li>
+    <li><b><code>sync = true</code></b> on a Redis cache serializes loads only inside one JVM; ten pods can still load the same key ten times (see <a href="#l391">L391</a>).</li>
+    <li><b>Lettuce</b> (Boot's default client) shares one thread-safe <code>StatefulRedisConnection</code> across all threads and pipelines commands over it, so a pool is unnecessary for ordinary commands. A pool (add <code>commons-pool2</code>) matters only for blocking commands and <code>MULTI</code> transactions; size it to the concurrency of those calls, not to the thread count.</li>
+    <li><b>Monitor</b>: <code>enableStatistics()</code> exports <code>cache.gets{result=hit|miss}</code> per cache; on the server, <code>keyspace_hits</code>/<code>keyspace_misses</code>, <code>used_memory</code>, <code>evicted_keys</code>, and latency (<code>redis-cli --latency</code>, client-side command timers).</li>
+  </ul>
+<pre><code class="plain">spring:
+  data:
+    redis:
+      host: cache.internal
+      port: 6379
+      timeout: 200ms          # command timeout
+      connect-timeout: 1s
+  cache:
+    type: redis
+    redis:                    # used only by Boot's own RedisCacheManager
+      time-to-live: 10m
+      cache-null-values: false
+      key-prefix: "shop:v3:"
+      enable-statistics: true</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>No TTL</b>: the default configuration has no expiry; Redis fills until <code>maxmemory</code> and starts evicting at random or failing writes.</li>
+    <li><b>Changing a cached class without changing the prefix</b>: every hit fails to deserialize after the deploy.</li>
+    <li><b><code>allEntries = true</code> with the default batch strategy</b> runs <code>KEYS</code> and stalls a busy Redis.</li>
+    <li><b>Default timeouts</b>: a Lettuce command timeout of 60 s means a hung Redis holds request threads for a minute.</li>
+    <li><b>Caching per-user responses under a key without the user id</b>: a data leak between users.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Configure the manager above with Testcontainers Redis; inspect values with <code>redis-cli GET</code> for each serializer and confirm TTLs with <code>TTL</code>.</li>
+    <li>Cache a record containing an <code>Instant</code> with a bare <code>GenericJackson2JsonRedisSerializer</code>, observe the failure, then fix it.</li>
+    <li>Stop the Redis container mid-test: first without, then with a 200 ms timeout and a <code>CacheErrorHandler</code>; measure endpoint latency in both cases.</li>
+    <li>Bump the prefix from <code>v3</code> to <code>v4</code> and show the old keys are ignored and expire.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Spring Data Redis reference, “Redis Cache” and “Serializers” · Spring Boot reference, “Caching: Redis” · Effective Java (3rd ed.), Item 85 · Javadoc: <code>RedisCacheConfiguration</code>, <code>RedisCacheWriter</code>, <code>BatchStrategies</code></p>
+</article>
+<!-- ================================================================ L390 -->
+<article class="day" id="l390">
+  <header class="day-head">
+    <span class="day-no">L390 · DAY 390</span>
+    <h2>Redis Patterns: Locks, Rate Limits, Pub/Sub &amp; Streams</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">55m practice</span></p>
+  </header>
+  <p class="thesis">Redis's atomic commands and Lua scripts make locks, rate limiters and queues a few lines each, but a Redis lock is a lease, not a guarantee: anything that must be correct, not just efficient, needs a fencing token or a database constraint behind it.</p>
+
+  <h3>Distributed locks done carefully</h3>
+  <p>Acquire with one atomic command, <code>SET lock:report &lt;token&gt; NX PX 30000</code>: set only if absent, with an expiry so a crashed holder cannot block forever. The value must be a <b>unique token</b> per acquisition, because release must delete the key only if you still own it. A plain <code>DEL</code> after your lease expired would delete someone else's lock; compare and delete must be one atomic step, hence Lua.</p>
+<pre><code>@Component
+class RedisLock {
+    private static final RedisScript&lt;Long&gt; RELEASE = RedisScript.of("""
+        if redis.call('get', KEYS[1]) == ARGV[1] then
+          return redis.call('del', KEYS[1])
+        end
+        return 0""", Long.class);
+    private final StringRedisTemplate redis;
+    RedisLock(StringRedisTemplate redis) { this.redis = redis; }
+
+    Optional&lt;String&gt; tryAcquire(String name, Duration lease) {
+        String token = UUID.randomUUID().toString();
+        Boolean ok = redis.opsForValue().setIfAbsent("lock:" + name, token, lease); // SET NX PX
+        return Boolean.TRUE.equals(ok) ? Optional.of(token) : Optional.empty();
+    }
+    boolean release(String name, String token) {
+        Long n = redis.execute(RELEASE, List.of("lock:" + name), token);
+        return n != null &amp;&amp; n == 1L;
+    }
+}</code></pre>
+
+  <h3>Why the lock alone is unsafe, and fencing tokens</h3>
+  <p>The holder cannot know its lease is still valid at the moment it acts. A stop-the-world GC pause, a slow network write, or a clock jump on the Redis host can let the TTL lapse mid-work; a second client acquires the lock and both now write.</p>
+  <figure class="fig"><svg viewBox="0 0 640 230" role="img" aria-label="Client 1 holds a lease with token 33, pauses for GC, lease expires, client 2 acquires token 34 and writes; client 1 wakes and its write with 33 is rejected">
+    <defs><marker id="ah-l390" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <text x="16" y="64" class="s-sm s-ink">client 1</text>
+    <text x="16" y="124" class="s-sm s-ink">client 2</text>
+    <text x="16" y="194" class="s-sm s-ink">storage</text>
+    <line x1="90" y1="60" x2="620" y2="60" class="s-grid"/>
+    <line x1="90" y1="120" x2="620" y2="120" class="s-grid"/>
+    <line x1="90" y1="190" x2="620" y2="190" class="s-ln-ink"/>
+    <rect x="110" y="34" width="190" height="14" rx="3" class="s-node-mod"/>
+    <text x="205" y="45" class="s-sm s-ink s-mid">lease, token 33</text>
+    <rect x="150" y="54" width="240" height="12" rx="3" class="s-bad" fill-opacity="0.3"/>
+    <text x="270" y="82" class="s-sm s-bad s-mid">GC pause</text>
+    <rect x="320" y="94" width="200" height="14" rx="3" class="s-node-mod"/>
+    <text x="420" y="105" class="s-sm s-ink s-mid">lease, token 34</text>
+    <line x1="350" y1="122" x2="350" y2="186" class="s-ln-acc" marker-end="url(#ah-l390)"/>
+    <text x="356" y="160" class="s-sm s-acc">write(34) ok</text>
+    <line x1="400" y1="62" x2="470" y2="186" class="s-ln-bad" marker-end="url(#ah-l390)"/>
+    <text x="480" y="160" class="s-sm s-bad">write(33) rejected</text>
+    <text x="320" y="216" class="s-sm s-ink3 s-mid">storage keeps max token seen; older tokens are refused</text>
+  </svg><figcaption><b>Fencing.</b> The lock service hands out a monotonically increasing number with each grant; the resource itself rejects writes carrying a smaller number than one it has already seen (after Kleppmann 2016).</figcaption></figure>
+  <div class="box def"><span class="tag">Definition</span>A <b>fencing token</b> is a number that strictly increases with every lock grant. The protected resource remembers the largest token it has accepted and refuses any request carrying a smaller one, so a holder whose lease silently expired can no longer do damage.</div>
+  <p>A fencing token can be an <code>INCR</code> counter issued with the lock, or simply the version column of an optimistic-lock update (<code>UPDATE … WHERE version = ?</code>). The <b>Redlock</b> algorithm (acquire on a majority of N independent Redis nodes) was criticised by Martin Kleppmann for depending on bounded pauses and clock behaviour and for lacking fencing; Salvatore Sanfilippo published a rebuttal. The practical conclusion holds either way: use a Redis lock for <b>efficiency</b> (avoid doing a job twice), and enforce <b>correctness</b> with a fencing token, a unique constraint, or a conditional update in the database.</p>
+
+  <h3>Redisson</h3>
+  <p>Redisson wraps these patterns in Java objects. <code>RLock</code> is reentrant; <code>lock.tryLock(5, 30, SECONDS)</code> waits up to 5 s for a 30 s lease, while calling <code>lock()</code> without a lease time enables the <b>watchdog</b>, which renews the lease (30 s by default) while the holding JVM is alive, so long jobs do not lose the lock, but a hung thread in a live JVM keeps it forever. Also: <code>RReadWriteLock</code>, <code>RSemaphore</code>, <code>RRateLimiter</code>, <code>RBucket</code> (a typed value), <code>RLocalCachedMap</code> (a map with a near cache invalidated over pub/sub), <code>RBloomFilter</code>, and <code>RScheduledExecutorService</code> (tasks scheduled across a cluster of workers).</p>
+
+  <h3>Rate limiting</h3>
+  <p><b>Sliding window log</b> with a sorted set per client: <code>ZREMRANGEBYSCORE key 0 now-window</code>, then <code>ZCARD</code>; if under the limit, <code>ZADD key now &lt;unique-id&gt;</code> and <code>PEXPIRE</code>. Exact, but memory grows with the limit. A <b>token bucket</b> stores only two numbers and allows bursts up to capacity; it must run as one script so concurrent requests cannot both spend the last token:</p>
+<pre><code class="plain">-- KEYS[1] = bucket key; ARGV = capacity, refill tokens per ms, cost
+local cap, rate, cost = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+local t = redis.call('TIME')                       -- server clock, not client clocks
+local now = t[1] * 1000 + math.floor(t[2] / 1000)
+local b = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
+local tokens = tonumber(b[1]) or cap
+local ts = tonumber(b[2]) or now
+tokens = math.min(cap, tokens + (now - ts) * rate)
+local ok = tokens &gt;= cost
+if ok then tokens = tokens - cost end
+redis.call('HSET', KEYS[1], 'tokens', tokens, 'ts', now)
+redis.call('PEXPIRE', KEYS[1], math.ceil(cap / rate))
+return ok and 1 or 0</code></pre>
+
+  <h3>Pub/sub and streams</h3>
+  <p><b>Pub/sub</b> is fire-and-forget: a message goes to the subscribers connected right now and is gone. That suits cache-invalidation broadcasts (a missed one is covered by the TTL) and nothing that must not be lost. In Spring, <code>redis.convertAndSend("cache-inval", key)</code> publishes and a <code>RedisMessageListenerContainer</code> with <code>addMessageListener(listener, new ChannelTopic("cache-inval"))</code> receives.</p>
+  <p><b>Streams</b> are a durable append-only log. Producers <code>XADD</code>; a consumer group shares entries among consumers with <code>XREADGROUP</code>; each entry stays in the group's pending list until <code>XACK</code>; <code>XPENDING</code> shows stuck entries and <code>XAUTOCLAIM</code> hands entries idle too long to a live consumer. Delivery is at-least-once, so handlers must be idempotent (<a href="p21.html#l416">L416</a>).</p>
+<pre><code>var options = StreamMessageListenerContainer.StreamMessageListenerContainerOptions
+        .builder().pollTimeout(Duration.ofSeconds(1)).build();
+var container = StreamMessageListenerContainer.create(connectionFactory, options);
+container.receive(Consumer.from("billing", podName),                // group, consumer
+        StreamOffset.create("orders", ReadOffset.lastConsumed()),
+        msg -&gt; {
+            billing.handle(msg.getValue());                         // Map&lt;String, String&gt;
+            redis.opsForStream().acknowledge("billing", msg);       // XACK after success
+        });
+container.start();</code></pre>
+  <p>Create the group once (<code>XGROUP CREATE orders billing &#36; MKSTREAM</code>) and cap the stream with <code>XADD … MAXLEN ~ 1000000</code>. Streams are a lightweight queue, not Kafka: no partitions across nodes, and the data lives in RAM.</p>
+  <p>Other everyday uses: <b>leaderboards</b> with <code>ZINCRBY</code>/<code>ZREVRANK</code>; <b>sessions</b> with Spring Session (<code>spring-session-data-redis</code>), so any pod can serve any user; and <b>idempotency keys</b> stored with <code>SET key response NX EX 86400</code>.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Lock value without a token</b>, or release by plain <code>DEL</code>: you delete another client's lock.</li>
+    <li><b>Lease shorter than the work</b> without fencing: two holders write concurrently and nobody notices.</li>
+    <li><b>Pub/sub for business events</b>: a subscriber restart silently drops messages.</li>
+    <li><b>Never acknowledging stream entries</b>: the pending list grows without bound and memory with it.</li>
+    <li><b>Rate limiting with client timestamps</b>: clock skew between pods lets clients exceed the limit.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 55 min</h4><ol>
+    <li>Implement <code>RedisLock</code>, then make the holder sleep past its lease and show a second holder acquiring it; add a fencing token checked by a versioned table update.</li>
+    <li>Load the token bucket script with <code>RedisScript</code> and enforce 10 requests per second per API key in a servlet filter; test with 50 concurrent requests.</li>
+    <li>Broadcast invalidations over pub/sub to two running app instances; stop one, publish, restart it, and observe the lost message.</li>
+    <li>Build an order stream with two consumers in one group; kill one mid-processing and recover its entries with <code>XAUTOCLAIM</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Redis docs: <code>SET</code>, “Distributed Locks with Redis”, “Redis Streams”, “Pub/Sub” · Kleppmann 2016, “How to do distributed locking” and Sanfilippo 2016, “Is Redlock safe?” · Kleppmann, <i>Designing Data-Intensive Applications</i>, ch. 8 (“The Truth Is Defined by the Majority”) · Redisson reference, “Distributed locks and synchronizers” · Spring Data Redis reference, “Redis Streams”</p>
+</article>
+<!-- ================================================================ L391 -->
+<article class="day" id="l391">
+  <header class="day-head">
+    <span class="day-no">L391 · DAY 391</span>
+    <h2>Cache Consistency, Stampedes &amp; Multi-Level Caches</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">No invalidation scheme makes a cache exactly consistent with its database; you choose an ordering that makes stale windows rare and short, a TTL that bounds the worst case, and load-shaping tricks so expiry never becomes an outage.</p>
+
+  <h3>The invalidation problem</h3>
+  <p>For cache-aside the recommended write is <b>update the database, then delete the key</b>. Deleting rather than updating matters: two concurrent writers can update the database in one order and the cache in the other, leaving the older value cached indefinitely, and updating also fills the cache with data nobody may read. Even the recommended order has a race:</p>
+  <figure class="fig"><svg viewBox="0 0 660 210" role="img" aria-label="Race: reader misses and reads v1, writer writes v2 and deletes key, reader then caches stale v1">
+    <defs><marker id="ah-l391" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <text x="16" y="64" class="s-sm s-ink">reader A</text>
+    <text x="16" y="134" class="s-sm s-ink">writer B</text>
+    <line x1="90" y1="60" x2="640" y2="60" class="s-grid"/>
+    <line x1="90" y1="130" x2="640" y2="130" class="s-grid"/>
+    <rect x="100" y="44" width="100" height="32" rx="5" class="s-node"/><text x="150" y="64" class="s-sm s-ink s-mid">1 cache miss</text>
+    <rect x="210" y="44" width="110" height="32" rx="5" class="s-node"/><text x="265" y="64" class="s-sm s-ink s-mid">2 read DB: v1</text>
+    <rect x="330" y="114" width="110" height="32" rx="5" class="s-node-mod"/><text x="385" y="134" class="s-sm s-ink s-mid">3 write DB: v2</text>
+    <rect x="450" y="114" width="90" height="32" rx="5" class="s-node-mod"/><text x="495" y="134" class="s-sm s-ink s-mid">4 delete</text>
+    <rect x="550" y="44" width="96" height="32" rx="5" class="s-node"/><text x="598" y="64" class="s-sm s-bad s-mid">5 put v1</text>
+    <line x1="320" y1="60" x2="548" y2="60" class="s-ln-warn s-dash" marker-end="url(#ah-l391)"/>
+    <text x="434" y="52" class="s-sm s-warn s-mid">A is slow (GC, network)</text>
+    <text x="330" y="186" class="s-sm s-ink2 s-mid">cache holds v1, DB holds v2, until the TTL fires</text>
+  </svg><figcaption><b>The window is the reader's load time.</b> It needs a read that starts before the write and finishes after it, so it is rare; deleting first and updating second is far worse, because any read during the write repopulates the old value.</figcaption></figure>
+  <p><b>Delayed double delete</b> narrows it: delete, write the database, then delete again after a delay longer than a typical load (and longer than replica lag). Run deletes <i>after commit</i> (<code>@TransactionalEventListener(phase = AFTER_COMMIT)</code>): a delete inside the transaction lets readers refill from the uncommitted, still-old row. To catch writes that bypass the app, drive invalidation from the database's change log (CDC, e.g. Debezium).</p>
+  <p><b>Replica lag</b> (Day 220) widens the window: if a miss is filled from a read replica that has not yet applied the write, the cache is repopulated with old data right after the delete. Fill from the primary for keys written recently, or make the second delete wait longer than the replica lag. <b>Read-your-own-writes</b> for the writing user can be guaranteed by returning the new state from the write and skipping the cache for that user briefly.</p>
+  <p>The <b>TTL</b> is the safety net that bounds every bug above. Derive it from staleness tolerance: if the business accepts prices up to 60 s old, a 60 s TTL makes even a missed invalidation harmless.</p>
+
+  <h3>Stampedes, penetration and avalanches</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Problem</th><th>Cause</th><th>Fixes</th></tr></thead><tbody>
+    <tr><td><b>Stampede</b> (dogpile)</td><td>A hot key expires; every concurrent request misses and recomputes</td><td><code>@Cacheable(sync = true)</code> (per JVM); a Redis lock on reload so one pod recomputes and others wait or serve stale; probabilistic early expiration; refresh-ahead</td></tr>
+    <tr><td><b>Penetration</b></td><td>Requests for keys that do not exist always miss, often as an attack</td><td>Negative caching with a short TTL; a Bloom filter of existing ids checked before cache and DB</td></tr>
+    <tr><td><b>Avalanche</b></td><td>Many keys written together expire together (a warm-up, a bulk import)</td><td>TTL jitter, e.g. 10 min ± 10%; staggered warm-up</td></tr>
+    <tr><td><b>Hot key</b></td><td>One key's traffic saturates the single Redis shard holding it</td><td>An L1 copy in every pod; or replicate it as <code>key#0…key#7</code>, read a random copy, write all</td></tr>
+  </tbody></table></div>
+  <div class="box algo"><span class="tag">Algorithm · XFetch</span><ol>
+    <li>Store with each value its expiry time and <i>Δ</i>, how long it took to compute.</li>
+    <li>On every read, draw <i>r</i> uniformly from (0, 1] and recompute early if <code>now − Δ·β·ln(r) ≥ expiry</code> (β ≥ 1; 1 is the usual default).</li>
+    <li>Otherwise serve the cached value.</li>
+  </ol>Because −ln(<i>r</i>) is usually small but occasionally large, one request tends to refresh slightly before expiry while the rest keep hitting; expensive values (large Δ) refresh earlier (Vattani, Chierichetti &amp; Lowenstein 2015).</div>
+<pre><code>static boolean recomputeEarly(long expiryMillis, long deltaMillis, double beta) {
+    double r = 1.0 - ThreadLocalRandom.current().nextDouble();     // (0, 1]: log(0) is avoided
+    return System.currentTimeMillis() - deltaMillis * beta * Math.log(r) &gt;= expiryMillis;
+}</code></pre>
+
+  <h3>Multi-level caching: Caffeine L1, Redis L2</h3>
+  <p>An L1 hit costs nanoseconds and no network; the L2 keeps pods consistent with each other and protects the database when a pod starts cold. The difficulty is invalidating every pod's L1, which a Redis pub/sub broadcast solves well enough because a lost message is covered by the short L1 TTL.</p>
+<pre><code>@Component
+class TwoLevelCache {
+    private static final String CHANNEL = "cache-inval";
+    private final Cache&lt;String, String&gt; l1 = Caffeine.newBuilder()
+            .maximumSize(10_000).expireAfterWrite(Duration.ofSeconds(30)).build();
+    private final StringRedisTemplate redis;
+
+    TwoLevelCache(StringRedisTemplate redis, RedisMessageListenerContainer listeners) {
+        this.redis = redis;
+        listeners.addMessageListener((msg, pattern) -&gt;
+                l1.invalidate(new String(msg.getBody(), StandardCharsets.UTF_8)),
+                new ChannelTopic(CHANNEL));
+    }
+
+    String get(String key, Function&lt;String, String&gt; dbLoader) {
+        return l1.get(key, k -&gt; {                                  // L1 miss
+            String v = redis.opsForValue().get(k);                 // L2
+            if (v == null &amp;&amp; (v = dbLoader.apply(k)) != null)      // origin
+                redis.opsForValue().set(k, v, jitter(Duration.ofMinutes(10)));
+            return v;                                              // null is not stored
+        });
+    }
+
+    void evict(String key) {                                       // call after commit
+        redis.delete(key);
+        l1.invalidate(key);
+        redis.convertAndSend(CHANNEL, key);                        // every pod drops its L1
+    }
+
+    static Duration jitter(Duration base) {
+        long spread = base.toMillis() / 10;
+        return base.plusMillis(ThreadLocalRandom.current().nextLong(-spread, spread + 1));
+    }
+}</code></pre>
+  <p>Declare a <code>RedisMessageListenerContainer</code> bean with the connection factory. Keep the L1 TTL much shorter than the L2 TTL: it bounds how long a pod that missed a broadcast can be wrong.</p>
+
+  <h3>Warming, and whether it paid off</h3>
+  <p><b>Warm at startup</b> by loading the top-N keys (from yesterday's access stats) in small batches with bounded concurrency, before the readiness probe reports UP, so a rollout does not send every new pod's misses to the database at once. With an L2, new pods warm from Redis, not the database, which is often enough on its own.</p>
+  <p><b>Measure</b> with L1 behind a feature flag: compare p50/p99 end-to-end latency, database QPS, Redis QPS and heap usage with it on and off, and count staleness bugs reported. If L1 saves 0.3 ms on a 40 ms request, the extra invalidation path is not worth its bugs.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Evicting inside the transaction</b>: a concurrent reader refills from the old row before commit.</li>
+    <li><b>Writes that bypass the app</b> (migrations, admin SQL, other services) never invalidate; only the TTL saves you.</li>
+    <li><b>Synchronized TTLs</b> after a cache flush or bulk load: the whole working set expires in the same second.</li>
+    <li><b>Remote I/O inside a Caffeine compute</b> holds a lock for that key while it runs; keep loaders fast or use an <code>AsyncCache</code>.</li>
+    <li><b>Pub/sub as the only invalidation</b>, with a long L1 TTL: one dropped connection leaves a pod serving stale data for hours.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Reproduce the race in the figure with two threads and an artificial delay in the reader; then add a delayed second delete and show the stale entry disappears.</li>
+    <li>Fire 200 concurrent requests at an expired hot key; count database loads without protection, with <code>sync = true</code>, and with a Redis lock across two app instances.</li>
+    <li>Implement <code>TwoLevelCache</code>, run two instances, update a value via one and confirm the other's L1 is invalidated within milliseconds.</li>
+    <li>Add a Bloom filter (Guava or Redisson) of existing product ids and measure DB queries under a flood of random missing ids.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Vattani, Chierichetti &amp; Lowenstein 2015, “Optimal Probabilistic Cache Stampede Prevention” (VLDB) · Nishtala et al. 2013, “Scaling Memcache at Facebook” (NSDI), §3 (leases) · Spring Framework reference, “Transaction-bound Events” · Caffeine wiki, “Population”</p>
+</article>
+<!-- ================================================================ L392 -->
+<article class="day" id="l392">
+  <header class="day-head">
+    <span class="day-no">L392 · DAY 392</span>
+    <h2>MongoDB: Modeling, Indexes &amp; Transactions</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">In MongoDB you design documents around how the application reads them: data read together is stored together, a single-document update is atomic, and indexes, not schemas, are where performance is won or lost.</p>
+
+  <h3>When the document model fits</h3>
+  <p>It fits aggregates that are read and written as a unit (an order with its lines, a product with its variants), variable or evolving attributes (catalogues where each category has different fields), and read-mostly nested data. It fits badly when the data is heavily relational (many-to-many links queried from every side), when you need ad-hoc joins across many collections, or when invariants span many documents (double-entry ledgers), which then need multi-document transactions on every write.</p>
+  <div class="box def"><span class="tag">Definition</span>Documents are stored as <b>BSON</b>: typed binary JSON with types JSON lacks (<code>ObjectId</code>, <code>Date</code>, <code>Decimal128</code>, <code>Int32</code>/<code>Int64</code>, <code>Binary</code>). An <code>ObjectId</code> is 12 bytes: a 4-byte creation timestamp in seconds, a 5-byte random value fixed per process, and a 3-byte counter, so ids are roughly time-ordered and generated without coordination. A document may be at most <b>16 MB</b>; designs that grow an array without bound will eventually hit it.</div>
+
+  <h3>CRUD and update operators</h3>
+<pre><code class="plain">db.orders.insertOne({ customerId: "c1", status: "OPEN", tags: ["gift"],
+                      lines: [{ sku: "A1", qty: 2, priceCents: 1250 }] })
+db.orders.find({ status: { &#36;in: ["OPEN", "PAID"] }, couponCode: { &#36;exists: false } },
+               { status: 1, lines: 1 })                               // projection
+db.orders.find({ lines: { &#36;elemMatch: { sku: "A1", qty: { &#36;gte: 2 } } } })  // same element
+db.orders.find({ "customer.name": { &#36;regex: "^Ann" } })               // anchored regex can use an index
+db.orders.updateOne({ _id: id }, { &#36;set: { status: "PAID" }, &#36;inc: { version: 1 } })
+db.orders.updateOne({ _id: id }, { &#36;push: { lines: { sku: "B2", qty: 1, priceCents: 900 } } })
+db.orders.updateOne({ _id: id }, { &#36;addToSet: { tags: "vip" } })
+db.orders.updateOne({ _id: id }, { &#36;pull: { tags: "gift" } })
+db.orders.updateOne({ _id: id }, { &#36;set: { "lines.&#36;[l].qty": 3 } },
+                    { arrayFilters: [{ "l.sku": "A1" }] })
+db.orders.findOneAndUpdate({ status: "OPEN" }, { &#36;set: { status: "LOCKED" } },
+                           { returnDocument: "after" })               // atomic claim
+db.orders.bulkWrite([{ insertOne: { document: { status: "OPEN" } } },
+                     { deleteMany: { filter: { status: "CANCELLED" } } }])</code></pre>
+  <p>Without <code>&#36;elemMatch</code>, <code>{"lines.sku": "A1", "lines.qty": {&#36;gte: 2}}</code> matches documents where <i>some</i> line has the sku and <i>some possibly different</i> line has the quantity. <code>replaceOne</code> swaps the whole document; <code>updateMany</code>/<code>deleteMany</code> act on all matches, each document atomically but not all together.</p>
+
+  <h3>Schema design: embed or reference</h3>
+  <figure class="fig"><svg viewBox="0 0 660 220" role="img" aria-label="One-to-few embeds, one-to-many references child ids from the parent, one-to-squillions stores the parent id in each child">
+    <defs><marker id="ah-l392" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <text x="110" y="22" class="s-ttl s-mid">one-to-few</text>
+    <text x="330" y="22" class="s-ttl s-mid">one-to-many</text>
+    <text x="550" y="22" class="s-ttl s-mid">one-to-squillions</text>
+    <rect x="30" y="36" width="160" height="120" rx="6" class="s-node-mod"/>
+    <text x="110" y="56" class="s-sm s-ink s-mid">order</text>
+    <rect x="46" y="68" width="128" height="22" rx="4" class="s-node"/><text x="110" y="83" class="s-sm s-ink2 s-mid">line 1 (embedded)</text>
+    <rect x="46" y="96" width="128" height="22" rx="4" class="s-node"/><text x="110" y="111" class="s-sm s-ink2 s-mid">line 2 (embedded)</text>
+    <text x="110" y="140" class="s-sm s-ink3 s-mid">one read, atomic</text>
+    <rect x="260" y="36" width="140" height="56" rx="6" class="s-node-mod"/>
+    <text x="330" y="58" class="s-sm s-ink s-mid">product</text><text x="330" y="76" class="s-sm s-ink2 s-mid">partIds: [p1..p300]</text>
+    <rect x="260" y="128" width="62" height="28" rx="4" class="s-node"/><text x="291" y="146" class="s-sm s-ink2 s-mid">p1</text>
+    <rect x="338" y="128" width="62" height="28" rx="4" class="s-node"/><text x="369" y="146" class="s-sm s-ink2 s-mid">p2</text>
+    <line x1="300" y1="92" x2="291" y2="126" class="s-ln-ink" marker-end="url(#ah-l392)"/>
+    <line x1="360" y1="92" x2="369" y2="126" class="s-ln-ink" marker-end="url(#ah-l392)"/>
+    <rect x="480" y="36" width="140" height="40" rx="6" class="s-node-mod"/>
+    <text x="550" y="61" class="s-sm s-ink s-mid">host</text>
+    <rect x="470" y="110" width="160" height="26" rx="4" class="s-node"/><text x="550" y="127" class="s-sm s-ink2 s-mid">log {hostId, …}</text>
+    <rect x="470" y="142" width="160" height="26" rx="4" class="s-node"/><text x="550" y="159" class="s-sm s-ink2 s-mid">log {hostId, …}</text>
+    <line x1="550" y1="108" x2="550" y2="78" class="s-ln-acc" marker-end="url(#ah-l392)"/>
+    <text x="330" y="200" class="s-sm s-ink2 s-mid">the array lives where it stays bounded</text>
+  </svg><figcaption><b>Cardinality picks the side.</b> Embed when the children are few and read with the parent; keep an array of ids in the parent for hundreds; put the parent id in each child when there could be millions.</figcaption></figure>
+  <p>Beyond cardinality, ask how often the child is read <i>without</i> the parent (favours reference) and how often it changes (frequently updated, widely shared data favours reference so one update suffices). Four standard patterns:</p>
+  <ul>
+    <li><b>Subset</b>: embed the 10 most recent reviews in the product, keep all reviews in their own collection.</li>
+    <li><b>Extended reference</b>: copy the few fields of a referenced document you always display (customer name in the order) to avoid a lookup; accept that the copy can be stale.</li>
+    <li><b>Computed</b>: maintain totals or counts on write (<code>&#36;inc</code>) instead of recomputing on every read.</li>
+    <li><b>Bucket</b>: group time-series points into one document per sensor per hour, cutting document and index counts by orders of magnitude.</li>
+  </ul>
+
+  <h3>Spring Data MongoDB</h3>
+<pre><code>@Document("orders")
+@CompoundIndex(name = "esr", def = "{'customerId': 1, 'createdAt': -1, 'totalCents': 1}")
+record Order(@Id String id, String customerId, String status, Instant createdAt,
+             List&lt;Line&gt; lines,              // embedded, one-to-few
+             CustomerRef customer,          // extended reference
+             long totalCents,               // computed
+             @Field(targetType = FieldType.DECIMAL128) BigDecimal taxRate) {}
+record Line(String sku, int qty, long priceCents) {}
+record CustomerRef(String id, String name) {}
+
+@Service
+class OrderWriter {
+    private final MongoTemplate mongo;
+    OrderWriter(MongoTemplate mongo) { this.mongo = mongo; }
+
+    boolean addLine(String orderId, Line line) {             // one atomic document update
+        var q = Query.query(Criteria.where("_id").is(orderId).and("status").is("OPEN"));
+        var u = new Update().push("lines", line).inc("totalCents", (long) line.qty() * line.priceCents());
+        return mongo.updateFirst(q, u, Order.class).getModifiedCount() == 1;
+    }
+}</code></pre>
+  <p>Without <code>targetType = DECIMAL128</code>, Spring Data stores <code>BigDecimal</code> as a string by default, which sorts and compares wrongly. Index annotations are only applied if <code>spring.data.mongodb.auto-index-creation=true</code> (off by default since Spring Data MongoDB 3.0); production teams usually create indexes through migrations instead.</p>
+
+  <h3>Indexes and explain</h3>
+  <p>Types: single field; <b>compound</b>; <b>multikey</b> (automatic on array fields, one entry per element; at most one array field per compound index); <b>text</b>; <b>2dsphere</b> geospatial; <b>TTL</b> (<code>expireAfterSeconds</code> on a date field, deleted by a background task about once a minute); <b>partial</b> (only documents matching a filter); and <b>unique</b>.</p>
+  <div class="box thm"><span class="tag">Rule · ESR</span>Order compound-index keys as <b>Equality</b> fields first, then <b>Sort</b> fields, then <b>Range</b> fields. For <code>find({customerId: "c1", totalCents: {&#36;gt: 10000}}).sort({createdAt: -1})</code> the index <code>{customerId: 1, createdAt: -1, totalCents: 1}</code> serves the equality, returns rows already sorted, and filters the range inside the index; putting the range before the sort forces an in-memory sort.</div>
+<pre><code class="plain">db.orders.find({ customerId: "c1" }).sort({ createdAt: -1 }).explain("executionStats")
+// look for: winningPlan IXSCAN (not COLLSCAN), no SORT stage,
+// totalKeysExamined ≈ totalDocsExamined ≈ nReturned
+db.orders.find({ customerId: "c1" }, { _id: 0, customerId: 1, createdAt: 1 })   // covered:
+// only indexed fields projected, _id excluded → totalDocsExamined: 0
+db.sessions.createIndex({ lastSeen: 1 }, { expireAfterSeconds: 3600 })
+db.orders.createIndex({ couponCode: 1 },
+  { unique: true, partialFilterExpression: { couponCode: { &#36;exists: true } } })</code></pre>
+
+  <h3>Write concern, read concern, transactions</h3>
+  <p><b>Write concern</b> says when a write is acknowledged: <code>w: 1</code> (primary only; lost if it fails before replicating), <code>w: "majority"</code> (the default since 5.0; survives failover), <code>j: true</code> (written to the on-disk journal), <code>wtimeout</code> (stop waiting; the write may still succeed). <b>Read concern</b> says what a read may see (<code>local</code>, <code>majority</code>, <code>linearizable</code>, <code>snapshot</code>), and <b>read preference</b> where it goes (<code>primary</code>, <code>secondaryPreferred</code>, <code>nearest</code>…); reading secondaries trades freshness for load.</p>
+  <p><b>Multi-document transactions</b> need a replica set or sharded cluster (a standalone server rejects them). In Spring, declare a <code>MongoTransactionManager</code> bean and use <code>@Transactional</code> as usual. They cost extra round trips, hold locks and WiredTiger snapshots (60 s default lifetime), and abort on write conflicts that must be retried. If most writes need one, the data probably belongs in one document or in a relational database.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Unbounded arrays</b> (all comments in the post): documents grow, every update rewrites more, and the 16 MB limit arrives.</li>
+    <li><b>Indexes declared but never created</b> because auto-index creation is off: everything is a <code>COLLSCAN</code>.</li>
+    <li><b>Unanchored or case-insensitive <code>&#36;regex</code></b> scans the whole index or collection.</li>
+    <li><b><code>w: 1</code> for important writes</b>: acknowledged data rolls back after a primary failover.</li>
+    <li><b>Transactions on a standalone dev server</b> work nowhere: test against a single-node replica set (Testcontainers' MongoDB module starts one).</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Model orders, customers and product reviews for a shop; for each relationship write down embed or reference with its cardinality argument.</li>
+    <li>Load 1 million orders; run one query with and without an ESR index and compare <code>executionStats</code>; then make it covered.</li>
+    <li>Implement <code>addLine</code> with <code>MongoTemplate</code> and show two concurrent calls never lose a line or miscount <code>totalCents</code>.</li>
+    <li>Write a transfer between two account documents in a <code>@Transactional</code> method against a Testcontainers replica set; force a write conflict and retry.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> MongoDB Manual: “Data Modeling”, “Indexes”, “The ESR (Equality, Sort, Range) Rule”, “Write Concern”, “Transactions” · Spring Data MongoDB reference, “MongoTemplate”, “Index Creation”, “Transactions” · Javadoc: <code>MongoTemplate</code>, <code>Update</code>, <code>Criteria</code></p>
+</article>
+<!-- ================================================================ L393 -->
+<article class="day" id="l393">
+  <header class="day-head">
+    <span class="day-no">L393 · DAY 393</span>
+    <h2>MongoDB Advanced: Aggregation, Change Streams &amp; Scaling</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">The aggregation pipeline is MongoDB's query language for anything beyond lookups, change streams turn the oplog into an event feed, and sharding scales writes only as well as the shard key you choose once and live with.</p>
+
+  <h3>The pipeline, stage by stage</h3>
+  <p>A pipeline is a list of stages; each consumes the documents of the previous one. Shrink early: <code>&#36;match</code> and <code>&#36;sort</code> at the start can use indexes; after a <code>&#36;group</code> or <code>&#36;unwind</code> nothing can.</p>
+  <figure class="fig"><svg viewBox="0 0 660 170" role="img" aria-label="Document counts shrink through match, unwind, group, sort and limit stages">
+    <defs><marker id="ah-l393" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="10" y="50" width="96" height="50" rx="6" class="s-node"/><text x="58" y="72" class="s-sm s-ink s-mid">orders</text><text x="58" y="90" class="s-sm s-ink2 s-mid">10M docs</text>
+    <rect x="122" y="50" width="96" height="50" rx="6" class="s-node-mod"/><text x="170" y="72" class="s-sm s-ink s-mid">&#36;match</text><text x="170" y="90" class="s-sm s-ink2 s-mid">40k (index)</text>
+    <rect x="234" y="50" width="96" height="50" rx="6" class="s-node"/><text x="282" y="72" class="s-sm s-ink s-mid">&#36;unwind</text><text x="282" y="90" class="s-sm s-ink2 s-mid">120k lines</text>
+    <rect x="346" y="50" width="96" height="50" rx="6" class="s-node"/><text x="394" y="72" class="s-sm s-ink s-mid">&#36;group</text><text x="394" y="90" class="s-sm s-ink2 s-mid">900 skus</text>
+    <rect x="458" y="50" width="96" height="50" rx="6" class="s-node"/><text x="506" y="72" class="s-sm s-ink s-mid">&#36;sort</text><text x="506" y="90" class="s-sm s-ink2 s-mid">900</text>
+    <rect x="570" y="50" width="80" height="50" rx="6" class="s-node"/><text x="610" y="72" class="s-sm s-ink s-mid">&#36;limit</text><text x="610" y="90" class="s-sm s-ink2 s-mid">10</text>
+    <line x1="106" y1="75" x2="120" y2="75" class="s-ln-ink" marker-end="url(#ah-l393)"/>
+    <line x1="218" y1="75" x2="232" y2="75" class="s-ln-ink" marker-end="url(#ah-l393)"/>
+    <line x1="330" y1="75" x2="344" y2="75" class="s-ln-ink" marker-end="url(#ah-l393)"/>
+    <line x1="442" y1="75" x2="456" y2="75" class="s-ln-ink" marker-end="url(#ah-l393)"/>
+    <line x1="554" y1="75" x2="568" y2="75" class="s-ln-ink" marker-end="url(#ah-l393)"/>
+    <text x="170" y="128" class="s-sm s-acc s-mid">index usable here</text>
+    <text x="450" y="128" class="s-sm s-ink3 s-mid">in memory, 100 MB per stage</text>
+    <text x="506" y="146" class="s-sm s-ink3 s-mid">&#36;sort + &#36;limit coalesce to top-k</text>
+  </svg><figcaption><b>Illustrative counts.</b> Every document removed by the first <code>&#36;match</code> is work no later stage does.</figcaption></figure>
+  <ul>
+    <li><code>&#36;project</code> reshapes; <code>&#36;addFields</code>/<code>&#36;set</code> add computed fields and keep the rest; <code>&#36;replaceRoot</code> promotes a sub-document to be the document.</li>
+    <li><code>&#36;group</code> with accumulators (<code>&#36;sum</code>, <code>&#36;avg</code>, <code>&#36;min</code>, <code>&#36;max</code>, <code>&#36;push</code>, <code>&#36;addToSet</code>, <code>&#36;first</code>); <code>&#36;bucket</code> groups into explicit ranges.</li>
+    <li><code>&#36;unwind</code> emits one document per array element; <code>&#36;lookup</code> is a left outer join (an empty array when nothing matches) and has a pipeline form for correlated or filtered joins; <code>&#36;graphLookup</code> walks hierarchies recursively.</li>
+    <li><code>&#36;facet</code> runs several sub-pipelines over the same input in one pass (results plus counts per filter); <code>&#36;merge</code> upserts the result into a collection (an incrementally refreshed materialized view), <code>&#36;out</code> replaces a collection.</li>
+  </ul>
+<pre><code class="plain">db.orders.aggregate([
+  { &#36;match: { status: "PAID" } },
+  { &#36;lookup: { from: "shipments", let: { oid: "&#36;_id" }, as: "lastShipment",
+      pipeline: [ { &#36;match: { &#36;expr: { &#36;eq: ["&#36;orderId", "&#36;&#36;oid"] } } },
+                  { &#36;sort: { at: -1 } }, { &#36;limit: 1 } ] } },
+  { &#36;facet: {
+      byStatus: [ { &#36;group: { _id: "&#36;status", n: { &#36;sum: 1 } } } ],
+      bySize:   [ { &#36;bucket: { groupBy: "&#36;totalCents",
+                               boundaries: [0, 5000, 20000, 100000], default: "large" } } ] } }
+])
+db.orders.aggregate([
+  { &#36;group: { _id: { &#36;dateTrunc: { date: "&#36;createdAt", unit: "day" } },
+              revenue: { &#36;sum: "&#36;totalCents" } } },
+  { &#36;merge: { into: "daily_revenue", whenMatched: "replace", whenNotMatched: "insert" } } ])
+db.categories.aggregate([ { &#36;graphLookup: { from: "categories", startWith: "&#36;parentId",
+    connectFromField: "parentId", connectToField: "_id", as: "ancestors" } } ])</code></pre>
+
+  <h3>Aggregations from Spring</h3>
+<pre><code>import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+record SkuRevenue(String sku, long revenueCents, long units) {}
+
+List&lt;SkuRevenue&gt; topSkus(Instant from) {
+    Aggregation agg = newAggregation(
+            match(Criteria.where("status").is("PAID").and("createdAt").gte(from)),
+            unwind("lines"),
+            group("lines.sku")
+                .sum(ArithmeticOperators.Multiply.valueOf("lines.qty")
+                        .multiplyBy("lines.priceCents")).as("revenueCents")
+                .sum("lines.qty").as("units"),
+            project("revenueCents", "units").and("sku").previousOperation(), // _id → sku
+            sort(Sort.Direction.DESC, "revenueCents"),
+            limit(10))
+        .withOptions(AggregationOptions.builder().allowDiskUse(true).build());
+    return mongo.aggregate(agg, "orders", SkuRevenue.class).getMappedResults();
+}</code></pre>
+  <p>Each blocking stage (<code>&#36;group</code>, <code>&#36;sort</code>) may use about 100 MB of RAM; beyond that the query fails unless <code>allowDiskUse</code> lets it spill to disk (recent server versions allow this by default). The optimizer moves <code>&#36;match</code> ahead of projections where it can and fuses <code>&#36;sort</code>+<code>&#36;limit</code>; check with <code>explain()</code> on the aggregate.</p>
+
+  <h3>Change streams</h3>
+  <p><code>watch()</code> opens a cursor on the replica set's oplog, filtered to a collection, database or cluster, and emits insert/update/replace/delete events. Every event carries a <b>resume token</b>; store the last processed one and pass it to <code>resumeAfter</code> on restart, and you continue exactly where you stopped as long as the oplog still holds that point. This gives CDC-style reactions (cache invalidation, search indexing, outbound events) without Debezium.</p>
+<pre><code>Flux&lt;ChangeStreamEvent&lt;Order&gt;&gt; events = reactiveMongo.changeStream("orders",
+        ChangeStreamOptions.builder()
+            .filter(newAggregation(match(Criteria.where("operationType").in("insert", "update"))))
+            .resumeAfter(tokenStore.last())        // BsonValue, null on first start
+            .returnFullDocumentOnUpdate()
+            .build(),
+        Order.class);
+events.concatMap(ev -&gt; indexer.index(ev.getBody())
+                     .then(tokenStore.save(ev.getResumeToken())))   // save after success
+      .subscribe();</code></pre>
+
+  <h3>Replica sets and sharding</h3>
+  <p>A <b>replica set</b> is a primary plus secondaries replaying its oplog. If the primary is unreachable, the members elect a new one; an election needs a majority of voting members (so use an odd number) and typically completes within seconds, during which writes fail and drivers retry once (retryable writes). <b>Read preference</b> routes reads to secondaries for load or locality, at the cost of replication lag.</p>
+  <div class="box def"><span class="tag">Definition</span><b>Sharding</b> partitions a collection across shards by a <b>shard key</b>. The key's range is cut into chunks; the balancer migrates chunks to even out data, and <code>mongos</code> routes each query to the shards whose chunks it can touch (targeted) or to all of them (scatter-gather).</div>
+  <p>A good shard key has high <b>cardinality</b> (many distinct values), low <b>frequency</b> (no value owns a large share of documents), and is not <b>monotonic</b>: an <code>ObjectId</code> or timestamp key sends every insert to the last chunk on one shard. A <b>hashed</b> key spreads writes evenly but turns range queries into scatter-gather; a <b>ranged</b> key keeps ranges targeted but needs a naturally spread leading field, e.g. <code>{tenantId: 1, createdAt: 1}</code>. It is <b>nearly impossible to fix</b> later: refining the key can only append fields, and resharding (MongoDB 5.0+) rewrites the entire collection under load.</p>
+
+  <h3>Search, validation and migrations</h3>
+  <p><b>Atlas Search</b> (a <code>&#36;search</code> stage backed by Lucene) and <b>Atlas Vector Search</b> (<code>&#36;vectorSearch</code>) add full-text and embedding similarity search inside the pipeline, mainly on MongoDB's managed Atlas service. <b>Schema validation</b> keeps "schemaless" from meaning "anything":</p>
+<pre><code class="plain">db.runCommand({ collMod: "orders", validationLevel: "moderate", validationAction: "error",
+  validator: { &#36;jsonSchema: { bsonType: "object", required: ["customerId", "status"],
+    properties: { status: { enum: ["OPEN", "PAID", "CANCELLED"] },
+                  schemaVersion: { bsonType: "int" } } } } })</code></pre>
+  <p>Migrations: put a <code>schemaVersion</code> in every document; the code reads every live version and writes only the newest (<b>lazy migration</b>); a background job upgrades the remainder in batches; once none are left, drop the old read path and tighten the validator. <code>moderate</code> validation checks only inserts and documents that already pass, so old documents do not block the rollout.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b><code>&#36;lookup</code> on an unindexed <code>foreignField</code></b>: a collection scan per input document.</li>
+    <li><b><code>&#36;unwind</code> before <code>&#36;match</code></b>: multiplies documents before filtering them.</li>
+    <li><b>Resume token stored before processing</b>: a crash loses that event; stored only after, events can repeat, so handlers must be idempotent.</li>
+    <li><b>Oplog too small</b>: a consumer that is down longer than the oplog window cannot resume and must resync.</li>
+    <li><b>Monotonic shard key</b>: one hot shard takes all writes while the others idle.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Write <code>topSkus</code> in the shell first, then in Spring; check the plan and confirm the first <code>&#36;match</code> uses an index.</li>
+    <li>Build a faceted product search response (results, counts by brand, price buckets) with one <code>&#36;facet</code>.</li>
+    <li>Maintain <code>daily_revenue</code> with <code>&#36;merge</code> run every minute over the last two days only.</li>
+    <li>Run a change stream consumer that indexes orders; kill it, write 100 orders, restart with the stored token, and verify none were missed.</li>
+    <li>For a multi-tenant orders collection, compare three shard keys against cardinality, frequency and monotonicity.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> MongoDB Manual: “Aggregation Pipeline”, “Aggregation Pipeline Optimization”, “Change Streams”, “Replication”, “Choose a Shard Key”, “Schema Validation” · Spring Data MongoDB reference, “Aggregation Framework Support”, “Change Streams” · Javadoc: <code>Aggregation</code>, <code>ChangeStreamOptions</code></p>
+</article>
+<!-- ================================================================ L394 -->
+<article class="day" id="l394">
+  <header class="day-head">
+    <span class="day-no">L394 · DAY 394</span>
+    <h2>Elasticsearch &amp; Full-Text Search</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">Search engines invert the data, from documents-containing-words to words-pointing-at-documents, after normalising text through analyzers; relevance, typo tolerance and facets all follow from that structure, and none of them can be bolted onto <code>LIKE</code>.</p>
+
+  <h3>Why LIKE cannot search</h3>
+  <p><code>WHERE name LIKE '%running shoe%'</code> cannot use a B-tree index (leading wildcard), so it scans every row; it matches only that exact substring (not "shoes for running"); it has no notion of <b>relevance</b> (which of 4,000 matches is best); no <b>stemming</b> ("runs" vs "running"); no <b>typo tolerance</b> ("runing"); and no <b>facets</b> (counts per brand alongside the results).</p>
+
+  <h3>The inverted index, built by hand</h3>
+  <figure class="fig"><svg viewBox="0 0 640 220" role="img" aria-label="Three documents are analyzed into terms; each term points to a postings list of document ids">
+    <defs><marker id="ah-l394" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <text x="130" y="22" class="s-ttl s-mid">documents</text>
+    <text x="470" y="22" class="s-ttl s-mid">term → postings</text>
+    <rect x="16" y="40" width="228" height="34" rx="5" class="s-node"/><text x="26" y="62" class="s-sm s-ink">1 "Quick brown fox"</text>
+    <rect x="16" y="84" width="228" height="34" rx="5" class="s-node"/><text x="26" y="106" class="s-sm s-ink">2 "Quick brown dogs jump"</text>
+    <rect x="16" y="128" width="228" height="34" rx="5" class="s-node"/><text x="26" y="150" class="s-sm s-ink">3 "Lazy dog sleeps"</text>
+    <line x1="246" y1="100" x2="330" y2="100" class="s-ln-ink" marker-end="url(#ah-l394)"/>
+    <text x="288" y="90" class="s-sm s-ink2 s-mid">analyze</text>
+    <rect x="340" y="36" width="270" height="160" rx="6" class="s-node-mod"/>
+    <text x="356" y="58" class="s-sm s-ink">brown → 1, 2</text>
+    <text x="356" y="78" class="s-sm s-acc">dog   → 2, 3</text>
+    <text x="356" y="98" class="s-sm s-ink">fox   → 1</text>
+    <text x="356" y="118" class="s-sm s-ink">jump  → 2</text>
+    <text x="356" y="138" class="s-sm s-ink">lazy  → 3</text>
+    <text x="356" y="158" class="s-sm s-acc">quick → 1, 2</text>
+    <text x="356" y="178" class="s-sm s-ink">sleep → 3</text>
+    <text x="130" y="194" class="s-sm s-ink2 s-mid">query "quick dog": doc 2 has both</text>
+  </svg><figcaption><b>Lowercasing and stemming happen before indexing.</b> "dogs" and "dog" become one term, so a query for either finds both; the query is analyzed the same way, then the postings lists are intersected or unioned and scored.</figcaption></figure>
+  <p>Each term's postings list also stores term frequency and positions (for phrase queries). Lookup cost depends on the number of matching terms, not the number of documents, which is why search stays fast at billions of documents.</p>
+
+  <h3>Analyzers and mappings</h3>
+  <p>An <b>analyzer</b> is character filters (strip HTML, map characters) → one tokenizer (split into tokens) → token filters (lowercase, stop words, stemming, synonyms, edge n-grams). The rule that breaks most search features: <b>index-time and search-time analysis must produce compatible terms</b>. If the index stems "running" to "run" but the query is not stemmed, nothing matches. The deliberate exception is autocomplete: index edge n-grams ("ru", "run", "runn"…) but search with a plain analyzer, or every query would match nearly everything.</p>
+<pre><code class="plain">PUT /products_v2
+{ "settings": { "analysis": {
+    "filter":   { "prefixes": { "type": "edge_ngram", "min_gram": 2, "max_gram": 15 } },
+    "analyzer": { "autocomplete": { "tokenizer": "standard", "filter": ["lowercase", "prefixes"] } } } },
+  "mappings": { "dynamic": "strict", "properties": {
+    "name":  { "type": "text", "analyzer": "english",
+               "fields": { "keyword": { "type": "keyword" },
+                           "suggest": { "type": "text", "analyzer": "autocomplete",
+                                        "search_analyzer": "standard" } } },
+    "brand": { "type": "keyword" },
+    "price": { "type": "scaled_float", "scaling_factor": 100 },
+    "updatedAt": { "type": "date" },
+    "variants": { "type": "nested",
+                  "properties": { "color": { "type": "keyword" }, "size": { "type": "keyword" } } } } } }</code></pre>
+  <ul>
+    <li><b><code>text</code></b> is analyzed for full-text matching; <b><code>keyword</code></b> is stored verbatim for exact match, sorting and aggregations. Dynamic mapping creates both for strings: <code>name</code> and <code>name.keyword</code>.</li>
+    <li><b><code>object</code></b> flattens arrays of objects, so <code>{color: red, size: S}</code> and <code>{color: blue, size: L}</code> match "red and L"; <b><code>nested</code></b> indexes each element as a hidden document and needs <code>nested</code> queries.</li>
+    <li><b>Dynamic mapping risks</b>: the first document decides a field's type forever (a "12.50" string makes <code>price</code> text), and user-supplied keys cause a mapping explosion. Use <code>"dynamic": "strict"</code>. Changing a field's type means reindexing.</li>
+  </ul>
+
+  <h3>Queries, scoring and aggregations</h3>
+<pre><code class="plain">GET /products/_search
+{ "query": { "bool": {
+    "must":     [ { "multi_match": { "query": "runing shoe", "fields": ["name^3", "description"],
+                                     "fuzziness": "AUTO" } } ],
+    "should":   [ { "match_phrase": { "name": "trail running" } } ],
+    "filter":   [ { "term": { "brand": "acme" } }, { "range": { "price": { "lte": 120 } } } ],
+    "must_not": [ { "term": { "discontinued": true } } ] } },
+  "aggs": { "brands": { "terms": { "field": "brand", "size": 20 } },
+            "prices": { "range": { "field": "price",
+                        "ranges": [ { "to": 50 }, { "from": 50, "to": 100 }, { "from": 100 } ] } } } }</code></pre>
+  <p><code>match</code> analyzes the input; <code>match_phrase</code> requires terms in order; <code>multi_match</code> searches several fields with boosts (<code>^3</code>); <code>term</code> and <code>range</code> are exact and unanalyzed (a <code>term</code> query on a <code>text</code> field is a classic bug); <code>fuzzy</code>, <code>prefix</code> and <code>wildcard</code> expand to many terms and are expensive. In <code>bool</code>, <code>must</code> and <code>should</code> contribute to the score, while <b><code>filter</code></b> and <code>must_not</code> only include or exclude, so they skip scoring and their results can be cached. Put every yes/no condition in <code>filter</code>.</p>
+  <div class="box def"><span class="tag">Definition</span><b>BM25</b>, the default similarity, scores each query term as IDF × tf·(k1 + 1) / (tf + k1·(1 − b + b·len/avgLen)), with k1 = 1.2 and b = 0.75 by default. Rare terms (high IDF) count more; repeating a term has diminishing returns (saturation by k1); long fields are penalised (normalisation by b). <code>function_score</code> then blends in business signals such as popularity or recency.</div>
+  <p><b>Aggregations</b> computed over the same matching set give the facet counts. For <b>autocomplete</b>, either query the edge-n-gram sub-field (flexible, matches mid-phrase words) or use a <code>completion</code> field with the completion suggester (an in-memory prefix structure: very fast, prefix only).</p>
+
+  <h3>Spring Data Elasticsearch</h3>
+<pre><code>@Document(indexName = "products")
+record ProductDoc(
+        @Id String id,
+        @MultiField(mainField = @Field(type = FieldType.Text, analyzer = "english"),
+                    otherFields = @InnerField(suffix = "keyword", type = FieldType.Keyword))
+        String name,
+        @Field(type = FieldType.Keyword) String brand,
+        @Field(type = FieldType.Double) double price) {}
+
+interface ProductSearch extends ElasticsearchRepository&lt;ProductDoc, String&gt; {
+    List&lt;ProductDoc&gt; findByBrandAndPriceLessThan(String brand, double max); // derived query
+}
+
+@Service
+class Search {
+    private final ElasticsearchOperations ops;
+    Search(ElasticsearchOperations ops) { this.ops = ops; }
+
+    SearchHits&lt;ProductDoc&gt; find(String text, String brand) {
+        NativeQuery q = NativeQuery.builder()
+            .withQuery(qb -&gt; qb.bool(b -&gt; b
+                .must(m -&gt; m.match(mt -&gt; mt.field("name").query(text).fuzziness("AUTO")))
+                .filter(f -&gt; f.term(t -&gt; t.field("brand").value(brand)))))
+            .withAggregation("brands", Aggregation.of(a -&gt; a.terms(t -&gt; t.field("brand").size(20))))
+            .withPageable(PageRequest.of(0, 20))
+            .build();
+        return ops.search(q, ProductDoc.class);
+    }
+
+    SearchHits&lt;ProductDoc&gt; cheap(String text, double max) {          // Criteria API
+        var c = new Criteria("name").matches(text).and(new Criteria("price").lessThanEqual(max));
+        return ops.search(new CriteriaQuery(c), ProductDoc.class);
+    }
+}</code></pre>
+
+  <h3>Keeping the index in sync, and choosing an engine</h3>
+  <p>Postgres stays the source of truth; the index is derived. <b>Dual write</b> (save to Postgres, then to Elasticsearch in the same request) diverges whenever the second write fails or two requests interleave. The <b>transactional outbox</b> writes an event row in the same transaction and a relay indexes it, reliably but only for writes made through your code. <b>CDC</b> (Debezium reading the Postgres WAL into Kafka) sees every committed change, including scripts and other services, in commit order, which is why it usually wins.</p>
+  <p><b>Zero-downtime reindexing</b>: clients use an alias <code>products</code> pointing at <code>products_v1</code>; create <code>products_v2</code> with the new mapping, backfill it (<code>_reindex</code> or from the source), let the sync pipeline write to both, then atomically move the alias with one <code>POST /_aliases</code> containing a remove and an add action.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Engine</th><th>Strength</th><th>Trade-off</th></tr></thead><tbody>
+    <tr><td>Elasticsearch</td><td>Richest query, aggregation and ops ecosystem</td><td>Cluster to run; license changed from Apache 2.0 in 2021 (an AGPL option was added later)</td></tr>
+    <tr><td>OpenSearch</td><td>Apache 2.0 fork of Elasticsearch 7.10</td><td>APIs have diverged since the fork</td></tr>
+    <tr><td>Postgres FTS</td><td><code>tsvector</code> + GIN index, no extra system, transactional</td><td>Weaker relevance, no built-in typo tolerance (<code>pg_trgm</code> helps)</td></tr>
+    <tr><td>Meilisearch / Typesense</td><td>Typo tolerance and instant search out of the box, simple</td><td>Smaller scale and less flexible querying</td></tr>
+  </tbody></table></div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b><code>term</code> on a <code>text</code> field</b>: the indexed term is "acme", the query is "Acme", nothing matches.</li>
+    <li><b>Deep pagination</b>: <code>from + size</code> beyond 10,000 is rejected by default; use <code>search_after</code> with a sort tiebreaker.</li>
+    <li><b>Read-after-write expectations</b>: documents become searchable after the next refresh (1 s by default), not when the index call returns.</li>
+    <li><b>Mapping by accident</b>: dynamic mapping fixed a wrong type and the only fix is a reindex.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Build the inverted index for five short product titles by hand (lowercase + crude stemming), then run the same documents through <code>POST /_analyze</code> with the <code>english</code> analyzer and compare.</li>
+    <li>Create <code>products_v2</code> above, index 1,000 products via Spring Data, and implement search with fuzzy matching, brand filter and brand/price facets.</li>
+    <li>Add autocomplete with the edge-n-gram sub-field and check that the search analyzer is not n-grammed.</li>
+    <li>Change a field's mapping and perform an alias swap with no failed queries during the switch.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Elasticsearch Guide: “Text analysis”, “Mapping”, “Query DSL: Boolean query”, “Aggregations”, “Aliases”, “Paginate search results” · Spring Data Elasticsearch reference, “Elasticsearch Object Mapping” and “Queries” · Manning, Raghavan &amp; Schütze, <i>Introduction to Information Retrieval</i>, ch. 1–2 and 6 · Robertson &amp; Zaragoza 2009, “The Probabilistic Relevance Framework: BM25 and Beyond”</p>
+</article>
+<!-- ================================================================ L395 -->
+<article class="day" id="l395">
+  <header class="day-head">
+    <span class="day-no">L395 · DAY 395</span>
+    <h2>Cassandra, DynamoDB &amp; Wide-Column Modeling</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">Wide-column stores buy near-linear write scaling by giving up joins and ad-hoc queries: the partition key decides where data lives, the sort order decides what one read can return, and so you design one table per query before you write a line of code.</p>
+
+  <h3>Cassandra underneath</h3>
+  <p>Cassandra has no primary node. Each node owns ranges of a hash ring; the partition key is hashed (Murmur3) to a token, and the node owning that token plus the next RF−1 distinct nodes clockwise hold replicas. <b>Vnodes</b> give each node many small token ranges so that adding a node takes a little data from every other node instead of a big slice from one neighbour. Any node can act as <b>coordinator</b> for a request.</p>
+  <figure class="fig"><svg viewBox="0 0 620 250" role="img" aria-label="Hash ring of six nodes; a partition key hashes to a token; three replicas; coordinator waits for two of three at QUORUM">
+    <defs><marker id="ah-l395" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <circle cx="190" cy="125" r="90" class="s-ln-ink" fill="none"/>
+    <circle cx="190" cy="35" r="16" class="s-node"/><text x="190" y="39" class="s-sm s-ink s-mid">A</text>
+    <circle cx="268" cy="80" r="16" class="s-node-mod"/><text x="268" y="84" class="s-sm s-ink s-mid">B</text>
+    <circle cx="268" cy="170" r="16" class="s-node-mod"/><text x="268" y="174" class="s-sm s-ink s-mid">C</text>
+    <circle cx="190" cy="215" r="16" class="s-node-mod"/><text x="190" y="219" class="s-sm s-ink s-mid">D</text>
+    <circle cx="112" cy="170" r="16" class="s-node"/><text x="112" y="174" class="s-sm s-ink s-mid">E</text>
+    <circle cx="112" cy="80" r="16" class="s-node"/><text x="112" y="84" class="s-sm s-ink s-mid">F</text>
+    <circle cx="236" cy="50" r="5" class="s-acc"/>
+    <text x="246" y="40" class="s-sm s-acc">token(key)</text>
+    <rect x="390" y="30" width="200" height="40" rx="6" class="s-node"/>
+    <text x="490" y="55" class="s-sm s-ink s-mid">client → coordinator E</text>
+    <text x="400" y="104" class="s-sm s-ink">RF = 3: replicas B, C, D</text>
+    <text x="400" y="126" class="s-sm s-ink">QUORUM = 2 of 3 must ack</text>
+    <text x="400" y="148" class="s-sm s-ink">W + R = 2 + 2 &gt; 3: reads overlap</text>
+    <text x="400" y="170" class="s-sm s-ink2">D down: hint stored at E,</text>
+    <text x="400" y="188" class="s-sm s-ink2">replayed when D returns</text>
+    <line x1="388" y1="60" x2="130" y2="164" class="s-ln-ink s-dash" marker-end="url(#ah-l395)"/>
+  </svg><figcaption><b>Replicas follow the token.</b> The coordinator sends the write to all three replicas and replies when the consistency level is satisfied.</figcaption></figure>
+  <ul>
+    <li><b>Tunable consistency</b> per request: <code>ONE</code>, <code>QUORUM</code> (majority of all replicas), <code>LOCAL_QUORUM</code> (majority in the local data centre, the usual production choice), <code>ALL</code>. With N replicas, if R + W &gt; N every read set overlaps every write set, so a read sees the latest acknowledged write. Conflicts are resolved by cell timestamp: last write wins.</li>
+    <li><b>Hinted handoff</b>: if a replica is down, the coordinator keeps a hint and replays it later. <b>Read repair</b> fixes stale replicas noticed during reads; scheduled anti-entropy repair (<code>nodetool repair</code>) fixes the rest.</li>
+    <li><b>LSM storage</b>: a write appends to the commit log and updates an in-memory memtable, so writes never read or seek. Full memtables flush to immutable <b>SSTables</b>; reads merge the memtable with several SSTables (Bloom filters skip most); <b>compaction</b> (size-tiered, leveled, or time-window for time series) merges SSTables and drops obsolete cells.</li>
+  </ul>
+
+  <h3>Query-first modeling</h3>
+  <div class="box def"><span class="tag">Definition</span>In <code>PRIMARY KEY ((a, b), c, d)</code> the <b>partition key</b> <code>(a, b)</code> chooses the replicas and must be fully specified by every query; the <b>clustering columns</b> <code>c, d</code> fix the on-disk sort order inside the partition, so range scans and "latest N" over them are a sequential read. Everything else is unindexed.</div>
+<pre><code class="plain">CREATE TABLE chat.messages_by_conversation (
+  conversation_id uuid,
+  day             date,            -- bucket: bounds each partition to one day
+  sent_at         timeuuid,
+  sender_id       uuid,
+  body            text,
+  PRIMARY KEY ((conversation_id, day), sent_at)
+) WITH CLUSTERING ORDER BY (sent_at DESC);
+
+SELECT * FROM chat.messages_by_conversation
+ WHERE conversation_id = ? AND day = ? LIMIT 50;           -- one partition, sequential read
+
+INSERT INTO chat.users (user_id, email) VALUES (?, ?) IF NOT EXISTS;     -- LWT
+UPDATE chat.accounts SET balance = ?, version = ? WHERE id = ? IF version = ?;</code></pre>
+  <p>A second access path ("messages sent by a user") is a second table, <code>messages_by_sender</code>, written alongside the first (a logged batch keeps the two in step). Duplication is the normal price. <b>Lightweight transactions</b> (<code>IF</code>) run Paxos among the replicas, several round trips each, so keep them to rare uniqueness and compare-and-set cases.</p>
+  <p><b>Anti-patterns</b>: <b>unbounded partitions</b> (all of a sensor's readings forever in one partition; bucket by day instead and keep partitions well under ~100 MB); <code>ALLOW FILTERING</code>, which scans partitions and filters afterwards; <b>secondary indexes</b> on high-cardinality columns, which query every node; and <b>deletes</b>, which write <b>tombstones</b> that reads must skip until compaction after <code>gc_grace_seconds</code>, so queue-like tables become slower with every consumed item.</p>
+
+  <h3>Spring Data Cassandra</h3>
+<pre><code>@PrimaryKeyClass
+record MessageKey(
+        @PrimaryKeyColumn(name = "conversation_id", ordinal = 0, type = PrimaryKeyType.PARTITIONED) UUID conversationId,
+        @PrimaryKeyColumn(name = "day", ordinal = 1, type = PrimaryKeyType.PARTITIONED) LocalDate day,
+        @PrimaryKeyColumn(name = "sent_at", ordinal = 2, type = PrimaryKeyType.CLUSTERED,
+                          ordering = Ordering.DESCENDING) UUID sentAt) implements Serializable {}
+
+@Table("messages_by_conversation")
+record Message(@PrimaryKey MessageKey key, UUID senderId, String body) {}
+
+@Service
+class Messages {
+    private final CassandraTemplate cassandra;
+    Messages(CassandraTemplate cassandra) { this.cassandra = cassandra; }
+
+    List&lt;Message&gt; latest(UUID conversation, LocalDate day) {
+        return cassandra.select(Query.query(Criteria.where("conversation_id").is(conversation),
+                                            Criteria.where("day").is(day)).limit(50), Message.class);
+    }
+}</code></pre>
+  <p>Add <code>spring-boot-starter-data-cassandra</code> and set <code>spring.cassandra.contact-points</code>, <code>local-datacenter</code> and <code>keyspace-name</code>; the driver needs the local data centre name to route <code>LOCAL_*</code> consistency correctly.</p>
+
+  <h3>DynamoDB</h3>
+  <p>A managed key-value and wide-column store. Each item has a <b>partition key</b> and optional <b>sort key</b>; a <code>Query</code> reads one partition, optionally a sort-key range. <b>Single-table design</b> stores several entity types in one table with generic keys so one query returns a related set: <code>PK = CUSTOMER#42</code> with <code>SK = PROFILE</code> and <code>SK = ORDER#2026-10-11#991</code> fetches the customer and their orders in a single request. A <b>GSI</b> is a separately stored, eventually consistent copy with a different key (orders by status) and its own capacity; an <b>LSI</b> shares the partition key, must be created with the table, and limits each partition key's items to 10 GB.</p>
+  <p><b>Capacity</b>: on-demand (pay per request) or provisioned (with auto scaling). Throughput is also limited per partition (on the order of 1,000 writes and 3,000 reads units per second), so a celebrity key is a <b>hot partition</b> whatever the table capacity. <b>Conditional writes</b> (<code>attribute_not_exists</code>, <code>version = :expected</code>) give optimistic concurrency; <b>DynamoDB Streams</b> deliver item changes for about 24 hours to Lambda or consumers.</p>
+<pre><code>@DynamoDbBean
+public class OrderItem {
+    private String pk, sk, status; private Long version;
+    @DynamoDbPartitionKey public String getPk() { return pk; }   public void setPk(String v) { pk = v; }
+    @DynamoDbSortKey      public String getSk() { return sk; }   public void setSk(String v) { sk = v; }
+    @DynamoDbSecondaryPartitionKey(indexNames = "byStatus")
+    public String getStatus() { return status; }                 public void setStatus(String v) { status = v; }
+    @DynamoDbVersionAttribute                                    // optimistic locking
+    public Long getVersion() { return version; }                 public void setVersion(Long v) { version = v; }
+}
+
+DynamoDbTable&lt;OrderItem&gt; table = DynamoDbEnhancedClient.create()
+        .table("shop", TableSchema.fromBean(OrderItem.class));
+table.putItem(item);   // adds a version condition; a lost race throws ConditionalCheckFailedException
+var orders = table.query(QueryConditional.sortBeginsWith(
+        Key.builder().partitionValue("CUSTOMER#42").sortValue("ORDER#").build())).items();</code></pre>
+
+  <h3>When it is the right answer, and when it is a trap</h3>
+  <p>Right: massive sustained write throughput (events, telemetry, messaging), time series with natural buckets, multi-region always-on availability, and access patterns that are known and few. A trap: an evolving product where new queries appear monthly (each needs a new table or GSI and a backfill), reporting and ad-hoc analytics, multi-entity invariants, and small data that fits one Postgres comfortably.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>A partition that grows forever</b>: reads time out, repairs and compactions stall on one huge partition.</li>
+    <li><b>Tombstone storms</b>: deleting consumed queue rows until reads hit the tombstone failure threshold and fail.</li>
+    <li><b><code>QUORUM</code> across data centres</b> when <code>LOCAL_QUORUM</code> was meant: every request pays cross-region latency.</li>
+    <li><b>Monotonic or low-cardinality partition keys</b> (date, status) in DynamoDB: one hot partition throttles while capacity sits unused.</li>
+    <li><b>Scan as a query</b>: DynamoDB <code>Scan</code> reads the whole table and bills for it.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>List four queries for a chat app and design one Cassandra table for each, with bucketing; estimate the largest partition size.</li>
+    <li>Run a three-node Cassandra in Docker, write at <code>ONE</code>, stop a node, and observe reads at <code>ONE</code> and <code>QUORUM</code>; restart it and watch hints replay.</li>
+    <li>Design a single-table DynamoDB layout for customers, orders and order lines with access patterns written first; implement two queries with the Enhanced Client against DynamoDB Local.</li>
+    <li>Force a lost update with two writers on a versioned item and handle <code>ConditionalCheckFailedException</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Apache Cassandra docs: “Architecture: Dynamo”, “Data Modeling”, “Storage Engine” · DeCandia et al. 2007, “Dynamo: Amazon's Highly Available Key-value Store” (SOSP) · Amazon DynamoDB Developer Guide: “Best practices for designing and architecting”, “Partitions and data distribution” · AWS SDK for Java 2.x Developer Guide, “DynamoDB Enhanced Client” · Spring Data for Apache Cassandra reference</p>
+</article>
+<!-- ================================================================ L396 -->
+<article class="day project" id="l396">
+  <header class="day-head">
+    <span class="day-no">L396 · DAY 396</span>
+    <h2>Polyglot Persistence &amp; Choosing a Datastore</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span><span class="tagx">milestone project</span></p>
+  </header>
+  <p class="thesis">Every datastore is a bundle of trade-offs about consistency, latency and query flexibility; add one only when a concrete access pattern needs it, because each addition is another copy of the truth you must keep in sync and operate.</p>
+
+  <h3>CAP, stated precisely, and PACELC</h3>
+  <div class="box thm"><span class="tag">Theorem · CAP</span>In an asynchronous network that can lose messages between nodes (a <b>partition</b>), no replicated system can guarantee both <b>linearizable consistency</b> (every read sees the latest completed write, as if there were one copy) and <b>availability</b> (every request to a non-failed node eventually gets a non-error response). During a partition you must give up one of them (Gilbert &amp; Lynch 2002).</div>
+  <p>Common misreadings: "pick any two of three" (partitions are not optional, so the real choice is C or A <i>while partitioned</i>); "C" meaning ACID consistency (it means linearizability); and "a CP system is unavailable" (it is unavailable only on the minority side of a partition). CAP also says nothing about the normal case, which is why <b>PACELC</b> (Abadi 2012) is more useful: if <b>P</b>artitioned, choose <b>A</b> or <b>C</b>; <b>E</b>lse choose <b>L</b>atency or <b>C</b>onsistency. Even on a healthy network, a synchronous replica or quorum read costs round trips. Dynamo-style stores (Cassandra, DynamoDB by default) are PA/EL; a single primary with synchronous replication is PC/EC.</p>
+
+  <h3>Consistency models</h3>
+  <figure class="fig"><svg viewBox="0 0 640 200" role="img" aria-label="Consistency models from strongest to weakest: linearizable, sequential, causal, session guarantees, eventual">
+    <defs><marker id="ah-l396" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="10" y="50" width="112" height="56" rx="6" class="s-node-mod"/><text x="66" y="74" class="s-sm s-ink s-mid">linearizable</text><text x="66" y="92" class="s-sm s-ink2 s-mid">real-time order</text>
+    <rect x="136" y="50" width="112" height="56" rx="6" class="s-node"/><text x="192" y="74" class="s-sm s-ink s-mid">sequential</text><text x="192" y="92" class="s-sm s-ink2 s-mid">one total order</text>
+    <rect x="262" y="50" width="112" height="56" rx="6" class="s-node"/><text x="318" y="74" class="s-sm s-ink s-mid">causal</text><text x="318" y="92" class="s-sm s-ink2 s-mid">cause before effect</text>
+    <rect x="388" y="50" width="118" height="56" rx="6" class="s-node"/><text x="447" y="70" class="s-sm s-ink s-mid">read-your-writes</text><text x="447" y="88" class="s-sm s-ink s-mid">monotonic reads</text>
+    <rect x="520" y="50" width="110" height="56" rx="6" class="s-node"/><text x="575" y="74" class="s-sm s-ink s-mid">eventual</text><text x="575" y="92" class="s-sm s-ink2 s-mid">converges later</text>
+    <line x1="20" y1="140" x2="620" y2="140" class="s-ln-ink" marker-end="url(#ah-l396)"/>
+    <text x="20" y="162" class="s-sm s-ink2">stronger: easier to reason about</text>
+    <text x="620" y="180" class="s-sm s-ink2 s-end">weaker: lower latency, stays available</text>
+  </svg><figcaption><b>Each model is a promise about which orderings readers can observe.</b> Read-your-writes and monotonic reads are per-session guarantees, implied by causal consistency.</figcaption></figure>
+  <ul>
+    <li><b>Linearizable</b>: once a write completes, every later read anywhere sees it. <b>Sequential</b>: all clients see the same total order consistent with each client's program order, but not necessarily real time.</li>
+    <li><b>Causal</b>: if B could have been influenced by A (a reply to a comment), everyone sees A before B; unrelated writes may appear in different orders.</li>
+    <li><b>Read-your-writes</b>: you always see your own updates. <b>Monotonic reads</b>: you never see time go backwards (an older value after a newer one), which load-balanced reads across lagging replicas violate.</li>
+    <li><b>Eventual</b>: if writes stop, replicas converge; nothing is promised about what you read meanwhile.</li>
+  </ul>
+
+  <h3>A decision framework and comparison</h3>
+  <p>Decide per access pattern, in this order: <b>data shape</b> (tables, documents, graph, time series, vectors, blobs); <b>access patterns</b> (point lookups, ranges, joins, full text, aggregates); <b>consistency</b> needed by the business invariant; <b>scale</b> (data size, write rate, regions); <b>query flexibility</b> (will new questions appear?); <b>team expertise</b>; and <b>operational cost</b> (backups, upgrades, on-call, licensing).</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Type</th><th>Examples</th><th>Best at</th><th>Weak at</th></tr></thead><tbody>
+    <tr><td>Relational</td><td>PostgreSQL, MySQL</td><td>Invariants, joins, ad-hoc queries</td><td>Horizontal write scaling</td></tr>
+    <tr><td>Document</td><td>MongoDB</td><td>Aggregates read as a unit, evolving schema</td><td>Many-to-many, cross-document invariants</td></tr>
+    <tr><td>Key-value</td><td>Redis, DynamoDB</td><td>Sub-ms lookups by key</td><td>Anything not by key</td></tr>
+    <tr><td>Wide-column</td><td>Cassandra, ScyllaDB</td><td>Huge write rates, known queries</td><td>New queries, deletes</td></tr>
+    <tr><td>Search</td><td>Elasticsearch, OpenSearch</td><td>Relevance, facets, typos</td><td>Being the source of truth</td></tr>
+    <tr><td>Graph</td><td>Neo4j</td><td>Multi-hop traversals</td><td>Bulk aggregation</td></tr>
+    <tr><td>Time series</td><td>TimescaleDB, InfluxDB</td><td>Append, downsample, time windows</td><td>Updates, relational joins</td></tr>
+    <tr><td>Vector</td><td>pgvector, Pinecone</td><td>Approximate nearest neighbours</td><td>Exact filtering at scale (varies)</td></tr>
+  </tbody></table></div>
+
+  <h3>Polyglot persistence in practice</h3>
+  <p>A typical shape: <b>Postgres</b> is the system of record; <b>Redis</b> holds caches and sessions; <b>Elasticsearch</b> serves search; <b>Kafka</b> carries change events between them; <b>S3</b> stores blobs, with only keys in Postgres. Each addition brings a synchronization path (CDC or outbox into Kafka, an indexer, invalidation), a new failure mode (the index lags, the cache is stale), a backup and restore story, and on-call knowledge. Write down for each store: what is derived from what, the acceptable lag, and how to rebuild it from the source.</p>
+
+  <h3>"Just use Postgres" as a serious default</h3>
+  <p>One well-run Postgres covers far more than relational rows: <code>JSONB</code> with GIN indexes for document-style data, full-text search with <code>tsvector</code>, arrays, <code>LISTEN/NOTIFY</code> for lightweight signals, PostGIS for geospatial, <code>pgvector</code> for embeddings, declarative partitioning for large time-ordered tables, and <code>SKIP LOCKED</code> job queues. Until a measured limit is reached, one transactional store beats four eventually consistent ones.</p>
+<pre><code class="plain">ALTER TABLE products ADD COLUMN search tsvector GENERATED ALWAYS AS
+  (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED;
+CREATE INDEX products_search ON products USING gin (search);
+CREATE INDEX products_attrs  ON products USING gin (attrs jsonb_path_ops);   -- attrs @&gt; '{...}'
+CREATE EXTENSION IF NOT EXISTS vector;
+ALTER TABLE products ADD COLUMN embedding vector(768);
+CREATE INDEX products_vec ON products USING hnsw (embedding vector_cosine_ops);</code></pre>
+<pre><code>record Hit(long id, String title, double rank) {}
+
+List&lt;Hit&gt; search(JdbcClient jdbc, String q, String colour) {
+    return jdbc.sql("""
+            SELECT id, title, ts_rank(search, websearch_to_tsquery('english', :q)) AS rank
+              FROM products
+             WHERE search @@ websearch_to_tsquery('english', :q)
+               AND attrs @&gt; jsonb_build_object('colour', CAST(:colour AS text))
+             ORDER BY rank DESC
+             LIMIT 20""")
+        .param("q", q)
+        .param("colour", colour)
+        .query(Hit.class)
+        .list();
+}</code></pre>
+  <p><b>Migrating between stores</b> uses the strangler pattern: stream changes from the old store into the new one (CDC plus a backfill), shadow-read from both and compare, switch reads behind a flag, then switch writes, keep the old store as a fallback for a period, and only then decommission it.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Résumé-driven stores</b>: a graph database for data with two levels of relationships, now with its own backups and on-call.</li>
+    <li><b>Dual writes between stores</b> without an outbox or CDC: they diverge on the first partial failure.</li>
+    <li><b>No rebuild path</b> for a derived store: when the index corrupts, nobody knows how to regenerate it.</li>
+    <li><b>Assuming linearizability</b> from an eventually consistent store: read-after-write bugs under load.</li>
+  </ul></div>
+
+  <h3>Phase 20 milestone: a measured multi-level cache</h3>
+  <p>Pick one real, read-heavy endpoint from your project (product detail, profile, or catalogue page) and prove a latency improvement with numbers.</p>
+  <ul class="deliverables">
+    <li>Baseline load test (Gatling or k6) recording p50/p95/p99 latency and database QPS with caching disabled.</li>
+    <li>Caffeine L1 and Redis L2 with per-cache TTLs, TTL jitter, versioned keys, and JSON serializers (<a href="#l387">L387</a>, <a href="#l389">L389</a>).</li>
+    <li>Invalidation after commit, with a Redis pub/sub broadcast to every instance's L1, proved by a two-instance test (<a href="#l391">L391</a>).</li>
+    <li>Stampede protection on the hot key and a <code>CacheErrorHandler</code>; a test that stops Redis and shows the endpoint still answers.</li>
+    <li>Micrometer metrics per cache level (hit ratio, load penalty, evictions) on a Grafana dashboard.</li>
+    <li>The same load test with each level on and off, and a one-page write-up: improvement per level, staleness bound, and whether L1 earned its complexity.</li>
+  </ul>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>For a ride-sharing app, list six access patterns and choose a store for each with the framework above; then cut the list to the fewest stores that still meet them.</li>
+    <li>Classify Postgres with a synchronous standby, Cassandra at <code>LOCAL_QUORUM</code>, and DynamoDB with eventually consistent reads in PACELC terms, with one sentence of justification each.</li>
+    <li>Implement product search with Postgres full-text and JSONB filters as above; compare results and latency with the Elasticsearch version from <a href="#l394">L394</a>.</li>
+    <li>Start the milestone: run and save the baseline load test.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Gilbert &amp; Lynch 2002, “Brewer's Conjecture and the Feasibility of Consistent, Available, Partition-Tolerant Web Services” (SIGACT News) · Abadi 2012, “Consistency Tradeoffs in Modern Distributed Database System Design” (IEEE Computer) · Kleppmann, <i>Designing Data-Intensive Applications</i>, ch. 5, 9 and 12 · PostgreSQL docs: “Full Text Search”, “JSON Types” · pgvector README</p>
+</article>
+
+<nav class="modnav">
+  <a href="p19.html"><small>Previous · Days 369–384</small>◂ Phase 19 — Messaging: Kafka &amp; RabbitMQ</a>
+  <a class="next" href="p21.html"><small>Next · Days 397–418</small>Phase 21 — Microservices &amp; Spring Cloud ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

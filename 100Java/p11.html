@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 11 — Web Fundamentals, HTTP &amp; Servlets · 365 Days of Java Backend</title>
+<meta name="description" content="365 Days of Java Backend, phase 11: Web Fundamentals, HTTP &amp; Servlets (lessons 247–258).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+</head>
+<body class="m11" data-lang="java">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>365 Days</b> of Java</a>
+  <span class="meta">Phase 11 · Web Fundamentals, HTTP &amp; Servlets · Days 247–258</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 11 · Web Fundamentals, HTTP &amp; Serv…</h4>
+  <nav>
+    <a href="#l247"><span class="n">L247</span>How the Web Works: DNS, TCP, TLS…</a>
+    <a href="#l248"><span class="n">L248</span>HTTP/1.1 Deep Dive: Methods, Stat…</a>
+    <a href="#l249"><span class="n">L249</span>HTTP Semantics: Idempotency, Safe…</a>
+    <a href="#l250"><span class="n">L250</span>REST: Constraints, Maturity &amp; Res…</a>
+    <a href="#l251"><span class="n">L251</span>REST API Design: URIs, Versioning…</a>
+    <a href="#l252"><span class="n">L252</span>JSON &amp; Jackson Core</a>
+    <a href="#l253"><span class="n">L253</span>Jackson Advanced: Custom Serializ…</a>
+    <a href="#l254"><span class="n">L254</span>The Servlet API: Lifecycle, Reque…</a>
+    <a href="#l255"><span class="n">L255</span>Filters, Listeners, Sessions &amp; Co…</a>
+    <a href="#l256"><span class="n">L256</span>Servlet Containers: Tomcat, Jetty…</a>
+    <a href="#l257"><span class="n">L257</span>CORS, Content Negotiation, Compre…</a>
+    <a href="#l258"><span class="n">L258</span>HTTP/2, HTTP/3, WebSocket, SSE &amp;…</a>
+  </nav>
+  <h4>All 480 lessons</h4>
+  <div class="spine" data-spine data-module="11" style="grid-template-columns:repeat(20,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p10.html">◂ Phase 10</a><a href="p12.html">Phase 12 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 11 · Days 247–258 · Lessons 247–258</p>
+<h1>Web Fundamentals, HTTP &amp; Servlets</h1>
+<p class="dek">This phase teaches the web platform that every Java backend runs on: DNS, TCP and TLS, HTTP semantics, REST design, JSON with Jackson, and the Servlet API with its containers. It sits between the persistence phases and Spring: once you have built a REST API on raw servlets, the milestone project of this phase, you can see exactly which jobs Spring MVC automates in the phases that follow.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Trace a request from URL to response through DNS, TCP, TLS, proxies and the container, estimate its latency in round trips, and observe each step with <code>curl -v</code>, <code>dig</code> and <code>openssl s_client</code>.</li>
+    <li>Pick the correct method, status code and headers for any endpoint, and explain which requests are safe to retry and why.</li>
+    <li>Implement conditional requests (ETag, 304, 412) and write <code>Cache-Control</code> policies for static, shared, private and secret responses.</li>
+    <li>Design resource URIs, cursor pagination, PATCH semantics and Problem Details error bodies, and record the decisions in a reusable API style guide.</li>
+    <li>Configure Jackson for <code>java.time</code>, naming, unknown fields, custom serializers and safe name-based polymorphism.</li>
+    <li>Build a JSON REST API with only servlets, filters and listeners: thread-safe, with correlation ids and CORS, on Tomcat.</li>
+    <li>Diagnose thread-pool exhaustion from a thread dump, and choose between HTTP/2, SSE, WebSocket and gRPC for a given communication pattern.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>12</b> lessons</li><li><b>9h 00m</b> video</li><li><b>8h 35m</b> practice</li><li>Days <b>247–258</b></li>
+</ul>
+
+<!-- ================================================================ L247 -->
+<article class="day" id="l247">
+  <header class="day-head">
+    <span class="day-no">L247 · DAY 247</span>
+    <h2>How the Web Works: DNS, TCP, TLS &amp; the Request Lifecycle</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">35m practice</span></p>
+  </header>
+  <p class="thesis">Typing a URL triggers a chain of round trips: DNS, then TCP, then TLS, then HTTP. On a cold connection the number of round trips, not the speed of your server code, usually sets the latency the user feels.</p>
+
+  <h3>From name to address: DNS</h3>
+  <p>The browser parses <code>https://api.example.com/orders</code> into scheme, host, port (443 implied) and path. Next it needs an IP address. It checks its own cache, then asks the operating system's <em>stub resolver</em>, which checks <code>/etc/hosts</code> and the OS cache. On a miss the stub sends one query to a <em>recursive resolver</em> (your ISP's, a corporate one, or a public one). The recursive resolver does the real work. It asks a root server who handles <code>.com</code>, asks that TLD server who is authoritative for <code>example.com</code>, then asks the authoritative server for the record, caching every answer along the way.</p>
+  <div class="box def"><span class="tag">Definition</span><b>Resource records</b> are typed answers: <b>A</b> (IPv4 address), <b>AAAA</b> (IPv6 address), <b>CNAME</b> (alias to another name, which is how CDNs take over your hostname), <b>NS</b> (delegation), <b>MX</b> (mail), <b>TXT</b> (verification and policy strings). Every record carries a <b>TTL</b> in seconds: how long any cache may reuse it. A low TTL gives fast failover but more queries. A high TTL gives fewer queries, but a bad record lingers.</div>
+  <p>The JVM keeps its own DNS cache inside <code>InetAddress</code>, controlled by the <code>networkaddress.cache.ttl</code> security property. Without a security manager, OpenJDK uses a short default (30 seconds). Historically, with a security manager installed, successful lookups were cached forever. Long-running clients that ignored TTLs have caused real outages after a failover changed an IP address.</p>
+
+  <h3>Sockets, ports and the TCP handshake</h3>
+  <p>A TCP connection is identified by a 4-tuple: source IP, source port, destination IP, destination port. "Listening on 8080" means a process called <code>bind</code> and <code>listen</code> on port 8080 for some local address. The kernel then completes handshakes on its own and queues finished connections in an <em>accept queue</em> (its size is the backlog). The application takes them off with <code>accept()</code>. The client side gets a random <em>ephemeral</em> port. The three-way handshake (SYN, SYN-ACK, ACK) costs one full round trip before the client may send any data.</p>
+<pre><code>import java.io.*;
+import java.net.*;
+import java.nio.charset.StandardCharsets;
+
+public class TinyServer {
+    public static void main(String[] args) throws IOException {
+        try (var server = new ServerSocket()) {
+            // 0.0.0.0 = every interface; 127.0.0.1 would be unreachable from outside a container
+            server.bind(new InetSocketAddress("0.0.0.0", 8080), 50); // 50 = backlog hint
+            while (true) {
+                try (Socket s = server.accept();
+                     var in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
+                     OutputStream out = s.getOutputStream()) {
+                    String requestLine = in.readLine();                 // "GET / HTTP/1.1"
+                    String line;
+                    while ((line = in.readLine()) != null &amp;&amp; !line.isEmpty()) { } // skip headers
+                    byte[] body = ("you sent: " + requestLine + "\n").getBytes(StandardCharsets.UTF_8);
+                    out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
+                            + "Content-Length: " + body.length + "\r\nConnection: close\r\n\r\n")
+                            .getBytes(StandardCharsets.US_ASCII));
+                    out.write(body);
+                    System.out.println(s.getRemoteSocketAddress() + " -&gt; " + s.getLocalSocketAddress());
+                }
+            }
+        }
+    }
+}</code></pre>
+
+  <h3>The TLS 1.3 handshake</h3>
+  <p>Over the new TCP connection the client sends a <b>ClientHello</b>. It carries the TLS versions and cipher suites the client supports, an ephemeral (EC)DHE <em>key share</em>, the <b>SNI</b> (the hostname, so one IP can serve many certificates), and the <b>ALPN</b> list (for example <code>h2, http/1.1</code>). The server replies with a <b>ServerHello</b> carrying its own key share. Both sides can now derive the session keys, so everything after that is encrypted: EncryptedExtensions (including the chosen ALPN protocol), the <b>certificate chain</b> (leaf, then intermediates), <b>CertificateVerify</b> (a signature proving the server holds the leaf's private key) and Finished.</p>
+  <p>The client checks that the chain ends at a root in its trust store, that the leaf's Subject Alternative Name matches the hostname, and that the certificates are within their validity dates. It then sends Finished and, in the same flight, the first HTTP request. TLS 1.3 needs one round trip; TLS 1.2 needed two. Resumed sessions can send "0-RTT" early data, but that data can be replayed, so it must only carry idempotent requests. Because the key exchange is ephemeral, a later leak of the server's private key does not decrypt recorded traffic (<em>forward secrecy</em>).</p>
+
+  <figure class="fig"><svg viewBox="0 0 640 320" role="img" aria-label="Sequence diagram of DNS, TCP, TLS and HTTP round trips between client, resolver and server">
+    <defs><marker id="ah-l247" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="20" y="10" width="100" height="26" rx="4" class="s-node"/><text x="70" y="27" class="s-mid">Client</text>
+    <rect x="170" y="10" width="100" height="26" rx="4" class="s-node"/><text x="220" y="27" class="s-mid">Resolver</text>
+    <rect x="370" y="10" width="100" height="26" rx="4" class="s-node-mod"/><text x="420" y="27" class="s-mid">Server</text>
+    <line x1="70" y1="36" x2="70" y2="310" class="s-ln s-dash"/><line x1="220" y1="36" x2="220" y2="310" class="s-ln s-dash"/><line x1="420" y1="36" x2="420" y2="310" class="s-ln s-dash"/>
+    <line x1="70" y1="62" x2="218" y2="62" class="s-ln s-ln-info" marker-end="url(#ah-l247)"/><text x="145" y="56" class="s-sm s-mid">A? api.example.com</text>
+    <line x1="220" y1="90" x2="72" y2="90" class="s-ln s-ln-info" marker-end="url(#ah-l247)"/><text x="145" y="84" class="s-sm s-mid">A 203.0.113.7 TTL 300</text>
+    <line x1="70" y1="125" x2="418" y2="125" class="s-ln s-ln-ink" marker-end="url(#ah-l247)"/><text x="245" y="119" class="s-sm s-mid">SYN</text>
+    <line x1="420" y1="150" x2="72" y2="150" class="s-ln s-ln-ink" marker-end="url(#ah-l247)"/><text x="245" y="144" class="s-sm s-mid">SYN-ACK</text>
+    <line x1="70" y1="175" x2="418" y2="175" class="s-ln s-ln-ink" marker-end="url(#ah-l247)"/><text x="245" y="169" class="s-sm s-mid">ACK</text>
+    <line x1="70" y1="205" x2="418" y2="205" class="s-ln s-ln-mod" marker-end="url(#ah-l247)"/><text x="245" y="199" class="s-sm s-mid">ClientHello (key share, SNI, ALPN)</text>
+    <line x1="420" y1="230" x2="72" y2="230" class="s-ln s-ln-mod" marker-end="url(#ah-l247)"/><text x="245" y="224" class="s-sm s-mid">ServerHello, Cert, Verify, Finished</text>
+    <line x1="70" y1="255" x2="418" y2="255" class="s-ln s-ln-acc" marker-end="url(#ah-l247)"/><text x="245" y="249" class="s-sm s-mid">Finished + GET /orders</text>
+    <line x1="420" y1="290" x2="72" y2="290" class="s-ln s-ln-acc" marker-end="url(#ah-l247)"/><text x="245" y="284" class="s-sm s-mid">200 OK + body</text>
+    <path d="M480,62 h8 v28 h-8" class="s-ln s-ln-info" fill="none"/><text x="496" y="80" class="s-sm s-info">DNS: 0 or 1+ RTT</text>
+    <path d="M480,125 h8 v50 h-8" class="s-ln" fill="none"/><text x="496" y="154" class="s-sm">TCP: 1 RTT</text>
+    <path d="M480,205 h8 v50 h-8" class="s-ln s-ln-mod" fill="none"/><text x="496" y="234" class="s-sm s-mod">TLS 1.3: 1 RTT</text>
+    <path d="M480,255 h8 v35 h-8" class="s-ln s-ln-acc" fill="none"/><text x="496" y="277" class="s-sm s-acc">HTTP: 1 RTT</text>
+  </svg><figcaption><b>Cold HTTPS fetch.</b> About four round trips pass before the first response byte arrives. A reused keep-alive connection pays only the last one.</figcaption></figure>
+
+  <h3>Request, processing, response, and connection reuse</h3>
+  <p>Once the request leaves the client it rarely reaches your JVM directly. It usually passes through a <b>CDN edge</b> (terminates TLS close to the user, serves cacheable responses, keeps warm connections to the origin), then a <b>load balancer</b>, which can work at L4 (forwards TCP connections without reading HTTP) or L7 (terminates TLS, routes by host or path). Then comes a <b>reverse proxy</b> (nginx, Envoy) and finally the servlet container, which hands the request to a pool thread (<a href="#l256">L256</a>). The response travels back the same way. In HTTP/1.1, connections are persistent by default: the client keeps the socket open and reuses it unless either side sends <code>Connection: close</code> or an idle timeout fires. Reuse is the single largest latency win. <code>java.net.http.HttpClient</code> and pooled clients exist for this reason.</p>
+  <p>Each hop has consequences. Your application sees the proxy's IP rather than the user's, and may see <code>http</code> even though the user typed <code>https</code>. Proxies pass the original values in <code>X-Forwarded-For</code> and <code>X-Forwarded-Proto</code> (or the standard <code>Forwarded</code> header). Trust those headers only from your own proxies.</p>
+
+  <h3>The latency budget: why RTT dominates</h3>
+  <p>Light in fibre travels at about 200,000 km/s, roughly 5 µs per km one way. A transatlantic round trip therefore cannot be much faster than about 60 ms, and real paths add routing detours. Server time is often 5–50 ms. The arithmetic below assumes an 80 ms RTT.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Step</th><th>Round trips</th><th>Cost at 80 ms RTT</th></tr></thead><tbody>
+    <tr><td>DNS</td><td>0 if cached; 1 to the resolver, more if it recurses</td><td>0–100+ ms</td></tr>
+    <tr><td>TCP handshake</td><td>1</td><td>80 ms</td></tr>
+    <tr><td>TLS 1.3 (1.2)</td><td>1 (2)</td><td>80 (160) ms</td></tr>
+    <tr><td>HTTP request/response</td><td>1 plus server time</td><td>80 ms + processing</td></tr>
+    <tr><td>Large body</td><td>extra RTTs during TCP slow start (initial window around 10 segments, about 14 KB)</td><td>varies</td></tr>
+  </tbody></table></div>
+  <p>This is why CDNs (shorter RTT), keep-alive and pooling (skip handshakes), TLS 1.3 and HTTP/2 (fewer round trips, <a href="#l258">L258</a>) matter more than shaving a millisecond off a controller method.</p>
+
+  <h3>Addresses: IPv4, IPv6, NAT and localhost</h3>
+  <p>IPv4 addresses are 32 bits, about 4.3 billion in total, and the free pool has run out. <b>NAT</b> lets a whole home or VPC share one public address. The router rewrites private source addresses (<code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>) and tracks the mapping by port, which is why an outside host cannot open a connection to your laptop. IPv6 addresses are 128 bits, written as hex groups (<code>2001:db8::7</code>). <code>127.0.0.1</code> and <code>::1</code> are <em>loopback</em> addresses: traffic sent to them never leaves the machine. <code>localhost</code> may resolve to <code>::1</code> first, so a server bound only to IPv4 loopback can refuse a client that tried IPv6.</p>
+<pre><code class="plain">$ dig +short api.example.com A          # what the resolver returns
+$ dig +trace example.com                 # walk root -&gt; .com -&gt; authoritative yourself
+$ curl -v https://example.com/           # see connect, TLS, request and response headers
+$ curl -so /dev/null -w 'dns=%{time_namelookup} tcp=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer}\n' https://example.com/
+$ openssl s_client -connect example.com:443 -servername example.com -alpn h2 &lt;/dev/null
+    # prints the certificate chain, the negotiated protocol version and "ALPN protocol: h2"
+$ ss -ltnp | grep 8080                   # who is listening, on which address</code></pre>
+  <p>In browser dev tools, the Network tab's <em>Timing</em> view splits each request into the same phases: DNS lookup, initial connection, SSL, waiting for the first byte (TTFB), and content download.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Bound to 127.0.0.1 in a container.</b> The app reports that it is listening, but nothing outside the container can reach it. Bind to <code>0.0.0.0</code>.</li>
+    <li><b>Missing intermediate certificate.</b> Browsers often paper over it by fetching or caching the intermediate. Java clients fail with <code>PKIX path building failed</code>. Serve the full chain.</li>
+    <li><b>Idle-timeout mismatch.</b> If the load balancer closes idle connections after 60 s but the client pool keeps them for 120 s, the next request on a stale socket fails with "connection reset". Keep client idle timeouts shorter than server and LB idle timeouts.</li>
+    <li><b>Trusting forwarded headers from anyone.</b> A client can send its own <code>X-Forwarded-For</code> and spoof its IP for rate limits or audit logs.</li>
+    <li><b>Stale DNS in the JVM</b> after a failover, when a cache TTL was set very long or to forever.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 35 min</h4><ol>
+    <li>Run the curl timing command against three sites (one far away). Convert each phase to a number of RTTs, using <code>ping</code> or the TCP connect time as one RTT.</li>
+    <li>Run <code>dig +trace</code> on your company's domain. Name the server that answered at each level and note each TTL.</li>
+    <li>Compile and run <code>TinyServer</code>. Hit it with <code>curl -v localhost:8080</code> and with <code>printf 'GET / HTTP/1.1\r\nHost: x\r\n\r\n' | nc localhost 8080</code>. Then bind it to <code>127.0.0.1</code> and try to reach it from another machine or a container.</li>
+    <li>Use <code>openssl s_client</code> to read a production certificate chain: how many certificates, which CA, which SANs, and which ALPN protocol was selected?</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Ilya Grigorik, <i>High Performance Browser Networking</i>, ch. 1–4 · Kurose &amp; Ross, <i>Computer Networking: A Top-Down Approach</i>, ch. 2–3 · RFC 8446 (TLS 1.3) · RFC 1034/1035 (DNS) · Javadoc <code>java.net.ServerSocket</code>, <code>java.net.InetAddress</code> (address caching)</p>
+</article>
+<!-- ================================================================ L248 -->
+<article class="day" id="l248">
+  <header class="day-head">
+    <span class="day-no">L248 · DAY 248</span>
+    <h2>HTTP/1.1 Deep Dive: Methods, Status Codes &amp; Headers</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">HTTP/1.1 is plain text: a start line, header lines, a blank line, and an optional body. Choosing the right method, status code and headers is how a server tells clients, caches and proxies what happened, so that they can act without reading your documentation.</p>
+
+  <h3>The wire format, typed by hand</h3>
+  <p>Every line ends with CRLF (<code>\r\n</code>). The request line is <code>METHOD target HTTP/1.1</code>. Header lines are <code>Name: value</code>, and header names are case-insensitive. An empty line ends the headers. The body length is then given by <code>Content-Length</code> or by chunked framing. The response has the same shape, but starts with a status line.</p>
+<pre><code class="plain">$ nc example.com 80
+GET /index.html HTTP/1.1
+Host: example.com
+Accept: text/html
+                                   &lt;- empty line: end of headers
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=UTF-8
+Content-Length: 1256
+Cache-Control: max-age=604800
+ETag: "84238dfc8092e5d9c0dac8ef93371a07"
+
+&lt;!doctype html&gt; ... exactly 1256 bytes ...</code></pre>
+  <figure class="fig"><svg viewBox="0 0 640 210" role="img" aria-label="Anatomy of an HTTP request message with Content-Length and chunked framing">
+    <rect x="20" y="15" width="330" height="28" class="s-node-mod"/><text x="30" y="34" class="s-sm">POST /orders HTTP/1.1</text>
+    <rect x="20" y="43" width="330" height="62" class="s-node"/><text x="30" y="60" class="s-sm">Host: api.example.com</text><text x="30" y="78" class="s-sm">Content-Type: application/json</text><text x="30" y="96" class="s-sm">Content-Length: 27</text>
+    <rect x="20" y="105" width="330" height="20" class="s-node"/><text x="30" y="119" class="s-sm s-ink3">CRLF (empty line)</text>
+    <rect x="20" y="125" width="330" height="28" class="s-node"/><text x="30" y="144" class="s-sm">{"sku":"A-1","quantity":2}</text>
+    <text x="365" y="34" class="s-sm s-mod">request line</text><text x="365" y="78" class="s-sm">headers</text><text x="365" y="119" class="s-sm s-ink3">end of headers</text><text x="365" y="144" class="s-sm s-acc">body (27 bytes)</text>
+    <text x="20" y="178" class="s-sm s-ink2">Body length unknown up front? Transfer-Encoding: chunked</text>
+    <text x="20" y="196" class="s-sm s-ink2">then "1b CRLF data CRLF ... 0 CRLF CRLF"</text>
+  </svg><figcaption><b>Framing.</b> The parser finds the body boundary from <code>Content-Length</code> or from chunk sizes. If it gets the boundary wrong, the next request on the same connection is corrupted.</figcaption></figure>
+
+  <h3>Methods</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Method</th><th>Meaning</th><th>Request body</th><th>Safe / idempotent</th></tr></thead><tbody>
+    <tr><td><code>GET</code></td><td>Retrieve a representation</td><td>no defined meaning</td><td>yes / yes</td></tr>
+    <tr><td><code>HEAD</code></td><td>Same as GET, but headers only (check size, ETag, existence)</td><td>no</td><td>yes / yes</td></tr>
+    <tr><td><code>POST</code></td><td>Process the payload: create a child resource, or run an action</td><td>yes</td><td>no / no</td></tr>
+    <tr><td><code>PUT</code></td><td>Replace the resource at this URI with the payload (or create it there)</td><td>yes</td><td>no / yes</td></tr>
+    <tr><td><code>PATCH</code></td><td>Apply a partial modification (RFC 5789)</td><td>yes</td><td>no / not guaranteed</td></tr>
+    <tr><td><code>DELETE</code></td><td>Remove the resource</td><td>rarely</td><td>no / yes</td></tr>
+    <tr><td><code>OPTIONS</code></td><td>Ask which methods and options apply; used by the CORS preflight (<a href="#l257">L257</a>)</td><td>rarely</td><td>yes / yes</td></tr>
+    <tr><td><code>TRACE</code></td><td>Echo the request back, a loop-back diagnostic. Disable it in production (cross-site tracing).</td><td>no</td><td>yes / yes</td></tr>
+    <tr><td><code>CONNECT</code></td><td>Ask a proxy to open a TCP tunnel, which is how HTTPS goes through a forward proxy</td><td>no</td><td>no / no</td></tr>
+  </tbody></table></div>
+  <p>The safe and idempotent columns are a contract, not a description of your code; <a href="#l249">L249</a> explains why retries depend on them.</p>
+
+  <h3>Status codes, and choosing correctly</h3>
+  <p>The first digit is the class: 1xx informational, 2xx success, 3xx redirection, 4xx the client's fault (do not retry unchanged), 5xx the server's fault (a retry may succeed). Clients, proxies, monitoring and retry libraries all branch on the class. Mislabelled codes therefore cause real behaviour, not just confusion.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Code</th><th>Use it when</th></tr></thead><tbody>
+    <tr><td>200 / 201 / 202 / 204</td><td>OK with a body / created, with a <code>Location</code> header pointing at the new resource / accepted for asynchronous processing, so return a status URL / success with no body</td></tr>
+    <tr><td>301 / 308</td><td>Permanent move. 308 guarantees the method and body are preserved. With 301, clients may turn a POST into a GET.</td></tr>
+    <tr><td>302 / 307</td><td>Temporary move. 307 preserves the method. 302 has the same POST-to-GET ambiguity as 301.</td></tr>
+    <tr><td>303</td><td>"See Other": after a POST, tell the client to GET the result (the Post/Redirect/Get pattern)</td></tr>
+    <tr><td>304</td><td>Conditional GET: the client's cached copy is still valid, so no body is sent (<a href="#l249">L249</a>)</td></tr>
+    <tr><td>400 / 422</td><td>400: unparseable or malformed request. 422: well-formed, but it fails validation or business rules.</td></tr>
+    <tr><td>401 / 403</td><td>401: not authenticated; send <code>WWW-Authenticate</code>. 403: authenticated, but not allowed.</td></tr>
+    <tr><td>404 / 410</td><td>404: nothing at this URI. 410: it existed and is gone for good.</td></tr>
+    <tr><td>405 / 406 / 415</td><td>405: method not supported here; send an <code>Allow</code> header. 406: no representation matches the client's <code>Accept</code>. 415: the request's <code>Content-Type</code> is not supported.</td></tr>
+    <tr><td>409 / 412</td><td>409: conflicts with current state (a duplicate, or an invalid state transition). 412: an <code>If-Match</code> or <code>If-Unmodified-Since</code> precondition failed.</td></tr>
+    <tr><td>429</td><td>Rate limited; send <code>Retry-After</code></td></tr>
+    <tr><td>500 / 502 / 503 / 504</td><td>500: unexpected bug. 502: a proxy got an invalid response from upstream. 503: overloaded or in maintenance; send <code>Retry-After</code>. 504: a proxy timed out waiting for upstream.</td></tr>
+  </tbody></table></div>
+
+  <h3>Headers that matter</h3>
+  <div class="box def"><span class="tag">Definition</span><ul>
+    <li><b>Host</b>: mandatory in HTTP/1.1. It is what lets one IP serve many sites (virtual hosting).</li>
+    <li><b>Content-Type</b> / <b>Content-Length</b>: the media type and charset of the body, and its size in bytes (not characters).</li>
+    <li><b>Accept</b> / <b>Accept-Encoding</b>: which media types and compressions (<code>gzip, br</code>) the client can take.</li>
+    <li><b>Authorization</b>: credentials such as <code>Bearer &lt;token&gt;</code> or <code>Basic base64(user:pass)</code>. Never log it.</li>
+    <li><b>User-Agent</b> and <b>Referer</b> (the spelling mistake is in the spec): client identification and the page the client came from.</li>
+    <li><b>Cookie</b> / <b>Set-Cookie</b>: client-held state (<a href="#l255">L255</a>).</li>
+    <li><b>Location</b>: the target of a redirect, or the URI of a resource a 201 just created.</li>
+    <li><b>ETag</b> / <b>Cache-Control</b>: a version identifier and the caching policy (<a href="#l249">L249</a>).</li>
+    <li><b>X-Forwarded-For</b> / <b>X-Forwarded-Proto</b>: the original client IP chain and scheme, added by proxies. The standardised form is <code>Forwarded</code> (RFC 7239).</li>
+  </ul></div>
+
+  <h3>Chunked transfer, keep-alive and pooling</h3>
+  <p>When the server streams a body whose size it does not know yet, it sends <code>Transfer-Encoding: chunked</code>. Each chunk is a size in hex, CRLF, that many bytes, then CRLF; a zero-size chunk ends the body. A servlet container switches to chunked encoding automatically when you flush before setting a length. HTTP/1.1 connections are persistent by default, but a connection carries only one request at a time (pipelining is effectively unused). That is why browsers open about six connections per origin, and why server-side clients use a <b>connection pool</b> with a maximum per host, an idle timeout and health checks.</p>
+<pre><code>import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+
+public class HeadDemo {
+    // One client = one connection pool. Build it once and share it; it is thread-safe.
+    private static final HttpClient CLIENT = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(Duration.ofSeconds(3))
+            .followRedirects(HttpClient.Redirect.NEVER)   // see 301/308 yourself
+            .build();
+
+    public static void main(String[] args) throws Exception {
+        HttpRequest head = HttpRequest.newBuilder(URI.create("https://example.com/"))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                .header("Accept", "text/html")
+                .timeout(Duration.ofSeconds(5))
+                .build();
+        for (int i = 0; i &lt; 2; i++) {                 // the 2nd call reuses the kept-alive socket
+            HttpResponse&lt;Void&gt; res = CLIENT.send(head, HttpResponse.BodyHandlers.discarding());
+            System.out.println(res.statusCode() + " " + res.version());
+            res.headers().map().forEach((k, v) -&gt; System.out.println("  " + k + ": " + v));
+        }
+    }
+}</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>200 with an error body.</b> Caches store the error and monitoring sees success. Use the status line.</li>
+    <li><b>500 for validation failures.</b> Clients and gateways retry 5xx responses, so bad input gets hammered in and on-call gets paged. Return 4xx.</li>
+    <li><b>401 and 403 swapped.</b> A client that gets 401 tries to re-authenticate, which loops forever if the real problem is permission.</li>
+    <li><b>Request smuggling.</b> If a proxy and a server disagree about framing (both <code>Content-Length</code> and <code>Transfer-Encoding</code> present, or duplicate lengths), an attacker can hide a second request inside the body. Reject ambiguous messages.</li>
+    <li><b>A new HTTP client per call.</b> Every request pays DNS, TCP and TLS again and leaks sockets. Share one client.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Use <code>nc</code> (or <code>openssl s_client</code> for HTTPS) to send a GET, a HEAD and a request with a bad <code>Host</code> by hand. Write down the status code and the headers each one returns.</li>
+    <li>Send two requests on one <code>nc</code> connection with keep-alive, then a third with <code>Connection: close</code>, and observe when the server hangs up.</li>
+    <li>For ten endpoints of an API you use, decide the correct status for: created, duplicate, validation failure, missing auth, wrong role, and rate limited. Check what the API actually returns.</li>
+    <li>Time both calls in <code>HeadDemo</code> with <code>System.nanoTime()</code>. The second call should be cheaper because it skips the TCP and TLS handshakes. Then build a new client per call and measure again.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> RFC 9110 <i>HTTP Semantics</i> (§9 methods, §15 status codes) · RFC 9112 <i>HTTP/1.1</i> (message syntax, chunked coding) · MDN Web Docs, HTTP reference · Javadoc <code>java.net.http.HttpClient</code></p>
+</article>
+<!-- ================================================================ L249 -->
+<article class="day" id="l249">
+  <header class="day-head">
+    <span class="day-no">L249 · DAY 249</span>
+    <h2>HTTP Semantics: Idempotency, Safety, Caching &amp; Conditional Requests</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+  <p class="thesis">A method's safety and idempotency tell every client and proxy whether a request may be retried. Validators (ETags and dates) let them skip downloads with 304 and prevent lost updates with 412. If you get these semantics right, retries, caching and concurrency come almost for free.</p>
+
+  <h3>Safe vs idempotent</h3>
+  <div class="box def"><span class="tag">Definition</span>A method is <b>safe</b> if the client does not request any state change by sending it (GET, HEAD, OPTIONS, TRACE). Logging or counting views is allowed; deleting is not. A method is <b>idempotent</b> if sending it N times has the same intended effect on the server as sending it once (all safe methods, plus PUT and DELETE). Idempotency is about server state, not the response: a second DELETE may return 404 instead of 204 and still be idempotent.</div>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Method</th><th>Safe</th><th>Idempotent</th><th>Retry automatically after a timeout?</th></tr></thead><tbody>
+    <tr><td>GET, HEAD, OPTIONS</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td>PUT</td><td>no</td><td>yes</td><td>yes: replacing with the same representation twice gives the same state</td></tr>
+    <tr><td>DELETE</td><td>no</td><td>yes</td><td>yes</td></tr>
+    <tr><td>POST</td><td>no</td><td>no</td><td>no, unless it carries an idempotency key</td></tr>
+    <tr><td>PATCH</td><td>no</td><td>depends on the patch (<code>"op":"add"</code> to an array is not idempotent)</td><td>only if you designed it to be</td></tr>
+  </tbody></table></div>
+  <p>The dangerous case is a timeout. The client cannot tell "request lost" from "request processed, response lost". Retrying <code>PUT /accounts/7/limit {"value":500}</code> is harmless. Retrying <code>POST /payments</code> may charge the customer twice. Gateways, HTTP client libraries and browsers all assume your GET, PUT and DELETE handlers honour the contract. A GET that mutates state will be "retried", prefetched and crawled.</p>
+
+  <h3>Making POST safe to retry: the Idempotency-Key</h3>
+  <div class="box algo"><span class="tag">Algorithm · Idempotency key</span><ol>
+    <li>The client generates a unique key (a UUID) per logical operation and sends <code>Idempotency-Key: 9b1d…</code>, reusing the same key on every retry.</li>
+    <li>The server atomically inserts <code>(key, request fingerprint, status = IN_PROGRESS)</code> into a store with a unique constraint on the key.</li>
+    <li>If the insert succeeded, process the request and save the response status and body against the key, in the same transaction as the business write if possible.</li>
+    <li>If the key exists and has completed, replay the stored response. If it is still in progress, return 409. If it has a different fingerprint, return 422 (key reused for a different payload).</li>
+    <li>Expire keys after a window (often 24 h) so the store does not grow forever.</li>
+  </ol></div>
+  <p>Day 416 builds this for real with a database table and distributed locks.</p>
+
+  <h3>Caching: Cache-Control, Expires, Vary</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Directive</th><th>Meaning</th></tr></thead><tbody>
+    <tr><td><code>max-age=N</code></td><td>Fresh for N seconds in any cache. Overrides <code>Expires</code>, the legacy absolute-date header.</td></tr>
+    <tr><td><code>s-maxage=N</code></td><td>Freshness for <em>shared</em> caches (CDN, proxy) only; overrides max-age there</td></tr>
+    <tr><td><code>no-cache</code></td><td>May be stored, but must be revalidated with the origin before every use</td></tr>
+    <tr><td><code>no-store</code></td><td>Must not be stored at all. Use it for secrets and personal data.</td></tr>
+    <tr><td><code>private</code> / <code>public</code></td><td>Only the browser may store it / shared caches may store it, even for authenticated requests</td></tr>
+    <tr><td><code>must-revalidate</code></td><td>Once stale, never serve without revalidating, even if the origin is down</td></tr>
+    <tr><td><code>stale-while-revalidate=N</code></td><td>Serve stale content for up to N seconds while refreshing in the background (RFC 5861)</td></tr>
+  </tbody></table></div>
+  <p><code>Vary</code> lists the request headers that select between representations. With <code>Vary: Accept-Encoding</code>, a cache stores the gzip and Brotli versions separately and never sends compressed bytes to a client that did not ask for them. <code>Vary: Cookie</code> or <code>Vary: Authorization</code> makes responses per-user and effectively uncacheable in shared caches. By default, a shared cache will not store a response to a request with <code>Authorization</code> unless the response explicitly allows it (<code>public</code>, <code>s-maxage</code> or <code>must-revalidate</code>).</p>
+
+  <h3>Conditional requests</h3>
+  <figure class="fig"><svg viewBox="0 0 640 250" role="img" aria-label="Conditional GET returning 304 and conditional PUT returning 412">
+    <defs><marker id="ah-l249" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="30" y="10" width="110" height="26" rx="4" class="s-node"/><text x="85" y="27" class="s-mid">Client A</text>
+    <rect x="470" y="10" width="110" height="26" rx="4" class="s-node-mod"/><text x="525" y="27" class="s-mid">Server</text>
+    <line x1="85" y1="36" x2="85" y2="240" class="s-ln s-dash"/><line x1="525" y1="36" x2="525" y2="240" class="s-ln s-dash"/>
+    <line x1="85" y1="60" x2="523" y2="60" class="s-ln s-ln-ink" marker-end="url(#ah-l249)"/><text x="305" y="54" class="s-sm s-mid">GET /products/42</text>
+    <line x1="525" y1="85" x2="87" y2="85" class="s-ln s-ln-ink" marker-end="url(#ah-l249)"/><text x="305" y="79" class="s-sm s-mid">200 + ETag: "v7" + body</text>
+    <line x1="85" y1="120" x2="523" y2="120" class="s-ln s-ln-info" marker-end="url(#ah-l249)"/><text x="305" y="114" class="s-sm s-mid">GET, If-None-Match: "v7"</text>
+    <line x1="525" y1="145" x2="87" y2="145" class="s-ln s-ln-acc" marker-end="url(#ah-l249)"/><text x="305" y="139" class="s-sm s-mid s-acc">304 Not Modified (no body)</text>
+    <text x="305" y="172" class="s-sm s-mid s-ink3">... client B updates it: ETag becomes "v8" ...</text>
+    <line x1="85" y1="195" x2="523" y2="195" class="s-ln s-ln-info" marker-end="url(#ah-l249)"/><text x="305" y="189" class="s-sm s-mid">PUT, If-Match: "v7"</text>
+    <line x1="525" y1="220" x2="87" y2="220" class="s-ln s-ln-bad" marker-end="url(#ah-l249)"/><text x="305" y="214" class="s-sm s-mid s-bad">412 Precondition Failed</text>
+  </svg><figcaption><b>Validators do two jobs.</b> <code>If-None-Match</code> saves bandwidth on reads. <code>If-Match</code> turns a lost update into an explicit conflict.</figcaption></figure>
+  <p>An <b>ETag</b> is an opaque version tag for a representation. Revalidation with <code>If-None-Match</code> returns 304 if the tag still matches. <code>Last-Modified</code> plus <code>If-Modified-Since</code> does the same with one-second-resolution dates, and is weaker when a resource changes twice within a second. <b>If-Match</b> makes a write conditional: "apply only if the resource is still at version v7". This is optimistic concurrency over HTTP, the same idea as JPA's <code>@Version</code>. Return 428 Precondition Required if you insist on it and the client omits it.</p>
+  <div class="box note"><span class="tag">Strong vs weak ETags</span>A strong tag (<code>"v7"</code>) promises byte-identical content. A weak tag (<code>W/"v7"</code>) promises only semantic equivalence; for example, the same data compressed differently. <code>If-None-Match</code> uses weak comparison, so weak tags are fine for 304s. <code>If-Match</code> requires strong comparison, so use strong tags (or a row version) for writes. Some proxies weaken ETags when they compress the body, which silently breaks <code>If-Match</code>.</div>
+<pre><code>import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
+@WebServlet("/products/42")
+public class ProductServlet extends HttpServlet {
+    private String json = "{\"id\":42,\"price\":\"19.99\"}";
+    private long version = 7;                                    // guarded by "this"
+
+    @Override
+    protected synchronized void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        String etag = "\"v" + version + "\"";
+        res.setHeader("ETag", etag);
+        res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+        if (etag.equals(req.getHeader("If-None-Match"))) {       // simplified: single tag, no "*" or lists
+            res.setStatus(HttpServletResponse.SC_NOT_MODIFIED);  // 304 carries headers, never a body
+            return;
+        }
+        res.setContentType("application/json");
+        res.getWriter().write(json);
+    }
+
+    @Override
+    protected synchronized void doPut(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        String ifMatch = req.getHeader("If-Match");
+        if (ifMatch == null) { res.sendError(428); return; }    // Precondition Required
+        if (!ifMatch.equals("\"v" + version + "\"")) {
+            res.sendError(HttpServletResponse.SC_PRECONDITION_FAILED); return;
+        }
+        json = new String(req.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        version++;                                               // check and write are atomic here
+        res.setHeader("ETag", "\"v" + version + "\"");
+        res.setStatus(HttpServletResponse.SC_NO_CONTENT);
+    }
+}</code></pre>
+  <p>In a real service the atomic check is <code>UPDATE … SET … , version = version + 1 WHERE id = ? AND version = ?</code>. If zero rows are updated, return 412.</p>
+
+  <h3>Browser, CDN and compression together</h3>
+  <p>A typical policy looks like this. Fingerprinted static assets (<code>app.3f9c.js</code>) get <code>public, max-age=31536000, immutable</code>; a deploy changes the file name, so nothing needs invalidating. HTML and API reads that change often get <code>no-cache</code> plus an ETag: always revalidated, but usually answered with a cheap 304. Data that is the same for every user gets <code>public, max-age=30, s-maxage=300, stale-while-revalidate=60</code>, so browsers check soon and the CDN shields the origin. User data gets <code>private</code>, and secrets get <code>no-store</code>. Compression is negotiated with <code>Accept-Encoding: gzip, br</code> and answered with <code>Content-Encoding: br</code> plus <code>Vary: Accept-Encoding</code> (details in <a href="#l257">L257</a>).</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Treating no-cache as "don't cache".</b> It means "revalidate". Sensitive pages need <code>no-store</code>.</li>
+    <li><b>A CDN caching a personalised response</b> because it was marked <code>public</code> or lacked <code>private</code>, so one user sees another user's account page.</li>
+    <li><b>Client retries on POST.</b> A retrying HTTP client or gateway in front of a non-idempotent endpoint creates duplicate orders. Add idempotency keys, or turn off retries for POST.</li>
+    <li><b>An ETag computed from a mutable timestamp</b>, or one that differs per node, so every request misses. Derive it from the content or from a version column.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 40 min</h4><ol>
+    <li>Deploy <code>ProductServlet</code> (or simulate it) and use <code>curl -i -H 'If-None-Match: "v7"'</code> to get a 304. Then send a PUT with a stale <code>If-Match</code> and get a 412.</li>
+    <li>Write the <code>Cache-Control</code> value for: a logo with a hashed file name, a product listing, a user's cart, and a password-reset page. Justify each one.</li>
+    <li>Design the table and the SQL for an idempotency-key store, including the unique constraint and the expiry query. Walk through three cases: a concurrent duplicate, a completed duplicate, and a mismatched payload.</li>
+    <li>Inspect a large site's responses in dev tools. Find one <code>Vary</code> header, one weak ETag and one <code>s-maxage</code>.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> RFC 9110 §9.2 (safe and idempotent methods), §8.8 (validators), §13 (conditional requests) · RFC 9111 <i>HTTP Caching</i> · RFC 5861 (stale-while-revalidate) · IETF draft "The Idempotency-Key HTTP Header Field" · Jakarta Servlet 6 Javadoc <code>HttpServletResponse</code></p>
+</article>
+<!-- ================================================================ L250 -->
+<article class="day" id="l250">
+  <header class="day-head">
+    <span class="day-no">L250 · DAY 250</span>
+    <h2>REST: Constraints, Maturity &amp; Resource Modeling</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">40m practice</span></p>
+  </header>
+  <p class="thesis">REST is not "JSON over HTTP". It is an architectural style defined by a set of constraints, and each constraint buys a property: scalability, cacheability, evolvability. Designing a REST API means modelling your domain as resources and letting HTTP's uniform interface do the work.</p>
+
+  <h3>Fielding's six constraints</h3>
+  <p>Roy Fielding's 2000 dissertation derived REST by adding constraints one at a time to the "null style", explaining what each one buys.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Constraint</th><th>What it requires</th><th>What it buys</th></tr></thead><tbody>
+    <tr><td>Client-server</td><td>UI concerns separated from data storage</td><td>Each side evolves independently; one API serves many clients</td></tr>
+    <tr><td>Stateless</td><td>Each request carries everything needed to understand it</td><td>Any node can serve any request; easy horizontal scaling and recovery</td></tr>
+    <tr><td>Cacheable</td><td>Responses label themselves cacheable or not</td><td>Fewer round trips; caches absorb load (<a href="#l249">L249</a>)</td></tr>
+    <tr><td>Layered system</td><td>A client cannot tell whether it is talking to the origin or an intermediary</td><td>CDNs, gateways, load balancers and security layers can be inserted transparently</td></tr>
+    <tr><td>Uniform interface</td><td>One generic interface for all resources (four sub-constraints, below)</td><td>Generic tooling: caches, proxies, browsers and curl understand every API</td></tr>
+    <tr><td>Code-on-demand (optional)</td><td>The server may send executable code (JavaScript)</td><td>Clients can be extended after deployment</td></tr>
+  </tbody></table></div>
+
+  <h3>What "stateless" forbids and permits</h3>
+  <div class="box def"><span class="tag">Definition</span><b>Statelessness</b> forbids the server from holding <em>application state</em> between requests on the client's behalf. Examples are "this client is on step 3 of the wizard" and "this client's current page of results is held in a server cursor". Such state forces session affinity (sticky sessions) and dies with the node. It <em>permits</em> <b>resource state</b>: orders in a database, a cart stored as a resource at <code>/carts/91</code>, and caches. The test is simple: could any instance answer this request with only the request itself and the shared data stores?</div>
+  <p>So a bearer token on every request is stateless, while an in-memory <code>HttpSession</code> holding the user's cart is not. A pagination cursor that encodes "after id 1830" in the request is stateless, while a server-side result-set cursor is not. In practice, many APIs relax this rule for login sessions. Know that you are doing it and why (<a href="#l255">L255</a>).</p>
+
+  <h3>The uniform interface and HATEOAS</h3>
+  <ol>
+    <li><b>Identification of resources</b>: every resource has a URI. The URI names the thing, not the operation.</li>
+    <li><b>Manipulation through representations</b>: the client holds a representation (JSON, HTML) and sends a representation back to change the resource.</li>
+    <li><b>Self-descriptive messages</b>: the method, status code, <code>Content-Type</code> and cache headers say everything an intermediary needs to know.</li>
+    <li><b>Hypermedia as the engine of application state</b> (HATEOAS): responses contain links to the actions that are valid <em>now</em>, so clients follow links instead of building URIs from documentation.</li>
+  </ol>
+<pre><code>import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
+
+record Link(String rel, URI href, String method) {}
+
+record OrderView(long id, String status, long totalCents, List&lt;Link&gt; links) {
+    static OrderView of(long id, String status, long totalCents) {
+        URI self = URI.create("/orders/" + id);
+        List&lt;Link&gt; links = new ArrayList&lt;&gt;();
+        links.add(new Link("self", self, "GET"));
+        switch (status) {                                  // links depend on the resource's state
+            case "PLACED" -&gt; {
+                links.add(new Link("pay", URI.create(self + "/payment"), "PUT"));
+                links.add(new Link("cancel", URI.create(self + "/cancel"), "POST"));
+            }
+            case "PAID" -&gt; links.add(new Link("shipment", URI.create(self + "/shipment"), "GET"));
+            default -&gt; { }                                 // CANCELLED, SHIPPED: no further actions
+        }
+        return new OrderView(id, status, totalCents, List.copyOf(links));
+    }
+}</code></pre>
+  <p>A client that shows a "Cancel" button only when a <code>cancel</code> link is present never needs to copy the server's state machine. Formats such as HAL, JSON:API and Siren standardise the link shape; Spring HATEOAS implements them.</p>
+
+  <h3>The Richardson Maturity Model</h3>
+  <figure class="fig"><svg viewBox="0 0 640 240" role="img" aria-label="Richardson Maturity Model as a staircase of four levels">
+    <rect x="20" y="180" width="140" height="44" class="s-node"/><text x="90" y="198" class="s-mid s-sm">Level 0</text><text x="90" y="214" class="s-mid s-sm s-ink3">one URI, POST</text>
+    <rect x="170" y="134" width="140" height="90" class="s-node"/><text x="240" y="152" class="s-mid s-sm">Level 1</text><text x="240" y="168" class="s-mid s-sm s-ink3">resources</text>
+    <rect x="320" y="88" width="140" height="136" class="s-node-mod"/><text x="390" y="106" class="s-mid s-sm">Level 2</text><text x="390" y="122" class="s-mid s-sm s-ink3">HTTP verbs</text><text x="390" y="138" class="s-mid s-sm s-ink3">+ status codes</text>
+    <rect x="470" y="42" width="150" height="182" class="s-node-mod"/><text x="545" y="60" class="s-mid s-sm">Level 3</text><text x="545" y="76" class="s-mid s-sm s-ink3">hypermedia</text><text x="545" y="92" class="s-mid s-sm s-ink3">controls</text>
+    <text x="320" y="20" class="s-mid s-sm s-ink2">most "REST" APIs stop at level 2; Fielding calls only level 3 REST</text>
+  </svg><figcaption><b>Each level adds one idea.</b> Many URIs, then the HTTP method and status semantics, then links that drive the client.</figcaption></figure>
+<pre><code class="plain">L0  POST /api              {"action":"getOrder","id":42}       -&gt; 200 {"error":"not found"}
+L1  POST /orders/42        {"action":"get"}                    -&gt; 200 {...}
+L2  GET  /orders/42                                            -&gt; 200 {...}   or 404
+    POST /orders           {"sku":"A-1"}                       -&gt; 201 Location: /orders/43
+L3  GET  /orders/42                                            -&gt; 200 {..., "links":[{"rel":"cancel",...}]}</code></pre>
+
+  <h3>Modelling resources from a domain</h3>
+  <p>Start from the domain model, not from the screens. Aggregates and their important parts become resources, and their identities become URIs. A <b>collection</b> (<code>/orders</code>) supports GET (list) and POST (create a member). A <b>singleton</b> (<code>/orders/42</code>, <code>/users/7/profile</code>) supports GET, PUT, PATCH and DELETE. A <b>sub-resource</b> expresses ownership (<code>/orders/42/items</code>). An RPC-style endpoint (<code>/getOrderDetails</code>, <code>/updateOrderStatus</code>) puts the verb in the URI and loses caching, method semantics and discoverability.</p>
+  <div class="box note"><span class="tag">Non-CRUD actions</span>Some operations are genuine domain actions: cancel, approve, refund. You have two honest options. One is a controller resource, <code>POST /orders/42/cancel</code>: pragmatic and widely used. The other is to reify the action as a noun, <code>POST /orders/42/cancellations</code>, which gives you a resource you can GET later with a reason, a timestamp and the actor. Avoid <code>PATCH {"status":"CANCELLED"}</code> when cancelling has side effects (refunds, emails). It hides a business operation inside a field update.</div>
+
+  <h3>REST vs RPC vs GraphQL vs gRPC</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Style</th><th>Wins when</th><th>Costs</th></tr></thead><tbody>
+    <tr><td>REST</td><td>Public or partner APIs, cacheable reads, broad tooling, long-lived contracts</td><td>Over- and under-fetching; many round trips for nested views</td></tr>
+    <tr><td>JSON-RPC style</td><td>Internal command-heavy APIs where operations do not map to resources</td><td>No HTTP caching or method semantics; every client is custom</td></tr>
+    <tr><td>GraphQL</td><td>Many client types needing different shapes of one graph (mobile vs web)</td><td>HTTP caching is hard; query cost control; N+1 resolvers</td></tr>
+    <tr><td>gRPC</td><td>Low-latency service-to-service calls, streaming, strict schemas (<a href="#l258">L258</a>)</td><td>Binary and not browser-native; needs HTTP/2 and code generation</td></tr>
+  </tbody></table></div>
+
+  <div class="box trap"><span class="tag">Interview trap</span><ul>
+    <li>"Our API is RESTful because it returns JSON." The format is irrelevant. The constraints (statelessness, the uniform interface, cacheability) are what make it REST.</li>
+    <li>Calling an API that relies on sticky sessions "stateless".</li>
+    <li>Claiming level 3 because the response contains a <code>self</code> link. Hypermedia means the <em>available actions</em> are discovered from links.</li>
+    <li>Saying REST forbids verbs in URIs entirely. Action sub-resources such as <code>/cancel</code> are a recognised, pragmatic compromise.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 40 min</h4><ol>
+    <li>Take a library domain (members, books, copies, loans, holds) and list its resources, URIs and allowed methods. Mark each one as a collection, singleton or sub-resource.</li>
+    <li>Rewrite five RPC endpoints (<code>/createLoan</code>, <code>/returnBook</code>, <code>/getOverdue</code>, <code>/renewLoan</code>, <code>/cancelHold</code>) as resources or action sub-resources.</li>
+    <li>Extend <code>OrderView</code> so that links depend on both state and the caller's role (only admins get <code>refund</code>). Write a test for each state.</li>
+    <li>Classify three public APIs you use on the Richardson scale, with evidence from real requests.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Roy Fielding, "Architectural Styles and the Design of Network-based Software Architectures" (2000), ch. 5 · Leonard Richardson &amp; Mike Amundsen, <i>RESTful Web APIs</i> · Martin Fowler, "Richardson Maturity Model" (2010) · Spring HATEOAS reference documentation</p>
+</article>
+<!-- ================================================================ L251 -->
+<article class="day" id="l251">
+  <header class="day-head">
+    <span class="day-no">L251 · DAY 251</span>
+    <h2>REST API Design: URIs, Versioning, Filtering, Pagination &amp; Errors</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">Most API design is a set of small, boring decisions: URI shape, query conventions, pagination, patch format, error shape, date and money formats. Make each one once, write it down as a style guide, and apply it everywhere. Clients pay for every inconsistency.</p>
+
+  <h3>URI design</h3>
+  <ul>
+    <li><b>Plural nouns</b> for collections: <code>/orders</code>, <code>/orders/42</code>. No verbs (<code>/getOrders</code>) and no file extensions (<code>.json</code>); the format is negotiated with <code>Accept</code>.</li>
+    <li><b>Lowercase and hyphenated</b> path segments: <code>/shipping-addresses</code>. Paths can be case-sensitive; hyphens read well and survive every tool.</li>
+    <li><b>Hierarchy reflects ownership</b>: <code>/customers/7/addresses/3</code>, where an address cannot exist without its customer. <b>Flatten</b> when the child has its own identity or when nesting goes past about two levels. Prefer <code>/order-items/991</code> or <code>/orders?customerId=7</code> over <code>/customers/7/orders/42/items/991</code>.</li>
+    <li>IDs are opaque strings to the client. Don't promise they are sequential integers.</li>
+  </ul>
+
+  <h3>Filtering, sorting, fields and search</h3>
+<pre><code class="plain">GET /orders?status=PAID&amp;createdFrom=2026-01-01T00:00:00Z&amp;customerId=7      filtering: one param per field
+GET /orders?status=PAID,SHIPPED                                             multi-value: comma list (pick one rule)
+GET /orders?sort=-createdAt,id                                              sort: '-' = descending, stable tiebreaker last
+GET /orders?fields=id,status,total                                          sparse fieldset: smaller payloads
+GET /orders?q=blue+mug                                                      free-text search: a separate, explicit param</code></pre>
+  <p>Allow-list every filterable and sortable field. Arbitrary sort columns become slow unindexed queries, and passing a raw field name into SQL is an injection risk. Always end the sort with a unique key, or pagination will skip and duplicate rows.</p>
+
+  <h3>Pagination contracts</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Contract</th><th>Request</th><th>Strength</th><th>Weakness</th></tr></thead><tbody>
+    <tr><td>Offset / limit</td><td><code>?offset=40&amp;limit=20</code></td><td>Jump to any position; trivial SQL</td><td><code>OFFSET</code> scans and discards rows, so it slows down with depth; inserts shift pages, causing duplicates and gaps</td></tr>
+    <tr><td>Page / size</td><td><code>?page=2&amp;size=20</code></td><td>Matches UI page numbers (Spring Data's <code>Pageable</code>)</td><td>Same as offset; the total count costs an extra <code>COUNT(*)</code></td></tr>
+    <tr><td>Cursor (keyset)</td><td><code>?after=eyJ0Ijo…&amp;limit=20</code></td><td>Constant cost per page using an index seek; stable under inserts</td><td>No random access; the cursor must encode the full sort key</td></tr>
+  </tbody></table></div>
+  <div class="box def"><span class="tag">Definition</span><b>Keyset (cursor) pagination</b> remembers the sort key of the last row the client saw and asks for rows strictly after it: <code>WHERE (created_at, id) &lt; (:lastCreatedAt, :lastId)</code>. With an index on <code>(created_at, id)</code>, each page is a seek plus a short range scan, whatever the depth. The <b>cursor</b> is that key, encoded opaquely.</div>
+  <figure class="fig"><svg viewBox="0 0 640 150" role="img" aria-label="Offset pagination scans skipped rows while keyset pagination seeks directly">
+    <defs><marker id="ah-l251" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <text x="20" y="22" class="s-sm">OFFSET 6 LIMIT 3</text>
+    <rect x="150" y="10" width="36" height="20" class="s-node"/><rect x="190" y="10" width="36" height="20" class="s-node"/><rect x="230" y="10" width="36" height="20" class="s-node"/><rect x="270" y="10" width="36" height="20" class="s-node"/><rect x="310" y="10" width="36" height="20" class="s-node"/><rect x="350" y="10" width="36" height="20" class="s-node"/>
+    <rect x="390" y="10" width="36" height="20" class="s-node-mod"/><rect x="430" y="10" width="36" height="20" class="s-node-mod"/><rect x="470" y="10" width="36" height="20" class="s-node-mod"/>
+    <line x1="150" y1="42" x2="386" y2="42" class="s-ln s-ln-bad" marker-end="url(#ah-l251)"/><text x="268" y="58" class="s-sm s-mid s-bad">read and discarded</text>
+    <text x="20" y="102" class="s-sm">WHERE id &gt; 6 LIMIT 3</text>
+    <rect x="150" y="90" width="36" height="20" class="s-node"/><rect x="190" y="90" width="36" height="20" class="s-node"/><rect x="230" y="90" width="36" height="20" class="s-node"/><rect x="270" y="90" width="36" height="20" class="s-node"/><rect x="310" y="90" width="36" height="20" class="s-node"/><rect x="350" y="90" width="36" height="20" class="s-node"/>
+    <rect x="390" y="90" width="36" height="20" class="s-node-mod"/><rect x="430" y="90" width="36" height="20" class="s-node-mod"/><rect x="470" y="90" width="36" height="20" class="s-node-mod"/>
+    <path d="M168,128 C250,145 330,145 405,114" class="s-ln s-ln-acc" fill="none" marker-end="url(#ah-l251)"/><text x="530" y="132" class="s-sm s-acc">index seek</text>
+  </svg><figcaption><b>Cost per page.</b> Offset pagination does work proportional to the offset. A keyset cursor seeks straight to the first row it needs.</figcaption></figure>
+<pre><code>import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.List;
+
+/** Opaque keyset cursor. Clients must not parse it, so the encoding can change later. */
+record Cursor(Instant createdAt, long id) {
+    String encode() {
+        String raw = createdAt.toEpochMilli() + ":" + id;   // the DB column must hold millis too
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+    static Cursor decode(String token) {                    // IllegalArgumentException -&gt; 400
+        String raw = new String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8);
+        int colon = raw.indexOf(':');
+        if (colon &lt; 0) throw new IllegalArgumentException("malformed cursor");
+        return new Cursor(Instant.ofEpochMilli(Long.parseLong(raw.substring(0, colon))),
+                          Long.parseLong(raw.substring(colon + 1)));
+    }
+}
+
+/** Response envelope: fetch limit+1 rows; if you got the extra one, there is a next page. */
+record Page&lt;T&gt;(List&lt;T&gt; items, int limit, String nextCursor) {}
+// SQL: WHERE (created_at, id) &lt; (?, ?) ORDER BY created_at DESC, id DESC LIMIT :limit + 1</code></pre>
+  <p>An offset envelope typically carries <code>items</code>, <code>page</code>, <code>size</code> and <code>totalElements</code>. A cursor envelope carries <code>items</code> and <code>next</code> (null on the last page). Keep the envelope even for small lists, so that adding pagination later is not a breaking change.</p>
+
+  <h3>Partial updates and bulk operations</h3>
+  <p><b>PUT</b> replaces the whole representation, so omitted fields are reset. <b>PATCH</b> sends a change description, and the media type says which format. <b>JSON Merge Patch</b> (<code>application/merge-patch+json</code>, RFC 7386, since replaced by RFC 7396) is a partial document: present fields overwrite, <code>null</code> deletes, and arrays are replaced wholesale. It is simple, but you cannot set a field to null or edit one array element. <b>JSON Patch</b> (<code>application/json-patch+json</code>, RFC 6902) is an ordered list of operations (<code>add</code>, <code>remove</code>, <code>replace</code>, <code>move</code>, <code>copy</code>, <code>test</code>) addressed by JSON Pointer. It applies atomically, and <code>test</code> gives a built-in precondition.</p>
+<pre><code class="plain">PATCH /users/7   Content-Type: application/merge-patch+json
+{"nickname": "kj", "phone": null}
+
+PATCH /users/7   Content-Type: application/json-patch+json
+[{"op":"test","path":"/version","value":12},
+ {"op":"replace","path":"/emails/0","value":"k@example.com"}]</code></pre>
+  <p><b>Bulk operations</b> (<code>POST /orders/bulk</code> with an array) need a stated contract. Say whether the batch is atomic (all-or-nothing, 200/4xx) or partial (per-item results, each with its own status, typically under 200 or 207). Set a maximum batch size, and say whether per-item idempotency keys are honoured.</p>
+
+  <h3>Error responses</h3>
+  <p>Use one shape for every error, from every endpoint. RFC 9457 <em>Problem Details</em> (<code>application/problem+json</code>) is the standard base, and Spring 6 supports it as <code>ProblemDetail</code>. Extend it with a stable machine-readable <code>code</code>, field-level violations and the trace id, which links the response to your logs.</p>
+<pre><code class="plain">HTTP/1.1 422 Unprocessable Content
+Content-Type: application/problem+json
+
+{"type": "https://api.example.com/problems/validation",
+ "title": "Request validation failed", "status": 422,
+ "detail": "2 fields are invalid", "instance": "/orders",
+ "code": "VALIDATION_FAILED",
+ "errors": [{"field": "quantity", "code": "MIN", "message": "must be at least 1"},
+            {"field": "deliveryDate", "code": "FUTURE", "message": "must be in the future"}],
+ "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"}</code></pre>
+  <p>Clients branch on <code>code</code>, never on <code>message</code>, which is for humans and may be translated. A 500 says only "internal error" plus the trace id. Stack traces, SQL and class names belong in logs, not in responses.</p>
+
+  <h3>Versioning, naming, dates and money: the style guide</h3>
+  <div class="box note"><span class="tag">A reusable API style guide</span><ul>
+    <li><b>Versioning</b> (full treatment later in the course): use a major version in the path (<code>/v1/</code>), a header, or a media type (<code>application/vnd.acme.v2+json</code>). Ship additive changes without a version bump; bump only for breaking changes.</li>
+    <li><b>Casing</b>: one convention for JSON fields, <code>camelCase</code> or <code>snake_case</code>, never both. Enums are upper-case strings, and clients must tolerate unknown values.</li>
+    <li><b>Dates</b>: always ISO-8601 in UTC with a zone designator (<code>2026-10-10T14:03:00Z</code>). Use a plain date (<code>2026-10-10</code>) only for calendar dates such as birthdays.</li>
+    <li><b>Money</b>: never a binary float. Send integer minor units plus currency (<code>{"amount": 1999, "currency": "EUR"}</code>) or a decimal string (<code>"19.99"</code>).</li>
+    <li><b>Nulls</b>: decide whether absent and null differ (they do in merge patch), and document it.</li>
+  </ul></div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Deep offset pagination</b> on a large table: page 5,000 times out and the database CPU climbs. Switch to cursors or cap the offset.</li>
+    <li><b>Non-unique sort keys</b>: rows with equal <code>createdAt</code> appear on two pages or none.</li>
+    <li><b>Error shapes that differ by framework layer</b> (the filter, the controller and the gateway each return a different JSON), so clients parse with fragile special cases.</li>
+    <li><b>Prices as JSON doubles</b>: JavaScript clients show <code>0.30000000000000004</code>.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Write a one-page API style guide covering URIs, query conventions, pagination envelope, errors, dates, money and versioning. Keep it to reuse in later phases.</li>
+    <li>Implement <code>Cursor</code> and an in-memory list endpoint that pages through 10,000 records. Insert records between page fetches and show that cursors neither skip nor duplicate rows, while offsets do.</li>
+    <li>Apply the same change (rename a nickname, delete a phone, edit the second email) as a merge patch and as a JSON Patch. Note what merge patch cannot express.</li>
+    <li>Design the error response for five failure types: validation, not found, conflict, rate limit and internal error.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> RFC 9457 <i>Problem Details for HTTP APIs</i> · RFC 6902 (JSON Patch), RFC 7396 (JSON Merge Patch) · Google <i>API Design Guide</i> · Zalando <i>RESTful API Guidelines</i> · Spring Framework reference, "Error Responses" (<code>ProblemDetail</code>)</p>
+</article>
+<!-- ================================================================ L252 -->
+<article class="day" id="l252">
+  <header class="day-head">
+    <span class="day-no">L252 · DAY 252</span>
+    <h2>JSON &amp; Jackson Core</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">JSON is a deliberately tiny format, and most JSON bugs live in what it cannot express: dates, big integers, exact decimals. Jackson bridges JSON and Java in three layers (tokens, trees, bound objects), configured by annotations and a single shared <code>ObjectMapper</code>.</p>
+
+  <h3>JSON's types and its limits</h3>
+  <div class="box def"><span class="tag">Definition</span>A JSON value (RFC 8259) is an <b>object</b> (unordered string-keyed members), an <b>array</b>, a <b>string</b> (Unicode, with escapes), a <b>number</b> (decimal digits, optional fraction and exponent), <code>true</code>, <code>false</code> or <code>null</code>. Nothing else exists.</div>
+  <ul>
+    <li><b>No comments, no trailing commas.</b> Configuration files that need comments use YAML or JSON5. Jackson can be told to allow comments (<code>JsonReadFeature.ALLOW_JAVA_COMMENTS</code>), but don't do that for API input.</li>
+    <li><b>No date type.</b> Every API must choose a convention; use ISO-8601 strings (<a href="#l251">L251</a>).</li>
+    <li><b>No integer/float distinction</b>, and no NaN or Infinity. JavaScript parses every number as an IEEE double, so integers above 2<sup>53</sup> (9,007,199,254,740,992) silently lose precision. Send 64-bit IDs and money amounts as strings when browsers consume them.</li>
+    <li><b>Duplicate keys</b> are not forbidden, and parsers disagree about which one wins. Enable <code>JsonParser.Feature.STRICT_DUPLICATE_DETECTION</code> to reject them.</li>
+  </ul>
+
+  <h3>Jackson's three layers</h3>
+  <figure class="fig"><svg viewBox="0 0 640 210" role="img" aria-label="Jackson layers: streaming API, tree model and data binding">
+    <rect x="20" y="150" width="420" height="44" rx="4" class="s-node"/><text x="230" y="168" class="s-mid">Streaming: JsonParser / JsonGenerator</text><text x="230" y="185" class="s-mid s-sm s-ink3">jackson-core · tokens · constant memory</text>
+    <rect x="20" y="90" width="420" height="44" rx="4" class="s-node"/><text x="230" y="108" class="s-mid">Tree model: JsonNode / ObjectNode</text><text x="230" y="125" class="s-mid s-sm s-ink3">schema-less, mutable, whole doc in memory</text>
+    <rect x="20" y="30" width="420" height="44" rx="4" class="s-node-mod"/><text x="230" y="48" class="s-mid">Data binding: ObjectMapper</text><text x="230" y="65" class="s-mid s-sm s-ink3">jackson-databind · JSON to records and POJOs</text>
+    <rect x="465" y="30" width="155" height="44" rx="4" class="s-node"/><text x="542" y="48" class="s-mid s-sm">annotations</text><text x="542" y="65" class="s-mid s-sm s-ink3">@JsonProperty...</text>
+    <rect x="465" y="90" width="155" height="104" rx="4" class="s-node"/><text x="542" y="110" class="s-mid s-sm">modules</text><text x="542" y="130" class="s-mid s-sm s-ink3">jsr310 (java.time)</text><text x="542" y="148" class="s-mid s-sm s-ink3">jdk8 (Optional)</text><text x="542" y="166" class="s-mid s-sm s-ink3">parameter-names</text>
+    <text x="230" y="18" class="s-mid s-sm s-ink2">each layer is built on the one below</text>
+  </svg><figcaption><b>Pick the layer for the job.</b> Bind known shapes to types. Use trees for ad-hoc or partially known JSON. Stream when a payload is too big to hold in memory.</figcaption></figure>
+<pre><code>import com.fasterxml.jackson.annotation.*;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record Order(@JsonProperty("order_id") long id,
+             @JsonAlias({"customer", "cust"}) String customerName,   // accepted on input only
+             @JsonFormat(pattern = "yyyy-MM-dd") LocalDate deliveryDate,
+             BigDecimal total,
+             @JsonIgnore String internalNote) {}                    // never written, null when read
+
+public class JacksonCore {
+    // Build once; ObjectMapper is thread-safe after configuration.
+    static final ObjectMapper MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+
+    public static void main(String[] args) throws Exception {
+        var o = new Order(42, "Ada", LocalDate.of(2026, 10, 12), new BigDecimal("19.99"), "vip");
+        String json = MAPPER.writeValueAsString(o);
+        // {"order_id":42,"customer_name":"Ada","delivery_date":"2026-10-12","total":19.99}
+        Order back = MAPPER.readValue(json, Order.class);
+        List&lt;Order&gt; many = MAPPER.readValue("[" + json + "]", new TypeReference&lt;List&lt;Order&gt;&gt;() {});
+        Map&lt;String, Object&gt; asMap = MAPPER.convertValue(back, new TypeReference&lt;Map&lt;String, Object&gt;&gt;() {});
+
+        JsonNode tree = MAPPER.readTree(json);
+        ((ObjectNode) tree).put("source", "batch");                  // mutate without a class
+        String sku = tree.path("lines").path(0).path("sku").asText("none"); // path() never returns null
+        System.out.println(many.size() + " " + asMap.keySet() + " " + sku + " " + tree);
+    }
+}</code></pre>
+  <p><code>TypeReference</code> exists because of erasure: <code>List&lt;Order&gt;.class</code> is not expressible, so an anonymous subclass captures the full generic type in its superclass signature. <code>convertValue</code> maps one Java shape to another through Jackson's token buffer, without producing a JSON string. Records need no <code>@JsonCreator</code>: since Jackson 2.12 the canonical constructor is used automatically.</p>
+
+  <h3>Streaming huge payloads</h3>
+<pre><code>import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import java.io.*;
+import java.util.function.Consumer;
+
+class OrderStream {
+    static void readAll(InputStream in, Consumer&lt;Order&gt; sink) throws IOException {
+        try (JsonParser p = JacksonCore.MAPPER.createParser(in)) {
+            if (p.nextToken() != JsonToken.START_ARRAY) throw new IOException("expected a JSON array");
+            while (p.nextToken() == JsonToken.START_OBJECT) {
+                sink.accept(JacksonCore.MAPPER.readValue(p, Order.class)); // binds one element at a time
+            }
+        }
+    }
+    static void writeAll(OutputStream out, Iterable&lt;Order&gt; orders) throws IOException {
+        try (JsonGenerator g = JacksonCore.MAPPER.createGenerator(out)) {
+            g.writeStartArray();
+            for (Order o : orders) g.writeObject(o);                      // memory stays flat
+            g.writeEndArray();
+        }
+    }
+}</code></pre>
+  <p>A 2 GB export read with <code>readValue(file, List.class)</code> needs gigabytes of heap. The streaming version holds one element at a time.</p>
+
+  <h3>The annotations you will actually use</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Annotation</th><th>Effect</th></tr></thead><tbody>
+    <tr><td><code>@JsonProperty("name")</code></td><td>Rename a property. On constructor parameters, it binds the parameter by name.</td></tr>
+    <tr><td><code>@JsonIgnore</code> / <code>@JsonIgnoreProperties(ignoreUnknown = true)</code></td><td>Drop one property / tolerate unknown input fields for one type</td></tr>
+    <tr><td><code>@JsonInclude(NON_NULL)</code></td><td>Omit nulls on output (also <code>NON_EMPTY</code>, <code>NON_DEFAULT</code>)</td></tr>
+    <tr><td><code>@JsonFormat</code></td><td>Date pattern and time zone; enum shape (e.g. <code>Shape.OBJECT</code>); numbers as strings with <code>Shape.STRING</code></td></tr>
+    <tr><td><code>@JsonAlias</code></td><td>Extra names accepted on input, for migrations</td></tr>
+    <tr><td><code>@JsonAnyGetter</code> / <code>@JsonAnySetter</code></td><td>Flatten a <code>Map</code> of extra properties into the object / collect unknown properties into it</td></tr>
+    <tr><td><code>@JsonCreator</code> + <code>@JsonProperty</code></td><td>Construct immutable classes through a constructor or factory method</td></tr>
+    <tr><td><code>@JsonUnwrapped</code></td><td>Inline a nested object's fields into the parent. Long unsupported on creator parameters, so check your version before using it with records.</td></tr>
+    <tr><td><code>@JsonRawValue</code></td><td>Write a String field verbatim as already-serialised JSON. Trusted input only.</td></tr>
+  </tbody></table></div>
+
+  <h3>Configuration: naming, features, java.time</h3>
+  <p><code>PropertyNamingStrategies.SNAKE_CASE</code> maps <code>customerName</code> to <code>customer_name</code> globally; an explicit <code>@JsonProperty</code> always wins. <code>FAIL_ON_UNKNOWN_PROPERTIES</code> defaults to <b>true</b> in plain Jackson, so a server adding a field breaks old clients. Turn it off for tolerant readers, but keep it on in contract tests so typos surface. <code>WRITE_DATES_AS_TIMESTAMPS</code> defaults to true, so dates become numbers or arrays (<code>[2026,10,12]</code>); turn it off to get ISO strings. Without the <code>jackson-datatype-jsr310</code> module, serialising an <code>Instant</code> fails with "Java 8 date/time type not supported by default". Spring Boot registers the module, disables both features and exposes the rest as properties:</p>
+<pre><code class="plain">spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false      # already Boot's default
+    deserialization:
+      fail-on-unknown-properties: false     # already Boot's default</code></pre>
+  <p>Everything here is Jackson 2.x (<code>com.fasterxml.jackson</code>), the line used by Spring Framework 6 and Boot 3. Jackson 3 moved to the <code>tools.jackson</code> package and changed several defaults, so check which one your stack ships.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b><code>new ObjectMapper()</code> per request</b>: rebuilding its serializer caches every time costs CPU. Inject the shared one, since Boot's carries your configuration too.</li>
+    <li><b>A hand-made mapper without the jsr310 module</b> in a library or test, so dates serialise differently from the Spring-managed mapper.</li>
+    <li><b>64-bit IDs as JSON numbers</b> reaching a browser and being rounded, so the client then requests the wrong record.</li>
+    <li><b>Binding <code>BigDecimal</code> totals through <code>double</code></b> (<code>Map&lt;String, Object&gt;</code> without <code>USE_BIG_DECIMAL_FOR_FLOATS</code>), which loses cents.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Run <code>JacksonCore</code>. Then remove the <code>JavaTimeModule</code> and re-enable <code>WRITE_DATES_AS_TIMESTAMPS</code>, recording the error and the output each change produces.</li>
+    <li>Model an immutable non-record <code>Money</code> class with <code>@JsonCreator</code>, plus a <code>Product</code> that captures unknown fields with <code>@JsonAnySetter</code> and writes them back with <code>@JsonAnyGetter</code>.</li>
+    <li>Generate a 500 MB JSON array of orders with <code>writeAll</code>, then sum the totals with <code>readAll</code> under <code>-Xmx128m</code>. Try <code>readValue(file, new TypeReference&lt;List&lt;Order&gt;&gt;(){})</code> under the same limit.</li>
+    <li>Use the tree model to rename a field in every element of a nested JSON document without defining any class.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> RFC 8259 (JSON) · Jackson documentation: jackson-databind README and the "Jackson Annotations" wiki · Javadoc <code>ObjectMapper</code>, <code>JsonParser</code>, <code>DeserializationFeature</code> · Spring Boot reference, "JSON: Jackson"</p>
+</article>
+<!-- ================================================================ L253 -->
+<article class="day" id="l253">
+  <header class="day-head">
+    <span class="day-no">L253 · DAY 253</span>
+    <h2>Jackson Advanced: Custom Serializers, Polymorphism &amp; Views</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">When annotations are not enough, Jackson lets you take over serialisation for one type, map type names to subclasses, and vary output per audience. The one feature to treat as dangerous is letting the JSON choose which Java class gets instantiated.</p>
+
+  <h3>Custom serializers and deserializers</h3>
+  <p>Extend <code>StdSerializer&lt;T&gt;</code> and <code>StdDeserializer&lt;T&gt;</code>; they are <code>JsonSerializer</code>/<code>JsonDeserializer</code> with useful helpers. Attach them per property or class with <code>@JsonSerialize(using = …)</code> and <code>@JsonDeserialize(using = …)</code>, or globally through a <code>Module</code>. In Spring Boot, a <code>@JsonComponent</code> class (or one holding nested serializer and deserializer classes) is registered with the auto-configured mapper automatically, and so is any <code>Module</code> bean.</p>
+<pre><code>import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.std.StdSerializer;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.Currency;
+
+record Money(long minor, Currency currency) {}           // 1999 EUR = 19.99 EUR
+
+class MoneySerializer extends StdSerializer&lt;Money&gt; {
+    MoneySerializer() { super(Money.class); }
+    @Override
+    public void serialize(Money m, JsonGenerator g, SerializerProvider p) throws IOException {
+        int digits = m.currency().getDefaultFractionDigits();
+        g.writeStartObject();
+        g.writeStringField("amount", BigDecimal.valueOf(m.minor(), digits).toPlainString()); // "19.99"
+        g.writeStringField("currency", m.currency().getCurrencyCode());
+        g.writeEndObject();
+    }
+}
+
+class MoneyDeserializer extends StdDeserializer&lt;Money&gt; {
+    MoneyDeserializer() { super(Money.class); }
+    @Override
+    public Money deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
+        JsonNode n = ctx.readTree(p);
+        if (!n.hasNonNull("amount") || !n.hasNonNull("currency")) {
+            return ctx.reportInputMismatch(Money.class, "money needs amount and currency");
+        }
+        Currency c = Currency.getInstance(n.get("currency").asText());
+        BigDecimal amount = new BigDecimal(n.get("amount").asText());
+        // longValueExact throws if the client sent more decimals than the currency allows
+        return new Money(amount.movePointRight(c.getDefaultFractionDigits()).longValueExact(), c);
+    }
+}
+
+final class Json {
+    static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new SimpleModule("money")
+            .addSerializer(Money.class, new MoneySerializer())
+            .addDeserializer(Money.class, new MoneyDeserializer()));
+}</code></pre>
+  <div class="box note"><span class="tag">BigDecimal and money</span>JSON numbers survive Java-to-Java round trips if you bind them to <code>BigDecimal</code>. Untyped targets (<code>Map&lt;String, Object&gt;</code>, <code>JsonNode</code>) parse decimals as <code>double</code> unless you enable <code>DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS</code>. On output, enable <code>StreamWriteFeature.WRITE_BIGDECIMAL_AS_PLAIN</code> to avoid <code>1E+3</code>. JavaScript clients still parse numbers as doubles, which is why the serializer above writes amounts as strings. <code>@JsonFormat(shape = Shape.STRING)</code> on a <code>BigDecimal</code> property does the same without custom code.</div>
+
+  <h3>Polymorphic types, and the deserialisation RCE risk</h3>
+  <div class="box def"><span class="tag">Definition</span><b>Polymorphic type handling</b>: <code>@JsonTypeInfo</code> says where the type identifier lives (here a <code>"type"</code> property) and what it contains. <code>@JsonSubTypes</code> lists the allowed subtypes. With <code>Id.NAME</code>, the identifier is a logical name you control, and only listed classes can be produced. With <code>Id.CLASS</code>, the identifier is a fully-qualified Java class name taken from the input.</div>
+  <figure class="fig"><svg viewBox="0 0 640 190" role="img" aria-label="Type id resolution by name allow-list versus class name from input">
+    <defs><marker id="ah-l253" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="15" y="25" width="190" height="40" rx="4" class="s-node"/><text x="110" y="49" class="s-mid s-sm">{"type":"card",...}</text>
+    <rect x="245" y="25" width="170" height="40" rx="4" class="s-node-mod"/><text x="330" y="42" class="s-mid s-sm">Id.NAME lookup</text><text x="330" y="57" class="s-mid s-sm s-ink3">card | bank_transfer</text>
+    <rect x="455" y="25" width="170" height="40" rx="4" class="s-node"/><text x="540" y="49" class="s-mid s-sm s-acc">new Card(...)</text>
+    <line x1="205" y1="45" x2="243" y2="45" class="s-ln s-ln-ink" marker-end="url(#ah-l253)"/><line x1="415" y1="45" x2="453" y2="45" class="s-ln s-ln-acc" marker-end="url(#ah-l253)"/>
+    <rect x="15" y="115" width="190" height="40" rx="4" class="s-node"/><text x="110" y="132" class="s-mid s-sm">{"@class":</text><text x="110" y="147" class="s-mid s-sm">"some.Gadget",...}</text>
+    <rect x="245" y="115" width="170" height="40" rx="4" class="s-node"/><text x="330" y="132" class="s-mid s-sm">Id.CLASS /</text><text x="330" y="147" class="s-mid s-sm s-ink3">default typing</text>
+    <rect x="455" y="115" width="170" height="40" rx="4" class="s-node"/><text x="540" y="132" class="s-mid s-sm s-bad">any class on the</text><text x="540" y="147" class="s-mid s-sm s-bad">classpath: setters run</text>
+    <line x1="205" y1="135" x2="243" y2="135" class="s-ln s-ln-ink" marker-end="url(#ah-l253)"/><line x1="415" y1="135" x2="453" y2="135" class="s-ln s-ln-bad" marker-end="url(#ah-l253)"/>
+    <text x="320" y="180" class="s-mid s-sm s-ink2">the attacker picks the class, and its constructor and setters are code you did not audit</text>
+  </svg><figcaption><b>Allow-list vs open door.</b> Name-based ids map into a closed set. Class-name ids let the input instantiate any "gadget" class that happens to be on the classpath.</figcaption></figure>
+  <p>Default typing (<code>enableDefaultTyping()</code>, deprecated, or <code>activateDefaultTyping</code> with a permissive validator), or <code>Id.CLASS</code> on a property of type <code>Object</code>, has produced a long series of Jackson CVEs. An attacker names a JDK or library class whose setters or constructor open a JNDI lookup or a connection, and the payload runs during <code>readValue</code>. Jackson now ships a blocklist and requires a <code>PolymorphicTypeValidator</code>, but the safe design is simply never to let input name a class.</p>
+<pre><code>import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.annotation.JsonView;
+
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = Card.class, name = "card"),
+    @JsonSubTypes.Type(value = BankTransfer.class, name = "bank_transfer")
+})
+sealed interface Payment permits Card, BankTransfer {}
+record Card(String last4, String network) implements Payment {}
+record BankTransfer(String iban) implements Payment {}
+
+final class Views {
+    interface Public {}
+    interface Internal extends Public {}      // Internal sees everything Public sees
+}
+record Customer(@JsonView(Views.Public.class) long id,
+                @JsonView(Views.Public.class) String name,
+                @JsonView(Views.Internal.class) String email) {}
+
+class PaymentText {
+    static String describe(Payment p) {
+        return switch (p) {                    // exhaustive over the sealed hierarchy: no default
+            case Card c -&gt; "card ****" + c.last4();
+            case BankTransfer b -&gt; "transfer from " + b.iban();
+        };
+    }
+}</code></pre>
+  <p><b>Sealed interfaces</b> pair well with this. The compiler checks that every <code>switch</code> handles every subtype, and the hierarchy is closed. Jackson 2 does not read the <code>permits</code> clause, so keep <code>@JsonSubTypes</code> in sync; a unit test comparing it with <code>Payment.class.getPermittedSubclasses()</code> catches drift.</p>
+
+  <h3>Views, mix-ins and filters</h3>
+  <p><b><code>@JsonView</code></b>: <code>MAPPER.writerWithView(Views.Public.class).writeValueAsString(customer)</code> writes only <code>id</code> and <code>name</code>. In Spring MVC, put <code>@JsonView(Views.Public.class)</code> on the controller method (or on a <code>@RequestBody</code> parameter, for input). Watch <code>MapperFeature.DEFAULT_VIEW_INCLUSION</code>. In plain Jackson it is enabled, so properties <em>without</em> a view appear in every view. Spring's <code>Jackson2ObjectMapperBuilder</code> disables it.</p>
+  <p><b>Mix-ins</b> annotate classes you cannot edit. Write an abstract class that mirrors the target's members and carries the annotations, then call <code>MAPPER.addMixIn(ThirdPartyDto.class, ThirdPartyDtoMixIn.class)</code>. Jackson merges the annotations as if they were on the target.</p>
+  <p><b><code>@JsonFilter("fields")</code></b> on a class, plus a <code>SimpleFilterProvider</code> holding <code>SimpleBeanPropertyFilter.filterOutAllExcept("id", "name")</code> passed to <code>MAPPER.writer(provider)</code>, gives per-request dynamic field selection. That is one way to implement <code>?fields=</code> (<a href="#l251">L251</a>).</p>
+
+  <h3>Alternatives and performance</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Library</th><th>Notes</th></tr></thead><tbody>
+    <tr><td>Jackson</td><td>The default in Spring; streaming, tree and binding layers; many formats (YAML, CBOR, Smile, XML) through the same API</td></tr>
+    <tr><td>Gson</td><td>Simple, reflection-based, small. In maintenance mode; weaker support for records and <code>java.time</code> without adapters.</td></tr>
+    <tr><td>JSON-B (Jakarta)</td><td>The standard API, with Yasson as reference implementation; natural in Jakarta EE and Quarkus stacks</td></tr>
+    <tr><td>JDK built-in</td><td>The JDK has never shipped a general JSON binding API. OpenJDK has explored a minimal one; check its current status before planning on it.</td></tr>
+  </tbody></table></div>
+  <p>Performance rules, in order of impact. First, <b>reuse one configured <code>ObjectMapper</code></b>: it is thread-safe once configured, and its serializer cache is what makes it fast. Use <code>mapper.readerFor(T.class)</code> or <code>writerWithView(...)</code> to get immutable, cheap per-use variants. Never mutate a shared mapper after first use. Second, stream large payloads instead of binding them. Third, register the <b>Blackbird</b> module (built on <code>LambdaMetafactory</code>, the successor to the older Afterburner) for a modest binding speed-up; measure it with JMH on your own payloads rather than trusting published numbers.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Default typing turned on</b> "to serialise anything into Redis": an attacker-controlled cache entry or request body becomes remote code execution.</li>
+    <li><b>A missing subtype in <code>@JsonSubTypes</code></b> after a new record is added: "Could not resolve type id" errors, but only in production traffic.</li>
+    <li><b>Configuring the mapper after first use</b> (adding a mix-in or module): cached serializers ignore the change, so behaviour depends on which request came first.</li>
+    <li><b>Views on a plain mapper</b> with <code>DEFAULT_VIEW_INCLUSION</code> enabled leak un-annotated fields such as <code>passwordHash</code>.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Round-trip <code>Money</code> through the module. Then send <code>"19.999"</code> EUR and a missing currency, and confirm that both are rejected with clear exceptions.</li>
+    <li>Add a third <code>Payment</code> subtype and write the test that fails when <code>@JsonSubTypes</code> and <code>getPermittedSubclasses()</code> disagree.</li>
+    <li>Serialise a <code>Customer</code> with both views, first on a plain mapper and then with <code>DEFAULT_VIEW_INCLUSION</code> disabled, adding an un-annotated field to see the difference.</li>
+    <li>Add a mix-in that renames and hides fields on a JDK or library class (for example, a class from a client SDK).</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Jackson wiki: "Polymorphic Deserialization" and Tatu Saloranta, "On Jackson CVEs: Don't Panic" · Javadoc <code>JsonTypeInfo</code>, <code>PolymorphicTypeValidator</code>, <code>StdSerializer</code> · Spring Boot reference, "Custom JSON Serializers and Deserializers" (<code>@JsonComponent</code>) · Spring Framework reference, "Jackson JSON" (<code>@JsonView</code>)</p>
+</article>
+<!-- ================================================================ L254 -->
+<article class="day" id="l254">
+  <header class="day-head">
+    <span class="day-no">L254 · DAY 254</span>
+    <h2>The Servlet API: Lifecycle, Request &amp; Response</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">Under every Spring MVC controller there is one servlet, <code>DispatcherServlet</code>, running inside a servlet container. Learn the contract it relies on: one instance shared by many threads, a request body that can be read once, and a response that is committed at some point.</p>
+
+  <h3>Containers and the jakarta namespace</h3>
+  <div class="box def"><span class="tag">Definition</span>A <b>servlet container</b> (Tomcat, Jetty, Undertow) owns the sockets, parses HTTP, maps each request URL to a servlet and filters, and calls your code on a pool thread. A <b>servlet</b> is a class implementing <code>jakarta.servlet.Servlet</code>, almost always by extending <code>HttpServlet</code>. Since Jakarta EE 9 (Servlet 5.0), the package is <code>jakarta.servlet</code> instead of <code>javax.servlet</code>. Servlet 6.0 is part of Jakarta EE 10, and it is the baseline for Spring Framework 6, Spring Boot 3 and Tomcat 10.1.</div>
+  <p>The rename was legal, not technical: Oracle kept the <code>javax</code> trademark when Java EE moved to the Eclipse Foundation. Migrating means changing imports and upgrading <em>every</em> library that touches the Servlet API (filters, security, templating) to a Jakarta build. Tools such as OpenRewrite recipes and the Eclipse Transformer automate the import rewrite.</p>
+
+  <h3>Lifecycle and the single-instance, multi-thread model</h3>
+  <figure class="fig"><svg viewBox="0 0 640 220" role="img" aria-label="Servlet lifecycle and many threads sharing one servlet instance">
+    <defs><marker id="ah-l254" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="20" y="20" width="150" height="30" rx="4" class="s-node"/><text x="95" y="40" class="s-mid s-sm">load + constructor</text>
+    <rect x="20" y="70" width="150" height="30" rx="4" class="s-node-mod"/><text x="95" y="90" class="s-mid s-sm">init(config): once</text>
+    <rect x="20" y="120" width="150" height="30" rx="4" class="s-node-mod"/><text x="95" y="140" class="s-mid s-sm">service(): per request</text>
+    <rect x="20" y="170" width="150" height="30" rx="4" class="s-node"/><text x="95" y="190" class="s-mid s-sm">destroy(): once</text>
+    <line x1="95" y1="50" x2="95" y2="68" class="s-ln" marker-end="url(#ah-l254)"/><line x1="95" y1="100" x2="95" y2="118" class="s-ln" marker-end="url(#ah-l254)"/><line x1="95" y1="150" x2="95" y2="168" class="s-ln" marker-end="url(#ah-l254)"/>
+    <text x="250" y="45" class="s-sm">exec-1</text><text x="250" y="110" class="s-sm">exec-2</text><text x="250" y="175" class="s-sm">exec-3</text>
+    <line x1="300" y1="42" x2="418" y2="95" class="s-ln s-ln-info" marker-end="url(#ah-l254)"/><line x1="300" y1="107" x2="418" y2="110" class="s-ln s-ln-info" marker-end="url(#ah-l254)"/><line x1="300" y1="172" x2="418" y2="125" class="s-ln s-ln-info" marker-end="url(#ah-l254)"/>
+    <rect x="420" y="70" width="200" height="80" rx="6" class="s-node-mod"/><text x="520" y="92" class="s-mid">OrderServlet</text><text x="520" y="112" class="s-mid s-sm s-ink3">ONE instance</text><text x="520" y="132" class="s-mid s-sm s-bad">fields = shared state</text>
+    <text x="320" y="212" class="s-mid s-sm s-ink2">locals and request objects are per thread; instance fields are not</text>
+  </svg><figcaption><b>One object, many threads.</b> The container creates a single instance per servlet declaration and calls <code>service</code> on it concurrently from its thread pool.</figcaption></figure>
+  <p>The container instantiates the servlet (lazily on the first request, or at startup with <code>loadOnStartup</code>) and calls <code>init(ServletConfig)</code> once. <code>HttpServlet.service</code> then dispatches each request by method to <code>doGet</code>, <code>doPost</code>, <code>doPut</code>, <code>doDelete</code> and so on. The defaults answer 405, or 400 on HTTP/1.0, and <code>doHead</code> and <code>doOptions</code> are derived for you. <code>destroy()</code> runs once at shutdown or undeploy. Because a single instance serves all threads, an instance field such as <code>private int count</code> incremented in <code>doGet</code> is a data race. Keep fields immutable or thread-safe (<code>ConcurrentHashMap</code>, <code>AtomicLong</code>, an <code>ObjectMapper</code>), and keep per-request data in local variables.</p>
+
+  <h3>Declaring servlets: @WebServlet vs web.xml</h3>
+<pre><code class="plain">&lt;!-- WEB-INF/web.xml: the pre-annotation way, still overrides annotations --&gt;
+&lt;servlet&gt;
+  &lt;servlet-name&gt;orders&lt;/servlet-name&gt;
+  &lt;servlet-class&gt;com.acme.OrderServlet&lt;/servlet-class&gt;
+  &lt;load-on-startup&gt;1&lt;/load-on-startup&gt;
+&lt;/servlet&gt;
+&lt;servlet-mapping&gt;
+  &lt;servlet-name&gt;orders&lt;/servlet-name&gt;
+  &lt;url-pattern&gt;/orders/*&lt;/url-pattern&gt;
+&lt;/servlet-mapping&gt;</code></pre>
+  <p><code>@WebServlet(urlPatterns = "/orders/*", loadOnStartup = 1)</code> says the same thing on the class, and the container discovers it by scanning the WAR. Spring Boot's embedded containers do not scan for <code>@WebServlet</code> unless you add <code>@ServletComponentScan</code>; Boot apps normally register servlets as <code>ServletRegistrationBean</code> beans. URL patterns come in four kinds: exact (<code>/health</code>), path prefix (<code>/orders/*</code>), extension (<code>*.jsp</code>), and default (<code>/</code>).</p>
+
+  <h3>Reading the request, writing the response</h3>
+  <p>For <code>GET /shop/orders/42?expand=items</code>, with the app deployed at <code>/shop</code> and the servlet mapped to <code>/orders/*</code>: <code>getContextPath()</code> is <code>/shop</code>, <code>getServletPath()</code> is <code>/orders</code>, <code>getPathInfo()</code> is <code>/42</code>, and <code>getParameter("expand")</code> is <code>items</code>. Parameters merge the query string and, for <code>application/x-www-form-urlencoded</code> POSTs, the form body. <code>getHeader</code> is case-insensitive. Request <b>attributes</b> are server-side objects attached for the duration of the request, for example by a filter. <code>getParts()</code> reads multipart uploads when the servlet has <code>@MultipartConfig</code>.</p>
+  <div class="box note"><span class="tag">Why the body can be read only once</span><code>getInputStream()</code> and <code>getReader()</code> wrap the connection's socket stream, not a buffered copy. Bytes are consumed as you read them, and nothing keeps them. You may call one of the two methods, not both (<code>IllegalStateException</code>). Reading form parameters also consumes the body. A logging filter that reads the body leaves the servlet with an empty stream, unless it wraps the request in a caching wrapper (<a href="#l255">L255</a>).</div>
+  <p>On the response, set the status, headers, content type and encoding <em>before</em> writing. Output goes to a buffer, typically 8 KB. When the buffer fills or you flush, the response is <b>committed</b>: the status line and headers are on the wire and can no longer change. After that, <code>sendError</code> and <code>sendRedirect</code> throw <code>IllegalStateException</code>, and <code>setHeader</code> is silently ignored. <code>getWriter()</code> (characters, using the charset you set) and <code>getOutputStream()</code> (bytes) are mutually exclusive. <code>sendError(404)</code> hands the response to the container's error page. <code>sendRedirect(url)</code> sets 302 plus <code>Location</code>.</p>
+
+  <h3>Application scope and request dispatching</h3>
+  <p><code>ServletContext</code> is one object per deployed application: application-scoped attributes, init parameters, resources inside the WAR, and the place where Spring stores its root <code>WebApplicationContext</code>. It is shared by every thread, so anything stored in it must be thread-safe.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mechanism</th><th>Where it happens</th><th>Browser URL</th><th>Request attributes</th></tr></thead><tbody>
+    <tr><td><code>dispatcher.forward(req, res)</code></td><td>Server: the target produces the whole response, and only if nothing has been committed</td><td>unchanged</td><td>kept</td></tr>
+    <tr><td><code>dispatcher.include(req, res)</code></td><td>Server: the target's output is inserted into the current response; it cannot change status or headers</td><td>unchanged</td><td>kept</td></tr>
+    <tr><td><code>res.sendRedirect(url)</code></td><td>Client: a 302 tells the browser to issue a new request</td><td>changes</td><td>lost (new request)</td></tr>
+  </tbody></table></div>
+
+  <h3>A JSON REST endpoint with nothing but servlets</h3>
+<pre><code>import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+record Order(long id, String sku, int quantity) {}
+record NewOrder(String sku, int quantity) {}
+
+@WebServlet(urlPatterns = "/orders/*", loadOnStartup = 1)
+public class OrderServlet extends HttpServlet {
+    private final ObjectMapper json = new ObjectMapper();          // thread-safe: fine as a field
+    private final Map&lt;Long, Order&gt; store = new ConcurrentHashMap&lt;&gt;();
+    private final AtomicLong ids = new AtomicLong();               // never a plain long++
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        String path = req.getPathInfo();                           // null, "/" or "/42"
+        if (path == null || path.equals("/")) { writeJson(res, 200, store.values()); return; }
+        Order o = store.get(parseId(path));
+        if (o == null) { res.sendError(HttpServletResponse.SC_NOT_FOUND); return; }
+        writeJson(res, 200, o);
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        String type = req.getContentType();
+        if (type == null || !type.startsWith("application/json")) { res.sendError(415); return; }
+        NewOrder in;
+        try {
+            in = json.readValue(req.getInputStream(), NewOrder.class);   // the one and only read
+        } catch (JsonProcessingException e) {
+            res.sendError(HttpServletResponse.SC_BAD_REQUEST, "malformed JSON"); return;
+        }
+        Order o = new Order(ids.incrementAndGet(), in.sku(), in.quantity());
+        store.put(o.id(), o);
+        res.setHeader("Location", req.getContextPath() + "/orders/" + o.id());
+        writeJson(res, 201, o);
+    }
+
+    private void writeJson(HttpServletResponse res, int status, Object body) throws IOException {
+        res.setStatus(status);                                     // all headers before the body
+        res.setContentType("application/json");
+        res.setCharacterEncoding("UTF-8");
+        json.writeValue(res.getOutputStream(), body);
+    }
+
+    private static long parseId(String path) {
+        try { return Long.parseLong(path.substring(1)); } catch (NumberFormatException e) { return -1; }
+    }
+}</code></pre>
+  <p>Everything Spring MVC automates is visible here: routing on <code>pathInfo</code>, content-type checks, body binding, status and <code>Location</code> headers, and error mapping. This servlet is the seed of the phase milestone, a REST API on the raw Servlet API.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Mutable servlet fields</b> (a <code>SimpleDateFormat</code>, a counter, a "current user"), which give corrupted values only under concurrent load.</li>
+    <li><b>The body consumed twice</b>: a filter logged it, and the controller then fails with "Required request body is missing".</li>
+    <li><b>Headers set after commit</b>: a large response flushed early silently drops the <code>Set-Cookie</code> or cache header added afterwards.</li>
+    <li><b>Mixed <code>javax</code> and <code>jakarta</code> jars</b> after a Boot 3 upgrade, giving <code>NoClassDefFoundError: javax/servlet/Filter</code> from an old library.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Deploy <code>OrderServlet</code> on Tomcat 10.1+ (as a WAR, or with embedded Tomcat's <code>Tomcat.addServlet</code>). Exercise GET, POST and the 404, 415 and 400 paths with curl.</li>
+    <li>Add <code>private int hits</code> incremented in <code>doGet</code>. Fire 10,000 concurrent requests (with <code>ab</code>, <code>hey</code> or a Java <code>HttpClient</code> loop on virtual threads) and compare the counter with the true request count. Then fix it.</li>
+    <li>Add <code>doPut</code> and <code>doDelete</code> with the correct status codes. Return 405 with an <code>Allow</code> header for unsupported methods on the collection URI.</li>
+    <li>Write 20 KB to the response, then try <code>sendRedirect</code>. Explain the exception, and how raising the buffer size with <code>setBufferSize</code> changes it.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Jakarta Servlet 6.0 Specification, ch. 2 (The Servlet Interface), ch. 3 (The Request), ch. 5 (The Response), ch. 9 (Dispatching Requests) · Javadoc <code>jakarta.servlet.http.HttpServlet</code>, <code>HttpServletRequest</code>, <code>HttpServletResponse</code> · Spring Framework reference, "DispatcherServlet"</p>
+</article>
+<!-- ================================================================ L255 -->
+<article class="day" id="l255">
+  <header class="day-head">
+    <span class="day-no">L255 · DAY 255</span>
+    <h2>Filters, Listeners, Sessions &amp; Cookies</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">Filters wrap every request in reusable before-and-after logic, listeners hook into container events, and sessions with cookies give a stateless protocol some memory. Spring Security, request logging and tracing are all built on these three mechanisms.</p>
+
+  <h3>The filter chain</h3>
+  <div class="box def"><span class="tag">Definition</span>A <b>filter</b> implements <code>doFilter(request, response, chain)</code>. Code before <code>chain.doFilter(...)</code> runs on the way in, and code after it runs on the way out. A filter that does not call <code>chain.doFilter</code> short-circuits the request (to reject it, or to serve from a cache). It can also pass <em>wrapped</em> request or response objects down the chain.</div>
+  <figure class="fig"><svg viewBox="0 0 640 200" role="img" aria-label="Nested filter chain around a servlet">
+    <defs><marker id="ah-l255" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="110" y="15" width="510" height="170" rx="8" class="s-node"/><text x="122" y="33" class="s-sm">CorrelationIdFilter (order 1)</text>
+    <rect x="160" y="45" width="440" height="125" rx="8" class="s-node"/><text x="172" y="63" class="s-sm">AuthFilter (order 2)</text>
+    <rect x="210" y="75" width="370" height="80" rx="8" class="s-node"/><text x="222" y="93" class="s-sm">CorsFilter (order 3)</text>
+    <rect x="330" y="102" width="150" height="40" rx="6" class="s-node-mod"/><text x="405" y="126" class="s-mid">Servlet</text>
+    <line x1="20" y1="110" x2="328" y2="110" class="s-ln s-ln-info" marker-end="url(#ah-l255)"/><text x="20" y="102" class="s-sm s-info">request</text>
+    <line x1="328" y1="136" x2="20" y2="136" class="s-ln s-ln-acc" marker-end="url(#ah-l255)"/><text x="20" y="152" class="s-sm s-acc">response</text>
+    <text x="545" y="178" class="s-sm s-end s-bad">401: Auth stops here</text>
+  </svg><figcaption><b>An onion, not a pipeline.</b> Each filter sees the request before and the response after everything inside it. A short-circuit at any layer skips the layers inside it.</figcaption></figure>
+  <p><b>Ordering</b>: in <code>web.xml</code>, the order of <code>&lt;filter-mapping&gt;</code> elements decides. With <code>@WebFilter</code> the order is <em>unspecified</em> by the spec, a classic portability trap. In Spring Boot, register each filter as a <code>FilterRegistrationBean</code> with <code>setOrder(...)</code> and URL patterns, or declare it as a <code>@Component</code> with <code>@Order</code>. Spring Security installs itself as a single filter (<code>DelegatingFilterProxy</code> pointing to <code>FilterChainProxy</code>) with its own internal chain.</p>
+
+  <h3>Practical filters: correlation id, logging, wrapping</h3>
+<pre><code>import jakarta.servlet.*;
+import jakarta.servlet.annotation.WebFilter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.UUID;
+import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
+@WebFilter("/*")
+public class CorrelationIdFilter implements Filter {          // init/destroy have defaults
+    private static final Logger log = LoggerFactory.getLogger(CorrelationIdFilter.class);
+    private static final Pattern SAFE = Pattern.compile("[A-Za-z0-9-]{8,64}");
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        var req = (HttpServletRequest) request;
+        var res = (HttpServletResponse) response;
+        String id = req.getHeader("X-Correlation-Id");
+        if (id == null || !SAFE.matcher(id).matches()) id = UUID.randomUUID().toString(); // no log injection
+        MDC.put("correlationId", id);                          // every log line on this thread gets it
+        res.setHeader("X-Correlation-Id", id);                 // before anything commits the response
+        long start = System.nanoTime();
+        try {
+            chain.doFilter(req, res);
+        } finally {
+            log.info("{} {} -&gt; {} in {} ms", req.getMethod(), req.getRequestURI(), res.getStatus(),
+                     (System.nanoTime() - start) / 1_000_000);
+            MDC.remove("correlationId");                       // pool threads are reused
+        }
+    }
+}</code></pre>
+  <p>The same shape gives you authentication (check a token; on failure, <code>sendError(401)</code> and return), CORS (answer <code>OPTIONS</code> preflights, add headers; <a href="#l257">L257</a>) and gzip (wrap the response so that its output stream compresses). To <b>re-read a body</b>, wrap the request. Spring's <code>ContentCachingRequestWrapper</code> records bytes <em>as downstream code reads them</em>, so you can log the body after <code>chain.doFilter</code> but not before. To inspect the body first, buffer it up front:</p>
+<pre><code>import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
+import java.io.*;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+
+public class CachedBodyRequest extends HttpServletRequestWrapper {
+    private final byte[] body;
+
+    public CachedBodyRequest(HttpServletRequest req, int maxBytes) throws IOException {
+        super(req);
+        body = req.getInputStream().readNBytes(maxBytes + 1);  // bounded: never buffer an upload
+        if (body.length &gt; maxBytes) throw new IOException("body exceeds " + maxBytes + " bytes");
+    }
+
+    @Override
+    public ServletInputStream getInputStream() {               // a fresh stream on every call
+        var in = new ByteArrayInputStream(body);
+        return new ServletInputStream() {
+            @Override public int read() { return in.read(); }
+            @Override public int read(byte[] b, int off, int len) { return in.read(b, off, len); }
+            @Override public boolean isFinished() { return in.available() == 0; }
+            @Override public boolean isReady() { return true; }
+            @Override public void setReadListener(ReadListener l) { throw new UnsupportedOperationException(); }
+        };
+    }
+
+    @Override
+    public BufferedReader getReader() {
+        String enc = getCharacterEncoding();
+        Charset cs = enc != null ? Charset.forName(enc) : StandardCharsets.UTF_8;
+        return new BufferedReader(new InputStreamReader(getInputStream(), cs));
+    }
+}</code></pre>
+
+  <h3>Listeners</h3>
+  <p>Listeners react to container events instead of requests. A <code>ServletContextListener</code> gets <code>contextInitialized</code> and <code>contextDestroyed</code>; Spring's <code>ContextLoaderListener</code> uses it to boot the root application context in a WAR. An <code>HttpSessionListener</code> gets <code>sessionCreated</code> and <code>sessionDestroyed</code>, useful for active-session gauges or cleanup on expiry. A <code>ServletRequestListener</code> gets <code>requestInitialized</code> and <code>requestDestroyed</code> for every request. Register them with <code>@WebListener</code>, <code>&lt;listener&gt;</code> in <code>web.xml</code>, or a <code>ServletListenerRegistrationBean</code> in Boot. Like servlets, each listener is a single shared instance, so counters inside it must be atomic.</p>
+
+  <h3>HttpSession, and why it complicates scaling</h3>
+  <p><code>req.getSession()</code> returns the session, creating one (and a <code>JSESSIONID</code> cookie) if absent. <code>getSession(false)</code> never creates one, which matters for APIs that should not mint sessions. Store data with <code>setAttribute</code> and <code>getAttribute</code>. <code>invalidate()</code> on logout. <code>setMaxInactiveInterval(seconds)</code> sets the idle timeout (Tomcat's default is 30 minutes). Call <code>req.changeSessionId()</code> right after login so that an attacker who planted a session id before login cannot ride it afterwards (<em>session fixation</em>).</p>
+  <div class="box note"><span class="tag">Sessions and horizontal scaling</span>By default a session lives in one JVM's heap. With three instances behind a load balancer, request 2 may land on a node that has never seen the session. There are three options. <b>Sticky sessions</b> pin a client to a node; this is simple, but sessions die with the node and load spreads unevenly. <b>Session replication</b> copies sessions between nodes; the cost grows with cluster size, and attributes must be <code>Serializable</code>. An <b>external session store</b>, such as Spring Session with Redis, replaces <code>HttpSession</code> transparently through a filter; every node is equal again, at the cost of a network hop per request. Better still is to keep sessions tiny or avoid them (<a href="#l250">L250</a>).</div>
+
+  <h3>Cookies, and URL rewriting</h3>
+<pre><code class="plain">Set-Cookie: JSESSIONID=8F1C0A...; Path=/; HttpOnly; Secure; SameSite=Lax          (session cookie: no Max-Age)
+Set-Cookie: theme=dark; Max-Age=31536000; Path=/; Secure; SameSite=Lax           (persistent: survives restart)
+
+# Spring Boot
+server.servlet.session.timeout=15m
+server.servlet.session.cookie.http-only=true
+server.servlet.session.cookie.secure=true
+server.servlet.session.cookie.same-site=lax
+server.servlet.session.tracking-modes=cookie</code></pre>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Attribute</th><th>Effect</th></tr></thead><tbody>
+    <tr><td><code>HttpOnly</code></td><td>Invisible to JavaScript (<code>document.cookie</code>), which blunts token theft through XSS</td></tr>
+    <tr><td><code>Secure</code></td><td>Sent over HTTPS only</td></tr>
+    <tr><td><code>SameSite</code></td><td><code>Strict</code>: never on cross-site requests. <code>Lax</code>: cross-site only on top-level GET navigations (Chrome's default when the attribute is unset). <code>None</code>: always, and requires <code>Secure</code>. Lax and Strict are the main CSRF defence.</td></tr>
+    <tr><td><code>Domain</code> / <code>Path</code></td><td>Which hosts and paths receive it. Setting <code>Domain=example.com</code> widens it to all subdomains; omitting it means "this exact host".</td></tr>
+    <tr><td><code>Max-Age</code> / <code>Expires</code></td><td>Lifetime. Without either, it is a session cookie, deleted when the browser session ends. <code>Max-Age=0</code> deletes it.</td></tr>
+  </tbody></table></div>
+  <p>Servlet 6 added <code>Cookie.setAttribute(name, value)</code>, so <code>SameSite</code> no longer needs hand-built headers. <b>Cookie-based auth vs tokens</b>: cookies are sent automatically, which is convenient and works with <code>HttpOnly</code>, but exposes you to CSRF. Bearer tokens in an <code>Authorization</code> header must be attached by client code, which makes them CSRF-immune but means JavaScript can read them if it can reach them. <b>URL rewriting</b> (<code>/cart;jsessionid=8F1C…</code>) was the fallback for browsers without cookies. It leaks the session id into logs, bookmarks and <code>Referer</code> headers and enables fixation, so restrict tracking modes to cookies only.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Relying on <code>@WebFilter</code> order</b>: authentication runs after logging on one container and before it on another.</li>
+    <li><b>MDC never cleared</b>: the next request on the same pool thread logs the previous user's correlation id.</li>
+    <li><b>An unbounded body cache</b> in a logging filter: one 2 GB upload exhausts the heap.</li>
+    <li><b>In-memory sessions plus autoscaling</b>: every scale-in event logs users out, and failover after a node crash loses carts.</li>
+    <li><b><code>SameSite=None</code> without <code>Secure</code></b>: the browser silently drops the cookie, so third-party embeds stop working.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Add <code>CorrelationIdFilter</code> and an <code>ApiKeyFilter</code> to your servlet API, register them in a defined order, and prove the order with log output and a short-circuited 401.</li>
+    <li>Write a filter that logs JSON request bodies using <code>CachedBodyRequest</code>, with a 64 KB cap, while the servlet still binds the body.</li>
+    <li>Implement login and logout with <code>HttpSession</code>. Show the session id before and after <code>changeSessionId()</code>, then show logout invalidating it.</li>
+    <li>Count active sessions with an <code>HttpSessionListener</code>, set a 1-minute timeout, and watch the count fall.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Jakarta Servlet 6.0 Specification, ch. 6 (Filtering), ch. 7 (Sessions), ch. 11 (Application Lifecycle Events) · RFC 6265 (HTTP State Management) and the RFC 6265bis draft (SameSite) · Spring Boot reference, "Embedded Web Servers: Servlets, Filters, and Listeners" · Spring Session reference</p>
+</article>
+<!-- ================================================================ L256 -->
+<article class="day" id="l256">
+  <header class="day-head">
+    <span class="day-no">L256 · DAY 256</span>
+    <h2>Servlet Containers: Tomcat, Jetty, Undertow &amp; Threading</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">40m practice</span></p>
+  </header>
+  <p class="thesis">A servlet container is a queueing system: connections wait in the OS, requests wait for a worker thread, and workers wait on your database. Under load, the half-dozen numbers that size those queues decide whether a slow dependency causes a brief latency bump or a full outage.</p>
+
+  <h3>Tomcat's architecture</h3>
+  <figure class="fig"><svg viewBox="0 0 640 230" role="img" aria-label="Tomcat component nesting from Server to Context">
+    <rect x="10" y="10" width="620" height="210" rx="8" class="s-node"/><text x="22" y="28" class="s-sm">Server (one JVM, shutdown port)</text>
+    <rect x="25" y="38" width="590" height="172" rx="8" class="s-node"/><text x="37" y="56" class="s-sm">Service "Catalina"</text>
+    <rect x="40" y="70" width="150" height="50" rx="6" class="s-node-mod"/><text x="115" y="90" class="s-mid s-sm">Connector :8080</text><text x="115" y="107" class="s-mid s-sm s-ink3">HTTP/1.1, NIO</text>
+    <rect x="40" y="135" width="150" height="50" rx="6" class="s-node-mod"/><text x="115" y="155" class="s-mid s-sm">Connector :8443</text><text x="115" y="172" class="s-mid s-sm s-ink3">TLS, h2</text>
+    <rect x="210" y="66" width="390" height="134" rx="8" class="s-node"/><text x="222" y="84" class="s-sm">Engine (routes to Host by Host header)</text>
+    <rect x="225" y="94" width="360" height="96" rx="8" class="s-node"/><text x="237" y="112" class="s-sm">Host "localhost" (virtual host)</text>
+    <rect x="240" y="122" width="165" height="58" rx="6" class="s-node-mod"/><text x="322" y="142" class="s-mid s-sm">Context /shop</text><text x="322" y="160" class="s-mid s-sm s-ink3">one web app</text>
+    <rect x="415" y="122" width="160" height="58" rx="6" class="s-node"/><text x="495" y="142" class="s-mid s-sm">Context /admin</text><text x="495" y="160" class="s-mid s-sm s-ink3">servlets = Wrappers</text>
+  </svg><figcaption><b>Nesting mirrors <code>server.xml</code>.</b> Connectors accept and parse; the Engine, Host and Context route by host and path to the right application. Embedded Boot builds the same tree in code, with one Context at <code>/</code>.</figcaption></figure>
+  <p>A <b>Connector</b> owns a port, a protocol handler and a thread pool. Since Tomcat 8.5 the default is <b>NIO</b>: a few acceptor and poller threads multiplex thousands of idle keep-alive sockets over a selector, and a socket gets a worker thread only when bytes are ready. <b>NIO2</b> uses the JDK's asynchronous channels instead, with similar results in practice. <b>APR/native</b> used the C library from the Apache HTTP Server for I/O and OpenSSL. Recent Tomcat versions (10.1+) have removed that connector, and Tomcat Native survives only as an OpenSSL provider for NIO.</p>
+
+  <h3>Thread-per-request: the numbers that matter</h3>
+  <figure class="fig"><svg viewBox="0 0 640 150" role="img" aria-label="Queues between client and application in Tomcat">
+    <defs><marker id="ah-l256" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="10" y="40" width="130" height="56" rx="6" class="s-node"/><text x="75" y="62" class="s-mid s-sm">OS accept queue</text><text x="75" y="80" class="s-mid s-sm s-ink3">acceptCount 100</text>
+    <rect x="170" y="40" width="140" height="56" rx="6" class="s-node"/><text x="240" y="62" class="s-mid s-sm">open connections</text><text x="240" y="80" class="s-mid s-sm s-ink3">maxConnections 8192</text>
+    <rect x="340" y="40" width="130" height="56" rx="6" class="s-node-mod"/><text x="405" y="62" class="s-mid s-sm">worker threads</text><text x="405" y="80" class="s-mid s-sm s-ink3">maxThreads 200</text>
+    <rect x="500" y="40" width="130" height="56" rx="6" class="s-node"/><text x="565" y="62" class="s-mid s-sm">DB pool</text><text x="565" y="80" class="s-mid s-sm s-ink3">Hikari 10</text>
+    <line x1="140" y1="68" x2="168" y2="68" class="s-ln" marker-end="url(#ah-l256)"/><line x1="310" y1="68" x2="338" y2="68" class="s-ln" marker-end="url(#ah-l256)"/><line x1="470" y1="68" x2="498" y2="68" class="s-ln" marker-end="url(#ah-l256)"/>
+    <text x="75" y="120" class="s-mid s-sm s-bad">full: refused</text><text x="240" y="120" class="s-mid s-sm s-ink3">full: stop accepting</text><text x="405" y="120" class="s-mid s-sm s-warn">busy: requests wait</text><text x="565" y="120" class="s-mid s-sm s-warn">busy: threads block</text>
+  </svg><figcaption><b>Four queues in series.</b> The narrowest stage sets throughput. With 200 workers and 10 DB connections, at most 10 requests are doing database work at any moment.</figcaption></figure>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Setting</th><th>Default</th><th>What it bounds</th></tr></thead><tbody>
+    <tr><td><code>maxThreads</code></td><td>200</td><td>Concurrent requests being processed. The ceiling of the worker pool.</td></tr>
+    <tr><td><code>minSpareThreads</code></td><td>10</td><td>Workers kept alive while idle</td></tr>
+    <tr><td><code>maxConnections</code></td><td>8192 (NIO)</td><td>Sockets Tomcat holds open, including idle keep-alive ones. Above this, it stops accepting.</td></tr>
+    <tr><td><code>acceptCount</code></td><td>100</td><td>The OS backlog for connections not yet accepted. When it is full, new clients are refused or time out.</td></tr>
+    <tr><td><code>connectionTimeout</code></td><td>60 s built in (the stock <code>server.xml</code> sets 20 s)</td><td>How long to wait for request bytes after connecting</td></tr>
+    <tr><td><code>keepAliveTimeout</code> / <code>maxKeepAliveRequests</code></td><td>= connectionTimeout / 100</td><td>Idle time before closing a kept-alive socket / requests per connection</td></tr>
+  </tbody></table></div>
+  <div class="box thm"><span class="tag">Theorem · Little's law</span>In a stable system, the average number of requests in progress L equals the arrival rate λ times the average time each spends inside, W: <b>L = λ · W</b>. For a fixed pool of 200 workers, the maximum throughput is therefore 200 / W. At 50 ms per request the ceiling is about 4,000 req/s. If a dependency slows to 2 s, the same 200 threads support only 100 req/s. The excess queues in the connection stages, then in the accept queue, then gets refused.</div>
+
+  <h3>Thread pool exhaustion in a thread dump</h3>
+<pre><code class="plain">$ jcmd &lt;pid&gt; Thread.print | grep -A6 'http-nio-8080-exec' | head
+"http-nio-8080-exec-187" #212 daemon prio=5 ... waiting on condition
+   java.lang.Thread.State: TIMED_WAITING (parking)
+        at jdk.internal.misc.Unsafe.park(Native Method)
+        ...
+        at com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:...)
+        at com.acme.orders.OrderRepository.findById(OrderRepository.java:41)
+# ...repeated for all 200 exec threads: every worker is waiting for one of 10 DB connections</code></pre>
+  <p>The signature is all <code>exec</code> threads parked in the same frame: a pool's <code>getConnection</code>, a socket read on a downstream HTTP call with no timeout, or a lock. CPU is low, latency is high, and health checks time out, so the orchestrator restarts healthy-but-blocked pods. The fixes are timeouts on every outbound call, bulkheads (a separate bounded pool per dependency), and a database pool sized to the database's capacity, not to <code>maxThreads</code>.</p>
+
+  <h3>Jetty and Undertow; WAR vs executable JAR</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Container</th><th>Character</th></tr></thead><tbody>
+    <tr><td>Tomcat</td><td>The Boot default; the most widely deployed and documented. Mature NIO connector and JMX metrics.</td></tr>
+    <tr><td>Jetty</td><td>Modular and embeddable, with a small footprint. Strong async and HTTP/2/HTTP/3 support; its threads are shared between I/O and work. Used inside many tools and platforms.</td></tr>
+    <tr><td>Undertow</td><td>From JBoss/WildFly: XNIO-based I/O threads plus worker threads, with a low memory footprint. Development has slowed, and recent Spring Boot versions have dropped or de-emphasised it, so check your Boot version.</td></tr>
+  </tbody></table></div>
+  <p>Throughput differences between the three are usually small next to your own code; choose on operations and ecosystem. Historically you built a <b>WAR</b> and dropped it into a shared, separately managed server that hosted many apps. Since Servlet 3.0 the container discovers a <code>ServletContainerInitializer</code>. Spring's <code>SpringServletContainerInitializer</code> then calls every <code>WebApplicationInitializer</code>, and <code>SpringBootServletInitializer</code> is one of them:</p>
+<pre><code>import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+
+@SpringBootApplication
+public class ShopApplication extends SpringBootServletInitializer {
+    @Override
+    protected SpringApplicationBuilder configure(SpringApplicationBuilder builder) {
+        return builder.sources(ShopApplication.class);        // entry point when deployed as a WAR
+    }
+    public static void main(String[] args) {                  // entry point as an executable JAR
+        SpringApplication.run(ShopApplication.class, args);
+    }
+}</code></pre>
+  <p><b>Embedded servers won</b> because the app owns its container version and configuration, one artefact runs the same way on a laptop and in a container image, and orchestration (Kubernetes) replaced the application server's job of hosting and restarting apps. Session clustering moved the same way: Tomcat's <code>DeltaManager</code> (all-to-all replication) and <code>BackupManager</code> (one backup node) still exist, but most systems externalise sessions instead (<a href="#l255">L255</a>).</p>
+
+  <h3>Tuning properties and virtual threads</h3>
+<pre><code class="plain">server:
+  tomcat:
+    threads:
+      max: 200              # platform-thread pool ceiling
+      min-spare: 10
+    accept-count: 100
+    max-connections: 8192
+    connection-timeout: 5s  # drop slow or idle clients sooner
+    keep-alive-timeout: 75s # longer than the load balancer's idle timeout (see below)
+    max-keep-alive-requests: 100
+    max-swallow-size: 2MB
+  max-http-request-header-size: 8KB
+spring:
+  threads:
+    virtual:
+      enabled: true         # Boot 3.2+ on Java 21: one virtual thread per request</code></pre>
+  <div class="box note"><span class="tag">Virtual threads in Tomcat</span>With virtual threads enabled, Tomcat runs each request on a new virtual thread, so <code>threads.max</code> no longer caps concurrency. Blocking I/O parks the virtual thread and frees its carrier. Thread exhaustion disappears, but the bottleneck moves: 10,000 concurrent requests now hit a 10-connection Hikari pool, or a downstream API, all at once. Bound concurrency explicitly (with semaphores or pool limits and timeouts). Before JDK 24 (JEP 491), blocking inside <code>synchronized</code> pinned the carrier thread; check for pinning on older JDKs. ThreadLocal-heavy code also creates many short-lived copies.</div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>No outbound timeouts</b>: one slow partner API parks all 200 workers, and the whole service, including <code>/health</code>, goes dark.</li>
+    <li><b>Raising <code>maxThreads</code> to 2,000</b> "to fix it": more memory for stacks and more context switching, and the database still allows only 10 at a time.</li>
+    <li><b>Server keep-alive shorter than the load balancer's idle timeout</b>: the LB reuses a socket the server just closed, giving sporadic 502s. Server idle timeouts should be <em>longer</em> than the proxy's.</li>
+    <li><b>Turning on virtual threads without bounding downstream concurrency</b>, which turns queueing into a thundering herd on the database.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 40 min</h4><ol>
+    <li>Run a Boot app with <code>threads.max=10</code> and an endpoint that sleeps for 2 s. Load it with 50 concurrent clients, then take a thread dump and identify the exhausted pool.</li>
+    <li>Using Little's law, predict the maximum throughput of that setup, then measure it.</li>
+    <li>Enable virtual threads and repeat the test. Then put a <code>Semaphore(10)</code> around the slow call and observe where requests now wait.</li>
+    <li>Package the same app as a WAR with <code>SpringBootServletInitializer</code> and deploy it to a standalone Tomcat 10.1.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Apache Tomcat 10.1 docs: "Architecture Overview" and "The HTTP Connector" (attribute reference) · Spring Boot reference, "Embedded Web Servers" and the <code>server.tomcat.*</code> properties appendix · JEP 444 (Virtual Threads), JEP 491 (Synchronize Virtual Threads without Pinning) · Brian Goetz et al., <i>Java Concurrency in Practice</i>, ch. 8 (thread pools)</p>
+</article>
+<!-- ================================================================ L257 -->
+<article class="day" id="l257">
+  <header class="day-head">
+    <span class="day-no">L257 · DAY 257</span>
+    <h2>CORS, Content Negotiation, Compression &amp; Caching Headers</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">CORS is the browser asking your server, through headers, for permission to let another origin's JavaScript read your responses. Content negotiation and compression are the same kind of header conversation, and every one of them needs a correct <code>Vary</code> header, or caches will mix the answers up.</p>
+
+  <h3>The same-origin policy</h3>
+  <div class="box def"><span class="tag">Definition</span>An <b>origin</b> is the triple (scheme, host, port). <code>https://app.example.com</code> and <code>https://app.example.com:443/x</code> are the same origin. <code>http://app.example.com</code> (different scheme), <code>https://api.example.com</code> (different host) and <code>https://app.example.com:8443</code> (different port) are all different origins. The <b>same-origin policy</b> lets a page's scripts <em>send</em> many cross-origin requests, but not <em>read</em> the responses unless the target server opts in through CORS.</div>
+  <p>The policy protects <em>users</em>, not servers. Without it, a malicious page could call <code>fetch("https://bank.example/accounts")</code> in your browser, riding your bank cookies, and read the result. CORS does nothing against curl or a server-side attacker, who can send any request they like. It is not access control; authentication and authorisation still have to be enforced on the server.</p>
+
+  <h3>Simple vs preflighted requests</h3>
+  <p>A request is <b>simple</b> (sent directly, with an <code>Origin</code> header) only if its method is GET, HEAD or POST, it sets only CORS-safelisted headers (<code>Accept</code>, <code>Accept-Language</code>, <code>Content-Language</code>, <code>Content-Type</code>), and its <code>Content-Type</code> is one of <code>application/x-www-form-urlencoded</code>, <code>multipart/form-data</code> or <code>text/plain</code>. Those are exactly the requests an HTML form could already send before CORS existed. Anything else triggers a <b>preflight</b>: PUT, PATCH or DELETE, <code>application/json</code>, an <code>Authorization</code> header, or any custom header such as <code>Idempotency-Key</code>.</p>
+  <figure class="fig"><svg viewBox="0 0 640 230" role="img" aria-label="CORS preflight followed by the actual request">
+    <defs><marker id="ah-l257" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+    <rect x="10" y="10" width="170" height="40" rx="4" class="s-node"/><text x="95" y="27" class="s-mid s-sm">Browser</text><text x="95" y="42" class="s-mid s-sm s-ink3">page: app.example.com</text>
+    <rect x="460" y="10" width="170" height="40" rx="4" class="s-node-mod"/><text x="545" y="27" class="s-mid s-sm">API</text><text x="545" y="42" class="s-mid s-sm s-ink3">api.example.com</text>
+    <line x1="95" y1="50" x2="95" y2="225" class="s-ln s-dash"/><line x1="545" y1="50" x2="545" y2="225" class="s-ln s-dash"/>
+    <line x1="95" y1="75" x2="543" y2="75" class="s-ln s-ln-info" marker-end="url(#ah-l257)"/><text x="320" y="69" class="s-mid s-sm">OPTIONS /orders/42  Origin, Request-Method: PUT</text>
+    <line x1="545" y1="105" x2="97" y2="105" class="s-ln s-ln-info" marker-end="url(#ah-l257)"/><text x="320" y="99" class="s-mid s-sm">204  Allow-Origin, Allow-Methods, Max-Age</text>
+    <text x="320" y="128" class="s-mid s-sm s-ink3">browser checks the answer, caches it for Max-Age</text>
+    <line x1="95" y1="155" x2="543" y2="155" class="s-ln s-ln-acc" marker-end="url(#ah-l257)"/><text x="320" y="149" class="s-mid s-sm">PUT /orders/42  Origin, Authorization, JSON</text>
+    <line x1="545" y1="185" x2="97" y2="185" class="s-ln s-ln-acc" marker-end="url(#ah-l257)"/><text x="320" y="179" class="s-mid s-sm">200  Access-Control-Allow-Origin: app...</text>
+    <text x="320" y="212" class="s-mid s-sm s-ink2">no matching Allow-Origin: response arrives, but JS gets an error</text>
+  </svg><figcaption><b>Two round trips.</b> The preflight asks "may I?", and only a 2xx answer with matching headers lets the real request go. The browser enforces the result, never the server.</figcaption></figure>
+
+  <h3>The response headers</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Header</th><th>Meaning</th></tr></thead><tbody>
+    <tr><td><code>Access-Control-Allow-Origin</code></td><td>Either one exact origin, or <code>*</code>. <code>*</code> is <b>rejected when credentials are included</b> (cookies or HTTP auth), so echo an allow-listed origin and add <code>Vary: Origin</code>.</td></tr>
+    <tr><td><code>-Allow-Methods</code> / <code>-Allow-Headers</code></td><td>Preflight answer: the methods and request headers permitted</td></tr>
+    <tr><td><code>-Allow-Credentials: true</code></td><td>The response may be exposed to JS for credentialed requests (<code>fetch(..., {credentials: "include"})</code>)</td></tr>
+    <tr><td><code>-Expose-Headers</code></td><td>Response headers JS may read beyond the safelisted ones, for example <code>Location</code> or <code>X-Correlation-Id</code></td></tr>
+    <tr><td><code>-Max-Age</code></td><td>How long to cache the preflight result, in seconds. Browsers cap it (Chromium at about two hours).</td></tr>
+  </tbody></table></div>
+
+  <h3>Debugging a CORS failure, and where to configure it</h3>
+  <div class="box algo"><span class="tag">Algorithm · Debugging a CORS error</span><ol>
+    <li>Read the console message. It names the missing or mismatched header; the server's logs usually say nothing.</li>
+    <li>In the Network tab, check whether a preflight <code>OPTIONS</code> was sent. If it failed, the real request was never sent.</li>
+    <li>Check the preflight's status. A 401 or 403 means your auth filter rejected it, because preflights carry no credentials. A 404 or 405 means nothing handles <code>OPTIONS</code>.</li>
+    <li>Compare <code>Access-Control-Allow-Origin</code> character by character with the page's origin: scheme, port, trailing slash.</li>
+    <li>If the request uses credentials, check for <code>*</code> and for a missing <code>Allow-Credentials</code>. For custom request headers, check <code>Allow-Headers</code>. If JS cannot read a response header, check <code>Expose-Headers</code>.</li>
+    <li>Look for a <b>duplicate</b> <code>Allow-Origin</code> header ("contains multiple values"): both the gateway and the app added one.</li>
+  </ol></div>
+<pre><code>import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpFilter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.Set;
+
+public class CorsFilter extends HttpFilter {               // register it BEFORE the auth filter
+    private static final Set&lt;String&gt; ALLOWED = Set.of("https://app.example.com", "https://admin.example.com");
+
+    @Override
+    protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
+            throws IOException, ServletException {
+        String origin = req.getHeader("Origin");
+        res.addHeader("Vary", "Origin");                       // the answer depends on Origin
+        if (origin != null &amp;&amp; ALLOWED.contains(origin)) {      // allow-list, never reflect blindly
+            res.setHeader("Access-Control-Allow-Origin", origin);
+            res.setHeader("Access-Control-Allow-Credentials", "true");
+            res.setHeader("Access-Control-Expose-Headers", "Location, X-Correlation-Id");
+            boolean preflight = "OPTIONS".equals(req.getMethod())
+                    &amp;&amp; req.getHeader("Access-Control-Request-Method") != null;
+            if (preflight) {
+                res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE");
+                res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key");
+                res.setHeader("Access-Control-Max-Age", "3600");
+                res.setStatus(HttpServletResponse.SC_NO_CONTENT);
+                return;                                        // answered here: auth never sees it
+            }
+        }
+        chain.doFilter(req, res);
+    }
+}</code></pre>
+  <p>Spring offers the same at three levels: <code>@CrossOrigin</code> on a controller or method, global <code>WebMvcConfigurer.addCorsMappings</code>, and a <code>CorsConfigurationSource</code> bean used by Spring's <code>CorsFilter</code>. With Spring Security, enable <code>http.cors(...)</code> so that preflights are handled before authentication (Day 354). At an API gateway, configure CORS once there and remove it from the services, or the headers will be duplicated.</p>
+
+  <h3>Content negotiation</h3>
+<pre><code class="plain">GET /reports/7
+Accept: application/json;q=0.9, text/csv
+Accept-Language: fr-CH, fr;q=0.9, en;q=0.8
+Accept-Encoding: br, gzip;q=0.8
+
+HTTP/1.1 200 OK
+Content-Type: text/csv; charset=utf-8       &lt;- implicit q=1 beats 0.9
+Content-Language: fr
+Content-Encoding: br
+Vary: Accept, Accept-Language, Accept-Encoding</code></pre>
+  <p>Quality values (<code>q</code>, 0–1, default 1) rank the client's preferences, and <code>q=0</code> means "not acceptable". The server picks the best representation it can produce. If none matches <code>Accept</code>, answer 406 (or fall back to a default if your API documents one). If a cache sits in front, list every negotiated request header in <code>Vary</code>.</p>
+
+  <h3>Compression, and caching headers on real endpoints</h3>
+<pre><code class="plain">server:
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/css,application/javascript,image/svg+xml
+    min-response-size: 2KB      # Boot's default threshold; below ~1-2 KB the saving rarely pays</code></pre>
+  <p>JSON and HTML typically shrink severalfold under gzip, and Brotli usually does somewhat better, especially at high levels for static assets precompressed at build time. Tomcat compresses only with gzip, so Brotli is normally applied by the CDN or reverse proxy. Do not recompress JPEG, PNG, WOFF2 or zip files: you burn CPU for nothing. Be wary of compressing responses that mix secrets with reflected user input (the BREACH attack). Applying <a href="#l249">L249</a> per endpoint:</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Endpoint</th><th>Headers</th></tr></thead><tbody>
+    <tr><td><code>GET /assets/app.3f9c.js</code></td><td><code>Cache-Control: public, max-age=31536000, immutable</code></td></tr>
+    <tr><td><code>GET /products?category=mugs</code></td><td><code>Cache-Control: public, max-age=30, s-maxage=300</code>, <code>ETag</code>, <code>Vary: Accept-Encoding</code></td></tr>
+    <tr><td><code>GET /me/orders</code></td><td><code>Cache-Control: private, no-cache</code> + <code>ETag</code> (revalidate to cheap 304s)</td></tr>
+    <tr><td><code>POST /payments</code>, <code>GET /me/tokens</code></td><td><code>Cache-Control: no-store</code></td></tr>
+  </tbody></table></div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Reflecting any <code>Origin</code> with <code>Allow-Credentials: true</code></b>: every website can read your users' data. This is effectively no same-origin policy at all.</li>
+    <li><b>Preflight blocked by authentication</b>: works in Postman and fails in the browser, because Postman does not run CORS.</li>
+    <li><b>Missing <code>Vary: Origin</code></b> behind a CDN: the cached response carries origin A's header, so origin B fails intermittently.</li>
+    <li><b>Compression on, but no <code>Vary: Accept-Encoding</code></b>: a shared cache serves Brotli bytes to a client that cannot decode them.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Serve a page from <code>localhost:3000</code> that calls your servlet API on <code>localhost:8080</code> with a JSON PUT. Reproduce the CORS error, then fix it with <code>CorsFilter</code>, watching both requests in dev tools.</li>
+    <li>Move the auth filter in front of <code>CorsFilter</code> and diagnose the failure using the debugging algorithm.</li>
+    <li>Make one endpoint return JSON or CSV based on <code>Accept</code> with q-values, returning 406 for <code>Accept: application/xml</code>, with a correct <code>Vary</code>.</li>
+    <li>Enable compression and measure response sizes with <code>curl -H 'Accept-Encoding: gzip' -so /dev/null -w '%{size_download}'</code> for 500-byte and 50 KB payloads.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> WHATWG <i>Fetch Standard</i>, "CORS protocol" · MDN, "Cross-Origin Resource Sharing (CORS)" · RFC 9110 §12 (content negotiation) · Spring Framework reference, "CORS" · Spring Boot reference, "Response Compression"</p>
+</article>
+<!-- ================================================================ L258 -->
+<article class="day" id="l258">
+  <header class="day-head">
+    <span class="day-no">L258 · DAY 258</span>
+    <h2>HTTP/2, HTTP/3, WebSocket, SSE &amp; gRPC Preview</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">35m practice</span></p>
+  </header>
+  <p class="thesis">HTTP/2 and HTTP/3 keep HTTP's semantics (methods, status codes, headers) and change only the transport, to remove head-of-line blocking. WebSocket and Server-Sent Events change the interaction model itself, from request/response to push. Choose by communication pattern, not by fashion.</p>
+
+  <h3>HTTP/1.1's head-of-line blocking</h3>
+  <p>An HTTP/1.1 connection carries one request at a time: a slow response blocks everything queued behind it. Pipelining was meant to fix this but never worked reliably through proxies. Browsers therefore open about six connections per origin, and the 2010s performance playbook was a set of workarounds. <b>Domain sharding</b> (<code>img1.</code>, <code>img2.</code> hosts) got more connections. <b>Sprite sheets</b> and <b>file concatenation</b> meant fewer requests. <b>Inlining</b> embedded assets in HTML. Each one traded cacheability and simplicity for fewer round trips.</p>
+
+  <h3>HTTP/2: one connection, many streams</h3>
+  <figure class="fig"><svg viewBox="0 0 640 200" role="img" aria-label="Protocol stacks of HTTP/1.1, HTTP/2 and HTTP/3">
+    <rect x="20" y="20" width="180" height="34" class="s-node"/><text x="110" y="42" class="s-mid s-sm">HTTP/1.1 (text)</text>
+    <rect x="20" y="58" width="180" height="34" class="s-node"/><text x="110" y="80" class="s-mid s-sm">TLS (optional)</text>
+    <rect x="20" y="96" width="180" height="34" class="s-node"/><text x="110" y="118" class="s-mid s-sm">TCP</text>
+    <rect x="230" y="20" width="180" height="34" class="s-node-mod"/><text x="320" y="42" class="s-mid s-sm">HTTP/2 frames, HPACK</text>
+    <rect x="230" y="58" width="180" height="34" class="s-node"/><text x="320" y="80" class="s-mid s-sm">TLS 1.2+ (ALPN h2)</text>
+    <rect x="230" y="96" width="180" height="34" class="s-node"/><text x="320" y="118" class="s-mid s-sm">TCP</text>
+    <rect x="440" y="20" width="180" height="34" class="s-node-mod"/><text x="530" y="42" class="s-mid s-sm">HTTP/3 frames, QPACK</text>
+    <rect x="440" y="58" width="180" height="34" class="s-node-mod"/><text x="530" y="74" class="s-mid s-sm">QUIC: streams, loss</text><text x="530" y="87" class="s-mid s-sm">recovery, TLS 1.3</text>
+    <rect x="440" y="96" width="180" height="34" class="s-node"/><text x="530" y="118" class="s-mid s-sm">UDP</text>
+    <text x="110" y="155" class="s-mid s-sm s-bad">HOL: per connection</text><text x="320" y="155" class="s-mid s-sm s-warn">HOL: TCP packet loss</text><text x="530" y="155" class="s-mid s-sm s-acc">HOL: per stream only</text>
+    <text x="110" y="175" class="s-mid s-sm s-ink3">~6 conns per origin</text><text x="320" y="175" class="s-mid s-sm s-ink3">1 conn, many streams</text><text x="530" y="175" class="s-mid s-sm s-ink3">1 conn, survives IP change</text>
+  </svg><figcaption><b>Same semantics, new transports.</b> HTTP/2 removes HTTP-level blocking but still stalls on TCP loss. HTTP/3 moves streams into QUIC, so a lost packet stalls only its own stream.</figcaption></figure>
+  <div class="box def"><span class="tag">Definition</span><b>HTTP/2</b> (RFC 9113) splits every message into binary <b>frames</b> (HEADERS, DATA, SETTINGS, WINDOW_UPDATE, RST_STREAM, PING, GOAWAY) tagged with a <b>stream</b> id. Many streams interleave on one TCP connection; client-initiated streams have odd ids. Each stream has its own flow-control window, and a stream can be cancelled with RST_STREAM without closing the connection. <b>HPACK</b> compresses headers with a static table of common fields, a per-connection dynamic table of recently sent fields, and Huffman coding, so a repeated <code>Cookie</code> or <code>Authorization</code> costs a few bytes.</div>
+  <p>Browsers speak HTTP/2 only over TLS, negotiated by ALPN (<code>h2</code>). Cleartext <code>h2c</code> exists for internal hops. <b>Server push</b>, where the server sends resources before they are requested, turned out to waste bandwidth on resources the browser had already cached. Chrome removed it, and <code>103 Early Hints</code> with <code>Link: rel=preload</code> replaced it. On HTTP/2 the old hacks become <b>anti-patterns</b>. Sharding splits one multiplexed connection into several, each paying its own handshake, congestion window and HPACK context. Sprites and bundles mean one changed icon invalidates the whole file in every cache. In Boot, set <code>server.http2.enabled=true</code> (with TLS configured).</p>
+
+  <h3>HTTP/3 and QUIC</h3>
+  <p>HTTP/3 (RFC 9114) runs over <b>QUIC</b> (RFC 9000), a transport built on UDP. QUIC integrates TLS 1.3, so a new connection takes one round trip, and a resumed one can send <b>0-RTT</b> data (replayable: idempotent requests only). Streams are native to QUIC, so <b>loss recovery is per stream</b>: a dropped packet delays only the stream it belonged to. Connections are identified by <b>connection IDs</b> rather than the IP/port 4-tuple, so a phone moving from Wi-Fi to cellular keeps its connection (<em>connection migration</em>). Headers use QPACK, an HPACK variant tolerant of out-of-order delivery. Servers advertise HTTP/3 with <code>Alt-Svc: h3=":443"</code>, and clients switch on later requests. In Java backends, HTTP/3 is usually terminated at the CDN or edge proxy, with HTTP/1.1 or HTTP/2 to the application.</p>
+
+  <h3>WebSocket: full duplex after an upgrade</h3>
+<pre><code class="plain">GET /chat HTTP/1.1
+Host: api.example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=</code></pre>
+<pre><code>import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
+
+public class WebSocketAccept {
+    private static final String GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"; // fixed by RFC 6455
+
+    static String accept(String secWebSocketKey) throws Exception {
+        byte[] sha1 = MessageDigest.getInstance("SHA-1")
+                .digest((secWebSocketKey + GUID).getBytes(StandardCharsets.US_ASCII));
+        return Base64.getEncoder().encodeToString(sha1);
+    }
+
+    public static void main(String[] args) throws Exception {
+        System.out.println(accept("dGhlIHNhbXBsZSBub25jZQ=="));  // s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+    }
+}</code></pre>
+  <p>The accept hash proves the server understood the WebSocket handshake, so a plain HTTP server cannot be tricked into appearing to accept one. After the 101 response, the TCP connection carries <b>frames</b>: text, binary, ping/pong (keep-alive and liveness checks) and close. Client-to-server frames are masked so that broken intermediaries cannot be cache-poisoned. Either side can send at any time, which suits chat, collaborative editing, multiplayer games and trading screens. The costs are a stateful long-lived connection per client (sticky routing, a connection-aware load balancer, idle timeouts to tune) and no HTTP semantics inside: you design your own message protocol, often STOMP in Spring.</p>
+
+  <h3>Server-Sent Events and long polling</h3>
+<pre><code>import jakarta.servlet.AsyncContext;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
+
+@WebServlet(urlPatterns = "/events", asyncSupported = true)
+public class TickerServlet extends HttpServlet {
+    private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        res.setContentType("text/event-stream");
+        res.setCharacterEncoding("UTF-8");
+        res.setHeader("Cache-Control", "no-cache");
+        String last = req.getHeader("Last-Event-ID");          // sent by the browser on reconnect
+        var next = new AtomicLong(last != null &amp;&amp; last.matches("\\d{1,18}") ? Long.parseLong(last) + 1 : 0);
+        AsyncContext async = req.startAsync();                 // free the container thread
+        async.setTimeout(0);
+        PrintWriter out = res.getWriter();
+        out.write("retry: 3000\n\n");                          // client reconnect delay, ms
+        ScheduledFuture&lt;?&gt;[] task = new ScheduledFuture&lt;?&gt;[1];
+        task[0] = timer.scheduleAtFixedRate(() -&gt; {
+            long id = next.getAndIncrement();
+            out.write("id: " + id + "\nevent: tick\ndata: {\"n\":" + id + "}\n\n");
+            if (out.checkError()) { task[0].cancel(false); async.complete(); } // client is gone
+        }, 1, 1, TimeUnit.SECONDS);                            // first run after task[0] is set
+    }
+
+    @Override
+    public void destroy() { timer.shutdownNow(); }
+}</code></pre>
+  <p><b>SSE</b> is a plain HTTP response that never ends, in the <code>text/event-stream</code> format: <code>id:</code>, <code>event:</code>, <code>data:</code> and <code>retry:</code> lines, with a blank line ending each event. The browser's <code>EventSource</code> reconnects automatically and sends <code>Last-Event-ID</code>, so the server can resume. It is one-directional (server to client; the client uses ordinary requests to talk back), text only, and works through standard proxies, auth and HTTP/2 multiplexing. For notifications, progress bars, dashboards and token-by-token LLM output, it is usually the simpler and better choice. On HTTP/1.1, each open stream holds one of the browser's six connections. Spring's <code>SseEmitter</code> wraps this servlet pattern. <b>Long polling</b> is the fallback that works everywhere: the client sends a request, the server holds it until there is data or about 30 s pass, and the client immediately re-requests.</p>
+
+  <h3>gRPC preview and a decision guide</h3>
+  <p><b>gRPC</b> uses Protocol Buffers schemas (<code>.proto</code>) to generate typed clients and servers, and runs over HTTP/2 with four call shapes: unary, server streaming, client streaming and bidirectional. It offers compact binary messages, deadlines and cancellation, and is strong for internal service-to-service calls. Browsers need gRPC-Web or a proxy. It is built for real on Day 450.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Need</th><th>Choose</th></tr></thead><tbody>
+    <tr><td>Public CRUD API, cacheable reads</td><td>REST over HTTP/1.1 and HTTP/2</td></tr>
+    <tr><td>Server pushes updates; client rarely talks back</td><td>SSE (long polling as the fallback)</td></tr>
+    <tr><td>High-frequency messages in both directions, low latency</td><td>WebSocket</td></tr>
+    <tr><td>Internal RPC, strict contracts, streaming between services</td><td>gRPC</td></tr>
+    <tr><td>Mobile clients on lossy networks</td><td>Any of the above, with HTTP/3 enabled at the edge</td></tr>
+  </tbody></table></div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span><ul>
+    <li><b>Proxy buffering of SSE</b>: nginx buffers the stream, so events arrive in bursts or only at the end. Disable buffering for that location (for example with the <code>X-Accel-Buffering: no</code> response header).</li>
+    <li><b>Idle timeouts on long-lived connections</b>: the load balancer kills quiet WebSockets and SSE streams after about 60 s. Send pings or comment lines (<code>: keep-alive</code>) more often than that.</li>
+    <li><b>WebSocket without a scaling story</b>: a message published on node A never reaches users connected to node B. You need a broker (Redis pub/sub, Kafka) to fan out.</li>
+    <li><b>Keeping HTTP/1.1-era sharding</b> after enabling HTTP/2: more handshakes, and slower pages.</li>
+  </ul></div>
+
+  <div class="practice"><h4>Practice · 35 min</h4><ol>
+    <li>Run <code>curl -v --http2 https://example.com/</code> and <code>curl -sI https://www.google.com | grep -i alt-svc</code>. Identify the ALPN result and the advertised HTTP/3 endpoint.</li>
+    <li>Deploy <code>TickerServlet</code> and consume it with <code>curl -N</code> and with a browser <code>EventSource</code>. Kill and restart the server, and confirm that the browser resumes from <code>Last-Event-ID</code>.</li>
+    <li>Run <code>WebSocketAccept</code>, then open a WebSocket to a public echo service from the browser console and watch the frames in dev tools.</li>
+    <li>For three features of a product you know, pick REST, SSE, WebSocket or gRPC using the decision table, with a one-line justification each.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> RFC 9113 (HTTP/2), RFC 7541 (HPACK), RFC 9000 (QUIC), RFC 9114 (HTTP/3), RFC 6455 (WebSocket) · WHATWG HTML Standard, "Server-sent events" · Ilya Grigorik, <i>High Performance Browser Networking</i>, ch. 12 (HTTP/2) and ch. 16–17 (SSE, WebSocket) · grpc.io, "Core concepts"</p>
+</article>
+
+<nav class="modnav">
+  <a href="p10.html"><small>Previous · Days 223–246</small>◂ Phase 10 — JPA &amp; Hibernate</a>
+  <a class="next" href="p12.html"><small>Next · Days 259–278</small>Phase 12 — Spring Core ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

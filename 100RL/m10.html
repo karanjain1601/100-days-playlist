@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 10 — Model-Based Deep RL &amp; Search · 130 Days of RL</title>
+<meta name="description" content="Days 97–101: learned dynamics models and PETS-style model-predictive control, MBPO's branched rollouts, world models and Dreamer, AlphaGo through AlphaZero, and MuZero's planning in a learned latent space.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m10">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 10 · Model-Based Deep RL &amp; Search · Days 97–101</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 10 · Model-Based RL</h4>
+  <nav>
+    <a href="#d97"><span class="n">D97</span>Learning Dynamics Models</a>
+    <a href="#d98"><span class="n">D98</span>MBPO</a>
+    <a href="#d99"><span class="n">D99</span>World Models &amp; Dreamer</a>
+    <a href="#d100"><span class="n">D100</span>AlphaGo → AlphaZero</a>
+    <a href="#d101"><span class="n">D101</span>MuZero</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="10"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m09.html">◂ Module 9</a><a href="m11.html">Module 11 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 10 · Days 97–101 · Weeks 20–21</p>
+<h1>Model-Based Deep RL &amp; Search</h1>
+<p class="dek">Five lessons on agents that learn a model of the world and then use it: to plan with model-predictive control, to manufacture cheap synthetic experience for a model-free learner, to train an actor-critic entirely in imagination, and to search. The module takes the tabular planning ideas of Module 6 (Dyna, MCTS) and the deep actor-critics of Module 9 and combines them. Module 11 then asks how an agent should gather the data that any model or value function depends on.</p>
+<ul class="chips">
+  <li><b>5</b> lessons</li>
+  <li><b>3h 45m</b> video</li>
+  <li><b>7h 45m</b> practice</li>
+  <li>Reading: <b>Janner et al. 2019 · Hafner et al. 2023 · Silver et al. 2017</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Train a probabilistic ensemble that predicts state deltas, and measure how its error compounds over a rollout.</li>
+    <li>Implement cross-entropy-method MPC over an ensemble (PETS) and explain trajectory sampling.</li>
+    <li>State MBPO's branched-rollout scheme and use the shape of its bound to explain why short rollouts win.</li>
+    <li>Draw the RSSM, explain how Dreamer trains its actor and critic in imagination, and say what symlog and two-hot targets fix.</li>
+    <li>Write the AlphaZero loss and the PUCT rule, and explain why MCTS visit counts are a policy-improvement target.</li>
+    <li>Describe MuZero's representation, dynamics and prediction functions and its K-step unrolled loss, and explain why its latent state never has to reconstruct an observation.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 97 -->
+<article class="day" id="d97">
+  <header class="day-head">
+    <span class="day-no">DAY 97</span>
+    <h2>Learning Dynamics Models</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">A learned dynamics model is a regression problem with a twist: you will feed its predictions back into itself. One-step accuracy matters less than how errors compound over a rollout and whether the model knows where it is wrong. That is why the strong methods predict deltas, output distributions, train ensembles, and replan at every step.</p>
+
+  <h3>Predicting s′ from (s, a)</h3>
+  <p>In Module 6 the model was a table of counts (Dyna-Q, Day 55). Here it is a neural network fitted to a dataset of real transitions \(\mathcal D = \{(s_i, a_i, s'_i)\}\). The payoff is sample efficiency: every real transition improves a model that can then generate as many imagined transitions as you have compute for, or be searched at decision time. The reward is either learned alongside (a second output head) or, as in many continuous-control papers including PETS, assumed known as a function \(r(s, a)\).</p>
+  <div class="box def"><span class="tag">Definition · deterministic vs probabilistic models</span>
+    <ul>
+      <li><b>Deterministic:</b> \(\hat s' = f_\theta(s, a)\), trained by mean squared error \(\sum_i \|f_\theta(s_i, a_i) - s'_i\|^2\).</li>
+      <li><b>Probabilistic:</b> \(p_\theta(s' \mid s, a) = \mathcal N\big(\mu_\theta(s, a), \Sigma_\theta(s, a)\big)\) with diagonal \(\Sigma_\theta\), trained by negative log-likelihood
+      $$\mathcal L(\theta) = \sum_i \big(\mu_\theta(s_i, a_i) - s'_i\big)^\top \Sigma_\theta^{-1}(s_i, a_i)\, \big(\mu_\theta(s_i, a_i) - s'_i\big) + \log\det \Sigma_\theta(s_i, a_i).$$</li>
+    </ul>
+    <p>MSE is the NLL of a Gaussian with fixed, identical variance everywhere, so a deterministic model is a probabilistic one that assumes the noise never changes. The learned variance lets the model say "this transition is noisy" (a contact, a slippery patch) and down-weight those residuals in the loss.</p>
+  </div>
+
+  <h3>Predict deltas, and normalize everything</h3>
+  <p>With a control step of 0.02–0.05 s, \(s'\) is almost equal to \(s\). A network asked to output \(s'\) must reproduce the identity map to high precision, and its errors are on the scale of \(s\) itself, while the part you care about, the change, is tiny. Predict \(\Delta = s' - s\) instead and set \(\hat s' = s + \Delta_\theta(s, a)\): "nothing changes" becomes the zero output, and the model's capacity goes into the dynamics. Nagabandi et al. (2018) made this standard for neural-network MPC.</p>
+  <p>Two more details carry a lot of weight. Normalize inputs and delta targets per dimension (z-scores computed on the data) so that a position in metres and an angular velocity in rad/s count equally in the loss. Encode angles as \((\cos\theta, \sin\theta)\) so the model never sees the jump from \(\pi\) to \(-\pi\).</p>
+
+  <h3>Aleatoric vs epistemic uncertainty, and ensembles</h3>
+  <p><b>Aleatoric</b> uncertainty is noise in the system itself; it does not shrink with more data, and the Gaussian variance head captures it. <b>Epistemic</b> uncertainty comes from not having seen enough data; it shrinks as data arrive, and a single network cannot express it. Off the data a single network still outputs a confident number, and nothing in it signals that the number is a guess. An <b>ensemble</b> of \(E\) networks trained from different random initializations (PETS also gives each member a bootstrap resample of \(\mathcal D\)) agrees where data are plentiful and disagrees where they are not. Their disagreement is the epistemic signal.</p>
+  <p>A probabilistic ensemble (Chua et al. call it PE) has both. Treat it as a uniform mixture of its members and apply the law of total variance from Day 3:</p>
+  $$\Var[s' \mid s, a] = \underbrace{\frac1E \sum_{e=1}^{E} \sigma_e^2(s, a)}_{\text{aleatoric: mean of member variances}} + \underbrace{\frac1E \sum_{e=1}^{E} \big(\mu_e(s, a) - \bar\mu(s, a)\big)^2}_{\text{epistemic: spread of member means}}.$$
+
+  <pre><code>import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class GaussianEnsemble(nn.Module):
+    """E independent MLPs, each predicting a diagonal Gaussian over the normalised delta s' - s."""
+    def __init__(self, obs_dim, act_dim, E=5, hidden=200):
+        super().__init__()
+        self.E, self.obs_dim = E, obs_dim
+        self.nets = nn.ModuleList(
+            nn.Sequential(nn.Linear(obs_dim + act_dim, hidden), nn.SiLU(),
+                          nn.Linear(hidden, hidden), nn.SiLU(),
+                          nn.Linear(hidden, 2 * obs_dim))
+            for _ in range(E))
+        self.max_logvar = nn.Parameter(torch.full((obs_dim,), 0.5))
+        self.min_logvar = nn.Parameter(torch.full((obs_dim,), -10.0))
+
+    def forward(self, x):                                   # x: [E, B, obs+act], normalised
+        out = torch.stack([net(xe) for net, xe in zip(self.nets, x)])
+        mean, logvar = out.split(self.obs_dim, dim=-1)
+        logvar = self.max_logvar - F.softplus(self.max_logvar - logvar)   # soft upper bound
+        logvar = self.min_logvar + F.softplus(logvar - self.min_logvar)   # soft lower bound
+        return mean, logvar
+
+def nll(model, x, y):                                       # y: [E, B, obs] normalised deltas
+    mean, logvar = model(x)
+    loss = ((mean - y) ** 2 * torch.exp(-logvar) + logvar).mean()
+    return loss + 0.01 * (model.max_logvar.sum() - model.min_logvar.sum())
+
+# obs, act, next_obs: float tensors of real transitions
+X, Y = torch.cat([obs, act], -1), next_obs - obs            # predict deltas, not next states
+x_mu, x_sd, y_mu, y_sd = X.mean(0), X.std(0) + 1e-6, Y.mean(0), Y.std(0) + 1e-6
+model = GaussianEnsemble(obs.shape[1], act.shape[1])
+opt = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+for step in range(10_000):
+    idx = torch.randint(0, len(X), (model.E, 256))          # each member gets its own minibatch
+    loss = nll(model, (X[idx] - x_mu) / x_sd, (Y[idx] - y_mu) / y_sd)
+    opt.zero_grad()
+    loss.backward()
+    opt.step()</code></pre>
+  <p class="code-cap">To predict, draw \(\epsilon \sim \mathcal N(0, I)\) and set \(s' = s + y_\mu + y_\sigma \odot (\text{mean} + e^{\text{logvar}/2} \odot \epsilon)\) for the chosen member. Hold out 10–20% of the data and stop on validation NLL; PETS/MBPO-style code also keeps only the members with the best validation loss ("elites"). The learned soft bounds on the log-variance stop the NLL from shrinking the variance to nothing on training points or blowing it up off the data.</p>
+
+  <h3>Compounding error over the rollout horizon</h3>
+  <div class="box deriv"><span class="tag">Derivation · k-step error with a Lipschitz system</span>
+    <p>Suppose the true dynamics \(f\) are \(L\)-Lipschitz in the state for any fixed action, and the model's one-step error is at most \(\varepsilon\): \(\|\hat f(s, a) - f(s, a)\| \le \varepsilon\). Roll both out from the same \(s_0\) under the same actions and let \(e_k = \|\hat s_k - s_k\|\). Adding and subtracting \(f(\hat s_{k-1}, a)\),</p>
+    $$e_k = \|\hat f(\hat s_{k-1}, a) - f(s_{k-1}, a)\| \le \|\hat f(\hat s_{k-1}, a) - f(\hat s_{k-1}, a)\| + \|f(\hat s_{k-1}, a) - f(s_{k-1}, a)\| \le \varepsilon + L\, e_{k-1}.$$
+    <p>With \(e_0 = 0\), unrolling gives</p>
+    $$e_k \le \varepsilon\,(1 + L + \dots + L^{k-1}) = \varepsilon\,\frac{L^k - 1}{L - 1}.$$
+    <p>For \(L \le 1\) the error grows at most linearly, \(k\varepsilon\). For \(L &gt; 1\) (unstable or chaotic systems, contacts) it grows geometrically.</p>
+  </div>
+  <p>The real situation is worse than the bound, because \(\varepsilon\) is small only near the data. A rollout drifts into states produced by its own errors, where the model was never trained and its error is larger still. If an optimizer (a planner or a policy) is choosing the actions, it will actively seek out the places where the model is wrong in its favour. This is <em>model exploitation</em>, and it is the central failure of model-based RL.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 240" role="img" aria-label="A true trajectory and five ensemble model rollouts under the same actions; the rollouts agree for the first steps and fan out as the horizon grows">
+      <line x1="60" y1="200" x2="620" y2="200" class="s-ln"/>
+      <line x1="60" y1="20" x2="60" y2="200" class="s-ln"/>
+      <text x="54" y="28" class="s-ink3 s-end s-sm">state</text>
+      <g class="s-ink3 s-sm">
+        <text x="60" y="216" class="s-mid">0</text><text x="143" y="216" class="s-mid">1</text><text x="226" y="216" class="s-mid">2</text>
+        <text x="309" y="216" class="s-mid">3</text><text x="392" y="216" class="s-mid">4</text><text x="475" y="216" class="s-mid">5</text>
+        <text x="558" y="216" class="s-mid">6</text>
+      </g>
+      <text x="310" y="234" class="s-ink3 s-mid s-sm">model rollout step k (same action sequence for every curve)</text>
+      <polyline points="60,120 143,110 226,92 309,80 392,74 475,72 558,70" class="s-ln-info"/>
+      <polyline points="60,120 143,113 226,103 309,100 392,108 475,124 558,144" class="s-ln-info"/>
+      <polyline points="60,120 143,115 226,108 309,112 392,124 475,146 558,172" class="s-ln-info"/>
+      <polyline points="60,120 143,111 226,97 309,88 392,86 475,90 558,96" class="s-ln-info"/>
+      <polyline points="60,120 143,114 226,104 309,104 392,114 475,134 558,158" class="s-ln-info"/>
+      <polyline points="60,120 143,112 226,100 309,96 392,100 475,112 558,124" class="s-ln-ink"/>
+      <line x1="572" y1="70" x2="572" y2="172" class="s-ln-warn"/>
+      <line x1="566" y1="70" x2="578" y2="70" class="s-ln-warn"/>
+      <line x1="566" y1="172" x2="578" y2="172" class="s-ln-warn"/>
+      <text x="584" y="116" class="s-warn s-sm">ensemble</text>
+      <text x="584" y="130" class="s-warn s-sm">spread</text>
+      <line x1="80" y1="30" x2="104" y2="30" class="s-ln-ink"/><text x="112" y="34" class="s-sm">true dynamics f</text>
+      <line x1="80" y1="48" x2="104" y2="48" class="s-ln-info"/><text x="112" y="52" class="s-sm">five ensemble members</text>
+      <text x="96" y="172" class="s-ink2 s-sm">near the data the members agree</text>
+    </svg>
+    <figcaption><b>Error compounds, and the ensemble shows it.</b> Under the same action sequence the members agree for the first steps, then fan out as each one's errors feed into its own next input. The spread is a usable estimate of how far to trust a k-step prediction, which is exactly what PETS and MBPO exploit.</figcaption>
+  </figure>
+
+  <h3>PETS: probabilistic ensembles with trajectory sampling</h3>
+  <p>Chua et al. (2018) combine three pieces. A <b>probabilistic ensemble</b> (five members) captures both kinds of uncertainty. <b>Trajectory sampling</b> propagates that uncertainty through a rollout with particles: each candidate action sequence is simulated with \(P\) particles (20 in the paper), each sampling its next state from a Gaussian. In <b>TS1</b> a particle picks a fresh random member at every step; in <b>TS∞</b> it keeps one member for the whole horizon, which keeps epistemic and aleatoric spread separate. The predicted return of a sequence is its average over particles. The third piece is a <b>planner</b>: the cross-entropy method, run inside model-predictive control.</p>
+  <div class="box algo"><span class="tag">Algorithm · cross-entropy method (CEM) for action sequences</span>
+    <ol>
+      <li>Initialize a Gaussian over sequences \(a_{t:t+H-1}\): mean \(m\) (the previous plan, shifted by one step), standard deviation \(\sigma\) (wide).</li>
+      <li>Repeat for a few iterations:
+        <ol>
+          <li>Sample \(N\) sequences from \(\mathcal N(m, \sigma^2)\), clipped to the action bounds.</li>
+          <li>Score each one by its predicted return, averaged over particles.</li>
+          <li>Keep the top \(K\) ("elites"). Refit \(m, \sigma\) to them, smoothed: \(m \leftarrow \alpha m + (1 - \alpha)\,\text{mean(elites)}\), and likewise for \(\sigma\).</li>
+        </ol>
+      </li>
+      <li>Return \(m\). <span class="step">(The PETS code uses roughly N = 400–500, K = 40–50, 5 iterations, α = 0.1.)</span></li>
+    </ol>
+  </div>
+  <p>CEM is derivative-free, so it doesn't care that the model may be non-smooth, and it parallelizes trivially on a GPU. It works well for horizons of tens of steps and action dimensions in the single or low double digits; beyond that the number of samples needed grows quickly.</p>
+
+  <h3>The model-predictive control loop</h3>
+  <p>MPC (also called receding-horizon control) plans an \(H\)-step open-loop sequence, executes only its first action, observes the real next state, and plans again. Replanning turns an open-loop plan into a closed-loop policy: each step starts from the true state, so the model's errors are corrected every step instead of being carried along. The price is computation at every decision: \(N \times P \times H\) model evaluations per CEM iteration, which for 400 sequences, 20 particles and \(H = 30\) is 240,000 forward passes per iteration.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 205" role="img" aria-label="Receding horizon: at each step an H-step plan is made, only the first action is executed, and the plan is shifted and re-optimized">
+      <defs>
+        <marker id="ah-d97" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <text x="10" y="60" class="s-sm">plan at t</text>
+      <text x="10" y="110" class="s-sm">plan at t+1</text>
+      <text x="10" y="160" class="s-sm">plan at t+2</text>
+      <text x="319" y="30" class="s-ink3 s-mid s-sm">horizon H = 6</text>
+      <rect x="130" y="40" width="58" height="30" rx="4" class="s-node-mod"/><text x="159" y="60" class="s-mid s-sm">aₜ</text>
+      <rect x="194" y="40" width="58" height="30" rx="4" class="s-node"/><text x="223" y="60" class="s-mid s-sm">aₜ₊₁</text>
+      <rect x="258" y="40" width="58" height="30" rx="4" class="s-node"/><text x="287" y="60" class="s-mid s-sm">aₜ₊₂</text>
+      <rect x="322" y="40" width="58" height="30" rx="4" class="s-node"/><text x="351" y="60" class="s-mid s-sm">aₜ₊₃</text>
+      <rect x="386" y="40" width="58" height="30" rx="4" class="s-node"/><text x="415" y="60" class="s-mid s-sm">aₜ₊₄</text>
+      <rect x="450" y="40" width="58" height="30" rx="4" class="s-node"/><text x="479" y="60" class="s-mid s-sm">aₜ₊₅</text>
+      <rect x="194" y="90" width="58" height="30" rx="4" class="s-node-mod"/><text x="223" y="110" class="s-mid s-sm">aₜ₊₁</text>
+      <rect x="258" y="90" width="58" height="30" rx="4" class="s-node"/><text x="287" y="110" class="s-mid s-sm">aₜ₊₂</text>
+      <rect x="322" y="90" width="58" height="30" rx="4" class="s-node"/><text x="351" y="110" class="s-mid s-sm">aₜ₊₃</text>
+      <rect x="386" y="90" width="58" height="30" rx="4" class="s-node"/><text x="415" y="110" class="s-mid s-sm">aₜ₊₄</text>
+      <rect x="450" y="90" width="58" height="30" rx="4" class="s-node"/><text x="479" y="110" class="s-mid s-sm">aₜ₊₅</text>
+      <rect x="514" y="90" width="58" height="30" rx="4" class="s-node"/><text x="543" y="110" class="s-mid s-sm">aₜ₊₆</text>
+      <rect x="258" y="140" width="58" height="30" rx="4" class="s-node-mod"/><text x="287" y="160" class="s-mid s-sm">aₜ₊₂</text>
+      <rect x="322" y="140" width="58" height="30" rx="4" class="s-node"/><text x="351" y="160" class="s-mid s-sm">aₜ₊₃</text>
+      <rect x="386" y="140" width="58" height="30" rx="4" class="s-node"/><text x="415" y="160" class="s-mid s-sm">aₜ₊₄</text>
+      <rect x="450" y="140" width="58" height="30" rx="4" class="s-node"/><text x="479" y="160" class="s-mid s-sm">aₜ₊₅</text>
+      <rect x="514" y="140" width="58" height="30" rx="4" class="s-node"/><text x="543" y="160" class="s-mid s-sm">aₜ₊₆</text>
+      <rect x="578" y="140" width="58" height="30" rx="4" class="s-node"/><text x="607" y="160" class="s-mid s-sm">aₜ₊₇</text>
+      <path d="M159,70 L215,89" class="s-ln" marker-end="url(#ah-d97)"/>
+      <path d="M223,120 L279,139" class="s-ln" marker-end="url(#ah-d97)"/>
+      <text x="236" y="83" class="s-ink2 s-sm">observe sₜ₊₁, re-plan</text>
+      <rect x="130" y="186" width="14" height="10" rx="2" class="s-node-mod"/><text x="150" y="195" class="s-sm">executed in the real env</text>
+      <rect x="340" y="186" width="14" height="10" rx="2" class="s-node"/><text x="360" y="195" class="s-sm">discarded, re-planned next step</text>
+    </svg>
+    <figcaption><b>Receding-horizon control.</b> Only the first action of each plan reaches the environment. The rest of the plan is shifted by one step and used as the starting mean for the next CEM search (a warm start), so each search refines the last one instead of starting from scratch.</figcaption>
+  </figure>
+
+  <pre><code>import numpy as np
+
+def cem_plan(state, rollout_return, act_dim, H=25, N=400, K=40, iters=5,
+             init_mean=None, low=-1.0, high=1.0, alpha=0.1, rng=np.random.default_rng(0)):
+    """Cross-entropy method over open-loop action sequences [H, act_dim].
+    rollout_return(state, actions[N, H, act_dim]) returns predicted returns [N]."""
+    mean = np.zeros((H, act_dim)) if init_mean is None else init_mean
+    std = np.full((H, act_dim), (high - low) / 2)
+    for _ in range(iters):
+        acts = np.clip(mean + std * rng.standard_normal((N, H, act_dim)), low, high)
+        elites = acts[np.argsort(rollout_return(state, acts))[-K:]]   # top-K sequences
+        mean = alpha * mean + (1 - alpha) * elites.mean(0)            # smoothed refit
+        std = alpha * std + (1 - alpha) * elites.std(0)
+    return mean
+
+def make_rollout_return(model_step, reward_fn, E=5, P=20):
+    """TS-infinity: each of the P particles per sequence keeps one ensemble member throughout."""
+    def rollout_return(state, acts):
+        N, H, _ = acts.shape
+        s = np.repeat(state[None], N * P, axis=0)
+        a = np.repeat(acts, P, axis=0)                  # rows: seq 0 (P copies), seq 1, ...
+        member = np.arange(N * P) % E
+        total = np.zeros(N * P)
+        for h in range(H):
+            total += reward_fn(s, a[:, h])
+            s = model_step(s, a[:, h], member)          # sample s' from each row's member
+        return total.reshape(N, P).mean(1)              # average over particles
+    return rollout_return
+
+# The MPC loop (env = gym.make("Pendulum-v1"), reward_fn = Pendulum's known reward)
+rollout_return = make_rollout_return(model_step, reward_fn)
+plan = None
+obs, info = env.reset(seed=0)
+for t in range(200):
+    plan = cem_plan(obs, rollout_return, act_dim=1, init_mean=plan, low=-2.0, high=2.0)
+    obs, reward, terminated, truncated, info = env.step(plan[0])   # execute the first action only
+    plan = np.vstack([plan[1:], np.zeros_like(plan[:1])])          # shift: warm start next search
+    if terminated or truncated:
+        break</code></pre>
+  <p class="code-cap"><code>model_step(s, a, member)</code> wraps the ensemble: row <code>i</code> is propagated by member <code>member[i]</code>. As a sanity check, with the true Pendulum dynamics standing in for the model, this planner (H = 25, N = 200, K = 20, 4 particles) swings the pendulum up from hanging within about 60 steps and holds it there. Always run that check before blaming your model.</p>
+
+  <p>The PETS paper reports that this combination matched the asymptotic performance of the model-free methods it compared against on several MuJoCo tasks while using far fewer samples (its abstract cites 8× fewer than SAC and 125× fewer than PPO on HalfCheetah). On harder locomotion tasks later work found PETS plateaus below SAC, which is part of the motivation for Day 98.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Model exploitation.</b> The planner finds sequences whose predicted return is high because the model is wrong. Averaging over ensemble members and particles helps, since an error has to fool most members at once to win.</li>
+      <li><b>Long horizons.</b> Compounding error caps the useful \(H\) at a few dozen steps; past that, extra planning makes the plan worse, not better.</li>
+      <li><b>Unimodal Gaussians.</b> At a contact or a bifurcation (the pendulum falls left or right) the true next-state distribution is multimodal, and a Gaussian puts its mean between the modes, on a state that never happens.</li>
+      <li><b>Known reward and termination.</b> PETS assumes \(r(s, a)\) is given. Learned rewards are another model to exploit.</li>
+      <li><b>Decision-time compute.</b> Hundreds of thousands of forward passes per real step rules out fast real-time control without careful batching or a learned policy (Day 98).</li>
+      <li><b>Pixels.</b> Predicting raw images in state space is hopeless at this scale; Day 99 moves the model into a learned latent space.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Collect 20,000 transitions from <code>Pendulum-v1</code> with random actions. Train two deterministic models, one predicting \(s'\) and one predicting \(\Delta\), with normalized inputs and targets. Compare the one-step and 50-step open-loop errors on held-out episodes.</li>
+      <li>Train the 5-member probabilistic ensemble above. Plot the k-step error and the ensemble spread against \(k\), first on random-action trajectories and then on trajectories from a swing-up controller (states the random data rarely visit). Does the spread grow where the error does?</li>
+      <li>Implement CEM-MPC with the true dynamics first and confirm the swing-up, then swap in your ensemble. Compare TS1 and TS∞ by return and by how often the planner is fooled (predicted return far above realized return).</li>
+      <li>Sweep \(H \in \{5, 15, 30, 60\}\) and record both return and planning time per step. Explain the shape of the return curve using the compounding-error derivation.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Chua et al. 2018, “Deep Reinforcement Learning in a Handful of Trials using Probabilistic Dynamics Models” · Nagabandi et al. 2018, “Neural Network Dynamics for Model-Based Deep Reinforcement Learning with Model-Free Fine-Tuning” · Lakshminarayanan et al. 2017, “Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles” · Moerland et al. 2023, “Model-based Reinforcement Learning: A Survey”</p>
+</article>
+
+<!-- ================================================================ DAY 98 -->
+<article class="day" id="d98">
+  <header class="day-head">
+    <span class="day-no">DAY 98</span>
+    <h2>MBPO &amp; Model-Based Policy Optimization</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">MBPO uses a learned model the way Dyna does, to manufacture extra transitions for a model-free learner, but only in short branches started from real states. Its bound and its experiments agree: short rollouts keep model error small while still handing the critic most of the benefit, because the critic, not the model, does the long-horizon credit assignment.</p>
+
+  <h3>From Dyna to MBPO</h3>
+  <p>Dyna-Q (Day 55) took a real step, updated a tabular model, then ran \(n\) one-step simulated updates from previously seen states. MBPO (Janner et al., 2019) is the same architecture with three upgrades: the model is the probabilistic ensemble of Day 97, the learner is SAC (Day 95), and the simulated experience is a \(k\)-step rollout instead of a single step. The alternative it argues against is the obvious one: train the policy on full-length model rollouts from the initial state distribution, as model-ensemble TRPO (Kurutach et al., 2018) did. Day 97's compounding-error argument already says why that is fragile. MBPO makes the argument quantitative.</p>
+
+  <h3>The bound: why full model rollouts are hopeless</h3>
+  <p>Let \(\eta[\pi]\) be the true return and \(\hat\eta[\pi]\) the return the model predicts. Two quantities measure what can go wrong: \(\epsilon_m\), the model's error (a total-variation distance between true and model next-state distributions) on the data-collecting policy's states, and \(\epsilon_\pi\), how far the new policy has moved from the data-collecting policy (also total variation).</p>
+  <div class="box deriv"><span class="tag">Derivation sketch · where the \(1/(1-\gamma)^2\) comes from</span>
+    <p>Take \(\epsilon_\pi = 0\) for now. Run the same policy in the true MDP and in the model from the same start, and let \(p_t, \hat p_t\) be the two state distributions at time \(t\). Each step can add at most \(\epsilon_m\) to their total-variation distance (couple the two processes; they separate with probability at most \(\epsilon_m\) per step), so \(D_{TV}(p_t, \hat p_t) \le t\,\epsilon_m\). With rewards in \([0, r_{\max}]\), the expected reward at time \(t\) differs by at most \(2 r_{\max} D_{TV}(p_t, \hat p_t)\). Summing over time,</p>
+    $$|\eta[\pi] - \hat\eta[\pi]| \le 2 r_{\max} \sum_{t \ge 0} \gamma^t\, t\, \epsilon_m = \frac{2\gamma\, r_{\max}\,\epsilon_m}{(1-\gamma)^2}.$$
+  </div>
+  <div class="box thm"><span class="tag">Theorem · MBPO, full model rollouts (Janner et al. 2019, Thm 4.1)</span>
+    $$\eta[\pi] \;\ge\; \hat\eta[\pi] - \Big[\frac{2\gamma\, r_{\max}(\epsilon_m + 2\epsilon_\pi)}{(1-\gamma)^2} + \frac{4\, r_{\max}\,\epsilon_\pi}{1-\gamma}\Big].$$
+    <p>If the model return improves by more than the bracket, the true return is guaranteed to improve: a monotonic-improvement condition in the spirit of TRPO's (Day 90).</p>
+  </div>
+  <p>The model error enters with a \(\gamma/(1-\gamma)^2\) factor. With \(\gamma = 0.99\) that is about \(10^4\): a model with 1% one-step error yields a penalty of about \(200\, r_{\max}\), twice the entire range of possible returns, \(r_{\max}/(1-\gamma) = 100\, r_{\max}\). The bound guarantees nothing. Errors made early in a long rollout corrupt everything after them, and the bound charges for that.</p>
+
+  <h3>Branched rollouts and the k-step trade-off</h3>
+  <p>MBPO changes what the model is asked to do. Instead of rolling out from \(s_0\) for the whole horizon, it samples start states from the real replay buffer and rolls out only \(k\) steps from each. The paper proves a bound of the same type for this branched scheme (its Thm 4.2–4.3). Qualitatively, with constants omitted, the penalty has two parts:</p>
+  $$\eta[\pi] \;\ge\; \eta^{\text{branch}}[\pi] \;-\; \underbrace{c_1\, \gamma^{k}\, \epsilon_\pi}_{\text{policy shift: shrinks with } k} \;-\; \underbrace{c_2\, k\, \epsilon_{m'}}_{\text{model error: grows with } k}$$
+  <p>Here \(\epsilon_{m'}\) is the model's error on the <em>current</em> policy's distribution. The model term is now linear in \(k\), not quadratic in the effective horizon, because errors can only compound for \(k\) steps. The policy-shift term exists because branches start from states the <em>old</em> policies visited. Longer branches take the current policy further from those start states, so this term decays like \(\gamma^k\).</p>
+  <p>If \(\epsilon_{m'}\) were as large as \(\epsilon_m\) plus a large multiple of \(\epsilon_\pi\), the best \(k\) would be 0: don't use the model. The paper measures how \(\epsilon_{m'}\) grows as the policy moves and finds the growth is slow: a model trained on old data generalizes reasonably to a nearby new policy. With that, the optimum is a small positive \(k\).</p>
+  <figure class="fig">
+    <svg viewBox="0 0 600 230" role="img" aria-label="Schematic of the branched-rollout bound: a decreasing policy-shift term, an increasing model-error term, and their sum with a minimum at small k">
+      <line x1="60" y1="190" x2="570" y2="190" class="s-ln"/>
+      <line x1="60" y1="20" x2="60" y2="190" class="s-ln"/>
+      <text x="66" y="16" class="s-ink3 s-sm">penalty in the bound</text>
+      <text x="70" y="206" class="s-ink3 s-sm">short</text>
+      <text x="560" y="206" class="s-ink3 s-end s-sm">long</text>
+      <text x="315" y="222" class="s-ink3 s-mid s-sm">branch length k</text>
+      <polyline points="60,40 110,80 160,108 210,128 260,142 310,152 360,160 410,165 460,168 510,170 560,171" class="s-ln-info"/>
+      <line x1="60" y1="190" x2="560" y2="60" class="s-ln-warn"/>
+      <polyline points="60,40 110,67 160,82 210,89 260,90 310,87 360,82 410,74 460,64 510,53 560,41" class="s-ln-mod"/>
+      <circle cx="260" cy="90" r="4" class="s-acc"/>
+      <text x="260" y="76" class="s-mid s-sm">best k: small but &gt; 0</text>
+      <line x1="150" y1="28" x2="172" y2="28" class="s-ln-info"/><text x="180" y="32" class="s-sm">policy-shift term ~ γᵏ</text>
+      <line x1="150" y1="44" x2="172" y2="44" class="s-ln-warn"/><text x="180" y="48" class="s-sm">model-error term ~ k·εₘ′</text>
+      <line x1="150" y1="60" x2="172" y2="60" class="s-ln-mod"/><text x="180" y="64" class="s-sm">their sum</text>
+    </svg>
+    <figcaption><b>The k-step trade-off, schematically.</b> Short branches limit how far model errors can compound; long branches correct for the mismatch between old start states and the current policy. When model error grows slowly with policy change, the sum is minimized at a small positive k. In practice MBPO uses k between 1 and roughly 15–25 depending on the task.</figcaption>
+  </figure>
+
+  <h3>The algorithm</h3>
+  <div class="box algo"><span class="tag">Algorithm · MBPO</span>
+    <ol>
+      <li>Initialize policy \(\pi_\phi\), ensemble \(p_\theta\), real buffer \(\mathcal D_{\text{env}}\), model buffer \(\mathcal D_{\text{model}}\).</li>
+      <li>For each epoch:
+        <ol>
+          <li>Train the ensemble on \(\mathcal D_{\text{env}}\) by maximum likelihood, with held-out early stopping. <span class="step">(the reference code retrains every 250 environment steps)</span></li>
+          <li>For each of \(E\) environment steps:
+            <ol>
+              <li>Act with \(\pi_\phi\) in the real environment; add the transition to \(\mathcal D_{\text{env}}\).</li>
+              <li>For \(M\) start states sampled uniformly from \(\mathcal D_{\text{env}}\): roll out \(k\) steps with \(\pi_\phi\) in a randomly chosen elite member; add every transition to \(\mathcal D_{\text{model}}\).</li>
+              <li>Take \(G\) SAC gradient steps on minibatches drawn mostly from \(\mathcal D_{\text{model}}\).</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+
+  <h3>Combining model data with SAC: the real-to-imagined ratio</h3>
+  <p>The numbers make MBPO a very different regime from plain SAC. With hundreds of branches per real step (\(M = 400\) in the reference configuration) the model buffer dwarfs the real one, and each SAC minibatch is drawn about 95% from model data and 5% from real data. MBPO takes 20–40 gradient steps per environment step, against SAC's usual 1. That update-to-data ratio is where the sample efficiency comes from: each real transition is squeezed through a model and reused many times. The model buffer keeps only the last few epochs of rollouts, because older rollouts were generated by older models and policies.</p>
+  <div class="box note"><span class="tag">Hyperparameters (reference implementation, roughly)</span>
+    <p>An ensemble of 7 probabilistic networks, of which the 5 with the best validation loss are used; 4 hidden layers of 200 units; \(M = 400\) branches per environment step; \(G = 20\) to 40 SAC updates per step; real-data fraction 0.05. The rollout length follows a per-task schedule, held at 1 on HalfCheetah and ramped up over training on tasks like Hopper (from 1 to 15). MBPO also uses hand-written termination functions for each MuJoCo task, so imagined rollouts stop when, say, the hopper falls over.</p>
+  </div>
+
+  <pre><code>import numpy as np
+
+def mbpo_epoch(env, obs, sac, model, D_env, D_model, k, termination_fn,
+               steps=1000, M=400, G=20, real_ratio=0.05, batch=256, retrain_every=250):
+    for t in range(steps):
+        if t % retrain_every == 0:
+            model.fit(D_env.all())                         # max likelihood + held-out early stopping
+        a = sac.act(obs)
+        next_obs, r, terminated, truncated, info = env.step(a)
+        D_env.add(obs, a, r, next_obs, terminated)
+        obs = env.reset()[0] if (terminated or truncated) else next_obs
+
+        s = D_env.sample_obs(M)                            # branch points: real states
+        for _ in range(k):                                 # short k-step branches
+            a_m = sac.act(s)
+            s2, r_m = model.sample(s, a_m)                 # a random elite member per row
+            done_m = termination_fn(s, a_m, s2)
+            D_model.add(s, a_m, r_m, s2, done_m)
+            s = s2[~done_m]                                # stop branches that terminated
+            if len(s) == 0:
+                break
+
+        n_real = int(batch * real_ratio)
+        for _ in range(G):                                 # many updates per real step
+            real, fake = D_env.sample(n_real), D_model.sample(batch - n_real)
+            sac.update(real.concat(fake))
+    return obs</code></pre>
+  <p class="code-cap">A fragment: <code>sac</code>, <code>model</code>, the two buffers and <code>termination_fn</code> are assumed. Note that the SAC update itself is unchanged: model transitions are just transitions, and the critic's TD backups propagate value far beyond the \(k\)-step branch.</p>
+
+  <h3>Why short rollouts beat long ones</h3>
+  <p>Three reasons, of which only the first is in the bound:</p>
+  <ul>
+    <li><b>Bounded compounding.</b> A \(k\)-step branch can accumulate at most \(k\) steps of error, wherever it starts.</li>
+    <li><b>Coverage.</b> Branching from every state in the real buffer spreads model data over the whole visited distribution. Long rollouts from \(s_0\) concentrate on early-episode states and drift away from the data.</li>
+    <li><b>The critic does the long horizon.</b> A model rollout's job is to supply transitions, not returns. With a Q-function bootstrapping at the end of each branch, even \(k = 1\) gives Dyna-style benefits. Long horizons are needed only by methods that use the model's return directly as the learning signal.</li>
+  </ul>
+
+  <h3>Sample efficiency on MuJoCo</h3>
+  <p>The paper reports that MBPO matches the asymptotic return of SAC on Hopper, Walker2d, HalfCheetah, Ant and Humanoid using several times, and on some tasks about an order of magnitude, fewer environment steps. It also beats the model-based methods of the time (PETS, STEVE, SLBO) on those tasks. On Hopper, for example, it reaches in roughly 100–200k steps returns SAC takes around a million steps to reach. The cost moves to compute: training an ensemble and taking 20–40 updates per step makes MBPO many times slower than SAC in wall-clock terms.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Branches too long.</b> Push \(k\) to 50 or 100 and returns collapse, as the model-error term predicts. Learned dynamics on contact-rich tasks degrade fastest.</li>
+      <li><b>High update-to-data ratio.</b> Twenty or more updates per real step overfit the Q-function and can make it diverge; REDQ (Chen et al., 2021) shows that ensembles of critics recover much of MBPO's efficiency without a model at all, which tells you where part of the gain was coming from.</li>
+      <li><b>Termination.</b> Without correct termination functions, imagined hoppers keep hopping after they have fallen, and the critic learns from impossible states.</li>
+      <li><b>Early-training model overfitting.</b> With a few thousand transitions the ensemble overfits; validation-based early stopping and elites matter most at the start.</li>
+      <li><b>Stale model data.</b> Keeping imagined transitions too long mixes data from obsolete models and policies into every minibatch.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Start from your SAC (Day 95 / Project 7) on <code>Pendulum-v1</code> or <code>Hopper-v4</code> and add the Day 97 ensemble and the branching fragment. For Pendulum, there is no termination; for Hopper, write the termination function from the environment's source.</li>
+      <li>Sweep \(k \in \{1, 5, 15, 50\}\) with everything else fixed, three seeds each. Plot return against environment steps. Expect short branches near the top and \(k = 50\) clearly worse; report what you actually see.</li>
+      <li>Sweep the real-data ratio \(\{0, 0.05, 0.5\}\) and \(G \in \{1, 5, 20\}\). Which of the two knobs buys most of the speed-up?</li>
+      <li>Log the ensemble's disagreement at each step of the branches and plot it against the branch step. Relate it to Day 97's figure.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Janner et al. 2019, “When to Trust Your Model: Model-Based Policy Optimization” · Sutton 1990, “Integrated Architectures for Learning, Planning, and Reacting Based on Approximating Dynamic Programming” (Dyna) · Kurutach et al. 2018, “Model-Ensemble Trust-Region Policy Optimization” · Chen et al. 2021, “Randomized Ensembled Double Q-Learning: Learning Fast Without a Model”</p>
+</article>
+
+<!-- ================================================================ DAY 99 -->
+<article class="day" id="d99">
+  <header class="day-head">
+    <span class="day-no">DAY 99</span>
+    <h2>World Models &amp; Dreamer</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">When observations are images, predict in a compact learned latent space instead of in pixels. Dreamer learns a recurrent state-space model from experience and then trains its actor and critic purely on imagined latent trajectories, so the real environment is used only to collect data for the model.</p>
+
+  <h3>Learning a latent state space</h3>
+  <p>Ha &amp; Schmidhuber's <em>World Models</em> (2018) made the idea concrete with three separately trained parts. <b>V</b>, a variational autoencoder, compresses each 64×64 frame into a small latent \(z_t\). <b>M</b>, an LSTM with a mixture-density output, predicts \(p(z_{t+1} \mid z_t, a_t, h_t)\). <b>C</b>, a tiny linear controller \(a_t = W[z_t, h_t] + b\) with on the order of a thousand parameters, is trained by an evolution strategy (CMA-ES). The paper reports the first solution of the CarRacing benchmark (average above 900), and on a VizDoom task it trained the controller entirely inside M's "dream" and transferred it to the real game. One detail foreshadows everything that follows: the controller learned to exploit flaws in the dream, and raising the sampling temperature of M (making the dream noisier, and so harder to exploit) was what made the transfer work.</p>
+  <p>Two limitations drove the next five years of work. V was trained only to reconstruct pixels, with no notion of which pixels matter for reward. And the controller was learned by black-box search, which does not scale to large policies.</p>
+
+  <h3>The recurrent state-space model (RSSM)</h3>
+  <p>PlaNet (Hafner et al., 2019) introduced the RSSM, the world model inside every Dreamer. Its state has two parts.</p>
+  <div class="box def"><span class="tag">Definition · RSSM</span>
+    <ul>
+      <li><b>Sequence model</b> (deterministic): \(h_t = f_\phi(h_{t-1}, z_{t-1}, a_{t-1})\), a GRU.</li>
+      <li><b>Encoder / posterior</b>: \(z_t \sim q_\phi(z_t \mid h_t, x_t)\), which sees the current observation \(x_t\).</li>
+      <li><b>Dynamics predictor / prior</b>: \(\hat z_t \sim p_\phi(\hat z_t \mid h_t)\), which must guess \(z_t\) without seeing \(x_t\).</li>
+      <li><b>Heads</b> on the model state \(s_t = (h_t, z_t)\): decoder \(p_\phi(x_t \mid s_t)\), reward \(p_\phi(r_t \mid s_t)\), continue flag \(p_\phi(c_t \mid s_t)\) (\(c_t = 0\) at episode ends).</li>
+    </ul>
+    <p>Training maximizes an evidence lower bound over replayed sequences: predict observations, rewards and continue flags from \(s_t\), and keep the posterior close to the prior,</p>
+    $$\mathcal L(\phi) = \E_{q}\Big[\sum_t -\ln p_\phi(x_t \mid s_t) - \ln p_\phi(r_t \mid s_t) - \ln p_\phi(c_t \mid s_t) + \beta\, \KL\big(q_\phi(z_t \mid h_t, x_t)\,\big\|\,p_\phi(z_t \mid h_t)\big)\Big].$$
+  </div>
+  <p>Why two parts? A purely stochastic transition has to carry all memory through samples, and sampling noise erodes information over many steps. A purely deterministic one cannot represent several possible futures, and a planner exploits its overconfident single prediction. PlaNet's ablations found both parts necessary. The KL term matters in both directions: it trains the prior to predict what the encoder will see (which is what makes imagination possible) and regularizes the encoder to keep only what the prior can predict.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 300" role="img" aria-label="RSSM unrolled over three time steps: deterministic GRU states h, stochastic latents z with prior and posterior, observations x, and decoder heads">
+      <defs>
+        <marker id="ah-d99" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d99m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <g class="s-ink3 s-sm">
+        <text x="8" y="45">heads</text>
+        <text x="8" y="128">deterministic h</text>
+        <text x="8" y="142">(GRU)</text>
+        <text x="8" y="204">stochastic z</text>
+        <text x="8" y="268">observation x</text>
+      </g>
+      <rect x="132" y="102" width="116" height="126" rx="8" class="s-grid s-dash"/>
+      <rect x="332" y="102" width="116" height="126" rx="8" class="s-grid s-dash"/>
+      <rect x="532" y="102" width="116" height="126" rx="8" class="s-grid s-dash"/>
+      <rect x="135" y="24" width="110" height="34" rx="6" class="s-node"/><text x="190" y="45" class="s-mid s-sm">x̂ₜ₋₁ r̂ₜ₋₁ ĉₜ₋₁</text>
+      <rect x="335" y="24" width="110" height="34" rx="6" class="s-node"/><text x="390" y="45" class="s-mid s-sm">x̂ₜ r̂ₜ ĉₜ</text>
+      <rect x="535" y="24" width="110" height="34" rx="6" class="s-node"/><text x="590" y="45" class="s-mid s-sm">x̂ₜ₊₁ r̂ₜ₊₁ ĉₜ₊₁</text>
+      <rect x="145" y="110" width="90" height="36" rx="6" class="s-node-mod"/><text x="190" y="133" class="s-mid">hₜ₋₁</text>
+      <rect x="345" y="110" width="90" height="36" rx="6" class="s-node-mod"/><text x="390" y="133" class="s-mid">hₜ</text>
+      <rect x="545" y="110" width="90" height="36" rx="6" class="s-node-mod"/><text x="590" y="133" class="s-mid">hₜ₊₁</text>
+      <circle cx="190" cy="200" r="20" class="s-node"/><text x="190" y="204" class="s-mid">zₜ₋₁</text>
+      <circle cx="390" cy="200" r="20" class="s-node"/><text x="390" y="204" class="s-mid">zₜ</text>
+      <circle cx="590" cy="200" r="20" class="s-node"/><text x="590" y="204" class="s-mid">zₜ₊₁</text>
+      <rect x="160" y="250" width="60" height="28" rx="4" class="s-node"/><text x="190" y="269" class="s-mid">xₜ₋₁</text>
+      <rect x="360" y="250" width="60" height="28" rx="4" class="s-node"/><text x="390" y="269" class="s-mid">xₜ</text>
+      <rect x="560" y="250" width="60" height="28" rx="4" class="s-node"/><text x="590" y="269" class="s-mid">xₜ₊₁</text>
+      <path d="M235,128 L344,128" class="s-ln-mod" marker-end="url(#ah-d99m)"/>
+      <path d="M435,128 L544,128" class="s-ln-mod" marker-end="url(#ah-d99m)"/>
+      <text x="290" y="120" class="s-mod s-mid s-sm">aₜ₋₁</text>
+      <text x="490" y="120" class="s-mod s-mid s-sm">aₜ</text>
+      <path d="M209,193 L344,143" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M409,193 L544,143" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M190,146 L190,179" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M390,146 L390,179" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M590,146 L590,179" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M190,250 L190,221" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M390,250 L390,221" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M590,250 L590,221" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M190,102 L190,59" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M390,102 L390,59" class="s-ln" marker-end="url(#ah-d99)"/>
+      <path d="M590,102 L590,59" class="s-ln" marker-end="url(#ah-d99)"/>
+      <text x="428" y="240" class="s-ink2 s-sm">posterior q(zₜ | hₜ, xₜ)</text>
+      <text x="428" y="254" class="s-ink2 s-sm">prior p(ẑₜ | hₜ)</text>
+    </svg>
+    <figcaption><b>The RSSM unrolled.</b> The GRU state \(h_t\) (module colour) carries memory forward deterministically; the stochastic \(z_t\) captures what is uncertain. During training the posterior sees each observation; in imagination only the prior is available, so the KL term is what teaches the prior to stand in for the encoder. The heads read the full model state \(s_t = (h_t, z_t)\) (dashed boxes).</figcaption>
+  </figure>
+
+  <h3>Training the actor and critic inside imagination</h3>
+  <p>Dreamer (Hafner et al., 2020) replaces PlaNet's CEM planner with a learned actor-critic trained entirely on model predictions. Take a batch of replayed sequences, run the RSSM's posterior over them, and from <em>every</em> posterior state imagine \(H = 15\) steps forward using the prior and the actor \(a_\tau \sim \pi_\theta(a_\tau \mid s_\tau)\). The reward and continue heads label each imagined step. The critic \(v_\psi\) regresses λ-returns computed on these imagined trajectories (Day 50's λ-return, here with predicted rewards and predicted discounts):</p>
+  $$R^\lambda_\tau = \hat r_{\tau+1} + \gamma\, \hat c_{\tau+1}\Big((1-\lambda)\, v_\psi(s_{\tau+1}) + \lambda\, R^\lambda_{\tau+1}\Big), \qquad R^\lambda_H = v_\psi(s_H).$$
+  <p>The actor maximizes the same λ-returns. Dreamer v1 did this by backpropagating through the learned dynamics: actions are reparameterized, the model is differentiable, so \(\nabla_\theta \sum_\tau R^\lambda_\tau\) is available analytically. For discrete actions, DreamerV2 and V3 use a REINFORCE-style gradient with \(v_\psi\) as the baseline, plus an entropy bonus. The critic's bootstrap at the horizon is what lets a 15-step imagination train a policy for tasks thousands of steps long: as in MBPO, the model supplies short rollouts and the value function does the long-horizon credit assignment.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 190" role="img" aria-label="Imagination: posterior states computed from replayed observations, then an H-step rollout with the prior and the actor labelled with predicted rewards and values">
+      <defs>
+        <marker id="ah-d99b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <text x="140" y="34" class="s-mid s-sm">observed (replay): posterior q(z | h, x)</text>
+      <text x="480" y="34" class="s-mid s-sm">imagined: H = 15 steps, no environment</text>
+      <text x="480" y="50" class="s-ink2 s-mid s-sm">prior p(ẑ | h), actions a ~ π(a | ŝ)</text>
+      <line x1="272" y1="24" x2="272" y2="180" class="s-grid s-dash"/>
+      <rect x="30" y="76" width="60" height="34" rx="6" class="s-node-mod"/><text x="60" y="97" class="s-mid">s₁</text>
+      <rect x="110" y="76" width="60" height="34" rx="6" class="s-node-mod"/><text x="140" y="97" class="s-mid">s₂</text>
+      <rect x="190" y="76" width="60" height="34" rx="6" class="s-node-mod"/><text x="220" y="97" class="s-mid">s₃</text>
+      <rect x="45" y="140" width="30" height="22" rx="3" class="s-node"/><text x="60" y="155" class="s-mid s-sm">x₁</text>
+      <rect x="125" y="140" width="30" height="22" rx="3" class="s-node"/><text x="140" y="155" class="s-mid s-sm">x₂</text>
+      <rect x="205" y="140" width="30" height="22" rx="3" class="s-node"/><text x="220" y="155" class="s-mid s-sm">x₃</text>
+      <path d="M60,140 L60,111" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M140,140 L140,111" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M220,140 L220,111" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M90,93 L109,93" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M170,93 L189,93" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M250,93 L299,93" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <rect x="300" y="76" width="56" height="34" rx="6" class="s-node s-dash"/><text x="328" y="97" class="s-mid">ŝ₁</text>
+      <rect x="375" y="76" width="56" height="34" rx="6" class="s-node s-dash"/><text x="403" y="97" class="s-mid">ŝ₂</text>
+      <rect x="450" y="76" width="56" height="34" rx="6" class="s-node s-dash"/><text x="478" y="97" class="s-mid">ŝ₃</text>
+      <rect x="525" y="76" width="56" height="34" rx="6" class="s-node s-dash"/><text x="553" y="97" class="s-mid">ŝ₄</text>
+      <rect x="600" y="76" width="56" height="34" rx="6" class="s-node s-dash"/><text x="628" y="97" class="s-mid">…</text>
+      <path d="M356,93 L374,93" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M431,93 L449,93" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M506,93 L524,93" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <path d="M581,93 L599,93" class="s-ln" marker-end="url(#ah-d99b)"/>
+      <g class="s-acc s-sm">
+        <text x="328" y="128" class="s-mid">r̂, ĉ, v</text><text x="403" y="128" class="s-mid">r̂, ĉ, v</text>
+        <text x="478" y="128" class="s-mid">r̂, ĉ, v</text><text x="553" y="128" class="s-mid">r̂, ĉ, v</text>
+      </g>
+      <line x1="300" y1="142" x2="656" y2="142" class="s-ln"/>
+      <text x="478" y="162" class="s-ink2 s-mid s-sm">critic regresses v on λ-returns; actor maximizes them</text>
+    </svg>
+    <figcaption><b>Learning in imagination.</b> The environment only fills the replay buffer. Every posterior state in a replayed batch (left) seeds its own imagined trajectory (right), so a batch of, say, 16 sequences of 64 steps yields 1,024 imagined rollouts, all computed in parallel on a GPU.</figcaption>
+  </figure>
+
+  <h3>Dreamer v1 → v2 → v3</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Latent \(z\)</th><th>How behaviour is learned</th><th>Headline result (as reported)</th></tr></thead>
+    <tbody>
+      <tr><td><b>PlaNet</b> 2019</td><td>Gaussian</td><td>no policy network: CEM planning in latent space at every step</td><td>DeepMind Control from pixels with far fewer episodes than model-free agents</td></tr>
+      <tr><td><b>Dreamer v1</b> 2020</td><td>Gaussian</td><td>actor-critic in imagination; value gradients backpropagated through the model</td><td>beats PlaNet and model-free D4PG on 20 pixel-based control tasks with a fraction of the data</td></tr>
+      <tr><td><b>DreamerV2</b> 2021</td><td>32 categorical variables × 32 classes, straight-through gradients</td><td>+ REINFORCE actor for discrete actions; KL balancing</td><td>human-level on the 55-game Atari benchmark (200M frames) on a single GPU, the first world-model agent to do so</td></tr>
+      <tr><td><b>DreamerV3</b> 2023</td><td>same, mixed with 1% uniform</td><td>+ symlog, two-hot reward and critic, percentile return normalization, free bits</td><td>one hyperparameter set across many domains; first to collect diamonds in Minecraft from scratch, without human data or curricula</td></tr>
+    </tbody>
+  </table></div>
+  <p>Discrete latents were the surprising V2 change. A categorical sample is non-differentiable, so V2 uses the straight-through estimator \(z = \operatorname{onehot}(\text{sample}) + p - \operatorname{sg}(p)\), where sg is stop-gradient: the forward pass uses the sample, the backward pass uses the gradient of the probabilities. The paper's explanations are hedged; one is that a mixture of categoricals fits multimodal futures better than a single Gaussian. <b>KL balancing</b> splits the KL term into \(\alpha\,\KL(\operatorname{sg}(q)\,\|\,p) + (1-\alpha)\,\KL(q\,\|\,\operatorname{sg}(p))\) with \(\alpha = 0.8\): the prior is pulled towards the posterior faster than the posterior is pulled towards the prior, so the encoder is not squeezed into uselessness before the prior has learned anything. V3 keeps that idea as two terms, \(\beta_{\text{dyn}} = 0.5\) on \(\max(1, \KL(\operatorname{sg}(q)\,\|\,p))\) and \(\beta_{\text{rep}} = 0.1\) on \(\max(1, \KL(q\,\|\,\operatorname{sg}(p)))\). The \(\max(1, \cdot)\) is "free bits": below 1 nat the KL is not penalized at all, so the model stops wasting effort on already-tight matches.</p>
+
+  <h3>Symlog predictions and two-hot returns</h3>
+  <p>The obstacle to a single configuration is scale. Atari scores run to the thousands, DeepMind Control rewards live in \([0, 1]\), Minecraft rewards are sparse. A squared-error loss on large targets produces large gradients, and normalizing by running statistics makes the targets non-stationary. DreamerV3 handles this in two ways.</p>
+  <div class="box def"><span class="tag">Definition · symlog and two-hot</span>
+    $$\operatorname{symlog}(x) = \operatorname{sign}(x)\,\ln(|x| + 1), \qquad \operatorname{symexp}(x) = \operatorname{sign}(x)\,(e^{|x|} - 1).$$
+    <p><b>Symlog regression</b>: predict \(f(x)\) with loss \(\tfrac12(f(x) - \operatorname{symlog}(y))^2\) and read out \(\hat y = \operatorname{symexp}(f(x))\). Near zero symlog is the identity; for large \(|x|\) it is logarithmic; unlike \(\log\) it is defined for negative values. V3 uses it for vector observations (inputs and reconstruction targets).</p>
+    <p><b>Two-hot</b>: the reward head and the critic output a softmax \(p\) over \(K = 255\) fixed bins \(b_1 &lt; \dots &lt; b_K\), exponentially spaced (\(B = \operatorname{symexp}(\text{linspace}(-20, 20, K))\)). A scalar target \(y\) with \(b_k \le y &lt; b_{k+1}\) becomes a distribution on the two neighbouring bins,</p>
+    $$w_k = \frac{b_{k+1} - y}{b_{k+1} - b_k}, \qquad w_{k+1} = \frac{y - b_k}{b_{k+1} - b_k},$$
+    <p>trained with cross-entropy \(-\sum_i w_i \log p_i\); the prediction is \(\hat y = \sum_i p_i\, b_i\).</p>
+  </div>
+  <p>The encoding is exact in expectation: \(w_k b_k + w_{k+1} b_{k+1} = y\). The cross-entropy gradient with respect to the logits is \(p - w\), each component in \([-1, 1]\) whatever the size of \(y\), so the gradient scale is decoupled from the return scale. That decoupling, not the extra expressiveness of a distribution, is the main point (compare C51 on Day 79). For the actor, V3 divides advantages by \(\max(1, S)\), where \(S\) is an exponential moving average of the spread between the 95th and 5th percentiles of the λ-returns. Large returns are scaled down, small ones are never scaled up, so noise in sparse-reward tasks is not amplified.</p>
+
+  <pre><code>import torch
+
+def symlog(x):
+    return torch.sign(x) * torch.log1p(x.abs())
+
+def symexp(x):
+    return torch.sign(x) * torch.expm1(x.abs())
+
+BINS = symexp(torch.linspace(-20.0, 20.0, 255))      # exponentially spaced, dense near zero
+
+def twohot(y, bins=BINS):
+    """Encode scalars y [B] as weights on their two neighbouring bins, [B, K]."""
+    y = y.clamp(bins[0], bins[-1])
+    k = torch.searchsorted(bins, y, right=True).clamp(1, len(bins) - 1)   # bins[k-1] &lt;= y &lt; bins[k]
+    lo, hi = bins[k - 1], bins[k]
+    w_hi = (y - lo) / (hi - lo)
+    out = torch.zeros(len(y), len(bins))
+    out.scatter_(1, (k - 1)[:, None], (1 - w_hi)[:, None])
+    out.scatter_add_(1, k[:, None], w_hi[:, None])
+    return out
+
+def twohot_loss(logits, y):                            # cross-entropy against the two-hot target
+    return -(twohot(y) * torch.log_softmax(logits, -1)).sum(-1).mean()
+
+def twohot_mean(logits):                               # the prediction: expected bin value
+    return (torch.softmax(logits, -1) * BINS).sum(-1)
+
+def lambda_returns(rew, cont, values, gamma=0.997, lam=0.95):
+    """rew, cont: [H, B] predicted for imagined states 1..H; values: [H+1, B] for states 0..H.
+    R_t = r_{t+1} + gamma * c_{t+1} * ((1 - lam) * v(s_{t+1}) + lam * R_{t+1}), with R_H = v(s_H)."""
+    R, out = values[-1], []
+    for t in reversed(range(rew.shape[0])):
+        R = rew[t] + gamma * cont[t] * ((1 - lam) * values[t + 1] + lam * R)
+        out.append(R)
+    return torch.stack(out[::-1])                      # targets for v(s_0), ..., v(s_{H-1})</code></pre>
+  <p class="code-cap">Some implementations instead two-hot encode \(\operatorname{symlog}(y)\) on evenly spaced bins and apply symexp to the expectation; the purpose is the same. γ = 0.997 and λ = 0.95 are DreamerV3's values.</p>
+
+  <div class="box note"><span class="tag">The single-configuration claim</span>
+    <p>Hafner et al. (2023) claim that one fixed set of hyperparameters (learning rates, loss weights, γ, λ, imagination horizon, return normalization) works across all the domains they test: Atari, ProcGen, DMLab, Minecraft, DeepMind Control from states and from pixels, Crafter, BSuite and more, and that it outperforms specialized, tuned methods on most of them. Read this as the paper's claim, tested on the paper's benchmarks. It does not promise that DreamerV3 needs no tuning on your problem. Model size and replay ratio (gradient steps per environment step) still vary by benchmark; the paper treats them as compute knobs rather than tuning. What makes the claim plausible is that symlog, two-hot, percentile normalization and free bits each remove a dependence on the scale of some signal.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Reconstruction spends capacity on the wrong pixels.</b> The decoder loss is dominated by large, textured regions; a few-pixel ball or bullet that decides the reward can be blurred away. Day 101's MuZero drops reconstruction altogether.</li>
+      <li><b>KL in the wrong place.</b> Too strong and the posterior ignores the observation (posterior collapse); too weak and the prior can't predict, so imagined rollouts drift from anything the encoder would produce. KL balancing and free bits exist for exactly this.</li>
+      <li><b>The actor exploits the model,</b> as Ha &amp; Schmidhuber's controller did. A short horizon and the critic's bootstrap limit the damage; it never goes away.</li>
+      <li><b>Wall-clock.</b> Most of the compute goes into the world model. Dreamer is very sample-efficient and not cheap.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Implement symlog and two-hot. Check that <code>twohot_mean</code> of a near-one-hot logit vector built from <code>twohot(y)</code> recovers \(y\) for values from \(-10^5\) to \(10^5\). Then fit a small MLP to \(y = 1000 \sin x\) with MSE, symlog-MSE and two-hot cross-entropy; compare gradient norms and final error.</li>
+      <li>Write an RSSM cell: a GRU, a prior MLP and a posterior MLP over 32×32 categorical latents with straight-through sampling. Run it on random tensors and check every shape, then implement the V3 KL loss with free bits.</li>
+      <li>Check <code>lambda_returns</code> by hand for \(H = 3\), \(\lambda \in \{0, 1\}\). What do the two extremes reduce to?</li>
+      <li>Optional, with a GPU: run the official DreamerV3 code on a DeepMind Control task or Crafter. Read its configuration file and list every hyperparameter that would have to change with reward scale if symlog and two-hot were removed.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Ha &amp; Schmidhuber 2018, “World Models” (also “Recurrent World Models Facilitate Policy Evolution”) · Hafner et al. 2019, “Learning Latent Dynamics for Planning from Pixels” (PlaNet) · Hafner et al. 2020, “Dream to Control: Learning Behaviors by Latent Imagination” · Hafner et al. 2021, “Mastering Atari with Discrete World Models” · Hafner et al. 2023, “Mastering Diverse Domains through World Models”</p>
+</article>
+
+<!-- ================================================================ DAY 100 -->
+<article class="day" id="d100">
+  <header class="day-head">
+    <span class="day-no">DAY 100</span>
+    <h2>AlphaGo → AlphaGo Zero → AlphaZero</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">AlphaGo combined imitation, policy-gradient self-play, a value network and Monte Carlo tree search. Its successors stripped it down to one network and one loop. Search turns the network's policy into a better one, the network is trained to imitate the search, and the game's outcome trains the value: policy iteration with MCTS as the improvement operator.</p>
+
+  <h3>AlphaGo (2016): four networks and a search</h3>
+  <p>Go's branching factor (about 250 legal moves) and game length (about 150 moves) put brute-force search out of reach. Silver et al. (2016) attacked it in stages.</p>
+  <ul>
+    <li><b>SL policy network</b> \(p_\sigma\): a 13-layer convolutional network trained on about 30 million positions from human games on the KGS server, predicting the expert's move with 57% accuracy.</li>
+    <li><b>Rollout policy</b> \(p_\pi\): a linear softmax over small hand-crafted pattern features. Only about 24% accurate, but roughly a thousand times faster than \(p_\sigma\) (microseconds per move rather than milliseconds).</li>
+    <li><b>RL policy network</b> \(p_\rho\): initialized at \(p_\sigma\) and improved by REINFORCE (Day 84) in self-play against randomly sampled earlier versions of itself, so it couldn't overfit to one opponent. It won about 80% of its games against \(p_\sigma\).</li>
+    <li><b>Value network</b> \(v_\theta(s)\): regresses the outcome \(z\) of games played by \(p_\rho\). The training set used 30 million positions, each from a <em>different</em> self-play game: positions from the same game are so correlated that training on whole games made the network memorize outcomes instead of evaluating positions.</li>
+  </ul>
+  <p>MCTS (Day 59) tied them together. Selection maximized \(Q(s, a) + u(s, a)\) with \(u \propto P(s, a)/(1 + N(s, a))\) and priors \(P\) from \(p_\sigma\). The SL network made better priors than the stronger RL network; the paper attributes this to humans considering a diverse set of promising moves, while RL concentrates on the single best one. A leaf was scored by mixing the value network with a fast rollout to the end of the game: \(V(s_L) = (1-\lambda)\, v_\theta(s_L) + \lambda\, z_L\) with \(\lambda = 0.5\). AlphaGo beat Fan Hui 5–0 in October 2015 and Lee Sedol 4–1 in March 2016.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 235" role="img" aria-label="AlphaGo training pipeline: human games train the SL policy and rollout policy; self-play REINFORCE gives the RL policy; its games train the value network; MCTS combines SL priors, rollouts and the value network">
+      <defs>
+        <marker id="ah-d100" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d100m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="20" y="30" width="130" height="44" rx="6" class="s-node"/><text x="85" y="50" class="s-mid s-sm">human games</text><text x="85" y="65" class="s-ink2 s-mid s-sm">KGS, ~30M positions</text>
+      <rect x="190" y="30" width="130" height="44" rx="6" class="s-node-mod"/><text x="255" y="50" class="s-mid s-sm">SL policy p_σ</text><text x="255" y="65" class="s-ink2 s-mid s-sm">57% move accuracy</text>
+      <rect x="360" y="30" width="130" height="44" rx="6" class="s-node-mod"/><text x="425" y="50" class="s-mid s-sm">RL policy p_ρ</text><text x="425" y="65" class="s-ink2 s-mid s-sm">self-play REINFORCE</text>
+      <rect x="530" y="30" width="130" height="44" rx="6" class="s-node-mod"/><text x="595" y="50" class="s-mid s-sm">value net v_θ</text><text x="595" y="65" class="s-ink2 s-mid s-sm">regress outcome z</text>
+      <rect x="20" y="104" width="130" height="44" rx="6" class="s-node"/><text x="85" y="124" class="s-mid s-sm">rollout policy p_π</text><text x="85" y="139" class="s-ink2 s-mid s-sm">linear, very fast</text>
+      <path d="M150,52 L189,52" class="s-ln" marker-end="url(#ah-d100)"/>
+      <path d="M320,52 L359,52" class="s-ln" marker-end="url(#ah-d100)"/>
+      <path d="M490,52 L529,52" class="s-ln" marker-end="url(#ah-d100)"/>
+      <path d="M85,74 L85,103" class="s-ln" marker-end="url(#ah-d100)"/>
+      <text x="340" y="22" class="s-ink3 s-mid s-sm">init + self-play</text>
+      <text x="510" y="22" class="s-ink3 s-mid s-sm">30M games</text>
+      <rect x="170" y="180" width="340" height="44" rx="6" class="s-node"/>
+      <text x="340" y="199" class="s-ttl s-mid">MCTS at play time</text>
+      <text x="340" y="215" class="s-ink2 s-mid s-sm">priors p_σ · leaf = ½ v_θ + ½ rollout outcome (p_π)</text>
+      <path d="M255,74 L255,179" class="s-ln-mod" marker-end="url(#ah-d100m)"/>
+      <text x="262" y="132" class="s-mod s-sm">priors</text>
+      <path d="M150,126 C175,130 190,150 200,179" class="s-ln-mod" marker-end="url(#ah-d100m)"/>
+      <text x="168" y="164" class="s-mod s-end s-sm">rollouts</text>
+      <path d="M595,74 C595,150 520,170 470,179" class="s-ln-mod" marker-end="url(#ah-d100m)"/>
+      <text x="604" y="128" class="s-mod s-sm">leaf values</text>
+    </svg>
+    <figcaption><b>AlphaGo's pipeline.</b> Imitation first, then policy-gradient self-play, then a value network fitted to the self-play outcomes. Interestingly the RL policy is used only to generate the value network's training data; at play time the search uses the SL network for priors.</figcaption>
+  </figure>
+
+  <h3>AlphaGo Zero (2017): no human data</h3>
+  <p>AlphaGo Zero (Silver et al., 2017) removed every human ingredient except the rules. The input is the raw board (the last eight positions of each colour plus a plane for the side to move: 17 planes). One residual network \(f_\theta(s) = (\mathbf p, v)\) has a policy head and a value head. The rollouts are gone too: leaves are scored by \(v\) alone. The paper's ablations credit both the shared "dual" network and the residual architecture with large strength gains. After three days and 4.9 million self-play games it beat the version that played Lee Sedol 100–0; a 40-day run beat AlphaGo Master 89–11.</p>
+
+  <h3>The search: PUCT</h3>
+  <div class="box def"><span class="tag">Definition · PUCT selection</span>
+    <p>Each edge \((s, a)\) of the tree stores a visit count \(N(s, a)\), a total value \(W(s, a)\), a mean \(Q(s, a) = W/N\) and a prior \(P(s, a)\) from the network. Each simulation descends from the root choosing</p>
+    $$a = \argmax_a \Big( Q(s, a) + c_{\text{puct}}\, P(s, a)\, \frac{\sqrt{\sum_b N(s, b)}}{1 + N(s, a)} \Big),$$
+    <p>expands the leaf \(s_L\) by evaluating \((\mathbf p, v) = f_\theta(s_L)\) once, and backs \(v\) up the path, updating \(N\) and \(W\) (negating at each ply, since the players alternate).</p>
+  </div>
+  <p>Compare UCT's \(c\sqrt{\ln N / n}\) bonus (Day 59). PUCT's bonus is proportional to the prior, so the network decides which moves are worth exploring at all, and it decays like \(1/n\) rather than \(1/\sqrt n\), so visits concentrate quickly on the moves with high backed-up values. To keep self-play from collapsing onto a few lines, Dirichlet noise is mixed into the root priors: \(P(s_{\text{root}}, a) = (1 - \varepsilon)\, p_a + \varepsilon\, \eta_a\) with \(\eta \sim \operatorname{Dir}(\alpha)\), \(\varepsilon = 0.25\), and \(\alpha = 0.03\) for Go. AlphaGo Zero used 1,600 simulations per move.</p>
+
+  <pre><code>import math
+import numpy as np
+
+class Node:
+    def __init__(self, prior):
+        self.P, self.N, self.W, self.children = prior, 0, 0.0, {}
+
+    def Q(self):                                  # mean value for the player to move here
+        return self.W / self.N if self.N else 0.0
+
+def puct_select(node, c_puct=1.5):
+    sqrt_n = math.sqrt(max(node.N, 1))            # ~ sqrt(sum_b N(s, b))
+    # a child's Q is from the opponent's point of view, so the parent negates it
+    return max(node.children.items(),
+               key=lambda kv: -kv[1].Q() + c_puct * kv[1].P * sqrt_n / (1 + kv[1].N))
+
+def expand(node, state, game, net):
+    priors, value = net(state)                    # p over all actions, v in [-1, 1]
+    legal = game.legal_actions(state)
+    p = priors[legal] / priors[legal].sum()       # renormalise over legal moves
+    for a, pa in zip(legal, p):
+        node.children[a] = Node(pa)
+    return value
+
+def run_mcts(root_state, game, net, n_sims=800, alpha=0.3, eps=0.25, rng=np.random.default_rng(0)):
+    root = Node(1.0)
+    expand(root, root_state, game, net)
+    noise = rng.dirichlet([alpha] * len(root.children))
+    for child, n in zip(root.children.values(), noise):        # root exploration noise
+        child.P = (1 - eps) * child.P + eps * n
+    for _ in range(n_sims):
+        node, state, path = root, root_state, [root]
+        while node.children:                                   # 1. select with PUCT
+            a, node = puct_select(node)
+            state = game.next_state(state, a)
+            path.append(node)
+        if game.is_terminal(state):
+            value = game.terminal_value(state)                 # for the player to move at `state`
+        else:
+            value = expand(node, state, game, net)             # 2. expand + evaluate, no rollout
+        for n in reversed(path):                               # 3. back up, flipping sign each ply
+            n.N += 1
+            n.W += value
+            value = -value
+    return root</code></pre>
+  <p class="code-cap">Every node's \(W\) is stored from the point of view of the player to move at that node, which is why selection negates the child's \(Q\) and the backup flips the sign at each ply. Getting this convention wrong is the most common AlphaZero bug. Tested on tic-tac-toe with a uniform-prior, zero-value "network": with 400 simulations it puts 96% of its visits on a win-in-one.</p>
+
+  <h3>MCTS as a policy improvement operator</h3>
+  <p>After the search, the root's visit counts define a new policy,</p>
+  $$\pi(a \mid s) = \frac{N(s, a)^{1/\tau}}{\sum_b N(s, b)^{1/\tau}},$$
+  <p>with temperature \(\tau = 1\) for the first 30 moves of a self-play game (for diversity) and \(\tau \to 0\), the most-visited move, afterwards. This \(\pi\) is a better policy than the raw network output \(\mathbf p\): the search started from \(\mathbf p\) and corrected it with hundreds of evaluated continuations, and visits pile up where the backed-up values are high. So the training loop is policy iteration (Day 30) in approximate form. <b>Improvement:</b> MCTS maps \(\mathbf p\) to a stronger \(\pi\). <b>Evaluation:</b> playing the game out with that improved policy yields the outcome \(z\), a Monte Carlo sample of its value. <b>Projection:</b> the network is trained towards both, so the next search starts from a better prior. Anthony et al. (2017) describe the same structure as "expert iteration": a fast apprentice imitates a slow expert, and the expert is built on the apprentice. Grill et al. (2020) later showed that the visit distribution approximately solves a regularized policy-optimization problem: maximize \(Q\) while staying KL-close to the prior \(\mathbf p\).</p>
+
+  <h3>The loss</h3>
+  $$\ell(\theta) = (z - v)^2 - \boldsymbol\pi^\top \log \mathbf p + c\,\|\theta\|^2$$
+  <p>Three terms: squared error between the value head and the game outcome \(z \in \{-1, 0, +1\}\) from the perspective of the player to move; cross-entropy between the search policy and the policy head; and L2 regularization (\(c = 10^{-4}\)). There is no policy gradient anywhere. The policy is trained by supervised learning on targets that a planner produced, which is far lower variance than REINFORCE on game outcomes.</p>
+  <pre><code>import numpy as np
+import torch.nn.functional as F
+
+def policy_target(root, n_actions, tau=1.0):
+    """pi(a) proportional to N(s, a)^(1/tau); tau = 0 picks the most-visited move."""
+    counts = np.zeros(n_actions)
+    for a, child in root.children.items():
+        counts[a] = child.N
+    if tau == 0:
+        return np.eye(n_actions)[counts.argmax()]
+    counts = counts ** (1.0 / tau)
+    return counts / counts.sum()
+
+def alphazero_loss(net, states, pi, z):
+    """states: [B, ...], pi: [B, A] search policies, z: [B] outcomes for the player to move."""
+    logits, v = net(states)
+    value_loss = F.mse_loss(v.squeeze(-1), z)
+    policy_loss = -(pi * F.log_softmax(logits, -1)).sum(-1).mean()
+    return value_loss + policy_loss   # c * ||theta||^2 via the optimizer's weight_decay</code></pre>
+  <p class="code-cap">Illegal moves get zero visits, so their policy target is zero. Mask their logits before the softmax, or the network wastes capacity learning that illegal moves are bad.</p>
+
+  <h3>The training loop</h3>
+  <div class="box algo"><span class="tag">Algorithm · AlphaGo Zero self-play training</span>
+    <ol>
+      <li><b>Self-play.</b> The current best network plays games against itself, running MCTS (1,600 simulations) at every move and sampling from \(\pi\). Store \((s_t, \pi_t)\) for every move.</li>
+      <li><b>Label.</b> When the game ends, set \(z_t = \pm 1\) for each stored position according to whether the player to move at \(t\) won.</li>
+      <li><b>Train.</b> Sample minibatches of positions uniformly from the most recent 500,000 games and minimize \(\ell(\theta)\) with SGD and momentum. Augment with the 8 rotations and reflections of the board.</li>
+      <li><b>Evaluate.</b> Every checkpoint plays 400 games against the current best; it replaces the best (and becomes the self-play generator) if it wins at least 55%. <span class="step">(AlphaZero drops this gate.)</span></li>
+      <li>To save compute, resign when the value falls below a threshold, but play 10% of games to the end anyway, so the threshold can be tuned to keep false resignations under 5%.</li>
+    </ol>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 220" role="img" aria-label="AlphaZero loop: self-play with MCTS produces states, search policies and outcomes; these are stored and used to train the network, which is used for the next self-play games">
+      <defs>
+        <marker id="ah-d100b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="30" y="82" width="190" height="56" rx="8" class="s-node-mod"/>
+      <text x="125" y="105" class="s-ttl s-mid">self-play</text>
+      <text x="125" y="123" class="s-ink2 s-mid s-sm">MCTS guided by f_θ</text>
+      <rect x="420" y="20" width="190" height="56" rx="8" class="s-node"/>
+      <text x="515" y="43" class="s-ttl s-mid">replay buffer</text>
+      <text x="515" y="61" class="s-ink2 s-mid s-sm">(sₜ, πₜ, zₜ), recent games</text>
+      <rect x="420" y="146" width="190" height="56" rx="8" class="s-node"/>
+      <text x="515" y="169" class="s-ttl s-mid">train f_θ</text>
+      <text x="515" y="187" class="s-ink2 s-mid s-sm">(z − v)² − πᵀ log p + c‖θ‖²</text>
+      <path d="M150,82 C200,30 330,40 419,46" class="s-ln-mod" marker-end="url(#ah-d100b)"/>
+      <path d="M515,76 L515,145" class="s-ln-mod" marker-end="url(#ah-d100b)"/>
+      <path d="M419,176 C330,190 200,190 150,139" class="s-ln-mod" marker-end="url(#ah-d100b)"/>
+      <text x="270" y="14" class="s-ink2 s-mid s-sm">π = visit counts (improved policy)</text>
+      <text x="270" y="28" class="s-ink2 s-mid s-sm">z = game outcome (its value)</text>
+      <text x="523" y="114" class="s-ink2 s-sm">minibatches</text>
+      <text x="270" y="210" class="s-ink2 s-mid s-sm">new weights: latest (AZ) or gated best (AGZ)</text>
+    </svg>
+    <figcaption><b>One loop, one network.</b> Improvement happens inside the search; evaluation happens by playing the game out; the network is the memory that carries both forward to the next game.</figcaption>
+  </figure>
+
+  <h3>AlphaZero (2018): chess and shogi</h3>
+  <p>AlphaZero (Silver et al., 2018) ran the same algorithm on chess, shogi and Go with almost no game-specific changes. Draws are possible, so \(v\) estimates the expected outcome rather than a win probability. Chess and shogi boards aren't symmetric, so there is no augmentation. There is no evaluation gate: self-play always uses the latest network. One set of hyperparameters serves all three games, except that the Dirichlet \(\alpha\) is scaled inversely with the typical number of legal moves (0.3 for chess, 0.15 for shogi, 0.03 for Go). Self-play uses 800 simulations per move. Trained with thousands of TPUs for self-play, it defeated the top chess program Stockfish, the shogi program Elmo, and the three-day AlphaGo Zero, after hours of training for chess and shogi and days for Go. It searched roughly a thousand times fewer positions per second than Stockfish: a learned evaluation buys a far more selective search.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>AlphaGo (2016)</th><th>AlphaGo Zero (2017)</th><th>AlphaZero (2018)</th></tr></thead>
+    <tbody>
+      <tr><td><b>Human data</b></td><td>30M expert positions</td><td>none</td><td>none</td></tr>
+      <tr><td><b>Networks</b></td><td>SL policy, RL policy, value, rollout policy</td><td>one residual net, two heads</td><td>same</td></tr>
+      <tr><td><b>Leaf evaluation</b></td><td>½ value net + ½ rollout</td><td>value head only</td><td>value head only</td></tr>
+      <tr><td><b>Input features</b></td><td>48 hand-crafted planes</td><td>raw stones + history</td><td>raw board + history</td></tr>
+      <tr><td><b>Policy learning</b></td><td>imitation, then REINFORCE</td><td>imitate MCTS visit counts</td><td>same</td></tr>
+      <tr><td><b>Checkpoint gating</b></td><td>n/a</td><td>55% over 400 games</td><td>none, always latest</td></tr>
+      <tr><td><b>Games</b></td><td>Go</td><td>Go</td><td>Go, chess, shogi</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>No exploration noise.</b> Without root Dirichlet noise and the early-move temperature, self-play converges on a narrow repertoire, the value net never sees refutations of its favourite lines, and strength plateaus. Too much noise and the policy targets become nearly uniform.</li>
+      <li><b>Correlated training data.</b> AlphaGo's value network overfit when trained on whole games. Sampling positions from a large window of recent games is the fix.</li>
+      <li><b>It needs a perfect simulator.</b> The search calls <code>next_state</code>, <code>legal_actions</code> and the terminal outcome thousands of times per move. No rules, no AlphaZero; that is the gap MuZero (Day 101) closes.</li>
+      <li><b>Perfect information, deterministic, two-player zero-sum.</b> With hidden information (poker) the backed-up value of a state is not well defined, and the method needs very different machinery.</li>
+      <li><b>Compute.</b> The published runs used thousands of TPUs. Open reproductions such as Leela Zero and KataGo show the method works at smaller scale, with many engineering tricks.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Wrap the MCTS above around tic-tac-toe with a small MLP \(f_\theta\). Run the full loop (self-play with 50–100 simulations, replay of recent games, the loss above). It should reach perfect play, drawing every game against a minimax player, within a few thousand self-play games.</li>
+      <li>Move to your Connect Four engine from Project 5 (Day 60). Compare the AlphaZero agent with your pure UCT agent at equal simulation counts (50, 200, 800).</li>
+      <li>Ablate the Dirichlet noise (ε = 0) and the temperature schedule (τ = 0 from move 1). Measure opening diversity (distinct first three moves over 100 self-play games) and final strength.</li>
+      <li>Plot the KL divergence between the network policy \(\mathbf p\) and the search policy \(\pi\) at the root over training. What does it mean when it shrinks?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Silver et al. 2016, “Mastering the game of Go with deep neural networks and tree search” · Silver et al. 2017, “Mastering the game of Go without human knowledge” · Silver et al. 2018, “A general reinforcement learning algorithm that masters chess, shogi, and Go through self-play” · Anthony et al. 2017, “Thinking Fast and Slow with Deep Learning and Tree Search” · Grill et al. 2020, “Monte-Carlo Tree Search as Regularized Policy Optimization”</p>
+</article>
+
+<!-- ================================================================ DAY 101 -->
+<article class="day" id="d101">
+  <header class="day-head">
+    <span class="day-no">DAY 101</span>
+    <h2>MuZero</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">MuZero keeps AlphaZero's search and loss but replaces the rules of the game with a learned model, and it asks that model to predict only what the search needs: rewards, values and policies. The latent state is whatever makes those predictions right. It never has to look like an observation.</p>
+
+  <h3>Learning without knowing the rules</h3>
+  <p>AlphaZero's search calls the simulator thousands of times per move: apply a move, list legal moves, detect the end of the game. Board games give you that for free. Atari has an emulator, but searching with it is slow and it can't be done for the real world. Pixel-predicting world models (Day 99) were, in 2019, well behind model-free agents on Atari. MuZero (Schrittwieser et al., 2020) learns a model whose only job is to make the tree search work, and trains it end to end through the search's own targets.</p>
+
+  <h3>The three functions</h3>
+  <div class="box def"><span class="tag">Definition · MuZero's model</span>
+    <ul>
+      <li><b>Representation</b> \(h_\theta\): \(s^0 = h_\theta(o_1, \dots, o_t)\), embedding the recent observation history (a stack of recent frames and actions on Atari; the recent board positions in Go).</li>
+      <li><b>Dynamics</b> \(g_\theta\): \((r^k, s^k) = g_\theta(s^{k-1}, a^k)\), a learned transition that also predicts the immediate reward.</li>
+      <li><b>Prediction</b> \(f_\theta\): \((\mathbf p^k, v^k) = f_\theta(s^k)\), policy and value heads, exactly as in AlphaZero.</li>
+    </ul>
+    <p>Superscripts \(k\) count steps inside the model; subscripts \(t\) count real time. All three are trained jointly; none of them is ever asked to output an observation.</p>
+  </div>
+
+  <h3>Planning in a learned latent space</h3>
+  <p>The search is Day 100's MCTS with the simulator swapped out. The root is \(s^0 = h_\theta(\text{observations})\). Expanding an edge calls \(g_\theta\) once to get the child's latent state and the reward along the edge, and \(f_\theta\) once for the child's priors and value. Three changes are needed because the environment is no longer a two-player board game.</p>
+  <ul>
+    <li><b>Intermediate rewards.</b> Backups use discounted returns. A simulation that reaches a leaf at depth \(l\) backs up \(G^k = \sum_{\tau=0}^{l-1-k} \gamma^\tau r^{k+1+\tau} + \gamma^{l-k} v^l\) to the edge at depth \(k\).</li>
+    <li><b>Unbounded values.</b> Atari values have no fixed range, so \(Q\) values inside the tree are min–max normalized to \([0, 1]\) using the largest and smallest values seen in that tree.</li>
+    <li><b>No legal-move information inside the tree.</b> The model can't know which moves are legal in an imagined state, so every action is allowed below the root. In board games the root is masked using the real rules; inside the tree, the network learns that illegal moves don't occur in its targets.</li>
+  </ul>
+  <p>The selection rule is PUCT with a slowly growing exploration weight,</p>
+  $$a = \argmax_a \Big[ Q(s, a) + P(s, a)\, \frac{\sqrt{\sum_b N(s, b)}}{1 + N(s, a)} \Big(c_1 + \log\frac{\sum_b N(s, b) + c_2 + 1}{c_2}\Big)\Big],$$
+  <p>with \(c_1 = 1.25\) and \(c_2 = 19{,}652\). For realistic simulation counts the log term is near zero and this is AlphaZero's rule. The paper uses 800 simulations per move for board games and 50 for Atari.</p>
+
+  <h3>Why the latent state needn't reconstruct observations</h3>
+  <p>To plan, the search needs three things from a model along any action sequence: the rewards collected, the values of the states reached, and good priors for which actions to consider. Grimm et al. (2020) formalize this as the <b>value equivalence</b> principle: two models are equivalent for planning if they produce the same Bellman backups for the policies and value functions you care about, even if they disagree about everything else. MuZero is trained only on those quantities, so its latent can drop anything that doesn't affect them: the background texture, the score digits, the exact sprite of an enemy that behaves the same in every colour. Dreamer's decoder must spend capacity on all of it.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Dreamer (Day 99)</th><th>MuZero</th></tr></thead>
+    <tbody>
+      <tr><td><b>Latent trained by</b></td><td>reconstruction + reward + KL</td><td>reward, value and policy losses only</td></tr>
+      <tr><td><b>Model used for</b></td><td>imagined rollouts to train an actor-critic</td><td>tree search at every decision</td></tr>
+      <tr><td><b>Latent stochastic?</b></td><td>yes (prior and posterior)</td><td>no, deterministic \(g_\theta\)</td></tr>
+      <tr><td><b>Acting cost</b></td><td>one actor forward pass</td><td>50–800 simulations, one network call each</td></tr>
+    </tbody>
+  </table></div>
+  <p>The flip side is a weak, indirect training signal: a few scalars per step instead of an entire image. Nothing anchors \(s^k\) to anything observable, so latents unrolled deep into the tree can drift into regions the prediction function has never seen. EfficientZero (Ye et al., 2021) adds a self-supervised consistency loss that pulls \(g_\theta\)'s predicted latent towards \(h_\theta\)'s encoding of the actual next observation, which helps a lot when data is scarce.</p>
+
+  <h3>Unrolled training targets</h3>
+  <p>Training samples a position \(t\) from a stored trajectory, encodes the observations up to \(t\), and unrolls the model \(K = 5\) steps using the actions that were actually taken, \(a_{t+1}, \dots, a_{t+K}\). At each unrolled step the three predictions are matched to targets taken from the real trajectory:</p>
+  $$\ell_t(\theta) = \sum_{k=0}^{K} \Big[ \ell^{r}\big(u_{t+k},\, r^k_t\big) + \ell^{v}\big(z_{t+k},\, v^k_t\big) + \ell^{p}\big(\boldsymbol\pi_{t+k},\, \mathbf p^k_t\big) \Big] + c\,\|\theta\|^2,$$
+  <p>with no reward term at \(k = 0\). The targets are:</p>
+  <ul>
+    <li>\(u_{t+k}\): the reward actually observed.</li>
+    <li>\(\boldsymbol\pi_{t+k}\): the MCTS visit distribution recorded when the agent acted at \(t + k\), exactly as in AlphaZero.</li>
+    <li>\(z_{t+k}\): for board games, the final outcome. For Atari, an \(n\)-step bootstrapped return, \(z_t = u_{t+1} + \gamma u_{t+2} + \dots + \gamma^{n-1} u_{t+n} + \gamma^n \nu_{t+n}\), where \(\nu\) is the search's root value and \(n = 10\).</li>
+  </ul>
+  <p>Two gradient-scaling details keep the unroll stable. The loss at each unrolled step is scaled by \(1/K\), so the total gradient doesn't grow with \(K\). The gradient flowing back into each latent state is halved before the next dynamics step, so the earliest parts of the unroll aren't swamped by gradients arriving from every later step. The paper also min–max scales each latent to \([0, 1]\), the same range as the one-hot action inputs. For Atari, rewards and values are predicted as categorical distributions (601 bins) after an invertible squashing \(h(x) = \operatorname{sign}(x)(\sqrt{|x| + 1} - 1) + \epsilon x\), the same scale problem DreamerV3 solves with symlog and two-hot.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 270" role="img" aria-label="MuZero unroll: the representation function encodes observations into s0; the dynamics function steps the latent with the taken actions and predicts rewards; the prediction function outputs policy and value at each step; each is matched to targets from the real trajectory">
+      <defs>
+        <marker id="ah-d101" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d101m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="20" y="14" width="110" height="30" rx="4" class="s-node"/><text x="75" y="34" class="s-mid">o₁ … oₜ</text>
+      <text x="420" y="34" class="s-ink2 s-mid s-sm">unrolled with the actions actually taken (K = 5 in the paper)</text>
+      <path d="M75,44 L75,99" class="s-ln" marker-end="url(#ah-d101)"/><text x="82" y="76" class="s-sm">h</text>
+      <rect x="40" y="100" width="70" height="36" rx="6" class="s-node-mod"/><text x="75" y="123" class="s-mid">s⁰</text>
+      <rect x="220" y="100" width="70" height="36" rx="6" class="s-node-mod"/><text x="255" y="123" class="s-mid">s¹</text>
+      <rect x="400" y="100" width="70" height="36" rx="6" class="s-node-mod"/><text x="435" y="123" class="s-mid">s²</text>
+      <rect x="580" y="100" width="70" height="36" rx="6" class="s-node-mod"/><text x="615" y="123" class="s-mid">s³</text>
+      <path d="M110,118 L219,118" class="s-ln-mod" marker-end="url(#ah-d101m)"/>
+      <path d="M290,118 L399,118" class="s-ln-mod" marker-end="url(#ah-d101m)"/>
+      <path d="M470,118 L579,118" class="s-ln-mod" marker-end="url(#ah-d101m)"/>
+      <g class="s-mod s-sm">
+        <text x="165" y="110" class="s-mid">g(·, aₜ₊₁)</text><text x="345" y="110" class="s-mid">g(·, aₜ₊₂)</text><text x="525" y="110" class="s-mid">g(·, aₜ₊₃)</text>
+      </g>
+      <g class="s-acc s-sm">
+        <text x="165" y="134" class="s-mid">r¹</text><text x="345" y="134" class="s-mid">r²</text><text x="525" y="134" class="s-mid">r³</text>
+      </g>
+      <path d="M75,136 L75,164" class="s-ln" marker-end="url(#ah-d101)"/><text x="82" y="154" class="s-sm">f</text>
+      <path d="M255,136 L255,164" class="s-ln" marker-end="url(#ah-d101)"/><text x="262" y="154" class="s-sm">f</text>
+      <path d="M435,136 L435,164" class="s-ln" marker-end="url(#ah-d101)"/><text x="442" y="154" class="s-sm">f</text>
+      <path d="M615,136 L615,164" class="s-ln" marker-end="url(#ah-d101)"/><text x="622" y="154" class="s-sm">f</text>
+      <g class="s-acc s-sm">
+        <text x="75" y="180" class="s-mid">p⁰, v⁰</text><text x="255" y="180" class="s-mid">p¹, v¹</text>
+        <text x="435" y="180" class="s-mid">p², v²</text><text x="615" y="180" class="s-mid">p³, v³</text>
+      </g>
+      <text x="340" y="202" class="s-ink3 s-mid s-sm">↕ a loss at every k: policy, value, reward</text>
+      <g class="s-ink s-sm">
+        <text x="75" y="224" class="s-mid">πₜ, zₜ</text><text x="165" y="224" class="s-mid">uₜ₊₁</text>
+        <text x="255" y="224" class="s-mid">πₜ₊₁, zₜ₊₁</text><text x="345" y="224" class="s-mid">uₜ₊₂</text>
+        <text x="435" y="224" class="s-mid">πₜ₊₂, zₜ₊₂</text><text x="525" y="224" class="s-mid">uₜ₊₃</text>
+        <text x="615" y="224" class="s-mid">πₜ₊₃, zₜ₊₃</text>
+      </g>
+      <text x="340" y="252" class="s-ink2 s-mid s-sm">targets from the stored trajectory: observed rewards u, search policies π, value targets z</text>
+    </svg>
+    <figcaption><b>Training the model through the search's targets.</b> The latent states (module colour) are never decoded. They are shaped only by the requirement that \(f\) and \(g\), applied along the real action sequence, reproduce the real rewards, the search's policies and the value targets. That is value equivalence turned into a loss.</figcaption>
+  </figure>
+
+  <pre><code>import torch.nn.functional as F
+
+def scale_grad(x, s):
+    """Identity in the forward pass; multiplies the gradient by s in the backward pass."""
+    return x * s + x.detach() * (1 - s)
+
+def muzero_loss(h, g, f, obs, actions, target_u, target_z, target_pi, K=5):
+    """obs: observation stack at time t; actions: [B, K] long, a_{t+1..t+K} as actually taken;
+    target_u: [B, K] observed rewards; target_z: [B, K+1] value targets;
+    target_pi: [B, K+1, A] MCTS visit distributions recorded at t..t+K."""
+    def heads_loss(s, k):
+        logits, v = f(s)                                       # prediction function
+        return F.mse_loss(v, target_z[:, k]) \
+            - (target_pi[:, k] * F.log_softmax(logits, -1)).sum(-1).mean()
+
+    s = h(obs)                                                 # representation: s^0
+    loss = heads_loss(s, 0)
+    for k in range(1, K + 1):
+        s, r = g(s, actions[:, k - 1])                         # dynamics: (s^k, r^k)
+        step = F.mse_loss(r, target_u[:, k - 1]) + heads_loss(s, k)
+        loss = loss + step / K                                 # each unrolled step weighted 1/K
+        s = scale_grad(s, 0.5)                                 # halve gradients flowing back in time
+    return loss                                                # + c * ||theta||^2 via weight decay</code></pre>
+  <p class="code-cap">Board-game form, with MSE on values; for Atari swap the two MSE terms for cross-entropies over the categorical value and reward supports. Positions near the end of an episode unroll past the terminal state: the paper treats those steps as absorbing (zero reward and value targets), and the policy loss there is usually masked.</p>
+
+  <h3>Reanalyse</h3>
+  <p>Value targets \(\nu\) and policy targets \(\boldsymbol\pi\) were produced by the network that was current when the data were collected, and they go stale as the network improves. <b>MuZero Reanalyse</b> re-runs the search on old trajectories with the latest network to refresh both targets before training on them. It is the main lever for sample efficiency: the paper reports a Reanalyse variant that used only 200M Atari frames and still scored well above the earlier state of the art on that budget. Reanalyse also gives a route to purely offline learning from logged data (MuZero Unplugged, Schrittwieser et al., 2021).</p>
+
+  <h3>Reach: Atari, Go and beyond</h3>
+  <p>On the 57-game Atari benchmark MuZero set a new state of the art for mean and median human-normalized score at the time, ahead of the model-free R2D2. On Go, chess and shogi it matched AlphaZero's superhuman strength without being told the rules, and in Go it slightly exceeded it while using less computation per search node. It remained weak on the hardest exploration games, such as Montezuma's Revenge and Pitfall!: search over a learned model is no substitute for directed exploration, which is Module 11's subject. Successors extended the reach.</p>
+  <ul>
+    <li><b>Sampled MuZero</b> (Hubert et al., 2021) searches over a sampled subset of actions, for large or continuous action spaces.</li>
+    <li><b>Stochastic MuZero</b> (Antonoglou et al., 2022) adds chance nodes and learned afterstates, for environments with randomness such as 2048 and backgammon.</li>
+    <li><b>EfficientZero</b> (Ye et al., 2021) targets the 100k-step Atari benchmark with the consistency loss above, value-prefix prediction and off-policy correction.</li>
+    <li><b>Gumbel MuZero</b> (Danihelka et al., 2022) changes the root's action selection so that policy improvement is guaranteed even with very few simulations.</li>
+    <li>Outside games, a MuZero variant was applied to rate control in VP9 video compression (Mandhane et al., 2022), reporting bitrate savings at equal quality on YouTube videos.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Stochastic environments.</b> \(g_\theta\) is deterministic, so a die roll is averaged into a single imagined future. Search then plans against an outcome that never happens. Stochastic MuZero exists for this reason.</li>
+      <li><b>Ungrounded latents.</b> Trained on \(K = 5\) unrolls, the model is asked to support searches 10–50 steps deep. Past the training horizon its latents are extrapolations, and values predicted there can be confidently wrong.</li>
+      <li><b>Stale targets.</b> Off-policy value targets from an old network bias training; without Reanalyse, sample efficiency suffers.</li>
+      <li><b>Debugging blind.</b> You can't render a latent to see what the model thinks will happen. Linear probes from \(s^k\) to known state variables are the usual substitute.</li>
+      <li><b>Cost per decision.</b> Every action costs dozens to hundreds of sequential network calls, which rules out many real-time applications without distillation into a reactive policy.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Implement \(h, g, f\) as small MLPs for tic-tac-toe, and reuse your Day 100 MCTS with <code>game.next_state</code> replaced by \(g\) and <code>net</code> by \(f\) (with \(Q\) normalization and every action allowed below the root). Train with the unrolled loss above.</li>
+      <li>Compare against your AlphaZero tic-tac-toe agent at equal simulation counts. How often does the MuZero tree contain illegal moves after training, and how much visit mass do they get?</li>
+      <li>Grounding probe: fit a linear map from \(s^0\) to the true board (one-hot per cell). Then unroll \(k = 1, \dots, 8\) steps with real actions and refit for each \(s^k\). Plot probe accuracy against \(k\), and mark the training unroll \(K\).</li>
+      <li>Ablate the \(1/K\) loss scaling and the ½ gradient scaling one at a time. Watch the gradient norm of \(h\)'s parameters.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Schrittwieser et al. 2020, “Mastering Atari, Go, chess and shogi by planning with a learned model” · Grimm et al. 2020, “The Value Equivalence Principle for Model-Based Reinforcement Learning” · Ye et al. 2021, “Mastering Atari Games with Limited Data” (EfficientZero) · Antonoglou et al. 2022, “Planning in Stochastic Environments with a Learned Model”</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m09.html"><small>Previous · Days 82–96</small>◂ Module 9 — Policy Gradient &amp; Actor-Critic</a>
+  <a class="next" href="m11.html"><small>Next · Days 102–105</small>Module 11 — Exploration ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

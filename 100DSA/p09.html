@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 9 — Computational Geometry · 100 Days of DSA &amp; Competitive Programming</title>
+<meta name="description" content="100 Days of DSA &amp; Competitive Programming, phase 9: Computational Geometry (lessons 128–134).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m9" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of DSA</a>
+  <span class="meta">Phase 9 · Computational Geometry · Days 90–94</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 9 · Computational Geometry</h4>
+  <nav>
+    <a href="#l128"><span class="n">L128</span>Geometry I: Points, Vectors, Cros…</a>
+    <a href="#l129"><span class="n">L129</span>Geometry II: Lines, Segments, Int…</a>
+    <a href="#l130"><span class="n">L130</span>Geometry III: Polygons</a>
+    <a href="#l131"><span class="n">L131</span>Geometry IV: Convex Hull</a>
+    <a href="#l132"><span class="n">L132</span>Geometry V: Rotating Calipers, Cl…</a>
+    <a href="#l133"><span class="n">L133</span>Geometry VI: Sweep Line and Advan…</a>
+    <a href="#l134"><span class="n">L134</span>Contest Day 9 + Editorial</a>
+  </nav>
+  <h4>All 142 lessons</h4>
+  <div class="spine" data-spine data-module="9" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p08.html">◂ Phase 8</a><a href="p10.html">Phase 10 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 9 · Days 90–94 · Lessons 128–134</p>
+<h1>Computational Geometry</h1>
+<p class="dek">Seven lessons of computational geometry done the contest way: exact integer predicates first, constructions only when they must be printed, and every degenerate case written down before the code. It reuses the sorting, sweep-line and segment-tree machinery of Phases 1, 2 and 7 and the number theory of Phase 8 (gcd for lattice points), and hands the randomised-incremental pattern on to Phase 10.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Build every geometric predicate from <code>orient(a, b, c)</code> in exact integer arithmetic, and say when floats, EPS or <code>Fraction</code> are genuinely needed.</li>
+    <li>Sort points by angle with a comparator that survives duplicates, collinear points and the 180° trap.</li>
+    <li>Decide segment intersection in every degenerate case, and compute intersection points, distances and circle intersections only as constructions.</li>
+    <li>Compute polygon area, centroid, point location (ray casting, winding number, \(O(\log n)\) for convex) and lattice-point counts with Pick's theorem.</li>
+    <li>Build a convex hull with the collinear rule the statement asks for, then use rotating calipers, closest pair and the minimum enclosing circle on top of it.</li>
+    <li>Solve rectangle-union area with a covered-length segment tree unaided, and use half-plane intersection and Minkowski sums where they apply.</li>
+    <li>Score 3+/5 on a geometry contest with a stress-tested <code>geometry.py</code> and a plotting habit for debugging.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>7</b> lessons</li><li><b>7h 05m</b> video</li><li>Days <b>90–94</b></li>
+</ul>
+
+<!-- ================================================================ L128 -->
+<article class="day" id="l128">
+  <header class="day-head">
+    <span class="day-no">L128 · DAY 90</span>
+    <h2>Geometry I: Points, Vectors, Cross Products, Orientation</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">Geometry problems are lost to precision far more often than to logic. Rule one: decide every predicate (left or right, inside or outside, intersecting or not) with exact integer arithmetic, and only compute coordinates when the output demands them. Almost all of that integer arithmetic is one primitive, the 2D cross product, wrapped as <code>orient(a, b, c)</code>.</p>
+
+  <h3>Integers first</h3>
+  <p>A Python <code>float</code> has a 53-bit mantissa, so integers are exact only up to \(2^{53} \approx 9\cdot10^{15}\). With coordinates up to \(10^9\), a cross product reaches \(\approx 4\cdot10^{18}\). As a float, the last few digits are already gone, and a "collinear" verdict is a coin flip. Python ints are exact and unbounded, so integer predicates cannot overflow, which is a genuine advantage over C++. The rule is <b>predicates before constructions</b>. Every yes/no question about integer points is a sign of a polynomial in the coordinates, so compute that polynomial in ints. Intersection points, distances and angles are <em>constructions</em>: compute them last, and only if they are printed.</p>
+  <p><b>Representation.</b> Tuples <code>(x, y)</code> are the fastest to create and index. A <code>Point</code> class with operator overloading reads well but adds a method call to every <code>+</code>. <code>complex</code> numbers are fast (<code>(a.conjugate() * b).imag</code> is the cross product) but floats: fine for constructions, never for predicates. In hot loops, separate <code>xs</code> and <code>ys</code> lists are faster still.</p>
+
+  <h3>Vectors and the dot product</h3>
+  <p>A point minus a point is a vector. For vectors \(a, b\): \(a \cdot b = a_x b_x + a_y b_y = |a||b|\cos\theta\). Its <b>sign</b> classifies the angle: positive is acute, zero is perpendicular, negative is obtuse. That is how you ask "is the projection of \(p\) onto segment \(ab\) beyond \(b\)?" without any trigonometry. The projection length of \(b\) onto \(a\) is \(a \cdot b / |a|\). The <b>squared norm</b> \(|a|^2 = a \cdot a\) stays an integer. Never take a square root to compare lengths: \(|a| &lt; |b| \iff a\cdot a &lt; b \cdot b\).</p>
+
+  <h3>The cross product</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>\(a \times b = a_x b_y - a_y b_x\), the \(z\)-component of the 3D cross product, equal to \(\det\begin{pmatrix} a_x &amp; b_x \\ a_y &amp; b_y\end{pmatrix}\). Then \(\text{orient}(a, b, c) = (b - a) \times (c - a)\).</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · What the cross product tells you</span>
+    <p>\(a \times b = |a||b|\sin\theta\), where \(\theta\) is the signed angle from \(a\) to \(b\) (counter-clockwise positive). Hence:</p>
+    <ol>
+      <li><b>Orientation:</b> \(a \times b &gt; 0\) iff \(b\) is counter-clockwise from \(a\) (within \(180°\)). It is \(&lt; 0\) for clockwise and \(= 0\) iff they are parallel or antiparallel.</li>
+      <li><b>Area:</b> \(|a \times b|\) is the area of the parallelogram on \(a, b\), so a triangle \(abc\) has area \(|\text{orient}(a,b,c)|/2\).</li>
+      <li><b>Sine:</b> \(\sin\theta = (a\times b)/(|a||b|)\), and together with the dot product it gives \(\theta = \operatorname{atan2}(a \times b,\ a \cdot b)\).</li>
+    </ol>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Write \(a = |a|(\cos\alpha, \sin\alpha)\) and \(b = |b|(\cos\beta, \sin\beta)\). Then \(a_x b_y - a_y b_x = |a||b|(\cos\alpha\sin\beta - \sin\alpha\cos\beta) = |a||b|\sin(\beta - \alpha)\). The parallelogram has base \(|a|\) and height \(|b||\sin\theta|\).</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Left: vectors a and b with the parallelogram whose signed area is the cross product. Right: the directed line a to b with points left, right and on it">
+      <defs><marker id="ah-l128" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker></defs>
+      <path d="M80,190 L280,165 L350,55 L150,80 Z" class="s-acc" fill-opacity="0.16"/>
+      <line x1="80" y1="190" x2="276" y2="166" class="s-ln-mod" marker-end="url(#ah-l128)"/>
+      <line x1="80" y1="190" x2="148" y2="84" class="s-ln-mod" marker-end="url(#ah-l128)"/>
+      <line x1="280" y1="165" x2="350" y2="55" class="s-grid s-dash"/><line x1="150" y1="80" x2="350" y2="55" class="s-grid s-dash"/>
+      <text x="190" y="196" class="s-mod">a</text><text x="98" y="128" class="s-mod">b</text>
+      <text x="215" y="124" class="s-acc s-mid s-sm">area = a × b &gt; 0</text>
+      <text x="72" y="208" class="s-ink3 s-sm">O</text>
+      <text x="210" y="226" class="s-ink3 s-mid s-sm">b is counter-clockwise from a</text>
+      <line x1="420" y1="200" x2="616" y2="62" class="s-ln-mod" marker-end="url(#ah-l128)"/>
+      <circle cx="420" cy="200" r="5" class="s-ink"/><text x="408" y="216" class="s-sm">a</text>
+      <circle cx="580" cy="87" r="5" class="s-ink"/><text x="590" y="104" class="s-sm">b</text>
+      <circle cx="470" cy="90" r="6" class="s-acc"/><text x="450" y="74" class="s-acc s-sm">orient &gt; 0 · LEFT</text>
+      <circle cx="590" cy="190" r="6" class="s-bad"/><text x="530" y="214" class="s-bad s-sm">orient &lt; 0 · RIGHT</text>
+      <circle cx="510" cy="137" r="6" class="s-info"/><text x="522" y="146" class="s-info s-sm">0 · TOUCH</text>
+    </svg>
+    <figcaption><b>One determinant, three answers.</b> The sign of \(a \times b\) gives the turn direction, its magnitude gives the area, and divided by \(|a||b|\) it gives the sine. On the right, <code>orient(a, b, c)</code> is the cross product of \(b - a\) and \(c - a\), which is exactly CSES Point Location Test.</figcaption>
+  </figure>
+
+  <h3>The geometry header</h3>
+  <pre><code>from functools import cmp_to_key
+from fractions import Fraction
+
+def sub(a, b):
+    return (a[0] - b[0], a[1] - b[1])
+
+def dot(a, b):
+    return a[0] * b[0] + a[1] * b[1]
+
+def cross(a, b):
+    return a[0] * b[1] - a[1] * b[0]
+
+def dist2(a, b):
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+def orient(a, b, c):
+    """&gt; 0: c is left of a-&gt;b (counter-clockwise turn); &lt; 0: right; 0: collinear. Exact on ints."""
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+def sign(x, eps=0):
+    """eps = 0 for integer (or Fraction) inputs; a tuned eps only when floats are unavoidable."""
+    return (x &gt; eps) - (x &lt; -eps)
+
+def half(v):
+    """0 for directions with angle in [0, pi), 1 for [pi, 2pi). v must not be (0, 0)."""
+    return 0 if v[1] &gt; 0 or (v[1] == 0 and v[0] &gt; 0) else 1
+
+def cmp_angle(a, b):
+    """A total order on nonzero vectors by polar angle; equal directions: shorter first."""
+    ha, hb = half(a), half(b)
+    if ha != hb:
+        return ha - hb
+    c = cross(a, b)
+    if c:
+        return -1 if c &gt; 0 else 1
+    return dot(a, a) - dot(b, b)
+
+def sort_by_angle(points, o=(0, 0)):
+    """Points sorted counter-clockwise around o, starting from the +x direction.
+    Copies of o itself (no angle) come first."""
+    at_o = [p for p in points if p == o]
+    vs = [(x - o[0], y - o[1]) for x, y in points if (x, y) != o]
+    vs.sort(key=cmp_to_key(cmp_angle))
+    return at_o + [(x + o[0], y + o[1]) for x, y in vs]</code></pre>
+
+  <h3>Comparing angles without atan2</h3>
+  <p><b>The classic angular-sort bug</b> is a comparator of "\(a\) before \(b\) iff \(a \times b &gt; 0\)". It is not a strict weak ordering. Take three vectors 120° apart: each is counter-clockwise of the previous one, so the "order" is a cycle, and the sort returns garbage without raising. The cross product only compares angles correctly <em>within a half-plane</em>. <b>The fix:</b> first split by <code>half(v)</code>, which puts angles in \([0, \pi)\) before \([\pi, 2\pi)\), and compare with the cross product only inside a half. Then break exact ties (same direction) by length, so duplicates and collinear points sort deterministically. The zero vector has no angle, so remove it first. The price of exactness is speed. In one CPython run, <code>cmp_to_key</code> sorted \(2\cdot10^5\) points in 2.6 s against 0.11 s for an <code>atan2</code> key. Prefer the key whenever the note below says it is safe.</p>
+  <div class="box note"><span class="tag">When is atan2 safe?</span>
+    <p>Two distinct integer directions with coordinates \(|x|, |y| \le C\) differ in angle by at least about \(1/(2C^2)\), since \(|a \times b| \ge 1\) and \(|a||b| \le 2C^2\). A double resolves angles near \(\pi\) to about \(4\cdot10^{-16}\). So <code>key=lambda v: atan2(v[1], v[0])</code> is reliable for \(C\) up to roughly \(10^6\) and unreliable at \(C = 10^9\). Even below that, exact ties (collinear points) need the exact cross-product tie-break.</p>
+  </div>
+
+  <h3>EPS discipline and exact rationals</h3>
+  <ul>
+    <li><b>Integer inputs, integer predicates:</b> no EPS at all. The smallest nonzero cross product is 1.</li>
+    <li><b>Float inputs</b> (or float constructions such as circle intersections): <code>sign(x, eps)</code> everywhere, never <code>x == 0</code>. EPS must exceed the accumulated error and be smaller than the smallest meaningful nonzero value. With coordinates near \(10^4\), cross products near \(10^8\) carry absolute errors near \(10^{-8}\), so \(10^{-9}\) is <em>too small</em> there. Scale EPS with the magnitudes involved.</li>
+    <li><b><code>Fraction</code></b>: exact rational geometry, for line intersections (<a href="#l129">L129</a>) and exact centroids. It ran about 30× slower than ints in my test, so use it on the few constructed points, not in an \(O(n^2)\) loop.</li>
+  </ul>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Point Location Test</b>: for each test, the sign of <code>orient(p1, p2, p3)</code> gives LEFT, RIGHT or TOUCH. Coordinates up to \(10^9\) make products near \(10^{18}\), which Python ints handle exactly. Read all tests with one bulk read.</li>
+    <li><b>LeetCode 1266</b> (Minimum Time Visiting All Points): diagonal moves make the per-leg cost the Chebyshev distance \(\max(|dx|, |dy|)\). Sum over consecutive pairs.</li>
+    <li><b>LeetCode 149</b> (Max Points on a Line): for each anchor \(i\), normalise every direction \(p_j - p_i\) by dividing by \(\gcd(|dx|, |dy|)\) and fixing the sign (make \(dx &gt; 0\), or \(dx = 0, dy &gt; 0\)). Count the directions in a dict, \(O(n^2)\) and exact. Slopes as floats are the classic wrong answer here.</li>
+    <li><b>Orientation warm-ups:</b> do segments \(ab\) and \(cd\) properly cross (signs of four orients, <a href="#l129">L129</a>)? Is quadrilateral \(abcd\) convex (all four consecutive orients share a sign)? Is triangle \(abc\) listed counter-clockwise?</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Float cross products</b> on coordinates of \(10^9\): collinear points reported as left or right turns.</li>
+      <li><b>The cross-only angle comparator</b>: non-transitive across 180°, so the output order is nondeterministic and wrong.</li>
+      <li><b>Zero vectors in an angular sort</b>: <code>half((0, 0))</code> is meaningless. Filter duplicates of the origin first.</li>
+      <li><b><code>x == 0</code> on floats</b>, or one global EPS of \(10^{-9}\) used at every scale.</li>
+      <li><b>Mixing orientation conventions</b>: decide once that \(&gt; 0\) means counter-clockwise, in a y-up coordinate system. Screen coordinates (y down) flip it.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4><ol>
+    <li>CSES — Point Location Test.</li>
+    <li>LeetCode 1266, 149.</li>
+    <li>Stress-test <code>sort_by_angle</code> against an <code>atan2</code> sort on random points with \(|x|,|y| \le 50\), including duplicates and collinear points, and check that equal directions come out nearest-first.</li>
+    <li>Goal check: an exact-integer geometry primitives file (<code>cplib/geometry.py</code>, header above).</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. “Geometry” · CP-Algorithms, “Basic Geometry” and “Oriented area of a triangle” · de Berg, Cheong, van Kreveld &amp; Overmars, <i>Computational Geometry: Algorithms and Applications</i>, ch. 1 · O'Rourke, <i>Computational Geometry in C</i>, ch. 1</p>
+</article>
+<!-- ================================================================ L129 -->
+<article class="day" id="l129">
+  <header class="day-head">
+    <span class="day-no">L129 · DAY 90</span>
+    <h2>Geometry II: Lines, Segments, Intersections, Distances</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">Segment intersection is where geometry bugs live: crossing, touching at an endpoint, overlapping along a common line, parallel, or one segment reduced to a point. List every degenerate case before writing code, decide intersection with four integer orientations, and compute the intersection point (a rational number) only when you must print it.</p>
+
+  <h3>Three ways to write a line</h3>
+  <ul>
+    <li><b>Two points</b> \(a, b\): best for predicates. Everything is <code>orient(a, b, ·)</code> (<a href="#l128">L128</a>).</li>
+    <li><b>Implicit</b> \(Ax + By + C = 0\), with \(A = y_1 - y_2\), \(B = x_2 - x_1\), \(C = -(Ax_1 + By_1)\). These are integers for integer points. Divide by \(\gcd(A, B, C)\) and fix the sign (first nonzero of \(A, B\) positive) to get a canonical key for hashing lines, as in "how many distinct lines?" or LeetCode 149.</li>
+    <li><b>Parametric</b> \(p(t) = a + t\,(b - a)\): best for constructions. The segment is \(t \in [0, 1]\), projections give a \(t\), and clamping \(t\) gives the closest point on the segment.</li>
+  </ul>
+
+  <h3>Segment intersection, exhaustively</h3>
+  <div class="box thm"><span class="tag">Theorem · The four-orientation test</span>
+    <p>Let \(d_1 = \text{orient}(c, d, a)\), \(d_2 = \text{orient}(c, d, b)\), \(d_3 = \text{orient}(a, b, c)\), \(d_4 = \text{orient}(a, b, d)\). Closed segments \(ab\) and \(cd\) intersect iff either (i) \(d_1, d_2\) have strictly opposite signs <em>and</em> \(d_3, d_4\) have strictly opposite signs (a proper crossing), or (ii) some \(d_i = 0\) and the corresponding point lies within the bounding box of the other segment (touching or overlap).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>(i) Opposite signs of \(d_1, d_2\) mean \(a\) and \(b\) lie strictly on opposite sides of line \(cd\), so segment \(ab\) crosses that line at one interior point. Symmetrically, \(cd\) crosses line \(ab\). Two non-parallel lines meet once, so that point is on both segments. (ii) If no strict straddle exists, any common point must be an endpoint of one segment lying on the other. Such an endpoint has orientation 0 with respect to the other segment's line, and on that line, lying on the segment is equivalent to lying in its bounding box. Zero-length segments fall out for free: if \(c = d\), every orientation against \(cd\) is 0, and the box test reduces to equality of points.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 190" role="img" aria-label="Four cases: proper crossing, endpoint touching, collinear overlap, collinear but disjoint">
+      <rect x="10" y="20" width="150" height="130" rx="6" class="s-node"/><rect x="175" y="20" width="150" height="130" rx="6" class="s-node"/><rect x="340" y="20" width="150" height="130" rx="6" class="s-node"/><rect x="505" y="20" width="150" height="130" rx="6" class="s-node"/>
+      <line x1="30" y1="130" x2="140" y2="40" class="s-ln-mod"/><line x1="30" y1="40" x2="140" y2="130" class="s-ln-acc"/>
+      <line x1="195" y1="110" x2="305" y2="110" class="s-ln-mod"/><line x1="250" y1="110" x2="280" y2="40" class="s-ln-acc"/>
+      <circle cx="250" cy="110" r="4" class="s-bad"/>
+      <line x1="355" y1="95" x2="445" y2="95" class="s-ln-mod"/><line x1="405" y1="85" x2="475" y2="85" class="s-ln-acc"/>
+      <line x1="405" y1="90" x2="445" y2="90" class="s-ln-bad"/>
+      <line x1="520" y1="90" x2="575" y2="90" class="s-ln-mod"/><line x1="595" y1="90" x2="640" y2="90" class="s-ln-acc"/>
+      <text x="85" y="170" class="s-mid s-sm">proper: signs ± and ±</text>
+      <text x="250" y="170" class="s-mid s-sm">touch: one orient = 0</text>
+      <text x="415" y="170" class="s-mid s-sm">overlap: all four = 0</text>
+      <text x="580" y="170" class="s-mid s-sm">all = 0, boxes disjoint</text>
+      <text x="85" y="14" class="s-acc s-mid s-sm">YES</text><text x="250" y="14" class="s-acc s-mid s-sm">YES</text><text x="415" y="14" class="s-acc s-mid s-sm">YES</text><text x="580" y="14" class="s-bad s-mid s-sm">NO</text>
+    </svg>
+    <figcaption><b>The cases a test suite must contain.</b> The collinear cases are drawn slightly apart for visibility. The last panel is why "all four orientations are zero" is <em>not</em> enough to say yes: the bounding-box check is what separates overlap from a gap on the same line.</figcaption>
+  </figure>
+  <pre><code>def on_segment(a, b, p):
+    """Assuming p is collinear with a, b: is p within the closed segment?"""
+    return (min(a[0], b[0]) &lt;= p[0] &lt;= max(a[0], b[0])
+            and min(a[1], b[1]) &lt;= p[1] &lt;= max(a[1], b[1]))
+
+def segments_intersect(a, b, c, d):
+    """Closed segments ab and cd share a point. Exact for integers; handles every degenerate case.
+    Uses orient from L128."""
+    d1, d2 = orient(c, d, a), orient(c, d, b)
+    d3, d4 = orient(a, b, c), orient(a, b, d)
+    if ((d1 &gt; 0 and d2 &lt; 0) or (d1 &lt; 0 and d2 &gt; 0)) and ((d3 &gt; 0 and d4 &lt; 0) or (d3 &lt; 0 and d4 &gt; 0)):
+        return True                                    # proper crossing
+    return ((d1 == 0 and on_segment(c, d, a)) or (d2 == 0 and on_segment(c, d, b))
+            or (d3 == 0 and on_segment(a, b, c)) or (d4 == 0 and on_segment(a, b, d)))
+
+def test_segments():
+    T = segments_intersect
+    assert T((0, 0), (4, 4), (0, 4), (4, 0))           # proper crossing
+    assert T((0, 0), (4, 0), (2, 0), (2, 3))           # endpoint on the other's interior
+    assert T((0, 0), (2, 0), (2, 0), (5, 1))           # shared endpoint
+    assert T((0, 0), (4, 0), (2, 0), (6, 0))           # collinear overlap
+    assert not T((0, 0), (1, 0), (2, 0), (3, 0))       # collinear, disjoint
+    assert not T((0, 0), (2, 2), (3, 3), (5, 5))       # collinear diagonal, disjoint
+    assert not T((0, 0), (4, 0), (0, 1), (4, 1))       # parallel
+    assert not T((0, 0), (1, 1), (3, 0), (2, 1))       # lines meet outside both segments
+    assert T((1, 1), (1, 1), (0, 0), (2, 2))           # point on a segment
+    assert not T((1, 1), (1, 1), (0, 0), (2, 3))       # point off a segment
+    assert T((1, 1), (1, 1), (1, 1), (1, 1))           # equal points
+    assert not T((1, 1), (1, 1), (2, 2), (2, 2))       # distinct points</code></pre>
+  <p class="code-cap">Run the suite, then stress-test against a brute force that solves for the parameters with <code>Fraction</code> on small random coordinates (<a href="p00.html#l10">L10</a>).</p>
+
+  <h3>The intersection point</h3>
+  <p>For lines \(a + t r\) and \(c + u s\) with \(r = b - a\), \(s = d - c\), Cramer's rule on \(a + tr = c + us\) gives</p>
+  $$t = \frac{(c - a) \times s}{r \times s}, \qquad u = \frac{(c - a) \times r}{r \times s}.$$
+  <p>If \(r \times s = 0\) the lines are parallel, and they coincide iff also \((c - a) \times r = 0\). The point is rational with denominator \(r \times s\). So the <em>test</em> stays integer, and only the printed point needs <code>Fraction</code> or one final division.</p>
+  <pre><code>from fractions import Fraction
+
+def line_intersection(a, b, c, d):
+    """Lines ab and cd: an exact point (Fractions), 'parallel', or 'same'."""
+    r, s, ca = sub(b, a), sub(d, c), sub(c, a)
+    den = cross(r, s)
+    if den == 0:
+        return "same" if cross(ca, r) == 0 else "parallel"
+    t = Fraction(cross(ca, s), den)
+    return (a[0] + t * r[0], a[1] + t * r[1])</code></pre>
+
+  <h3>Distances, projections, reflections</h3>
+  <ul>
+    <li><b>Point to line</b> \(ab\): \(|\text{orient}(a, b, p)| / |b - a|\), the parallelogram area divided by the base.</li>
+    <li><b>Foot of the perpendicular</b>: \(t = (p - a)\cdot(b - a) / |b-a|^2\) and \(f = a + t(b - a)\). <b>Reflection</b> of \(p\): \(2f - p\).</li>
+    <li><b>Point to segment</b>: the same \(t\), <em>clamped</em> to \([0, 1]\). If \(t \le 0\) the nearest point is \(a\), if \(t \ge 1\) it is \(b\), otherwise the foot. <b>Segment to segment</b>: 0 if they intersect, else the minimum of the four endpoint-to-segment distances.</li>
+  </ul>
+  <pre><code>def point_segment_dist2(p, a, b):
+    """Exact squared distance from p to segment ab (a Fraction; take sqrt only to print)."""
+    ab, ap = sub(b, a), sub(p, a)
+    L = dot(ab, ab)
+    t = dot(ap, ab)                                    # the projection parameter is t / L
+    if L == 0 or t &lt;= 0:
+        return Fraction(dot(ap, ap))                   # nearest point is a
+    if t &gt;= L:
+        return Fraction(dist2(p, b))                   # nearest point is b
+    c = cross(ab, ap)
+    return Fraction(c * c, L)                          # distance to the line: |cross| / sqrt(L)</code></pre>
+
+  <h3>Circles</h3>
+  <p><b>Circle–line:</b> with \(f\) the foot of the centre and \(\delta\) its distance, the points are \(f \pm \sqrt{r^2 - \delta^2}\,\hat u\). Decide 0, 1 or 2 by comparing \(\delta^2\) with \(r^2\) as rationals. <b>Circle–circle:</b> the chord's midpoint is \(a = (r_1^2 - r_2^2 + d^2)/(2d)\) from \(c_1\), with half-chord \(\sqrt{r_1^2 - a^2}\). The case analysis needs only \(d^2\) against \((r_1 \pm r_2)^2\), which is exact for integers. <b>Tangents</b> from \(p\) at distance \(D\) touch at \(\pm\arccos(r/D)\) from the direction centre → \(p\), with length \(\sqrt{D^2 - r^2}\).</p>
+  <pre><code>import math
+
+def circle_circle(c1, r1, c2, r2):
+    """Intersection of two circles with integer data: list of 0-2 float points, None if identical."""
+    dx, dy = c2[0] - c1[0], c2[1] - c1[1]
+    d2 = dx * dx + dy * dy
+    if d2 == 0:
+        return None if r1 == r2 else []
+    if d2 &gt; (r1 + r2) ** 2 or d2 &lt; (r1 - r2) ** 2:
+        return []                                      # apart, or one strictly inside the other
+    d = math.sqrt(d2)
+    a = (r1 * r1 - r2 * r2 + d2) / (2 * d)
+    mx, my = c1[0] + a * dx / d, c1[1] + a * dy / d
+    if d2 == (r1 + r2) ** 2 or d2 == (r1 - r2) ** 2:
+        return [(mx, my)]                              # tangent, decided exactly
+    h = math.sqrt(max(r1 * r1 - a * a, 0.0))
+    return [(mx - h * dy / d, my + h * dx / d), (mx + h * dy / d, my - h * dx / d)]</code></pre>
+
+  <h3>Collinearity and simple-polygon checks</h3>
+  <p>Three points are collinear iff <code>orient == 0</code>. A closed chain \(p_0 \dots p_{n-1}\) is a <b>simple polygon</b> iff non-adjacent edges never intersect, and adjacent edges meet only at their shared vertex (they must not fold back collinearly). The pairwise check is \(O(n^2)\), which is fine to \(n \approx 2000\) in Python. The \(O(n \log n)\) sweep version (Shamos–Hoey) is in <a href="#l133">L133</a>.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Line Segment Intersection</b>: <code>segments_intersect</code> per test, with coordinates up to \(10^9\). This is exactly the degenerate-case suite.</li>
+    <li><b>LeetCode 836</b> (Rectangle Overlap): positive-area overlap iff \(\min(x_2, x_4) &gt; \max(x_1, x_3)\) and the same for \(y\). Use strict inequalities, since touching edges do not count. <b>1229</b> (Meeting Scheduler, the 1D alternative framing): two pointers over sorted slots. The intersection is \([\max(\text{starts}), \min(\text{ends}))\), and you advance whichever slot ends first.</li>
+    <li><b>Intersection-counting warm-up</b>: count intersecting pairs among \(n \le 2000\) segments, \(O(n^2)\) calls. Inline <code>orient</code> if it TLEs.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Only testing the proper case</b>: touching and collinear overlap answer NO, and that is WA on test 3.</li>
+      <li><b>Collinear check without the bounding box</b>: segments on one line with a gap between them answer YES.</li>
+      <li><b>Bounding box on x only</b>: vertical segments break it. Check both coordinates.</li>
+      <li><b>Computing the float intersection point to decide whether one exists</b>: precision failures near endpoints. Decide with signs.</li>
+      <li><b>Zero-length segments</b> in parametric code: a division by \(|b - a|^2 = 0\). Guard it (as <code>point_segment_dist2</code> does).</li>
+      <li><b><code>math.sqrt</code> of a slightly negative \(r^2 - a^2\)</b>: a ValueError. Clamp with <code>max(·, 0)</code>, after deciding the case exactly.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4><ol>
+    <li>CSES — Line Segment Intersection.</li>
+    <li>LeetCode 836, 1229 (alternative framing); the intersection-counting warm-up.</li>
+    <li>Stress-test <code>segments_intersect</code> against a <code>Fraction</code> parameter solver on 10⁵ random pairs with coordinates in \([-3, 3]\), where degenerate cases are frequent.</li>
+    <li>Goal check: a segment-intersection routine that handles every degenerate case.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> CLRS (3rd ed.) §33.1 · CP-Algorithms, “Check if two segments intersect”, “Finding intersection of two segments” and “Circle-Circle Intersection” · Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. “Geometry”</p>
+</article>
+<!-- ================================================================ L130 -->
+<article class="day" id="l130">
+  <header class="day-head">
+    <span class="day-no">L130 · DAY 91</span>
+    <h2>Geometry III: Polygons</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">A polygon is a cyclic list of vertices, and nearly every question about it is a sum of cross products along that cycle: twice its area, its orientation, its centroid, how often it winds around a point. Keep everything as integers (twice the area is always an integer for lattice vertices) and the standard polygon predicates become exact.</p>
+
+  <h3>Representation and the shoelace formula</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A polygon is a vertex list \(p_0, \dots, p_{n-1}\) with edges \(p_i p_{i+1}\) (indices mod \(n\)). It is <b>simple</b> if non-adjacent edges never meet. It is <b>convex</b> if every interior angle is at most 180°, which for a simple polygon means every turn \(\text{orient}(p_i, p_{i+1}, p_{i+2})\) has the same sign (ignoring zeros). Its <b>orientation</b> is counter-clockwise or clockwise.</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · Shoelace formula</span>
+    $$2A = \sum_{i=0}^{n-1} p_i \times p_{i+1} = \sum_{i} (x_i y_{i+1} - x_{i+1} y_i).$$
+    <p>For a simple polygon, \(A\) is the area when the vertices are counter-clockwise and minus the area when they are clockwise. So the sign of the sum <em>is</em> the orientation.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>\(\tfrac12\, p_i \times p_{i+1}\) is the signed area of the fan triangle \(O p_i p_{i+1}\), for an arbitrary origin \(O\). Fix a point \(x\) off all fan edges and count the fan triangles containing it, with sign \(+\) for counter-clockwise triangles and \(-\) for clockwise ones. That signed count equals the polygon's winding number around \(x\): 1 inside a counter-clockwise simple polygon and 0 outside. Integrating over the plane, the sum of the signed triangle areas is the polygon's area. With integer vertices every term is an integer, so \(2A\) is exact. Print \(2A\), or \(A\) as "\(k\)" or "\(k\).5".</p>
+  </div>
+  <p><b>Centroid.</b> The centre of mass of the polygon <em>region</em> is</p>
+  $$C_x = \frac{1}{6A}\sum_i (x_i + x_{i+1})(p_i \times p_{i+1}), \qquad C_y = \frac{1}{6A}\sum_i (y_i + y_{i+1})(p_i \times p_{i+1}).$$
+  <p>This is the area-weighted average of the fan triangles' centroids. It differs from the <em>vertex average</em>: add many vertices along one edge and the vertex average drifts towards that edge, while the shape and its true centroid have not changed. Use <code>Fraction</code> to keep it exact.</p>
+
+  <h3>Point in polygon</h3>
+  <p><b>Boundary first.</b> If <code>orient(a, b, q) == 0</code> and \(q\) is in the bounding box of some edge \(ab\), the answer is BOUNDARY. That check is exact and removes every ambiguous case below. <b>Ray casting:</b> shoot a ray from \(q\) to the right and count the edge crossings. An odd count means inside. The vertex problem (the ray passes exactly through a vertex) is solved by the <b>half-open rule</b>: an edge counts only if exactly one endpoint is strictly above the ray, <code>(a.y &gt; q.y) != (b.y &gt; q.y)</code>. A vertex touching the ray from above or below then counts 0 or 2 times, and a vertex the boundary passes through counts once. Horizontal edges never count. "Is the crossing to the right of \(q\)?" needs no division. The crossing's \(x\) minus \(q_x\) equals \(\text{orient}(a, b, q)/(b_y - a_y)\), so compare signs.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 220" role="img" aria-label="A concave polygon; a ray from an inside point crosses the boundary once; a ray from a point in the notch crosses twice">
+      <path d="M40,190 L120,40 L220,130 L320,40 L400,190 Z" class="s-node"/>
+      <line x1="150" y1="150" x2="430" y2="150" class="s-ln-info s-dash"/>
+      <line x1="220" y1="100" x2="430" y2="100" class="s-ln-warn s-dash"/>
+      <circle cx="150" cy="150" r="6" class="s-acc"/><text x="140" y="172" class="s-acc s-sm">q₁</text>
+      <circle cx="220" cy="100" r="6" class="s-bad"/><text x="212" y="88" class="s-bad s-sm">q₂</text>
+      <circle cx="379" cy="150" r="4" class="s-info"/>
+      <circle cx="253" cy="100" r="4" class="s-warn"/><circle cx="352" cy="100" r="4" class="s-warn"/>
+      <text x="440" y="146" class="s-info s-sm">q₁: 1 crossing → inside</text>
+      <text x="440" y="94" class="s-warn s-sm">q₂: 2 crossings → outside</text>
+      <text x="440" y="190" class="s-ink3 s-sm">edge counts iff exactly one</text>
+      <text x="440" y="206" class="s-ink3 s-sm">endpoint is strictly above</text>
+    </svg>
+    <figcaption><b>Parity of crossings.</b> The notch at the middle vertex makes \(q_2\) look surrounded, but its ray leaves and re-enters the polygon. The half-open rule also handles rays through vertices without a special case.</figcaption>
+  </figure>
+  <p><b>Winding number:</b> sum \(+1\) for each edge crossing the ray upward with \(q\) strictly left of it, and \(-1\) for each downward crossing with \(q\) strictly right. It is nonzero iff \(q\) is inside, and it also works for self-intersecting polygons, where it counts how many times the boundary winds around \(q\). For simple polygons, ray parity and the winding number agree, which is the cross-check in the code below.</p>
+  <pre><code>from math import gcd
+from fractions import Fraction
+
+def area2(poly):
+    """Twice the signed area: &gt; 0 counter-clockwise. Exact integer."""
+    return sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]))
+
+def centroid(poly):
+    a2 = cx = cy = 0
+    for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]):
+        c = x1 * y2 - x2 * y1
+        a2 += c
+        cx += (x1 + x2) * c
+        cy += (y1 + y2) * c
+    return Fraction(cx, 3 * a2), Fraction(cy, 3 * a2)        # 6A = 3 * (2A)
+
+def point_in_polygon(poly, q):
+    """'BOUNDARY', 'INSIDE' or 'OUTSIDE' for a simple polygon (ray casting, half-open rule)."""
+    inside = False
+    for a, b in zip(poly, poly[1:] + poly[:1]):
+        o = orient(a, b, q)
+        if o == 0 and on_segment(a, b, q):                 # L128 / L129 primitives
+            return "BOUNDARY"
+        if (a[1] &gt; q[1]) != (b[1] &gt; q[1]):                 # edge straddles the ray's line
+            if (o &gt; 0) == (b[1] &gt; a[1]):                     # crossing lies to the right of q
+                inside = not inside
+    return "INSIDE" if inside else "OUTSIDE"
+
+def winding_number(poly, q):
+    w = 0
+    for a, b in zip(poly, poly[1:] + poly[:1]):
+        if a[1] &lt;= q[1]:
+            if b[1] &gt; q[1] and orient(a, b, q) &gt; 0:
+                w += 1                                       # upward edge, q on its left
+        elif b[1] &lt;= q[1] and orient(a, b, q) &lt; 0:
+            w -= 1                                           # downward edge, q on its right
+    return w</code></pre>
+
+  <h3>Convex polygons: O(log n) location and convexity</h3>
+  <p>For a strictly convex counter-clockwise polygon, fan it from \(p_0\). Binary search for the wedge \(p_0 p_i p_{i+1}\) whose angular range contains \(q\), using <code>orient(p0, p_i, q) &gt;= 0</code> as the monotone predicate, then test the single edge \(p_i p_{i+1}\). Answering \(10^5\) queries this way costs \(O(\log n)\) each instead of \(O(n)\). The edge cases are \(q\) on the two fan boundary rays and \(q = p_0\). <b>Convexity check:</b> all nonzero turns share a sign. That alone accepts a pentagram, so it assumes the polygon is simple, or else additionally requires the total turning to be exactly 360°.</p>
+  <pre><code>def in_convex(poly, q):
+    """poly strictly convex, counter-clockwise, n &gt;= 3. O(log n)."""
+    n, p0 = len(poly), poly[0]
+    if orient(p0, poly[1], q) &lt; 0 or orient(p0, poly[-1], q) &gt; 0:
+        return "OUTSIDE"
+    lo, hi = 1, n - 1
+    while hi - lo &gt; 1:                                       # last i with orient(p0, p_i, q) &gt;= 0
+        mid = (lo + hi) // 2
+        if orient(p0, poly[mid], q) &gt;= 0:
+            lo = mid
+        else:
+            hi = mid
+    o = orient(poly[lo], poly[lo + 1], q)
+    if o &lt; 0:
+        return "OUTSIDE"
+    if o == 0 or (lo == 1 and orient(p0, poly[1], q) == 0) or (lo == n - 2 and orient(p0, poly[-1], q) == 0):
+        return "BOUNDARY"
+    return "INSIDE"</code></pre>
+
+  <h3>Pick's theorem and lattice points</h3>
+  <div class="box thm"><span class="tag">Theorem · Pick (1899)</span>
+    <p>For a simple polygon with lattice vertices, \(A = I + \tfrac{B}{2} - 1\), where \(I\) counts interior lattice points and \(B\) counts boundary lattice points. Segment \((x_1,y_1)\)–\((x_2,y_2)\) contains \(\gcd(|x_2 - x_1|, |y_2 - y_1|) + 1\) lattice points, so \(B = \sum_{\text{edges}} \gcd(|dx|, |dy|)\) (<a href="p08.html#l117">L117</a>).</p>
+  </div>
+  <p>So \(I = (2A - B + 2)/2\), all in integers, and instant even with coordinates near \(10^9\) where enumeration is hopeless.</p>
+  <pre><code>def lattice_points(poly):
+    """CSES Polygon Lattice Points: (interior, boundary)."""
+    a2 = abs(area2(poly))
+    b = sum(gcd(abs(x2 - x1), abs(y2 - y1)) for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]))
+    return (a2 - b + 2) // 2, b</code></pre>
+
+  <h3>Cutting and triangulating</h3>
+  <p><b>Cutting a convex polygon by a line</b> (keep the part left of \(a \to b\)): walk the edges. Keep each vertex with \(\text{orient} \ge 0\), and wherever an edge \(pq\) changes sign, insert the point at parameter \(t = o_p/(o_p - o_q)\), since orientation is linear along the edge. This is Sutherland–Hodgman against one half-plane, \(O(n)\). Repeating it gives an \(O(nk)\) half-plane intersection, a useful brute force for <a href="#l133">L133</a>. <b>Triangulation by ear clipping</b>: repeatedly cut off a convex vertex whose triangle contains no other vertex. It is \(O(n^2)\), and every simple polygon has at least two ears (Meisters' two-ears theorem).</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Polygon Area</b>: print <code>abs(area2(poly))</code>, which is twice the area, as the statement asks. <b>Point in Polygon</b>: <code>point_in_polygon</code> per query, \(O(nm)\) for \(n, m \le 1000\). <b>Polygon Lattice Points</b>: <code>lattice_points</code>.</li>
+    <li><b>LeetCode 812</b>: \(\max |\text{orient}|/2\) over all triples. <b>963</b> (Minimum Area Rectangle II): two segments are a rectangle's diagonals iff they share a midpoint and a length. Group pairs by the exact key <code>(x1 + x2, y1 + y2, dist2)</code> and try pairs within each group.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Ray casting without the boundary check</b>: points on edges get either answer.</li>
+      <li><b><code>&gt;=</code> on both endpoints</b> in the straddle test: vertices on the ray count twice or zero times inconsistently. Use strict <code>&gt;</code> for exactly one side (half-open).</li>
+      <li><b>Float division</b> to find the crossing's \(x\): use the sign of <code>orient</code>, as above.</li>
+      <li><b>Centroid from vertex averages</b>: wrong for anything but a triangle.</li>
+      <li><b>Clockwise input</b> to <code>in_convex</code>: reverse it first if <code>area2 &lt; 0</code>. Collinear hull vertices break the strict-convexity assumption, so build the hull without them (<a href="#l131">L131</a>).</li>
+      <li><b>Pick on a non-simple polygon</b>, or with \(A\) computed as a float: off-by-one or plain wrong.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4><ol>
+    <li>CSES — Polygon Area, Point in Polygon, Polygon Lattice Points.</li>
+    <li>LeetCode 812, 963.</li>
+    <li>Cross-check <code>point_in_polygon</code> against <code>winding_number</code> (plus the boundary check) on random simple polygons, and <code>in_convex</code> against both on random convex hulls.</li>
+    <li>Goal check: all standard polygon predicates, with exact arithmetic.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> O'Rourke, <i>Computational Geometry in C</i>, chs. 1 and 7 · CP-Algorithms, “Area of simple polygon”, “Point location in O(log n)” and “Pick's Theorem” · Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. “Geometry”</p>
+</article>
+<!-- ================================================================ L131 -->
+<article class="day" id="l131">
+  <header class="day-head">
+    <span class="day-no">L131 · DAY 92</span>
+    <h2>Geometry IV: Convex Hull</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">After sorting the points, one orientation test per step builds the convex hull in \(O(n \log n)\): keep a stack, and pop while the last two points and the new one fail to turn left. Everything else in this lesson is what the statement decides for you (collinear points in or out) and what breaks on degenerate inputs.</p>
+
+  <h3>The problem</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>The <b>convex hull</b> of a finite point set is the smallest convex polygon containing it. Its vertices are the <b>extreme points</b>: those not inside or on the boundary of the hull of the others. It appears directly ("smallest fence"), as a preprocessing step (diameter, width and enclosing rectangles in <a href="#l132">L132</a>), and in disguise as the upper envelope of lines (the convex hull trick, <a href="p06.html#l100">L100</a>).</p>
+  </div>
+
+  <h3>Andrew's monotone chain</h3>
+  <div class="box algo"><span class="tag">Algorithm · Monotone chain (Andrew 1979)</span><ol>
+    <li>Sort the points by \((x, y)\) and remove duplicates.</li>
+    <li><b>Lower hull</b>: scan left to right. Before pushing \(p\), pop while the stack has ≥ 2 points and <code>orient(h[-2], h[-1], p) &lt;= 0</code> <span class="step">(not a strict left turn)</span>.</li>
+    <li><b>Upper hull</b>: the same scan, right to left.</li>
+    <li>Concatenate, dropping each chain's last point (it is the other chain's first). The result is counter-clockwise, starting at the lowest-leftmost point.</li>
+  </ol></div>
+  <div class="box thm"><span class="tag">Theorem · Correctness and cost</span>
+    <p>After processing the points with \(x\)-order up to \(p\), the stack is exactly the lower hull of those points. Each point is pushed once and popped at most once, so after the \(O(n \log n)\) sort the scan is \(O(n)\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>The new point \(p\) is the rightmost so far, so it is on the lower hull of the prefix. A stack point \(h_{-1}\) stays on that hull iff the chain \(h_{-2}, h_{-1}, p\) turns strictly left. Otherwise \(h_{-1}\) lies on or above the segment \(h_{-2}p\), so it is not extreme and later points cannot rescue it, because they lie further right. Popping until the turn is left restores a convex chain, and every popped point is permanently non-extreme for the lower hull. Each push or pop is \(O(1)\).</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Monotone chain lower hull through A, B, D, F, H; point C popped when D arrives; E and G are above the chain">
+      <line x1="40" y1="150" x2="120" y2="185" class="s-ln-mod"/><line x1="120" y1="185" x2="280" y2="200" class="s-ln-mod"/><line x1="280" y1="200" x2="440" y2="190" class="s-ln-mod"/><line x1="440" y1="190" x2="600" y2="150" class="s-ln-mod"/>
+      <line x1="120" y1="185" x2="200" y2="160" class="s-ln-bad s-dash"/><line x1="200" y1="160" x2="280" y2="200" class="s-ln-bad s-dash"/>
+      <circle cx="40" cy="150" r="5" class="s-ink"/><text x="40" y="138" class="s-mid s-sm">A</text>
+      <circle cx="120" cy="185" r="5" class="s-ink"/><text x="120" y="205" class="s-mid s-sm">B</text>
+      <circle cx="200" cy="160" r="5" class="s-bad"/><text x="200" y="148" class="s-bad s-mid s-sm">C</text>
+      <circle cx="280" cy="200" r="5" class="s-ink"/><text x="280" y="220" class="s-mid s-sm">D</text>
+      <circle cx="360" cy="170" r="5" class="s-ink3"/><text x="360" y="158" class="s-ink3 s-mid s-sm">E</text>
+      <circle cx="440" cy="190" r="5" class="s-ink"/><text x="440" y="210" class="s-mid s-sm">F</text>
+      <circle cx="520" cy="130" r="5" class="s-ink3"/><text x="520" y="118" class="s-ink3 s-mid s-sm">G</text>
+      <circle cx="600" cy="150" r="5" class="s-ink"/><text x="600" y="138" class="s-mid s-sm">H</text>
+      <text x="150" y="60" class="s-bad s-sm">C is popped when D arrives:</text>
+      <text x="150" y="76" class="s-bad s-sm">B → C → D does not turn left</text>
+      <text x="400" y="60" class="s-ink3 s-sm">E, G: pushed, then popped</text>
+      <text x="400" y="76" class="s-ink3 s-sm">by F and H respectively</text>
+    </svg>
+    <figcaption><b>The lower chain after the scan</b> (drawn with y increasing upwards, so "lower" is the bottom). Every popped point lies on or above the chain, which is why it can never return. The upper chain is the same scan run from H back to A.</figcaption>
+  </figure>
+  <pre><code>def convex_hull(points, keep_collinear=False):
+    """Counter-clockwise hull from the lowest-leftmost point.
+    keep_collinear=True also returns points lying on hull edges (e.g. LeetCode 587)."""
+    pts = sorted(set(points))
+    if len(pts) &lt;= 2:
+        return pts
+    if keep_collinear and all(orient(pts[0], pts[-1], p) == 0 for p in pts):
+        return pts                                   # all collinear: the segment, every point once
+
+    def chain(seq):
+        h = []
+        for p in seq:
+            while len(h) &gt;= 2:
+                o = orient(h[-2], h[-1], p)
+                if o &lt; 0 or (o == 0 and not keep_collinear):
+                    h.pop()
+                else:
+                    break
+            h.append(p)
+        return h
+
+    lower = chain(pts)
+    upper = chain(reversed(pts))
+    return lower[:-1] + upper[:-1]</code></pre>
+  <p class="code-cap">For all-collinear input the strict hull is its two endpoints, and the lenient one is every point in sorted order. Without the special case, the lenient version would list the interior points twice, once per chain.</p>
+
+  <h3>Graham scan, the alternative</h3>
+  <p>Pick the lowest (then leftmost) point \(p_0\). Sort the rest by angle around it with the exact comparator from <a href="#l128">L128</a>, breaking ties by distance, then run the same stack with the same pop rule. It costs the same \(O(n \log n)\), but the angular sort is the fragile part, slower with <code>cmp_to_key</code> and full of tie cases. If collinear points must be kept, the points on the <em>last</em> ray from \(p_0\) must be visited farthest-first, so that tie group has to be reversed. Monotone chain avoids angles altogether, which is why it is the library version.</p>
+
+  <h3>The collinear decision, and degenerate inputs</h3>
+  <p>Popping on <code>&lt;= 0</code> removes points in the middle of hull edges and gives the minimal vertex set. Popping on <code>&lt; 0</code> keeps them. Neither is "correct": the problem statement decides. "Vertices of the hull" means strict. "All trees on the fence" (LeetCode 587) or "all points on the hull boundary" means lenient. A wrong choice is a WA on exactly the tests with collinear points, often a single test. Handle the degenerate inputs explicitly: \(n \le 2\); duplicates (removed by <code>set</code>); all points collinear; all points identical (one point remains).</p>
+  <div class="box note"><span class="tag">Testing a hull</span>
+    <p>Check against a brute force on random small inputs, and also on <em>adversarial</em> ones: points on a few lines, on a small grid (many collinear triples), with duplicates, and all on one line. Assert that (1) the output is counter-clockwise and strictly convex (or only weakly, for the lenient flag); (2) every input point is inside or on it (<a href="#l130">L130</a>'s <code>point_in_polygon</code>); (3) every output point is an input point; (4) the strict vertex set equals the brute-force extreme set, where \(p\) is extreme iff it lies in no triangle and no segment of the other points.</p>
+  </div>
+
+  <h3>Applications</h3>
+  <ul>
+    <li><b>Diameter</b> (farthest pair): its endpoints are hull vertices. Rotating calipers then finds it in \(O(h)\) (<a href="#l132">L132</a>).</li>
+    <li><b>Minimum-area or minimum-perimeter enclosing rectangle</b>: one side lies along a hull edge, so try each edge with calipers (<a href="#l132">L132</a>).</li>
+    <li><b>Is a polygon convex?</b> Its lenient hull has as many points as it has vertices, or use the turn-sign test from <a href="#l130">L130</a>.</li>
+    <li><b>Hull of lines (CHT).</b> \(\max_i (m_i x + b_i) = \max_i (m_i, b_i)\cdot(x, 1)\) is the extreme point of the set \(\{(m_i, b_i)\}\) in direction \((x, 1)\), which lies on its upper hull. The convex hull trick of <a href="p06.html#l100">L100</a> is this hull, built by the same monotone stack when slopes arrive sorted, and queried by binary search or a moving pointer.</li>
+    <li><b>Minkowski sum preview</b>: the sum of two convex polygons is a convex polygon whose edges are both polygons' edges merged by angle (<a href="#l133">L133</a>).</li>
+  </ul>
+  <p><b>Dynamic hulls.</b> If points arrive in arbitrary order and queries interleave, keep the upper hull in a balanced ordered structure keyed by \(x\). On insert, check whether the point is below the hull, and if not, delete neighbours that stop being convex. That is \(O(\log n)\) amortised, and it is exactly the "dynamic CHT" / Li Chao alternative. In Python without a sorted container, Li Chao trees (<a href="p06.html#l100">L100</a>) are usually simpler.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Convex Hull</b>: print the hull's points. The statement asks for every point on the boundary, so read it and use the matching flag (collinear boundary points are included there). \(n \le 2\cdot10^5\): the sort dominates, and the scan is fast in CPython.</li>
+    <li><b>LeetCode 587</b> (Erect the Fence): <code>keep_collinear=True</code>, including the all-collinear case.</li>
+    <li><b>Classic applications</b>: hull perimeter (sum of edge lengths, one <code>sqrt</code> per edge), hull area (<code>area2</code>), and "farthest pair" via <a href="#l132">L132</a>.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>The wrong collinear flag</b> for the statement: WA on collinear tests only.</li>
+      <li><b>Lenient hull on all-collinear input</b> without the special case: interior points appear twice.</li>
+      <li><b>Duplicates not removed</b>: zero-length edges, and an <code>orient</code> of 0 popping or keeping points unpredictably.</li>
+      <li><b>Float coordinates</b> with <code>orient &lt;= 0</code>: near-collinear points flicker in and out. Use an EPS, or scale to integers when the input has fixed decimals.</li>
+      <li><b>Graham scan with a cross-only comparator</b>: the non-transitive sort from <a href="#l128">L128</a>.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4><ol>
+    <li>CSES — Convex Hull.</li>
+    <li>LeetCode 587; hull perimeter and area on a random set, cross-checked against <code>area2</code>.</li>
+    <li>Write the brute-force extreme-point checker and run 10⁴ random and adversarial tests (grids, lines, duplicates) against both flags.</li>
+    <li>Goal check: a bulletproof convex hull implementation.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> Andrew 1979, “Another efficient algorithm for convex hulls in two dimensions” · Graham 1972, “An efficient algorithm for determining the convex hull of a finite planar set” · CLRS (3rd ed.) §33.3 · de Berg et al., <i>Computational Geometry</i>, ch. 1 · CP-Algorithms, “Convex Hull construction”</p>
+</article>
+<!-- ================================================================ L132 -->
+<article class="day" id="l132">
+  <header class="day-head">
+    <span class="day-no">L132 · DAY 92</span>
+    <h2>Geometry V: Rotating Calipers, Closest Pair, Minimum Enclosing Circle</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">Three ways to beat checking all pairs. Rotating calipers walk two pointers around a hull, since the farthest vertex from an edge only moves forward. Closest pair is divide and conquer, where a packing bound allows only 7 comparisons per point. The minimum enclosing circle is randomised incremental construction in expected linear time.</p>
+
+  <h3>Rotating calipers</h3>
+  <p>On a counter-clockwise convex polygon, the distance from edge \(p_i p_{i+1}\)'s line to vertex \(p_j\) rises and then falls as \(j\) goes round (it is unimodal). So the farthest, <b>antipodal</b>, vertex is found by advancing \(j\) while the next vertex is farther. When \(i\) moves to the next edge, its line turns counter-clockwise and the antipodal vertex only moves forward, so <b>both pointers make one lap: \(O(n)\)</b> after the hull.</p>
+  <div class="box thm"><span class="tag">Theorem · The calipers invariant</span>
+    <p>For a strictly convex polygon, the farthest pair of points (the diameter) is attained by an antipodal pair, two vertices that admit parallel supporting lines. Every antipodal pair appears as \((p_i, p_j)\) or \((p_{i+1}, p_j)\) for some edge \(i\) with its farthest vertex \(j\), and the monotone pointer visits all of them.</p>
+  </div>
+  <p>Distances to a line compare as areas: the farther vertex has the larger <code>orient(p_i, p_{i+1}, p_j)</code>, so the walk is exact in integers. The same walk gives:</p>
+  <ul>
+    <li><b>Width</b> (minimum distance between two parallel supporting lines): \(\min_i \text{orient}(p_i, p_{i+1}, p_{j(i)}) / |p_i p_{i+1}|\).</li>
+    <li><b>Minimum-area (or minimum-perimeter) enclosing rectangle</b>: an optimal rectangle has a side flush with a hull edge (Freeman &amp; Shapira, 1975). Run three calipers per edge (the farthest vertex, plus the extreme projections in both directions along the edge), each advancing monotonically, for \(O(n)\) total.</li>
+  </ul>
+  <pre><code>def diameter2(points):
+    """Largest squared distance between two of the points. Uses convex_hull (L131)."""
+    h = convex_hull(points)                    # strict: no collinear vertices
+    n = len(h)
+    if n == 1:
+        return 0
+    if n == 2:
+        return dist2(h[0], h[1])
+    best, j = 0, 1
+    for i in range(n):
+        a, b = h[i], h[(i + 1) % n]
+        while orient(a, b, h[(j + 1) % n]) &gt; orient(a, b, h[j]):
+            j = (j + 1) % n                     # the next vertex is farther from line ab
+        best = max(best, dist2(a, h[j]), dist2(b, h[j]))
+    return best</code></pre>
+
+  <h3>Closest pair by divide and conquer</h3>
+  <p>Sort by \(x\) and split at the median line \(x = m\). Recurse on both halves to get \(\delta^2\) = the best squared distance found. A closer pair would have to straddle the line, so both of its points lie in the strip \(|x - m| &lt; \delta\). Sort the strip by \(y\) and compare each point only with the following points whose \(y\) is within \(\delta\).</p>
+  <div class="box thm"><span class="tag">Theorem · Only 7 neighbours</span>
+    <p>In the \(y\)-sorted strip, each point needs comparing with at most the next 7 points. Hence the strip step is \(O(n)\), and with merging by \(y\) during the recursion, \(T(n) = 2T(n/2) + O(n) = O(n \log n)\).</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>Fix a strip point \(p\). Any partner \(q\) closer than \(\delta\) lies in the \(2\delta \times \delta\) rectangle spanning the strip from \(y_p\) to \(y_p + \delta\). Cut it into eight \(\tfrac\delta2 \times \tfrac\delta2\) squares, four on each side of the dividing line. Two points in one square are less than \(\tfrac{\delta}{\sqrt2} &lt; \delta\) apart, yet points on the same side are at least \(\delta\) apart. So each square holds at most one point, and the rectangle holds at most 8 points including \(p\).</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Left: hexagon with two parallel supporting lines at an antipodal pair. Right: closest-pair strip with the 2δ by δ box divided into eight squares">
+      <path d="M60,150 L110,60 L200,45 L260,110 L230,190 L120,200 Z" class="s-node"/>
+      <line x1="20" y1="111" x2="200" y2="15" class="s-ln-acc"/><line x1="140" y1="254" x2="320" y2="158" class="s-ln-acc"/>
+      <line x1="110" y1="60" x2="230" y2="190" class="s-ln-mod s-dash"/>
+      <circle cx="110" cy="60" r="5" class="s-mod"/><circle cx="230" cy="190" r="5" class="s-mod"/>
+      <text x="262" y="200" class="s-mod s-sm">an antipodal pair</text>
+      <text x="262" y="214" class="s-ink3 s-sm">parallel support lines</text>
+      <line x1="470" y1="15" x2="470" y2="215" class="s-ln-ink"/>
+      <rect x="410" y="80" width="120" height="60" class="s-acc" fill-opacity="0.14"/>
+      <line x1="440" y1="80" x2="440" y2="140" class="s-grid"/><line x1="500" y1="80" x2="500" y2="140" class="s-grid"/><line x1="410" y1="110" x2="530" y2="110" class="s-grid"/>
+      <line x1="410" y1="15" x2="410" y2="215" class="s-grid s-dash"/><line x1="530" y1="15" x2="530" y2="215" class="s-grid s-dash"/>
+      <circle cx="455" cy="136" r="5" class="s-ink"/><text x="446" y="156" class="s-sm">p</text>
+      <circle cx="425" cy="95" r="4" class="s-ink3"/><circle cx="512" cy="120" r="4" class="s-ink3"/><circle cx="488" cy="88" r="4" class="s-ink3"/>
+      <text x="470" y="230" class="s-mid s-sm">x = m</text>
+      <text x="540" y="96" class="s-acc s-sm">2δ × δ box:</text><text x="540" y="112" class="s-acc s-sm">8 squares,</text><text x="540" y="128" class="s-acc s-sm">≤ 1 point each</text>
+      <text x="400" y="30" class="s-ink3 s-end s-sm">m − δ</text><text x="540" y="30" class="s-ink3 s-sm">m + δ</text>
+    </svg>
+    <figcaption><b>Two pointers and a packing bound.</b> Left: as the edge pointer rotates, the antipodal vertex only moves forward. Right: in the strip, every candidate partner of \(p\) lies in a box of eight half-δ squares holding at most one point each. (y drawn upward in the right panel.)</figcaption>
+  </figure>
+  <pre><code>from operator import itemgetter
+
+def closest_pair(points):
+    """Smallest squared distance among &gt;= 2 points, exact. O(n log n)."""
+    pts = sorted(points)
+    by_y = itemgetter(1)
+
+    def solve(lo, hi):                          # returns (best, pts[lo:hi] sorted by y)
+        if hi - lo &lt;= 3:
+            best = min((dist2(pts[i], pts[j]) for i in range(lo, hi) for j in range(i + 1, hi)),
+                       default=float("inf"))
+            return best, sorted(pts[lo:hi], key=by_y)
+        mid = (lo + hi) // 2
+        mx = pts[mid][0]
+        b1, y1 = solve(lo, mid)
+        b2, y2 = solve(mid, hi)
+        best = min(b1, b2)
+        ys = sorted(y1 + y2, key=by_y)          # Timsort merges two sorted runs in linear time
+        strip = [p for p in ys if (p[0] - mx) ** 2 &lt; best]
+        for i, p in enumerate(strip):
+            for j in range(i + 1, len(strip)):
+                q = strip[j]
+                if (q[1] - p[1]) ** 2 &gt;= best:
+                    break                       # at most 7 iterations by the packing bound
+                d = dist2(p, q)
+                if d &lt; best:
+                    best = d
+        return best, ys
+
+    return solve(0, len(pts))[0]</code></pre>
+  <div class="box algo"><span class="tag">Algorithm · Python-friendly alternatives</span><ol>
+    <li><b>Sweep + ordered set</b>: sort by \(x\) and keep the points with \(x &gt; x_i - \delta\) in a structure ordered by \(y\), querying \(y \in (y_i - \delta, y_i + \delta)\). That is \(O(n \log n)\), but Python has no built-in balanced tree.</li>
+    <li><b>Randomised grid</b> (Rabin 1976; Khuller &amp; Matias 1995): shuffle the points. Keep the current \(\delta\) and a dict of grid cells of side \(\delta\). Each new point checks its 3×3 neighbourhood. If it finds a closer pair, \(\delta\) shrinks and the grid is rebuilt from the points so far.</li>
+    <li>By backward analysis, the \(i\)-th point changes \(\delta\) with probability \(\le 2/i\), so the expected rebuild cost is \(\sum_i i \cdot \tfrac{2}{i} = O(n)\). Expected \(O(n)\) total, using only dicts.</li>
+  </ol></div>
+
+  <h3>Minimum enclosing circle: Welzl, iteratively</h3>
+  <p>Shuffle the points, then grow the circle incrementally. If \(p_i\) is outside the current circle, it must be on the boundary of the new one, so restart with it fixed. Inside that, a point outside forces a second boundary point, and inside that a third, at which point the circle is the circumcircle. The probability that \(p_i\) lies on the boundary of the enclosing circle of the first \(i\) points is at most \(3/i\), because at most 3 points define it. So the expensive inner loops run rarely and the expected time is \(O(n)\). This <b>randomised incremental construction</b> pattern returns in <a href="p10.html#l135">L135</a>.</p>
+  <pre><code>import math
+import random
+
+def _circle2(a, b):
+    cx, cy = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+    return cx, cy, math.hypot(a[0] - cx, a[1] - cy)
+
+def _circle3(a, b, c):
+    bx, by, cx, cy = b[0] - a[0], b[1] - a[1], c[0] - a[0], c[1] - a[1]
+    d = 2 * (bx * cy - by * cx)
+    if d == 0:                                  # collinear (only via rounding): widest pair
+        return max((_circle2(p, q) for p, q in ((a, b), (a, c), (b, c))), key=lambda t: t[2])
+    b2, c2 = bx * bx + by * by, cx * cx + cy * cy
+    ux, uy = (cy * b2 - by * c2) / d, (bx * c2 - cx * b2) / d
+    return ux + a[0], uy + a[1], math.hypot(ux, uy)
+
+def min_enclosing_circle(points, eps=1e-9):
+    """(cx, cy, r). Expected O(n)."""
+    pts = list(points)
+    random.shuffle(pts)
+
+    def inside(c, p):
+        return math.hypot(p[0] - c[0], p[1] - c[1]) &lt;= c[2] + eps
+
+    c = (pts[0][0], pts[0][1], 0.0)
+    for i in range(1, len(pts)):
+        if inside(c, pts[i]):
+            continue
+        c = (pts[i][0], pts[i][1], 0.0)                 # p_i is on the boundary
+        for j in range(i):
+            if inside(c, pts[j]):
+                continue
+            c = _circle2(pts[i], pts[j])                # p_i and p_j are on the boundary
+            for k in range(j):
+                if not inside(c, pts[k]):
+                    c = _circle3(pts[i], pts[j], pts[k])
+    return c</code></pre>
+
+  <p><b>Related questions.</b> Maximum points on a <em>line</em> takes \(O(n^2)\) with normalised directions (<a href="#l128">L128</a>). On a <em>circle</em>: fix \(a, b\) and count the equal circumcentres of \(a, b, c\) as exact <code>Fraction</code> keys, \(O(n^3)\) in total. The <em>farthest point</em> from a query is always a hull vertex, so scan the hull.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Minimum Euclidean Distance</b>: print the <em>squared</em> distance, which is exact. <code>closest_pair</code> took about 3 s on \(2\cdot10^5\) random points in one CPython run, so use PyPy, or the randomised grid with cells <code>x // s</code>, where <code>s = math.isqrt(d2 - 1) + 1</code> (\(\lceil\sqrt{\delta^2}\rceil\)).</li>
+    <li><b>LeetCode 149</b>: max points on a line. <b>1266</b> ("alternative framing"): Chebyshev distance, \(\max(|dx|, |dy|)\), is the "distance" when diagonal moves are free. Rotating the axes by 45° (\(u = x + y\), \(v = x - y\)) turns it into a Manhattan problem.</li>
+    <li><b>Hull-diameter problems</b>: "farthest pair", "largest distance between two cities", in \(O(n \log n)\) via <code>diameter2</code>.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Calipers on a hull with collinear points</b>: the strict "farther" test stalls on equal distances, and the pointer can stop early. Build the strict hull.</li>
+      <li><b>Calipers on 1- or 2-point hulls</b>: the loop never runs or loops forever. Special-case them, as above.</li>
+      <li><b>Closest pair with duplicate points</b>: the answer is 0, and the strip with <code>&lt; best = 0</code> is empty, which is fine. Recursions that assume distinct \(x\) at the split are not.</li>
+      <li><b>Welzl without shuffling</b>: adversarial (sorted) inputs make it \(O(n^3)\).</li>
+      <li><b>Welzl's <code>inside</code> without EPS</b>: points that define the circle test as outside by rounding, which costs extra work or loops.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4><ol>
+    <li>CSES — Minimum Euclidean Distance.</li>
+    <li>LeetCode 149, 1266 (alternative framing); two hull-diameter problems.</li>
+    <li>Stress-test <code>closest_pair</code> against the \(O(n^2)\) brute force (random, duplicates, all on one vertical line), <code>diameter2</code> against all pairs, and <code>min_enclosing_circle</code> against "smallest of all circles on 2 or 3 points that contain everything".</li>
+    <li>Goal check: three hull-based algorithms implemented.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> CLRS (3rd ed.) §33.4 · Toussaint 1983, “Solving geometric problems with the rotating calipers” · Welzl 1991, “Smallest enclosing disks (balls and ellipsoids)” · Khuller &amp; Matias 1995, “A simple randomized sieve algorithm for the closest-pair problem” · de Berg et al., <i>Computational Geometry</i>, ch. 4 (randomised incremental methods)</p>
+</article>
+<!-- ================================================================ L133 -->
+<article class="day" id="l133">
+  <header class="day-head">
+    <span class="day-no">L133 · DAY 93</span>
+    <h2>Geometry VI: Sweep Line and Advanced Topics</h2>
+    <p class="day-meta"><span class="vid">60m video</span></p>
+  </header>
+
+  <p class="thesis">A sweep turns a 2D problem into a sorted sequence of 1D updates: move a vertical line left to right, stop only at events, and keep a structure describing the line's cross-section. The art is choosing that structure. For the union area of rectangles it is a segment tree whose nodes store "covered length", a design that needs no lazy propagation.</p>
+
+  <h3>The sweep paradigm, generalised</h3>
+  <p>As in <a href="p02.html#l34">L34</a>, <b>events</b> are the sorted \(x\)-coordinates where the cross-section changes, and the <b>status structure</b> is the cross-section. Choosing it is the whole design. For neighbour queries among objects ordered along the line, use a <b>sorted set</b>. For aggregates over fixed positions (covered length, depth, count), use a <b>segment tree over compressed coordinates</b> (<a href="p07.html#l106">L106</a>).</p>
+
+  <h3>Segment intersection by sweeping</h3>
+  <p><b>Shamos–Hoey</b> (1976) answers "any intersection?" in \(O(n \log n)\). Keep the segments crossing the sweep line ordered by \(y\). At the leftmost intersection the two segments are <em>adjacent</em> in the status, so it suffices to test a new segment against its neighbours on insertion, and the newly adjacent pair on deletion. <b>Bentley–Ottmann</b> (1979) reports all \(k\) intersections in \(O((n+k)\log n)\) by adding intersections as events. In Python the obstacle is the lack of a balanced tree. For \(n \le 2000\), the \(O(n^2)\) pair check of <a href="#l129">L129</a> is the honest choice.</p>
+
+  <h3>Area of the union of rectangles</h3>
+  <p>Events are \((x_1, +1)\) and \((x_2, -1)\) per rectangle, each carrying \([y_1, y_2)\). Between events the cross-section is fixed, so</p>
+  $$\text{Area} = \sum_{\text{events}} L(x_k) \cdot (x_{k+1} - x_k), \qquad L = \text{length of } y \text{ covered by at least one active interval}.$$
+  <p>The status supports "add or remove an interval" and "how much is covered?". Build a segment tree over the elementary intervals \([y_i, y_{i+1})\) of the compressed \(y\)-values.</p>
+  <div class="box thm"><span class="tag">Theorem · The covered-length node</span>
+    <p>Store at each node <code>cnt</code>, the number of active intervals that were added <em>exactly at this node</em> (as one of its canonical pieces), and <code>cov</code>, the covered length inside the node's range. Maintain
+    <code>cov = len(node)</code> if <code>cnt &gt; 0</code>, else the sum of the children's <code>cov</code> (0 at a leaf). Then <code>cov[root]</code> is the covered length \(L\), with no lazy propagation.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof</span>
+    <p>A point is covered within the node iff some interval added at the node (then <code>cnt &gt; 0</code>) or strictly below it (counted in a child's <code>cov</code>, by induction) covers it. Intervals added at ancestors are ignored, since such an ancestor overrides the whole subtree anyway. <b>No push-down</b>: each removal decomposes into exactly the same canonical nodes as its insertion, so <code>cnt</code> rises and falls at the same places and never goes negative. Each update touches \(O(\log n)\) nodes, for \(O(n \log n)\) in total.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Three rectangles, a vertical sweep line, and the covered length of its cross-section shown on a separate axis">
+      <rect x="40" y="60" width="180" height="90" class="s-acc" fill-opacity="0.18"/>
+      <rect x="140" y="110" width="180" height="90" class="s-info" fill-opacity="0.18"/>
+      <rect x="260" y="40" width="120" height="50" class="s-warn" fill-opacity="0.22"/>
+      <rect x="40" y="60" width="180" height="90" class="s-grid"/><rect x="140" y="110" width="180" height="90" class="s-grid"/><rect x="260" y="40" width="120" height="50" class="s-grid"/>
+      <line x1="200" y1="20" x2="200" y2="220" class="s-ln-mod"/>
+      <text x="200" y="14" class="s-mod s-mid s-sm">sweep x</text>
+      <line x1="200" y1="60" x2="200" y2="200" class="s-ln-bad"/>
+      <line x1="470" y1="20" x2="470" y2="220" class="s-grid"/>
+      <line x1="470" y1="60" x2="470" y2="200" class="s-ln-bad"/>
+      <line x1="460" y1="60" x2="480" y2="60" class="s-ln"/><line x1="460" y1="200" x2="480" y2="200" class="s-ln"/>
+      <text x="490" y="64" class="s-sm">y = 60</text><text x="490" y="204" class="s-sm">y = 200</text>
+      <text x="490" y="128" class="s-bad s-sm">L(x) = 140</text>
+      <text x="490" y="146" class="s-ink3 s-sm">two intervals overlap;</text>
+      <text x="490" y="162" class="s-ink3 s-sm">counted once</text>
+      <text x="40" y="236" class="s-ink3 s-sm">events at x = 40, 140, 220, 260, 320, 380</text>
+    </svg>
+    <figcaption><b>Area = Σ covered length × gap.</b> At this sweep position two rectangles are active and their \(y\)-intervals overlap. The segment tree reports the union length, not the sum, which is exactly what <code>cnt</code>/<code>cov</code> encodes.</figcaption>
+  </figure>
+  <pre><code>def union_area(rects):
+    """rects: (x1, y1, x2, y2) with x1 &lt; x2, y1 &lt; y2. Exact area of their union. O(n log n)."""
+    ys = sorted({y for r in rects for y in (r[1], r[3])})
+    m = len(ys) - 1                            # elementary intervals [ys[i], ys[i+1])
+    if m &lt;= 0:
+        return 0
+    idx = {y: i for i, y in enumerate(ys)}
+    cnt = [0] * (4 * m)
+    cov = [0] * (4 * m)
+
+    def update(node, lo, hi, l, r, v):        # node covers elementary intervals [lo, hi)
+        if r &lt;= lo or hi &lt;= l:
+            return
+        if l &lt;= lo and hi &lt;= r:
+            cnt[node] += v
+        else:
+            mid = (lo + hi) // 2
+            update(2 * node, lo, mid, l, r, v)
+            update(2 * node + 1, mid, hi, l, r, v)
+        if cnt[node]:
+            cov[node] = ys[hi] - ys[lo]
+        elif hi - lo == 1:
+            cov[node] = 0
+        else:
+            cov[node] = cov[2 * node] + cov[2 * node + 1]
+
+    events = []
+    for x1, y1, x2, y2 in rects:
+        events.append((x1, 1, idx[y1], idx[y2]))
+        events.append((x2, -1, idx[y1], idx[y2]))
+    events.sort()
+    area, prev = 0, events[0][0]
+    for x, v, l, r in events:
+        area += cov[1] * (x - prev)            # the cross-section was constant on [prev, x)
+        prev = x
+        update(1, 0, m, l, r, v)
+    return area</code></pre>
+  <p class="code-cap">Recursion depth is \(\log_2 m\). At \(n = 10^5\) (CSES) CPython is tight, so use an iterative tree or PyPy.</p>
+
+  <h3>Related sweeps</h3>
+  <p><b>Counting intersecting rectangle pairs</b>: sweep \(x\). When a rectangle starts, count the active \(y\)-intervals overlapping its own, as "starts before my end" minus "ends before my start", using BITs over compressed \(y\). <b>Skyline</b> (LeetCode 218): sweep \(x\) with a max-heap of active heights (lazy deletion), and emit a point whenever the maximum changes.</p>
+
+  <h3>Half-plane intersection</h3>
+  <div class="box algo"><span class="tag">Algorithm · Half-plane intersection, O(n log n)</span><ol>
+    <li>Each half-plane is a directed line, keeping its left side. Add a large bounding box.</li>
+    <li>Sort by angle. Among same-direction parallels keep the innermost.</li>
+    <li>Deque sweep: before appending \(h\), pop the back (then the front) while the last (first) two lines meet outside \(h\).</li>
+    <li>Clean up both ends against each other. With fewer than 3 lines it is empty; otherwise consecutive intersections are the vertices.</li>
+  </ol></div>
+  <p>Uses: feasible regions of 2-variable linear constraints (2D LP: evaluate the objective at the vertices), and the <b>kernel</b> of a polygon (the points that see all of it).</p>
+  <pre><code>import math
+from collections import deque
+
+def half_plane_intersection(hps, eps=1e-9):
+    """hps: (px, py, dx, dy) = the half-plane LEFT of the line p + t*d. Include a bounding box.
+    Returns the polygon's vertices counter-clockwise, or [] if empty."""
+    def out(h, p):                              # p strictly on the right of h
+        return h[2] * (p[1] - h[1]) - h[3] * (p[0] - h[0]) &lt; -eps
+
+    def inter(h, g):
+        t = ((g[0] - h[0]) * g[3] - (g[1] - h[1]) * g[2]) / (h[2] * g[3] - h[3] * g[2])
+        return h[0] + t * h[2], h[1] + t * h[3]
+
+    dq = deque()
+    for h in sorted(hps, key=lambda h: math.atan2(h[3], h[2])):
+        while len(dq) &gt;= 2 and out(h, inter(dq[-1], dq[-2])):
+            dq.pop()
+        while len(dq) &gt;= 2 and out(h, inter(dq[0], dq[1])):
+            dq.popleft()
+        if dq and abs(dq[-1][2] * h[3] - dq[-1][3] * h[2]) &lt; eps:      # parallel to the last line
+            if dq[-1][2] * h[2] + dq[-1][3] * h[3] &lt; 0:
+                return []                       # opposite directions met here: empty region
+            if out(h, (dq[-1][0], dq[-1][1])):
+                dq.pop()                        # same direction, h is tighter
+            else:
+                continue
+        dq.append(h)
+    while len(dq) &gt;= 3 and out(dq[0], inter(dq[-1], dq[-2])):
+        dq.pop()
+    while len(dq) &gt;= 3 and out(dq[-1], inter(dq[0], dq[1])):
+        dq.popleft()
+    if len(dq) &lt; 3:
+        return []
+    return [inter(dq[i], dq[(i + 1) % len(dq)]) for i in range(len(dq))]</code></pre>
+  <p class="code-cap">This follows the CP-Algorithms formulation, including the opposite-parallel shortcut, which is valid once the bounding box is present. Test it against the \(O(nk)\) brute force: repeatedly cut a big square by each half-plane (<a href="#l130">L130</a>).</p>
+
+  <h3>Minkowski sum of convex polygons</h3>
+  <p>\(P \oplus Q = \{p + q\}\) is convex, with the edges of \(P\) and \(Q\) merged by angle. Start both at the bottom-most vertex and merge the edge sequences by cross product: \(O(n + m)\). <b>Reduction:</b> \(P\) and \(Q\) intersect iff the origin lies in \(P \oplus (-Q)\), one point-in-convex query (<a href="#l130">L130</a>), and their distance is the origin's distance to it.</p>
+  <pre><code>def minkowski(P, Q):
+    """P, Q convex, counter-clockwise, no repeated vertices. Returns P + Q (may contain collinear points)."""
+    def from_bottom(R):
+        k = min(range(len(R)), key=lambda i: (R[i][1], R[i][0]))
+        return R[k:] + R[:k]
+    P, Q = from_bottom(P), from_bottom(Q)
+    P, Q = P + P[:2], Q + Q[:2]                 # sentinels for the edge after the last
+    i = j = 0
+    res = []
+    while i &lt; len(P) - 2 or j &lt; len(Q) - 2:
+        res.append((P[i][0] + Q[j][0], P[i][1] + Q[j][1]))
+        c = cross(sub(P[i + 1], P[i]), sub(Q[j + 1], Q[j]))
+        if c &gt;= 0 and i &lt; len(P) - 2:
+            i += 1
+        if c &lt;= 0 and j &lt; len(Q) - 2:
+            j += 1
+    return res</code></pre>
+
+  <h3>Delaunay triangulations and Voronoi diagrams</h3>
+  <p>The <b>Voronoi diagram</b> splits the plane into regions nearest to each site. Its dual, the <b>Delaunay triangulation</b>, has no site inside any triangle's circumcircle and maximises the minimum angle. Both have \(O(n)\) size and take \(O(n \log n)\) to build (e.g. Fortune's sweep). They matter because Euclidean MST edges, nearest neighbours and the closest pair are all Delaunay edges, which cuts \(O(n^2)\) candidates to \(O(n)\). <b>Code:</b> <code>scipy.spatial</code> (Qhull) locally, and a vetted library such as KACTL in contests. Hand-writing one under time pressure is risky.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Area of Rectangles</b>: <code>union_area</code> (iterative tree or PyPy for speed).</li>
+    <li><b>LeetCode 850</b>: <code>union_area</code> mod \(10^9+7\). <b>218</b>: the heap sweep. <b>391</b> (Perfect Rectangle): the areas must sum to the bounding box's area, and toggling every corner in a set must leave exactly the four bounding corners.</li>
+    <li><b>Convex-polygon intersection</b>: half-plane intersection of both edge sets, or the Minkowski test.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Pushing <code>cnt</code> down</b> like a lazy tag: it breaks the add/remove symmetry and gives wrong lengths.</li>
+      <li><b>Point compression instead of interval compression</b>: leaves are elementary <em>intervals</em> \([y_i, y_{i+1})\). Indexing them as points double-counts or loses lengths.</li>
+      <li><b>Half-planes without a bounding box</b>: unbounded regions make the deque logic return garbage.</li>
+      <li><b>Minkowski with clockwise input</b> or repeated vertices: the merge order inverts. Normalise first.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4><ol>
+    <li>CSES — Area of Rectangles.</li>
+    <li>LeetCode 850, 218, 391; one convex-polygon intersection task.</li>
+    <li>Stress-test <code>union_area</code> against unit-cell counting on small integer grids, <code>half_plane_intersection</code>'s area against repeated polygon cutting, and <code>minkowski</code> against the hull of all \(nm\) pairwise sums.</li>
+    <li>Goal check: viewer solves rectangle-union area unaided.</li>
+  </ol></div>
+  <p class="refs"><b>Read</b> de Berg et al., <i>Computational Geometry</i>, chs. 2 (segment intersection), 4 (half-planes), 7 (Voronoi), 9 (Delaunay), 13 (Minkowski sums) · Shamos &amp; Hoey 1976, “Geometric intersection problems” · Bentley &amp; Ottmann 1979 · CP-Algorithms, “Half-plane intersection - S&amp;I Algorithm in O(N log N)” and “Minkowski sum of convex polygons” · CLRS (3rd ed.) §33.2</p>
+</article>
+<!-- ================================================================ L134 -->
+<article class="day project" id="l134">
+  <header class="day-head">
+    <span class="day-no">L134 · DAY 94</span>
+    <h2>Contest Day 9 + Editorial (Geometry)</h2>
+    <p class="day-meta"><span class="vid">90m video</span><span class="tagx">contest day</span></p>
+  </header>
+
+  <p class="thesis">Geometry contests reward people who run a precision checklist before submitting and who look at a picture of the failing test. All five problems below use the Phase 9 library almost unchanged. What separates AC from WA is degenerate inputs, the collinear flag, and staying in integers.</p>
+
+  <h3>Contest setup</h3>
+  <ul>
+    <li><b>Format:</b> 5 problems, 2.5 hours, virtual and timed. Use <code>geometry.py</code> as it stands, with no edits during the contest.</li>
+    <li><b>Building the set:</b> one unseen problem per slot, rated roughly 1500–2000, from the Codeforces "geometry" tag (with "data structures" for P5) or unsolved CSES Geometry problems. The editorial's representative problems match the slots.</li>
+    <li><b>Rule for yourself:</b> before any geometry submission, run the precision checklist below. After any WA, plot the smallest failing case before touching the code.</li>
+  </ul>
+
+  <div class="box algo"><span class="tag">Algorithm · Pre-submit precision checklist</span>
+    <ol>
+      <li><b>Integers wherever possible.</b> Every predicate (orientation, inside, intersects, compare distances) is an integer sign. Did a float sneak in through <code>/</code>?</li>
+      <li><b>No unnecessary square roots.</b> Compare squared distances and squared lengths. Take <code>sqrt</code> only for the printed answer.</li>
+      <li><b>EPS only where forced</b>, and scaled to the magnitudes involved (<a href="#l128">L128</a>), never a reflexive \(10^{-9}\).</li>
+      <li><b><code>Fraction</code> when desperate</b>, on the handful of constructed points, not inside \(O(n^2)\) loops.</li>
+      <li><b>Degenerate inputs:</b> \(n \le 2\), duplicates, all points collinear, zero-length segments, vertical lines, touching rather than crossing.</li>
+      <li><b>Statement conventions:</b> are collinear hull points included? Is the boundary inside? Is the input clockwise? Are the closed or open rectangles the ones that count?</li>
+      <li><b>Output:</b> enough digits (<code>f"{x:.10f}"</code>), no <code>-0.0000000000</code>, and an exact integer where one is asked for (twice the area, the squared distance).</li>
+    </ol>
+  </div>
+
+  <h3>Editorial</h3>
+  <div class="box intuition"><span class="tag">P1 · Orientation and area</span>
+    <p><b>Problem.</b> A simple polygon's vertices are given in either orientation. Print whether they are clockwise, twice the area, and the number of interior lattice points. <b>Solution:</b> the sign of <code>area2</code> gives the orientation, <code>abs(area2)</code> is twice the area, and Pick's theorem gives \(I = (2A - B + 2)/2\) with \(B = \sum \gcd\) (<a href="#l130">L130</a>). \(O(n)\), all integer. <b>Trap:</b> printing \(A\) via float division loses the ".5" for odd \(2A\) at \(10^{18}\) scale. Print <code>a2 // 2</code> followed by ".5" when <code>a2</code> is odd.</p>
+  </div>
+  <div class="box intuition"><span class="tag">P2 · Segment intersection with degenerate cases</span>
+    <p><b>Problem.</b> \(n \le 2000\) segments with integer endpoints, some of zero length. Count the pairs sharing at least one point. <b>Solution:</b> <code>segments_intersect</code> over all \(\binom n2\) pairs (<a href="#l129">L129</a>). That is \(2\cdot10^6\) calls, which fits if <code>orient</code> is inlined. <b>Where WAs come from:</b> zero-length segments, collinear overlaps, and T-junctions. This problem is that test suite. Write the twelve asserts before the loop.</p>
+  </div>
+  <div class="box intuition"><span class="tag">P3 · Convex hull application</span>
+    <p><b>Problem.</b> \(n \le 2\cdot10^5\) points. Print the squared diameter and the length of the shortest fence enclosing all of them. <b>Solution:</b> build the strict hull (<a href="#l131">L131</a>). The fence length is the hull perimeter, a sum of <code>math.hypot</code> over its edges, and the diameter is <code>diameter2</code> by rotating calipers (<a href="#l132">L132</a>). \(O(n \log n)\). <b>Traps:</b> all points collinear (the fence is twice the segment length), a single distinct point (both answers 0), and a hull built with collinear points (calipers stall).</p>
+  </div>
+  <div class="box intuition"><span class="tag">P4 · Sweep line: maximum overlap</span>
+    <p><b>Problem.</b> \(n \le 10^5\) closed axis-parallel rectangles. What is the maximum number covering a single point? <b>Solution:</b> sweep \(x\). At each event add ±1 on the rectangle's \(y\)-range in a segment tree that supports range add and global max. As in <a href="#l133">L133</a> there is no push-down: <code>mx[node] = add[node] + max(children)</code>. <b>The closed-boundary detail:</b> compress \(y\) as <em>points</em> (not elementary intervals), use inclusive ranges, and process openings before closings at equal \(x\), so that rectangles that only touch still count as overlapping. Swap both decisions for open rectangles.</p>
+  </div>
+  <pre><code>def max_overlap(rects):
+    """Closed rectangles (x1, y1, x2, y2): the largest number covering a common point."""
+    ys = sorted({y for r in rects for y in (r[1], r[3])})
+    idx = {y: i for i, y in enumerate(ys)}
+    m = len(ys)
+    add = [0] * (4 * m)
+    mx = [0] * (4 * m)
+
+    def update(node, lo, hi, l, r, v):         # inclusive point indices
+        if r &lt; lo or hi &lt; l:
+            return
+        if l &lt;= lo and hi &lt;= r:
+            add[node] += v
+            mx[node] += v
+            return
+        mid = (lo + hi) // 2
+        update(2 * node, lo, mid, l, r, v)
+        update(2 * node + 1, mid + 1, hi, l, r, v)
+        mx[node] = add[node] + max(mx[2 * node], mx[2 * node + 1])
+
+    events = []
+    for x1, y1, x2, y2 in rects:
+        events.append((x1, 0, idx[y1], idx[y2]))   # 0 sorts first: open before close at equal x
+        events.append((x2, 1, idx[y1], idx[y2]))
+    events.sort()
+    best = 0
+    for x, kind, l, r in events:
+        update(1, 0, m - 1, l, r, -1 if kind else 1)
+        best = max(best, mx[1])
+    return best</code></pre>
+  <div class="box intuition"><span class="tag">P5 · Mixed geometry + data structure: points in rectangles</span>
+    <p><b>Problem.</b> \(n\) points and \(q\) closed query rectangles, both up to \(2\cdot10^5\). Count the points in each rectangle. <b>Solution:</b> offline sweep over \(x\) with a Fenwick tree over compressed \(y\) (<a href="p07.html#l104">L104</a>). Each query becomes two events: subtract the count in \([y_1, y_2]\) just <em>before</em> the points at \(x_1\) are inserted, and add it just <em>after</em> the points at \(x_2\). Encode the order at equal \(x\) as the second tuple field (0 = before, 1 = point, 2 = after). \(O((n + q)\log n)\), the same "sort the queries into a useful order" move as <a href="p05.html#l71">L71</a>.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Offline sweep: points, a query rectangle, a subtract event just before x1 and an add event just after x2, with a Fenwick tree over y">
+      <rect x="170" y="60" width="200" height="110" class="s-acc" fill-opacity="0.14"/>
+      <rect x="170" y="60" width="200" height="110" class="s-grid"/>
+      <line x1="168" y1="20" x2="168" y2="205" class="s-ln-bad s-dash"/><line x1="372" y1="20" x2="372" y2="205" class="s-ln-mod s-dash"/>
+      <text x="160" y="16" class="s-bad s-end s-sm">− count[y1, y2] before x1</text>
+      <text x="380" y="16" class="s-mod s-sm">+ count[y1, y2] after x2</text>
+      <circle cx="90" cy="100" r="4" class="s-ink3"/><circle cx="130" cy="150" r="4" class="s-ink3"/><circle cx="200" cy="90" r="4" class="s-ink"/>
+      <circle cx="250" cy="140" r="4" class="s-ink"/><circle cx="330" cy="70" r="4" class="s-ink"/><circle cx="300" cy="190" r="4" class="s-ink3"/>
+      <circle cx="420" cy="120" r="4" class="s-ink3"/><circle cx="470" cy="80" r="4" class="s-ink3"/><circle cx="370" cy="110" r="4" class="s-ink"/>
+      <text x="270" y="214" class="s-ink3 s-mid s-sm">answer = 4 (highlighted points, boundary included)</text>
+      <line x1="560" y1="40" x2="560" y2="190" class="s-ln-ink"/>
+      <text x="572" y="44" class="s-sm">BIT</text><text x="572" y="60" class="s-sm">over y</text>
+      <line x1="552" y1="60" x2="568" y2="60" class="s-ln"/><line x1="552" y1="170" x2="568" y2="170" class="s-ln"/>
+      <text x="548" y="64" class="s-end s-sm">y2</text><text x="548" y="174" class="s-end s-sm">y1</text>
+    </svg>
+    <figcaption><b>A 2D query as two 1D prefix queries.</b> When the sweep passes \(x_2\), the BIT holds every point with \(x \le x_2\). Subtracting what it held just before \(x_1\) leaves the points with \(x_1 \le x \le x_2\), and the BIT's range query restricts \(y\).</figcaption>
+  </figure>
+  <pre><code>from bisect import bisect_left, bisect_right
+
+def count_points_in_rects(points, rects):
+    """Closed rectangles (x1, y1, x2, y2). Offline: O((n + q) log n)."""
+    ys = sorted({y for _, y in points})
+    n = len(ys)
+    bit = [0] * (n + 1)
+
+    def insert(i):
+        i += 1
+        while i &lt;= n:
+            bit[i] += 1
+            i += i &amp; -i
+
+    def prefix(i):                               # inserted points with y-index &lt; i
+        s = 0
+        while i &gt; 0:
+            s += bit[i]
+            i -= i &amp; -i
+        return s
+
+    events = []
+    for qi, (x1, y1, x2, y2) in enumerate(rects):
+        lo, hi = bisect_left(ys, y1), bisect_right(ys, y2)
+        events.append((x1, 0, qi, lo, hi, -1))   # before the points at x1
+        events.append((x2, 2, qi, lo, hi, 1))    # after the points at x2
+    for x, y in points:
+        events.append((x, 1, bisect_left(ys, y), 0, 0, 0))
+    events.sort()
+    ans = [0] * len(rects)
+    for x, kind, a, lo, hi, sgn in events:
+        if kind == 1:
+            insert(a)
+        else:
+            ans[a] += sgn * (prefix(hi) - prefix(lo))
+    return ans</code></pre>
+
+  <h3>Seeing the bug: a plotting utility</h3>
+  <p>Geometry bugs are rarely visible in numbers and usually obvious in a picture: a hull that skips a point, a ray through a vertex, a rectangle edge counted twice. Shrink the failing case with the stress tester (<a href="p00.html#l10">L10</a>), then draw it. Keep this in a local <code>tools/</code> file, never in the submission.</p>
+  <pre><code>def plot(points=(), segments=(), polygons=(), fname="debug.png"):
+    """Local debugging only: save a picture of a small failing case."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for poly in polygons:
+        xs, ys = zip(*(list(poly) + [poly[0]]))
+        ax.plot(xs, ys, "-")
+    for a, b in segments:
+        ax.plot([a[0], b[0]], [a[1], b[1]], "-o", ms=3)
+    if points:
+        xs, ys = zip(*points)
+        ax.scatter(xs, ys, s=14, zorder=3)
+        for i, (x, y) in enumerate(points):
+            ax.annotate(str(i), (x, y), fontsize=7)
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.3)
+    fig.savefig(fname, dpi=120)
+    plt.close(fig)</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks · the geometry-bug postmortem</span>
+    <ul>
+      <li><b>Precision</b>: a float predicate, an EPS at the wrong scale, or a square root in a comparison.</li>
+      <li><b>Degeneracy</b>: an unhandled collinear, duplicate, zero-length or \(n \le 2\) input.</li>
+      <li><b>Convention</b>: the collinear flag, boundary inclusion, open vs closed, input orientation.</li>
+      <li><b>Compression</b>: points vs elementary intervals, the classic swap between P4 and <a href="#l133">L133</a>.</li>
+      <li><b>Event order</b> at equal \(x\): open/close and before/after, encoded by an explicit tuple field, not left to chance.</li>
+    </ul>
+    <p>Tag every WA with one of these five. After two contests the dominant category is obvious.</p>
+  </div>
+
+  <h3>Upsolve plan</h3>
+  <p>Upsolve every unsolved problem within 48 hours from the editorial idea alone. For each WA, add the minimal failing input to <code>tests/geometry/</code>, with its plot. Then work through the CSES Geometry section as homework, re-solving anything that took more than one submission after a three-day gap.</p>
+
+  <div class="practice"><h4>Practice</h4>
+    <ul class="deliverables">
+      <li>Virtual contest taken: 5 problems, 2.5 hours, one per editorial slot, rated 1500–2000.</li>
+      <li>Score recorded; target 3+/5.</li>
+      <li><code>cplib/geometry.py</code> contains: primitives (<code>cross</code>, <code>dot</code>, <code>orient</code>, <code>dist2</code>, <code>cmp_angle</code>), segment intersection, line intersection, distances, polygon area/centroid/point-in-polygon (both methods)/convex location/Pick, convex hull (strict and lenient), calipers diameter, closest pair, minimum enclosing circle, rectangle-union area, half-plane intersection, Minkowski sum.</li>
+      <li>Each routine stress-tested against a brute force, including adversarial degenerate inputs.</li>
+      <li>The plotting utility in <code>tools/</code>; the CSES Geometry section attempted as homework.</li>
+    </ul>
+    <p>Goal check: 3+/5 and a <code>geometry.py</code> library file.</p>
+  </div>
+  <p class="refs"><b>Read</b> Laaksonen, <i>Competitive Programmer's Handbook</i>, chs. “Geometry” and “Sweep line algorithms” · CP-Algorithms geometry section · KACTL geometry chapter (as a model of a mature library)</p>
+</article>
+
+<nav class="modnav">
+  <a href="p08.html"><small>Previous · Days 82–89</small>◂ Phase 8 — Number Theory, Combinatorics, Linear Algebra, FFT</a>
+  <a class="next" href="p10.html"><small>Next · Days 95–100</small>Phase 10 — Contest Craft, Meta-Skills, and the Capstone ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

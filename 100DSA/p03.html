@@ -1,0 +1,1891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 3 — Strings: From Basics to Suffix Structures · 100 Days of DSA &amp; Competitive Programming</title>
+<meta name="description" content="100 Days of DSA &amp; Competitive Programming, phase 3: Strings: From Basics to Suffix Structures (lessons 36–46).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m3" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of DSA</a>
+  <span class="meta">Phase 3 · Strings: From Basics to Suffix Structures · Days 25–32</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 3 · Strings: From Basics to Suffi…</h4>
+  <nav>
+    <a href="#l36"><span class="n">L36</span>String Fundamentals &amp; Python-Spec…</a>
+    <a href="#l37"><span class="n">L37</span>String Hashing &amp; Rabin–Karp</a>
+    <a href="#l38"><span class="n">L38</span>KMP and the Prefix Function</a>
+    <a href="#l39"><span class="n">L39</span>The Z-Function</a>
+    <a href="#l40"><span class="n">L40</span>Manacher&#x27;s Algorithm: All Palindr…</a>
+    <a href="#l41"><span class="n">L41</span>Trie</a>
+    <a href="#l42"><span class="n">L42</span>Binary Trie &amp; XOR Problems</a>
+    <a href="#l43"><span class="n">L43</span>Aho–Corasick: Multi-Pattern Match…</a>
+    <a href="#l44"><span class="n">L44</span>Suffix Array: Construction and LCP</a>
+    <a href="#l45"><span class="n">L45</span>Suffix Array Applications &amp; Autom…</a>
+    <a href="#l46"><span class="n">L46</span>Contest Day 3 + Editorial</a>
+  </nav>
+  <h4>All 142 lessons</h4>
+  <div class="spine" data-spine data-module="3" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p02.html">◂ Phase 2</a><a href="p04.html">Phase 4 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 3 · Days 25–32 · Lessons 36–46</p>
+<h1>Strings: From Basics to Suffix Structures</h1>
+<p class="dek">Phase 3 is the string toolkit, from Python's own string traps through polynomial hashing, KMP, the Z-function and Manacher to tries, Aho–Corasick and suffix arrays. Every algorithm comes with its correctness argument, an implementation measured honestly in CPython, and a stress test against slicing brute force, and together they form the <code>strings.py</code> file of your library. The automata built here return as DP states in Phase 6, and the LCP array meets range-minimum structures in Phase 7.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Handle strings in Python without hidden quadratic costs: <code>join</code> instead of repeated concatenation, bytes in fast I/O, 26-slot count arrays in hot loops.</li>
+    <li>Compare any two substrings in O(1) with a randomised polynomial hash, bound its collision probability, and combine it with binary search on the answer.</li>
+    <li>Derive the prefix function and the Z-function from their invariants, prove both linear, and use them for matching, borders, periods and compression.</li>
+    <li>Compute every maximal palindrome in O(n) with Manacher's algorithm and convert radii back to indices without off-by-one errors.</li>
+    <li>Build tries and binary tries in memory-safe flat arrays, and answer prefix-count and maximum-XOR queries with them.</li>
+    <li>Build an Aho–Corasick automaton by BFS, count all pattern occurrences in one pass, and run a DP over its states.</li>
+    <li>Build a suffix array and LCP array and solve distinct-substring, longest-repeat, longest-common-substring and k-th-substring problems with them.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>11</b> lessons</li><li><b>10h 05m</b> video</li><li>Days <b>25–32</b></li>
+</ul>
+
+<!-- ================================================================ L36 -->
+<article class="day" id="l36">
+  <header class="day-head">
+    <span class="day-no">L36 · DAY 25</span>
+    <h2>String Fundamentals &amp; Python-Specific Traps</h2>
+    <p class="day-meta"><span class="vid">45m video</span></p>
+  </header>
+
+  <p class="thesis">Python strings are immutable arrays of code points, so every "edit" builds a new string and every slice copies. Fast string code in Python means knowing which operations run in C over the whole string, building output once with <code>join</code>, and replacing dictionaries with 26-slot lists in the loops that run a million times.</p>
+
+  <h3>Immutability and the real cost of string operations</h3>
+  <p><code>s[i] = 'x'</code> is a <code>TypeError</code>. To edit, convert once to a list of characters (or a <code>bytearray</code> for ASCII), edit in place, and <code>''.join</code> at the end. Hashes are cached after the first <code>hash(s)</code>, which makes strings good dict keys, but a new slice is a new object with its hash recomputed.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>operation</th><th>cost</th><th>note</th></tr></thead>
+    <tbody>
+      <tr><td><code>s[i]</code>, <code>len(s)</code></td><td>\(O(1)\)</td><td></td></tr>
+      <tr><td><code>s[a:b]</code>, <code>s[::-1]</code></td><td>\(O(b-a)\)</td><td>always a copy; slicing in a loop is a hidden \(O(n)\)</td></tr>
+      <tr><td><code>s == t</code>, <code>s &lt; t</code></td><td>\(O(\text{LCP}+1)\)</td><td>stops at the first difference</td></tr>
+      <tr><td><code>t in s</code>, <code>s.find(t)</code>, <code>s.count(t)</code></td><td>\(O(n)\) typical</td><td>C search; worst case depends on the CPython version, so do not rely on it for adversarial patterns (use KMP, <a href="#l38">L38</a>)</td></tr>
+      <tr><td><code>split</code>, <code>strip</code>, <code>replace</code>, <code>join</code>, <code>lower</code></td><td>\(O(n)\)</td><td>one C pass</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>The quadratic concatenation trap</h3>
+  <p><code>r = r + c</code> copies <code>r</code>, so building a string of length \(n\) one piece at a time is \(\Theta(n^2)\) in principle. CPython hides this for the common case: when <code>r</code> has no other reference it resizes the string in place. The optimisation is fragile. Measured on CPython 3.12 for \(n = 2\cdot10^5\) one-character appends:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>pattern</th><th>time</th></tr></thead>
+    <tbody>
+      <tr><td><code>parts.append(c)</code> then <code>''.join(parts)</code></td><td class="num">0.03 s</td></tr>
+      <tr><td><code>io.StringIO().write(c)</code></td><td class="num">0.05 s</td></tr>
+      <tr><td><code>r += c</code> (sole reference: in-place)</td><td class="num">0.06 s</td></tr>
+      <tr><td><code>r += c</code> while another name also refers to <code>r</code></td><td class="num">1.63 s</td></tr>
+      <tr><td><code>r = c + r</code> (prepend: always copies)</td><td class="num">1.93 s</td></tr>
+    </tbody>
+  </table></div>
+  <p>PyPy has no such optimisation. The rule: collect pieces in a list and <code>join</code> once; for output, join all lines and write once.</p>
+
+  <h3><code>ord</code>, <code>chr</code>, frequency arrays, and bytes</h3>
+  <p>For lowercase letters, <code>ord(c) - 97</code> maps <code>'a'..'z'</code> to <code>0..25</code> and <code>chr(97 + k)</code> maps back. For counting a whole string once, a C loop wins: <code>Counter(s)</code> took 0.10 s on \(10^6\) letters and 26 calls of <code>s.count</code> took 0.05 s, against 0.21 s for a Python loop over a 26-list. The picture flips inside a hot loop that updates counts step by step and compares them (the sliding-window anagram check over \(10^6\) characters):</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>window counts as</th><th>time</th></tr></thead>
+    <tbody>
+      <tr><td>26-slot list, compared with <code>==</code></td><td class="num">0.7 s</td></tr>
+      <tr><td><code>dict</code> with <code>get</code>, deleting zero counts</td><td class="num">1.6 s</td></tr>
+      <tr><td><code>Counter</code>, compared via <code>+win == need</code></td><td class="num">9.9 s</td></tr>
+    </tbody>
+  </table></div>
+  <p>Lists index by a small int with no hashing, and comparing two 26-lists is one C call. <b>Bytes in fast I/O:</b> <code>sys.stdin.buffer.read().split()</code> yields <code>bytes</code>; iterating or indexing <code>bytes</code> gives ints directly (<code>b'abc'[0] == 97</code>), so the <code>ord</code> call disappears. Bytes compare lexicographically by byte value, exactly like ASCII <code>str</code>, and hash fine as keys. Decode only what you print, or write bytes to <code>sys.stdout.buffer</code>.</p>
+
+  <h3>Palindromes and anagrams</h3>
+  <p>A palindrome check is two pointers moving inward, or <code>t == t[::-1]</code>, which runs in C and is usually faster. <b>Almost palindrome</b> (delete at most one character): walk inward until the first mismatch \(s_i \ne s_j\); the answer is whether \(s[i+1..j]\) or \(s[i..j-1]\) is a palindrome.</p>
+  <div class="box thm"><span class="tag">Claim · two checks suffice</span>
+    <p>If deleting any one character makes \(s\) a palindrome, then deleting \(s_i\) or \(s_j\) does. The outer pairs already match and \(s_i \ne s_j\), so one of the two positions must change partner. Deleting some \(s_k\) with \(k &gt; j\) shifts the right side by one, and the matched outer characters then face their right neighbours; for the result to be a palindrome this forces \(s_j = s_{j+1} = \dots = s_k\), and deleting any character of a run gives the same string, so deleting \(s_j\) works too (symmetrically on the left). Two checks, \(O(n)\). (Verified exhaustively on all binary strings up to length 10.)</p>
+  </div>
+  <p><b>Anagrams</b> are strings with equal multisets of characters. Two canonical forms: <code>''.join(sorted(w))</code>, \(O(k\log k)\), and the count signature <code>tuple(cnt)</code>, \(O(k + 26)\). Grouping by a canonical form, so that equivalent objects collide on purpose, is the idea polynomial hashing turns into \(O(1)\) substring comparison in <a href="#l37">L37</a>.</p>
+  <pre><code>def almost_palindrome(s):                   # LeetCode 680
+    i, j = 0, len(s) - 1
+    while i &lt; j and s[i] == s[j]:
+        i += 1; j -= 1
+    if i &gt;= j:
+        return True
+    a, b = s[i + 1:j + 1], s[i:j]           # delete s[i] or s[j]
+    return a == a[::-1] or b == b[::-1]
+
+def group_anagrams(words):                  # LeetCode 49
+    groups = {}
+    for w in words:
+        cnt = [0] * 26
+        for x in w.encode():
+            cnt[x - 97] += 1
+        groups.setdefault(tuple(cnt), []).append(w)
+    return list(groups.values())
+
+def longest_pal_brute(s):                   # LeetCode 5, O(n^2): Manacher in L40
+    best = ""
+    for c in range(2 * len(s) - 1):         # centre between c//2 and (c+1)//2
+        l, r = c // 2, (c + 1) // 2
+        while l &gt;= 0 and r &lt; len(s) and s[l] == s[r]:
+            l -= 1; r += 1
+        if r - l - 1 &gt; len(best):
+            best = s[l + 1:r]
+    return best</code></pre>
+
+  <h3>Lexicographic order and the next permutation</h3>
+  <p>Python compares strings by code point, left to right; a proper prefix is smaller (<code>'ab' &lt; 'abc'</code>), and every uppercase letter precedes every lowercase one (<code>'Z' &lt; 'a'</code>). <code>min</code>/<code>max</code>/<code>sorted</code> on strings use this order; each comparison costs \(O(\text{LCP})\). The next permutation in this order is found from the right.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 700 230" role="img" aria-label="Next permutation of 1 3 5 4 2: pivot 3, swap with 4, reverse the suffix to get 1 4 2 3 5">
+      <defs><marker id="ah-l36" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="20" y="62" class="s-ink2 s-sm">1. pivot: last a[i] &lt; a[i+1]</text>
+      <rect x="250" y="40" width="44" height="34" rx="4" class="s-node"/><text x="272" y="62" class="s-mid">1</text>
+      <rect x="300" y="40" width="44" height="34" rx="4" class="s-node-mod"/><text x="322" y="62" class="s-mid">3</text>
+      <rect x="350" y="40" width="44" height="34" rx="4" class="s-node"/><text x="372" y="62" class="s-mid">5</text>
+      <rect x="400" y="40" width="44" height="34" rx="4" class="s-node"/><text x="422" y="62" class="s-mid">4</text>
+      <rect x="450" y="40" width="44" height="34" rx="4" class="s-node"/><text x="472" y="62" class="s-mid">2</text>
+      <line x1="350" y1="30" x2="494" y2="30" class="s-ln-warn"/><text x="422" y="22" class="s-warn s-mid s-sm">non-increasing suffix</text>
+      <path d="M322,76 Q372,100 420,78" class="s-ln-acc" marker-end="url(#ah-l36)"/><text x="512" y="62" class="s-acc s-sm">rightmost &gt; 3 is 4</text>
+      <text x="20" y="132" class="s-ink2 s-sm">2. swap a[i], a[j]</text>
+      <rect x="250" y="110" width="44" height="34" rx="4" class="s-node"/><text x="272" y="132" class="s-mid">1</text>
+      <rect x="300" y="110" width="44" height="34" rx="4" class="s-node-mod"/><text x="322" y="132" class="s-mid">4</text>
+      <rect x="350" y="110" width="44" height="34" rx="4" class="s-node"/><text x="372" y="132" class="s-mid">5</text>
+      <rect x="400" y="110" width="44" height="34" rx="4" class="s-node"/><text x="422" y="132" class="s-mid">3</text>
+      <rect x="450" y="110" width="44" height="34" rx="4" class="s-node"/><text x="472" y="132" class="s-mid">2</text>
+      <text x="512" y="132" class="s-ink2 s-sm">suffix still non-increasing</text>
+      <text x="20" y="202" class="s-ink2 s-sm">3. reverse a[i+1:]</text>
+      <rect x="250" y="180" width="44" height="34" rx="4" class="s-node"/><text x="272" y="202" class="s-mid">1</text>
+      <rect x="300" y="180" width="44" height="34" rx="4" class="s-node-mod"/><text x="322" y="202" class="s-mid">4</text>
+      <rect x="350" y="180" width="44" height="34" rx="4" class="s-node"/><text x="372" y="202" class="s-mid">2</text>
+      <rect x="400" y="180" width="44" height="34" rx="4" class="s-node"/><text x="422" y="202" class="s-mid">3</text>
+      <rect x="450" y="180" width="44" height="34" rx="4" class="s-node"/><text x="472" y="202" class="s-mid">5</text>
+      <text x="512" y="202" class="s-acc s-sm">smallest suffix</text>
+    </svg>
+    <figcaption><b>Next permutation of 1 3 5 4 2.</b> The suffix 5 4 2 is already its largest arrangement, so position 1 must grow, by the least possible amount (to 4), and what follows must become as small as possible (sorted). Result: 1 4 2 3 5.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · next permutation</span>
+    <ol>
+      <li>Find the largest \(i\) with \(a_i &lt; a_{i+1}\). If none, the sequence is the last permutation.</li>
+      <li>Find the largest \(j &gt; i\) with \(a_j &gt; a_i\) (the suffix is non-increasing, so this is the smallest larger value, rightmost among equals).</li>
+      <li>Swap \(a_i, a_j\); the suffix stays non-increasing; reverse it to make it ascending.</li>
+    </ol>
+    <p>\(O(n)\) per step. With <code>&gt;=</code>/<code>&lt;=</code> as below, duplicates are handled and each distinct arrangement appears once, so starting from the sorted sequence enumerates all distinct permutations in order.</p>
+  </div>
+  <pre><code>def next_permutation(a):                    # in place; False (and reset to sorted) after the last
+    i = len(a) - 2
+    while i &gt;= 0 and a[i] &gt;= a[i + 1]:
+        i -= 1
+    if i &lt; 0:
+        a.reverse()
+        return False
+    j = len(a) - 1
+    while a[j] &lt;= a[i]:
+        j -= 1
+    a[i], a[j] = a[j], a[i]
+    a[i + 1:] = a[:i:-1]                    # reversed suffix
+    return True
+
+def creating_strings(s):                    # CSES Creating Strings
+    a, out = sorted(s), []
+    while True:
+        out.append("".join(a))
+        if not next_permutation(a):
+            return out
+
+def palindrome_reorder(s):                  # CSES Palindrome Reorder, letters A-Z
+    cnt = [0] * 26
+    for x in s.encode():
+        cnt[x - 65] += 1
+    odd = [c for c in range(26) if cnt[c] % 2]
+    if len(odd) &gt; 1:
+        return "NO SOLUTION"
+    half = "".join(chr(65 + c) * (cnt[c] // 2) for c in range(26))
+    return half + (chr(65 + odd[0]) if odd else "") + half[::-1]</code></pre>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Palindrome Reorder.</b> At most one character may have an odd count (the number of odd counts has the parity of \(n\)); build half, middle, mirrored half.</li>
+    <li><b>CSES — Creating Strings.</b> At most 8 characters, so at most \(8! = 40320\) strings; print <code>len(out)</code> first, then one <code>join</code>.</li>
+    <li><b>LeetCode 125 — Valid Palindrome.</b> <code>t = [c.lower() for c in s if c.isalnum()]</code>; <code>t == t[::-1]</code>.</li>
+    <li><b>LeetCode 680 — Valid Palindrome II.</b> <code>almost_palindrome</code>.</li>
+    <li><b>LeetCode 242 — Valid Anagram.</b> Equal 26-count lists (or <code>Counter(s) == Counter(t)</code>; one-shot, so the C version is fine). <b>49 — Group Anagrams.</b> <code>group_anagrams</code>.</li>
+    <li><b>LeetCode 5 — Longest Palindromic Substring.</b> Expand around all \(2n - 1\) centres, \(O(n^2)\); Manacher makes it \(O(n)\) in <a href="#l40">L40</a>.</li>
+    <li><b>LeetCode 31 — Next Permutation.</b> <code>next_permutation</code>, which already wraps the last permutation back to the first.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Building output with <code>+=</code></b> while something else holds a reference (or on PyPy): quadratic. <code>join</code>.</li>
+      <li><b>Slicing inside a loop</b> (<code>s[i:]</code> per iteration, <code>s[:i] + s[i+1:]</code> per deletion): \(O(n^2)\) hidden in one line.</li>
+      <li><b>Mixing <code>bytes</code> and <code>str</code></b>: <code>b'a' == 'a'</code> is <code>False</code>, and <code>b'abc'[0]</code> is <code>97</code>, not <code>'a'</code>.</li>
+      <li><b>Trailing <code>'\r'</code></b> from Windows-style input when you use <code>readline()</code> without <code>strip()</code>; <code>split()</code> avoids it.</li>
+      <li><b>Assuming lowercase</b>: <code>ord(c) - 97</code> on <code>'A'</code> is \(-32\), a silent wrong index from the end of the list.</li>
+      <li><b>Case-insensitive comparison with <code>lower()</code></b> on non-ASCII text: use <code>casefold()</code>.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Palindrome Reorder; CSES — Creating Strings.</li>
+      <li>LeetCode 125, 680, 242, 49, 5 (brute force), 31.</li>
+      <li>Reproduce both benchmark tables on your machine, then repeat the sliding-window one under PyPy.</li>
+      <li><b>Goal:</b> fluent, non-quadratic string handling.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Python docs, “Text Sequence Type — str” and “Binary Sequence Types” · Knuth, <i>TAOCP</i> Vol. 4A, §7.2.1.2 (Algorithm L, lexicographic permutations) · Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 5 (generating permutations)</p>
+</article>
+<!-- ================================================================ L37 -->
+<article class="day" id="l37">
+  <header class="day-head">
+    <span class="day-no">L37 · DAY 26</span>
+    <h2>String Hashing (Polynomial Rolling Hash) &amp; Rabin–Karp</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">Map every substring to a number so that equal substrings get equal numbers and different ones almost surely don't. With prefix hashes, any substring's number takes O(1) to compute, so "are these two substrings equal?" becomes an O(1) question, and many string problems become binary search plus a set.</p>
+
+  <h3>The polynomial hash</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>For a string \(s_0 s_1 \dots s_{k-1}\) with character codes \(s_i \ge 1\), a base \(B\) and a prime modulus \(M\),
+    $$H(s) = \Big(\sum_{i=0}^{k-1} s_i\, B^{\,k-1-i}\Big) \bmod M,$$
+    computed left to right by Horner's rule: \(h \leftarrow (hB + s_i) \bmod M\). Use \(M = 2^{61}-1\) (a Mersenne prime) with \(B\) drawn at random from \([2^{20}, M-1)\) on every run; or two independent hashes with primes near \(10^9\) and compare the pair.</p>
+  </div>
+  <p>Python's integers never overflow, so the 122-bit product \(hB\) is exact, and <code>%</code> with a positive modulus always returns a value in \([0, M)\): the negative-remainder fix-up that C++ and Java need (<code>(x % M + M) % M</code>) is unnecessary. The cost is speed: building the prefix and power tables for \(10^6\) characters took about 2 s in CPython 3.12, so build each table once and inline the arithmetic in hot loops.</p>
+
+  <h3>Prefix hashes: any substring in O(1)</h3>
+  <p>Let \(h_i = H(s[0:i])\), so \(h_0 = 0\) and \(h_{i+1} = (h_i B + s_i) \bmod M\). Precompute \(p_k = B^k \bmod M\).</p>
+  <div class="box deriv"><span class="tag">Derivation · substring hash</span>
+    <p>Unrolling Horner's rule from position \(l\) to \(r\): \(h_r = h_l\, B^{\,r-l} + \sum_{i=l}^{r-1} s_i B^{\,r-1-i} \pmod M\). The sum is exactly \(H(s[l:r])\), so
+    $$H(s[l:r]) = \big(h_r - h_l\, p_{r-l}\big) \bmod M.$$
+    Shifting the prefix \(s[0:l]\) left by \(r - l\) digits in base \(B\) and subtracting it leaves the digits of \(s[l:r]\).</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 170" role="img" aria-label="Prefix hash h_r equals h_l shifted by r minus l digits plus the hash of s from l to r">
+      <rect x="40" y="40" width="200" height="36" class="s-node"/><text x="140" y="63" class="s-mid">s[0:l]</text>
+      <rect x="240" y="40" width="240" height="36" class="s-node-mod"/><text x="360" y="63" class="s-mid">s[l:r]</text>
+      <rect x="480" y="40" width="120" height="36" class="s-node"/><text x="540" y="63" class="s-ink3 s-mid">rest</text>
+      <text x="40" y="30" class="s-ink3 s-sm">0</text><text x="240" y="30" class="s-ink3 s-sm">l</text><text x="480" y="30" class="s-ink3 s-sm">r</text>
+      <line x1="40" y1="100" x2="480" y2="100" class="s-ln-acc"/><text x="260" y="118" class="s-acc s-mid">h_r: digits of s[0:r] in base B</text>
+      <line x1="40" y1="140" x2="240" y2="140" class="s-ln-ink"/><line x1="240" y1="140" x2="480" y2="140" class="s-ln s-dash"/>
+      <text x="40" y="160" class="s-sm">h_l · B^(r−l): the prefix, shifted past s[l:r]</text>
+      <text x="620" y="160" class="s-ink2 s-end s-sm">difference = H(s[l:r])</text>
+    </svg>
+    <figcaption><b>Why the subtraction works.</b> Multiplying \(h_l\) by \(B^{r-l}\) moves the prefix's digits to the positions they occupy inside \(h_r\); what remains is the substring's own hash, independent of where it sits in \(s\).</figcaption>
+  </figure>
+
+  <h3>Implementation</h3>
+  <pre><code>import random
+
+class Hashing:
+    """Prefix hashes mod 2^61 - 1. get(l, r) = hash of s[l:r]. Share `base` to compare two strings."""
+    M = (1 &lt;&lt; 61) - 1
+
+    def __init__(self, s, base=None):
+        M = self.M
+        self.B = B = base or random.randrange(1 &lt;&lt; 20, M - 1)
+        vals = s if isinstance(s, (bytes, bytearray, list)) else [ord(c) for c in s]
+        h, p = [0] * (len(vals) + 1), [1] * (len(vals) + 1)
+        for i, c in enumerate(vals):
+            h[i + 1] = (h[i] * B + c) % M
+            p[i + 1] = p[i] * B % M
+        self.h, self.p = h, p
+
+    def get(self, l, r):
+        return (self.h[r] - self.h[l] * self.p[r - l]) % self.M</code></pre>
+  <p class="code-cap">Double hashing: two <code>Hashing</code> objects with different moduli (say \(10^9+7\) and \(998244353\)) and independent bases, compared as a tuple. With \(2^{61}-1\) one hash is enough and half the work. Codes must be non-zero (or lengths compared separately), or <code>"\0"</code> and <code>"\0\0"</code> collide.</p>
+
+  <h3>Rabin–Karp</h3>
+  <p>To find pattern \(P\) (length \(m\)) in text \(T\) (length \(n\)), compare \(H(P)\) with the hash of every length-\(m\) window of \(T\). With prefix hashes each window is one <code>get</code>; the classic formulation updates a rolling hash instead: drop \(T_i \cdot B^{m-1}\), multiply by \(B\), add \(T_{i+m}\). Either way, \(O(n + m)\) arithmetic. Verifying candidate matches with a real comparison makes the answer certain, at \(O(m)\) per reported match.</p>
+  <pre><code>def rabin_karp(text, pat):                       # start positions; text and pat as bytes
+    n, m = len(text), len(pat)
+    if m &gt; n:
+        return []
+    H = Hashing(text)
+    target = Hashing(pat, H.B).get(0, m)
+    h, pm, M = H.h, H.p[m], H.M                  # inline get() in the hot loop
+    return [i for i in range(n - m + 1) if (h[i + m] - h[i] * pm) % M == target]</code></pre>
+
+  <h3>How often does it lie?</h3>
+  <div class="box thm"><span class="tag">Theorem · collision probability</span>
+    <p>Let \(u \ne v\) be strings of equal length \(k\) and \(B\) uniform on \(\mathbb{Z}_M\), \(M\) prime. Then \(H(u) = H(v)\) iff \(B\) is a root of the non-zero polynomial \(D(x) = \sum_i (u_i - v_i)\, x^{k-1-i}\) over the field \(\mathbb{Z}_M\), which has at most \(k-1\) roots. So
+    $$\Pr[H(u) = H(v)] \le \frac{k-1}{M}.$$
+    Over \(q\) comparisons, a union bound gives at most \(q(k-1)/M\). The bound holds for <em>every</em> pair of strings, including ones an adversary chose, provided the base is drawn after the input is fixed.</p>
+  </div>
+  <p>For "how many distinct substrings", every pair among \(N\) values must stay apart. Treating hashes as random, the birthday estimate is about \(N^2/(2M)\) collisions. With \(N = 2\cdot10^5\) and \(M \approx 10^9\) that is about 20: measured on random 26-letter strings, counting distinct length-20 windows with a single \(10^9+7\) hash lost 22, 14 and 20 of 199,981 over three seeds; with \(2^{61}-1\), none. A single \(10^9\) modulus is fine for one pattern search and wrong for set-based counting.</p>
+  <p><b>Anti-hash tests.</b> With a fixed, known base and modulus, a hacker constructs colliding strings offline (birthday or lattice-style searches). Hashing modulo \(2^{64}\) by letting integers overflow (the C++ shortcut) is broken for <em>every</em> base by strings built from the Thue–Morse sequence, a well-known Codeforces construction. Random base per run plus a large prime modulus defeats both: the test is fixed before your random choice.</p>
+
+  <h3>Applications</h3>
+  <ul>
+    <li><b>Distinct substrings of length \(k\):</b> <code>len({H.get(i, i+k) for i in range(n-k+1)})</code>, \(O(n)\).</li>
+    <li><b>Longest common substring</b> by <b>binary search on the answer + hash set</b>, one of the most reused CP patterns: if a common substring of length \(L\) exists, so does one of length \(L-1\) (its prefix), so the predicate is monotone. Each check hashes all windows of one string into a dict and probes with the other: \(O((n+m)\log \min(n,m))\).</li>
+    <li><b>Palindrome test in O(1):</b> hash \(s\) and its reverse with the same base; \(s[l:r]\) is a palindrome iff <code>F.get(l, r) == R.get(n - r, n - l)</code>.</li>
+    <li><b>2D matching:</b> hash each row's width-\(c\) windows, then hash each column of those row hashes with a second base; an \(r\times c\) block is then one number, \(O(nm)\) for all blocks.</li>
+  </ul>
+  <pre><code>def longest_common_substring(s, t):
+    B = random.randrange(1 &lt;&lt; 20, Hashing.M - 1)
+    hs, ht = Hashing(s, B), Hashing(t, B)
+    def common(L):                               # start in s of a common substring of length L, or -1
+        seen = {hs.get(i, i + L): i for i in range(len(s) - L + 1)}
+        for j in range(len(t) - L + 1):
+            i = seen.get(ht.get(j, j + L))
+            if i is not None:
+                return i
+        return -1
+    lo, hi = 0, min(len(s), len(t))              # invariant: length lo is achievable
+    while lo &lt; hi:
+        mid = (lo + hi + 1) // 2
+        if common(mid) &gt;= 0:
+            lo = mid
+        else:
+            hi = mid - 1
+    i = common(lo) if lo else 0
+    return s[i:i + lo]</code></pre>
+
+  <h3>Hashing vs KMP vs Z</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>need</th><th>hashing</th><th>KMP / Z (<a href="#l38">L38</a>, <a href="#l39">L39</a>)</th></tr></thead>
+    <tbody>
+      <tr><td>occurrences of one pattern</td><td>\(O(n+m)\), tiny error probability</td><td>\(O(n+m)\), deterministic</td></tr>
+      <tr><td>compare arbitrary substring pairs</td><td>\(O(1)\) per query</td><td>not directly</td></tr>
+      <tr><td>longest common / repeated substring</td><td>binary search + set, \(O(n\log n)\)</td><td>no; suffix array (<a href="#l45">L45</a>)</td></tr>
+      <tr><td>borders, periods</td><td>\(O(n)\) checks of \(O(1)\) each</td><td>direct from \(\pi\) or \(z\)</td></tr>
+      <tr><td>must be hack-proof with no randomness</td><td>no</td><td>yes</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — String Matching.</b> <code>len(rabin_karp(text, pat))</code>; with \(n = 10^6\) building the table is most of the time, so the KMP of <a href="#l38">L38</a> is a safer CPython submission.</li>
+    <li><b>CSES — Finding Borders.</b> Every \(k &lt; n\) with <code>H.get(0, k) == H.get(n - k, n)</code>.</li>
+    <li><b>CSES — Finding Periods.</b> \(p\) is a period iff \(s[0:n-p] = s[p:n]\): one hash comparison per \(p \in [1, n]\).</li>
+    <li><b>CSES — Longest Palindrome.</b> Odd and even lengths are separately monotone (strip one character from each end), so binary search each with the O(1) palindrome test: \(O(n\log n)\). Manacher (<a href="#l40">L40</a>) does it in \(O(n)\), which matters at \(n = 10^6\) in Python.</li>
+    <li><b>LeetCode 1044 — Longest Duplicate Substring.</b> Binary search \(L\); a window hash seen twice means a repeat; verify the two slices on a hit to rule out collisions.</li>
+    <li><b>LeetCode 187 — Repeated DNA Sequences.</b> Fixed length 10: a set of slices is already fast; the hashing version encodes A/C/G/T in 2 bits and rolls a 20-bit integer.</li>
+    <li><b>LeetCode 214 — Shortest Palindrome.</b> Find the longest palindromic prefix by growing a forward hash (\(f \leftarrow fB + c\)) and a reversed one (\(g \leftarrow g + cB^i\)) together; the answer prepends the reverse of the rest.</li>
+    <li><b>Codeforces hashing classics:</b> filter the problemset by the tags <code>hashing</code> and <code>strings</code> around rating 1500–1900 and solve three. Submit with a random base; with a fixed one, expect to be hacked.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Fixed base and modulus</b> on Codeforces: hacked. Random base each run.</li>
+      <li><b>Single \(10^9\) modulus with a set of many hashes</b>: birthday collisions, about \(N^2/2M\) (measured above).</li>
+      <li><b>Comparing hashes of different lengths</b>, or codes of 0: equal hashes for different strings.</li>
+      <li><b>Two strings hashed with different bases</b>: their hashes are unrelated. Pass the same <code>base</code>.</li>
+      <li><b>Off-by-one in <code>get</code></b>: it is half-open \([l, r)\); \(H(s[l..r])\) inclusive is <code>get(l, r + 1)</code>.</li>
+      <li><b>Python speed</b>: a method call per window costs as much as the arithmetic. Inline <code>h</code>, <code>p</code>, <code>M</code> into locals inside loops over \(10^6\) windows; for a single window length, skip the power table and use <code>pow(B, m, M)</code>.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — String Matching, Finding Borders, Finding Periods, Longest Palindrome.</li>
+      <li>LeetCode 1044, 187, 214.</li>
+      <li>Reproduce the collision experiment: distinct windows with \(10^9+7\) vs \(2^{61}-1\) on random strings.</li>
+      <li><b>Goal:</b> you treat substring equality as an O(1) operation.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Karp &amp; Rabin 1987, “Efficient randomized pattern-matching algorithms”, <i>IBM J. Res. Dev.</i> · CP-Algorithms, “String Hashing” and “Rabin-Karp Algorithm for string matching” · CLRS, 3rd ed., §32.2</p>
+</article>
+<!-- ================================================================ L38 -->
+<article class="day" id="l38">
+  <header class="day-head">
+    <span class="day-no">L38 · DAY 27</span>
+    <h2>KMP and the Prefix Function</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">When a match attempt fails after j matched characters, those j characters are known, so the next alignment worth trying is determined by the pattern alone: the longest proper prefix of what matched that is also a suffix of it. Precomputing that length for every prefix (the prefix function) gives deterministic O(n + m) matching and a family of border and period tricks.</p>
+
+  <h3>The naive matcher's worst case</h3>
+  <p>Trying every alignment and comparing left to right costs \(O(nm)\). The bad case is easy to build: text <code>"a" * n</code>, pattern <code>"a" * (m-1) + "b"</code>. Every alignment matches \(m-1\) characters before failing, so the matcher does about \((n-m+1)\,m\) comparisons: \(10^{9}\) for \(n = 10^6\), \(m = 1000\). It re-reads text characters it has already matched. KMP never moves backwards in the text.</p>
+
+  <h3>The prefix function</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A <b>border</b> of a string is a proper prefix that is also a suffix (<code>"ab"</code> is a border of <code>"abcab"</code>). The <b>prefix function</b> of \(s\) is \(\pi[i]\) = the length of the longest border of \(s[0..i]\), with \(\pi[0] = 0\). For <code>"aabaaab"</code>, \(\pi = [0, 1, 0, 1, 2, 2, 3]\).</p>
+  </div>
+  <div class="box thm"><span class="tag">Lemma · borders of borders</span>
+    <p>If \(u\) is the longest border of \(s\), then the borders of \(s\) are exactly \(u\) and the borders of \(u\). (A border \(v\) of \(s\) shorter than \(u\) is a prefix of \(u\), being a prefix of \(s\), and a suffix of \(u\), being a suffix of \(s\) that fits inside the suffix \(u\).) So all borders of \(s[0..i]\), longest first, have lengths \(\pi[i], \pi[\pi[i]-1], \pi[\pi[\pi[i]-1]-1], \dots, 0\).</p>
+  </div>
+
+  <h3>Computing π in O(n)</h3>
+  <p>A border of \(s[0..i]\) of length \(j+1 \ge 1\) is a border of \(s[0..i-1]\) of length \(j\) extended by one character with \(s[j] = s[i]\). So the candidates for \(\pi[i]\) are the borders of \(s[0..i-1]\), tried longest first, which the lemma lists: start with \(j = \pi[i-1]\); while \(j &gt; 0\) and \(s[i] \ne s[j]\), fall back to \(j = \pi[j-1]\); then extend if \(s[i] = s[j]\). The fallback is the failure-link idea: "where can I retry without re-reading?"</p>
+  <div class="box intuition"><span class="tag">Worked example · π of <code>aabaaab</code></span>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>\(i\)</th><th>\(s_i\)</th><th>start \(j = \pi[i-1]\)</th><th>fallbacks</th><th>\(\pi[i]\)</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td>a</td><td class="num">0</td><td>none; \(s_1 = s_0\)</td><td class="num">1</td></tr>
+        <tr><td class="num">2</td><td>b</td><td class="num">1</td><td>\(s_2 \ne s_1\): \(j \to \pi[0] = 0\); \(s_2 \ne s_0\)</td><td class="num">0</td></tr>
+        <tr><td class="num">3</td><td>a</td><td class="num">0</td><td>none; \(s_3 = s_0\)</td><td class="num">1</td></tr>
+        <tr><td class="num">4</td><td>a</td><td class="num">1</td><td>none; \(s_4 = s_1\)</td><td class="num">2</td></tr>
+        <tr><td class="num">5</td><td>a</td><td class="num">2</td><td>\(s_5 \ne s_2\) (b): \(j \to \pi[1] = 1\); \(s_5 = s_1\)</td><td class="num">2</td></tr>
+        <tr><td class="num">6</td><td>b</td><td class="num">2</td><td>none; \(s_6 = s_2\)</td><td class="num">3</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="box deriv"><span class="tag">Proof · linear time</span>
+    <p>Track \(j\) across the whole loop. Each iteration of the outer loop raises \(j\) by at most 1, so the total increase is at most \(n-1\). Each fallback strictly decreases \(j\), and \(j \ge 0\) always. Total decrease cannot exceed total increase, so there are at most \(n - 1\) fallbacks in all, and the algorithm makes at most \(2n\) character comparisons.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 200" role="img" aria-label="KMP states 0 to 7 for pattern aabaaab with forward edges and failure links">
+      <defs><marker id="ah-l38" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <circle cx="40" cy="70" r="16" class="s-node"/><text x="40" y="75" class="s-mid">0</text>
+      <circle cx="120" cy="70" r="16" class="s-node"/><text x="120" y="75" class="s-mid">1</text>
+      <circle cx="200" cy="70" r="16" class="s-node"/><text x="200" y="75" class="s-mid">2</text>
+      <circle cx="280" cy="70" r="16" class="s-node"/><text x="280" y="75" class="s-mid">3</text>
+      <circle cx="360" cy="70" r="16" class="s-node"/><text x="360" y="75" class="s-mid">4</text>
+      <circle cx="440" cy="70" r="16" class="s-node"/><text x="440" y="75" class="s-mid">5</text>
+      <circle cx="520" cy="70" r="16" class="s-node"/><text x="520" y="75" class="s-mid">6</text>
+      <circle cx="600" cy="70" r="16" class="s-node-mod"/><text x="600" y="75" class="s-mid">7</text>
+      <line x1="56" y1="70" x2="102" y2="70" class="s-ln-ink" marker-end="url(#ah-l38)"/><text x="80" y="60" class="s-mid">a</text>
+      <line x1="136" y1="70" x2="182" y2="70" class="s-ln-ink" marker-end="url(#ah-l38)"/><text x="160" y="60" class="s-mid">a</text>
+      <line x1="216" y1="70" x2="262" y2="70" class="s-ln-ink" marker-end="url(#ah-l38)"/><text x="240" y="60" class="s-mid">b</text>
+      <line x1="296" y1="70" x2="342" y2="70" class="s-ln-ink" marker-end="url(#ah-l38)"/><text x="320" y="60" class="s-mid">a</text>
+      <line x1="376" y1="70" x2="422" y2="70" class="s-ln-ink" marker-end="url(#ah-l38)"/><text x="400" y="60" class="s-mid">a</text>
+      <line x1="456" y1="70" x2="502" y2="70" class="s-ln-ink" marker-end="url(#ah-l38)"/><text x="480" y="60" class="s-mid">a</text>
+      <line x1="536" y1="70" x2="582" y2="70" class="s-ln-ink" marker-end="url(#ah-l38)"/><text x="560" y="60" class="s-mid">b</text>
+      <path d="M116,86 Q80,112 46,86" class="s-ln-acc s-dash" marker-end="url(#ah-l38)"/>
+      <path d="M196,86 Q160,112 126,86" class="s-ln-acc s-dash" marker-end="url(#ah-l38)"/>
+      <path d="M276,86 Q160,150 44,88" class="s-ln-acc s-dash" marker-end="url(#ah-l38)"/>
+      <path d="M356,86 Q240,150 124,88" class="s-ln-acc s-dash" marker-end="url(#ah-l38)"/>
+      <path d="M436,86 Q320,160 204,88" class="s-ln-acc s-dash" marker-end="url(#ah-l38)"/>
+      <path d="M516,86 Q360,180 206,86" class="s-ln-acc s-dash" marker-end="url(#ah-l38)"/>
+      <path d="M596,86 Q440,190 284,88" class="s-ln-acc s-dash" marker-end="url(#ah-l38)"/>
+      <text x="40" y="30" class="s-ink2 s-sm">state j = number of pattern characters matched</text>
+      <text x="460" y="30" class="s-acc s-sm">dashed: failure link j → π[j−1]</text>
+    </svg>
+    <figcaption><b>KMP as states.</b> In state \(j\), a matching character moves right; a mismatch follows the dashed link to \(\pi[j-1]\) and retries the same character. Links always point left, which is why the fallback loop terminates. Aho–Corasick (<a href="#l43">L43</a>) is this picture for a trie of many patterns.</figcaption>
+  </figure>
+
+  <h3>Implementation</h3>
+  <pre><code>def prefix_function(s):
+    pi = [0] * len(s)
+    for i in range(1, len(s)):
+        j = pi[i - 1]
+        while j and s[i] != s[j]:
+            j = pi[j - 1]                       # next shorter border of s[:i]
+        if s[i] == s[j]:
+            j += 1
+        pi[i] = j
+    return pi
+
+def kmp_search(text, pat):                      # all start positions, overlaps included
+    if not pat:
+        return list(range(len(text) + 1))
+    pi, m, j, out = prefix_function(pat), len(pat), 0, []
+    for i, c in enumerate(text):
+        while j and c != pat[j]:
+            j = pi[j - 1]
+        if c == pat[j]:
+            j += 1
+        if j == m:
+            out.append(i - m + 1)
+            j = pi[j - 1]
+    return out
+
+def kmp_automaton(pat, alphabet):
+    """aut[j][c] = state after reading alphabet[c] in state j, for j = 0..m."""
+    pi, m, A = prefix_function(pat), len(pat), len(alphabet)
+    code = [alphabet.index(ch) for ch in pat]
+    aut = [[0] * A for _ in range(m + 1)]
+    for j in range(m + 1):
+        for c in range(A):
+            if j &lt; m and code[j] == c:
+                aut[j][c] = j + 1
+            elif j:
+                aut[j][c] = aut[pi[j - 1]][c]   # row pi[j-1] &lt; j is already built
+    return aut</code></pre>
+  <p><b>Matching by concatenation.</b> The textbook alternative computes \(\pi\) of <code>pat + '#' + text</code> and reports positions where \(\pi = m\). It is correct only if <code>'#'</code> occurs in neither string: otherwise a border can run through a <code>'#'</code> inside the text, exceed \(m\), and hide a match. <code>kmp_search</code> avoids the question. On bytes, the safe separator is a value outside 0..255, so convert to a list of ints and use \(-1\).</p>
+  <p><b>The automaton.</b> Row \(j\) copies row \(\pi[j-1]\) except for the one forward edge, so the table costs \(O(m\Sigma)\) time and memory and makes every step \(O(1)\) with no fallback loop. Its real use is <b>DP over strings</b> (<a href="p06.html#l88">L88</a>): to count strings of length \(n\) that avoid a pattern, the state is the automaton node, and the pattern occurs iff the walk reaches state \(m\).</p>
+
+  <h3>Applications</h3>
+  <ul>
+    <li><b>Borders:</b> walk the chain \(\pi[n-1], \pi[\pi[n-1]-1], \dots\).</li>
+    <li><b>Periods:</b> \(p\) is a period (\(s_i = s_{i+p}\) wherever both exist) iff \(n - p\) is a border. The smallest period is \(p = n - \pi[n-1]\). If \(n \bmod p = 0\), \(s\) is \(s[0:p]\) repeated \(n/p\) times, its <b>compression</b>; otherwise no proper block length divides it, since any repetition block would be a period that divides \(n\), and every period that divides \(n\) is a multiple of \(p\).</li>
+    <li><b>Occurrences of every prefix:</b> each \(i\) ends an occurrence of \(s[0:\pi[i]]\) and of every shorter border; push counts down the chain from long to short.</li>
+  </ul>
+  <pre><code>def prefix_occurrences(s):                      # cnt[k] = occurrences of s[:k] in s
+    pi, n = prefix_function(s), len(s)
+    cnt = [0] * (n + 1)
+    for v in pi:
+        cnt[v] += 1
+    for k in range(n - 1, 0, -1):
+        cnt[pi[k - 1]] += cnt[k]
+    return [c + 1 for c in cnt]                 # +1: the prefix itself (cnt[0] unused)
+
+def required_substring(n, pat, MOD=10**9 + 7):  # CSES Required Substring (A-Z)
+    aut, m = kmp_automaton(pat, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"), len(pat)
+    dp = [1] + [0] * (m - 1)                    # strings so far that never completed pat
+    for _ in range(n):
+        nd = [0] * m
+        for j, v in enumerate(dp):
+            if v:
+                for nj in aut[j]:
+                    if nj &lt; m:
+                        nd[nj] += v
+        dp = [x % MOD for x in nd]
+    return (pow(26, n, MOD) - sum(dp)) % MOD</code></pre>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Finding Borders.</b> The chain, printed in increasing order.</li>
+    <li><b>CSES — Finding Periods.</b> \(n - b\) for every border \(b\) (longest first gives periods in increasing order), then \(n\).</li>
+    <li><b>CSES — Required Substring.</b> <code>required_substring</code>: \(O(n\,m\,26)\), about \(2.6\cdot10^6\) inner steps at the limits, fine in PyPy and borderline in CPython. Full treatment of DP on automata in <a href="p06.html#l88">L88</a>.</li>
+    <li><b>LeetCode 28 — Find the Index of the First Occurrence.</b> First element of <code>kmp_search</code>, or \(-1\).</li>
+    <li><b>LeetCode 214 — Shortest Palindrome.</b> \(\pi\) of <code>s + '#' + s[::-1]</code>: its last value is the longest palindromic prefix \(L\); answer <code>s[L:][::-1] + s</code>.</li>
+    <li><b>LeetCode 459 — Repeated Substring Pattern.</b> \(p = n - \pi[n-1]\); true iff \(p &lt; n\) and \(n \bmod p = 0\).</li>
+    <li><b>LeetCode 1392 — Longest Happy Prefix.</b> <code>s[:pi[-1]]</code>.</li>
+    <li><b>LeetCode 686 — Repeated String Match.</b> Repeat \(a\) \(k = \lceil |b|/|a| \rceil\) times; if \(b\) is not found in it or in \(k+1\) copies, it never will be.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b><code>j = pi[j]</code> instead of <code>pi[j - 1]</code></b>: an infinite loop or wrong borders. \(\pi\) is indexed by end position; length \(j\) ends at \(j-1\).</li>
+      <li><b>Separator inside the text</b> with the concatenation method: missed matches.</li>
+      <li><b>Forgetting <code>j = pi[j - 1]</code> after a full match</b>: index error on the next character, or overlapping matches lost.</li>
+      <li><b>Period without the divisibility check</b>: <code>"abcab"</code> has smallest period 3 but is not a power of <code>"abc"</code>.</li>
+      <li><b>Automaton for a large alphabet</b>: \(m \times \Sigma\) list rows exhaust memory; keep the fallback loop, or use dicts per row.</li>
+      <li><b>Strings vs lists</b>: indexing <code>str</code> in the hot loop is fine; converting the text to a list first doubles memory for nothing.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Finding Borders, Finding Periods, Required Substring.</li>
+      <li>LeetCode 28, 214, 459, 1392, 686.</li>
+      <li>Derive \(\pi\) of <code>"abacabab"</code> by hand with the fallback rule, then check with the code. Stress <code>kmp_search</code> against <code>str.find</code> in a loop.</li>
+      <li><b>Goal:</b> you derive \(\pi\) from the borders lemma rather than memorising the code.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Knuth, Morris &amp; Pratt 1977, “Fast pattern matching in strings”, <i>SIAM J. Comput.</i> · CP-Algorithms, “Prefix function. Knuth–Morris–Pratt algorithm” · CLRS, 3rd ed., §32.4 · Crochemore, Hancart &amp; Lecroq, <i>Algorithms on Strings</i></p>
+</article>
+<!-- ================================================================ L39 -->
+<article class="day" id="l39">
+  <header class="day-head">
+    <span class="day-no">L39 · DAY 27</span>
+    <h2>The Z-Function</h2>
+    <p class="day-meta"><span class="vid">45m video</span></p>
+  </header>
+
+  <p class="thesis">The Z-function records, for every position, how far the string from there agrees with its own beginning. It is computed in O(n) by remembering the furthest-reaching match seen so far and copying answers out of it, and it says the same things as the prefix function in a form that is often easier to use.</p>
+
+  <h3>Definition, and the naive version</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>For a string \(s\) of length \(n\), \(z[i]\) is the length of the longest common prefix of \(s\) and \(s[i:]\), for \(1 \le i &lt; n\); by convention \(z[0] = 0\). For <code>"aabxaab"</code>, \(z = [0, 1, 0, 0, 3, 1, 0]\). A <b>z-box</b> is a segment \([i, i + z[i])\): a copy of the prefix of that length.</p>
+  </div>
+  <p>Comparing from scratch at every \(i\) is \(O(n^2)\) on <code>"aaaa…"</code>. Keep it anyway: it is the reference implementation for the stress test.</p>
+
+  <h3>The [l, r) window and its three cases</h3>
+  <p>Maintain the z-box \([l, r)\) with the largest right end found so far, so \(s[l:r] = s[0:r-l]\). For a new \(i\):</p>
+  <ol>
+    <li><b>\(i \ge r\):</b> nothing is known; compare naively from \(s[0]\) and \(s[i]\).</li>
+    <li><b>\(i &lt; r\) and \(z[i-l] &lt; r - i\):</b> position \(i\) inside the box mirrors position \(i - l\) inside the prefix, and the match starting there ends strictly inside the mirrored region, followed by a known mismatch. So \(z[i] = z[i-l]\) exactly; no comparison succeeds.</li>
+    <li><b>\(i &lt; r\) and \(z[i-l] \ge r - i\):</b> the first \(r - i\) characters are known to match, but beyond \(r\) nothing is known. Start at \(z[i] = r - i\) and compare from \(s[r]\) onwards.</li>
+  </ol>
+  <figure class="fig">
+    <svg viewBox="0 0 660 220" role="img" aria-label="Z-box from l to r copies the prefix; position i mirrors position i minus l">
+      <defs><marker id="ah-l39" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="40" y="50" width="580" height="30" class="s-node"/>
+      <rect x="40" y="50" width="200" height="30" class="s-node-mod"/>
+      <rect x="360" y="50" width="200" height="30" class="s-node-mod"/>
+      <text x="40" y="42" class="s-ink3 s-sm">0</text><text x="240" y="42" class="s-ink3 s-sm s-mid">r−l</text>
+      <text x="360" y="42" class="s-ink3 s-sm s-mid">l</text><text x="560" y="42" class="s-ink3 s-sm s-mid">r</text>
+      <text x="140" y="70" class="s-mid s-sm">prefix s[0 : r−l]</text><text x="460" y="70" class="s-mid s-sm">z-box: same characters</text>
+      <line x1="110" y1="92" x2="110" y2="80" class="s-ln-ink"/><text x="110" y="104" class="s-mid s-sm">i − l</text>
+      <line x1="430" y1="92" x2="430" y2="80" class="s-ln-ink"/><text x="430" y="104" class="s-mid s-sm">i</text>
+      <path d="M110,108 Q270,140 428,108" class="s-ln s-dash" marker-end="url(#ah-l39)"/>
+      <text x="270" y="140" class="s-ink2 s-mid s-sm">mirror</text>
+      <line x1="110" y1="168" x2="170" y2="168" class="s-ln-acc"/><line x1="430" y1="168" x2="490" y2="168" class="s-ln-acc"/>
+      <text x="40" y="172" class="s-acc s-sm">case 2</text><text x="560" y="172" class="s-acc s-sm">z[i] = z[i−l]</text>
+      <line x1="110" y1="200" x2="250" y2="200" class="s-ln-warn"/><line x1="430" y1="200" x2="560" y2="200" class="s-ln-warn"/><line x1="560" y1="200" x2="610" y2="200" class="s-ln-warn s-dash"/>
+      <text x="40" y="204" class="s-warn s-sm">case 3</text><text x="614" y="204" class="s-warn s-sm">?</text>
+    </svg>
+    <figcaption><b>Copying out of the z-box.</b> Case 2: the mirrored match ends inside the box, so it is the answer. Case 3: it reaches the box's edge, so only \(r - i\) characters are guaranteed and comparison resumes at \(r\) (dashed).</figcaption>
+  </figure>
+  <div class="box thm"><span class="tag">Theorem · linear time</span>
+    <p><b>Invariants:</b> \(s[l:r] = s[0:r-l]\), and \(r\) is the maximum of \(j + z[j]\) over \(j &lt; i\). Each successful character comparison happens at a position \(\ge r\) (cases 1 and 3) and is followed by moving \(r\) at least that far, so successful comparisons number at most \(n\) in total; each \(i\) adds at most one failing comparison. Hence at most \(2n\) comparisons: \(O(n)\).</p>
+  </div>
+
+  <h3>Implementation, twice, and a stress test</h3>
+  <pre><code>import random
+
+def z_naive(s):                                 # O(n^2) reference
+    n = len(s); z = [0] * n
+    for i in range(1, n):
+        while i + z[i] &lt; n and s[z[i]] == s[i + z[i]]:
+            z[i] += 1
+    return z
+
+def z_function(s):
+    n = len(s); z = [0] * n
+    l = r = 0                                   # s[l:r] == s[:r-l], r maximal so far
+    for i in range(1, n):
+        if i &lt; r:
+            z[i] = min(r - i, z[i - l])         # cases 2 and 3
+        while i + z[i] &lt; n and s[z[i]] == s[i + z[i]]:
+            z[i] += 1                           # succeeds only beyond r
+        if i + z[i] &gt; r:
+            l, r = i, i + z[i]
+    return z
+
+for _ in range(10_000):
+    s = "".join(random.choice("ab") for _ in range(random.randint(1, 20)))
+    assert z_function(s) == z_naive(s), s</code></pre>
+  <p class="code-cap">A two-letter alphabet makes long matches common, which is where the window logic is exercised. Works unchanged on <code>bytes</code> and on lists of ints.</p>
+
+  <h3>Matching, and converting between Z and π</h3>
+  <p><b>Matching:</b> compute \(z\) of <code>pat + sep + text</code>; the pattern occurs at text position \(i - m - 1\) wherever \(z[i] = m\). As with KMP, <code>sep</code> must occur in neither string, which also guarantees \(z \le m\) in the text part.</p>
+  <p><b>π from Z:</b> a z-box \([i, i + z[i])\) says that for every \(j &lt; z[i]\) the prefix of length \(j + 1\) ends at \(i + j\), a border candidate. The longest border ending at a position comes from the leftmost box covering it, so process \(i\) in increasing order and fill each position once, from the right end of the box inwards, stopping at the first already-filled one: \(O(n)\). <b>Z from π:</b> the prefix function determines the string's equality structure, so rebuild a string with the same \(\pi\) (a fresh symbol where \(\pi[i] = 0\), otherwise a copy of \(t[\pi[i]-1]\)) and run <code>z_function</code> on it. Both conversions were checked exhaustively against direct computation on all 88,572 strings over <code>{a, b, c}</code> of length up to 10.</p>
+  <pre><code>def z_search(text, pat, sep="\0"):
+    m = len(pat)
+    return [i - m - 1 for i, v in enumerate(z_function(pat + sep + text)) if v == m]
+
+def z_to_pi(z):
+    pi = [0] * len(z)
+    for i in range(1, len(z)):
+        for j in range(z[i] - 1, -1, -1):
+            if pi[i + j]:
+                break                           # an earlier box already gave a longer border here
+            pi[i + j] = j + 1
+    return pi
+
+def pi_to_z(pi):
+    t = []
+    for i, v in enumerate(pi):
+        t.append(t[v - 1] if v else i)          # i is a symbol used nowhere else
+    return z_function(t)</code></pre>
+
+  <h3>Applications</h3>
+  <ul>
+    <li><b>Periodicity:</b> \(p\) is a period iff \(p + z[p] = n\); the smallest such \(p\) is the smallest period, and \(s\) compresses to \(s[0:p]\) repeated iff also \(n \bmod p = 0\).</li>
+    <li><b>Rotation:</b> \(t\) is a rotation of \(s\) iff \(|t| = |s|\) and \(t\) occurs in \(s + s\): every rotation is a length-\(n\) window of the doubled string.</li>
+    <li><b>Longest palindromic prefix:</b> in \(u = s + \text{sep} + \text{reverse}(s)\), a position \(j\) in the reversed half with \(j + z[j] = |u|\) marks a suffix of \(\text{reverse}(s)\) equal to a prefix of \(s\); such a suffix of length \(L\) is \(\text{reverse}(s[0:L])\), so \(s[0:L]\) is a palindrome. Take the largest.</li>
+    <li><b>Distinct substrings (intuition):</b> appending a character \(c\) to \(s\) creates new substrings exactly among the suffixes of \(s + c\); with \(t\) = reverse(\(s + c\)), the number of new ones is \(|t| - \max z_t\). Summed over all prefixes this counts distinct substrings in \(O(n^2)\), fine for \(n \le 5000\); suffix arrays do it in \(O(n\log n)\) (<a href="#l45">L45</a>).</li>
+  </ul>
+  <pre><code>def longest_pal_prefix(s):
+    u = s + "\0" + s[::-1]
+    z = z_function(u)
+    return max(z[j] for j in range(len(s) + 1, len(u)) if j + z[j] == len(u))</code></pre>
+  <p><b>When Z reads better than KMP.</b> Whenever the question is about LCPs with the pattern at each text position ("how much of the pattern matches starting here?"), \(z\) is the answer itself, while \(\pi\) talks about borders of prefixes and needs translating. The loop also has no nested fallback chain, so it is easier to write correctly under pressure. KMP keeps two advantages: it processes the text as a stream, and it yields an automaton (<a href="#l38">L38</a>).</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — String Matching.</b> <code>len(z_search(text, pat))</code>; the concatenation is \(2\cdot10^6\) long at the limits, so read with <code>sys.stdin.buffer</code> and keep everything as bytes (a separator byte of 0 cannot appear in the letters).</li>
+    <li><b>CSES — Finding Patterns.</b> Up to \(5\cdot10^5\) patterns against one text: one Z run per pattern costs \(O(k \cdot n)\) and times out. Use Z on small cases to build a brute force, then solve it with Aho–Corasick (<a href="#l43">L43</a>) or suffix-array search (<a href="#l45">L45</a>).</li>
+    <li><b>Codeforces 126B — Password.</b> The longest substring that is a prefix, a suffix, and occurs once more strictly inside. A prefix of length \(L\) is also a suffix iff \(i = n - L\) has \(i + z[i] = n\). Scan \(i = 1, 2, \dots\) keeping \(mx = \max z[j]\) over \(1 \le j &lt; i\): the first \(i\) with \(i + z[i] = n\) and \(mx \ge n - i\) gives the answer <code>s[i:]</code>, because an occurrence at some \(j &lt; i\) ends before position \(n\). \(O(n)\).</li>
+    <li><b>Codeforces 432D — Prefixes and Suffixes.</b> For each prefix that is also a suffix, count its occurrences: occurrences of the length-\(L\) prefix are the positions with \(z \ge L\) (plus position 0), so a counting array over \(z\) with a suffix sum answers every \(L\).</li>
+    <li><b>LeetCode 796 — Rotate String.</b> Equal lengths and <code>z_search(s + s, goal)</code> non-empty.</li>
+    <li><b>LeetCode 1392 — Longest Happy Prefix.</b> The smallest \(i \ge 1\) with \(i + z[i] = n\) gives the answer <code>s[i:]</code>.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Using a closed window</b> \([l, r]\) and half-open arithmetic: off-by-one in <code>r - i</code>. Pick \([l, r)\) and stay with it.</li>
+      <li><b>Forgetting the cap</b> <code>min(r - i, …)</code>: copies a value that runs past what is known. Wrong answers only on periodic strings.</li>
+      <li><b>Updating the box when \(i + z[i] \le r\)</b>: harmless for correctness here but a classic bug in variants that rely on \(l\).</li>
+      <li><b>\(z[0]\)</b>: some sources set it to \(n\). Know which convention your code uses before writing <code>v == m</code> tests.</li>
+      <li><b>Separator collisions</b>, as with KMP; on arbitrary bytes, convert to ints and use \(-1\).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>Write <code>z_function</code> from memory and run the stress test.</li>
+      <li>CSES — String Matching with Z; CSES — Finding Patterns: brute force now, full solution after <a href="#l43">L43</a>.</li>
+      <li>Codeforces 126B — Password; Codeforces 432D — Prefixes and Suffixes; LeetCode 796, 1392.</li>
+      <li>Convert \(\pi \to z\) and \(z \to \pi\) for <code>"abacaba"</code> by hand, then with the code.</li>
+      <li><b>Goal:</b> the Z-function implemented from memory, correctly.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> CP-Algorithms, “Z-function and its calculation” · Gusfield, <i>Algorithms on Strings, Trees, and Sequences</i>, ch. 1 (the Z algorithm) · Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 26 (string algorithms)</p>
+</article>
+<!-- ================================================================ L40 -->
+<article class="day" id="l40">
+  <header class="day-head">
+    <span class="day-no">L40 · DAY 28</span>
+    <h2>Manacher's Algorithm: All Palindromic Substrings in O(n)</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">Inside a long palindrome, the right half mirrors the left, so a palindrome centred on the right is (almost) a copy of one already found on the left. Manacher's algorithm reuses those copies and only compares characters beyond the furthest palindrome seen, which gives the maximal palindrome at every centre in O(n).</p>
+
+  <h3>The inventory, and the O(n²) baseline</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>question</th><th>from the radius array</th></tr></thead>
+    <tbody>
+      <tr><td>longest palindromic substring</td><td>largest radius</td></tr>
+      <tr><td>number of palindromic substrings</td><td>sum of (radius + 1) // 2</td></tr>
+      <tr><td>is \(s[l..r]\) a palindrome? (many queries)</td><td>one lookup, \(O(1)\)</td></tr>
+      <tr><td>longest palindromic prefix / suffix</td><td>centres whose palindrome touches an end</td></tr>
+      <tr><td>split into fewest / \(k\) palindromes</td><td>\(O(1)\) checks inside a DP (<a href="p06.html#l87">L87</a>)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Every palindrome has a centre: a character (odd length) or a gap between two characters (even length). Expanding outward from all \(2n-1\) centres finds every maximal palindrome in \(O(n^2)\) (<a href="#l36">L36</a>). Manacher keeps the expansion but skips the comparisons it can predict.</p>
+
+  <h3>One case instead of two: the <code>#a#b#</code> transform</h3>
+  <p>Interleave a separator: \(t = \#\,s_0\,\#\,s_1\,\#\cdots\#\,s_{n-1}\,\#\), length \(2n+1\). Every palindrome of \(s\), odd or even, is an odd-length palindrome of \(t\) centred at a letter (odd length in \(s\)) or at a separator (even length). Define \(p[i]\) as the largest radius with \(t[i-p..i+p]\) a palindrome. Then the maximal palindrome of \(s\) at that centre has length exactly \(p[i]\) and starts at index \((i - p[i])/2\). Comparisons at equal distance from a centre always pair letters with letters and separators with separators, so the separator may even occur in \(s\).</p>
+
+  <h3>Mirrors and the right boundary</h3>
+  <p>Keep the palindrome with the furthest right end found so far: centre \(c\), right end \(r = c + p[c]\), left end \(2c - r\). For a new centre \(i &lt; r\), its mirror is \(j = 2c - i\), whose \(p[j]\) is already known. Inside \([2c-r, r]\), \(t\) reads the same in both directions around \(c\), so the palindrome around \(j\) appears around \(i\) as well, as far as the box allows.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Manacher: the palindrome around c covers the box; the mirror j of i gives p of i in three cases">
+      <rect x="40" y="40" width="580" height="26" class="s-node"/>
+      <rect x="130" y="40" width="400" height="26" class="s-node-mod"/>
+      <line x1="330" y1="34" x2="330" y2="72" class="s-ln-ink"/><text x="330" y="28" class="s-mid">c</text>
+      <text x="130" y="28" class="s-ink3 s-mid s-sm">2c − r</text><text x="530" y="28" class="s-ink3 s-mid s-sm">r</text>
+      <line x1="230" y1="66" x2="230" y2="80" class="s-ln-ink"/><text x="230" y="92" class="s-mid">j</text>
+      <line x1="430" y1="66" x2="430" y2="80" class="s-ln-ink"/><text x="430" y="92" class="s-mid">i</text>
+      <text x="40" y="114" class="s-acc s-sm">p[j] &lt; r − i</text>
+      <line x1="200" y1="124" x2="260" y2="124" class="s-ln-acc"/><line x1="400" y1="130" x2="460" y2="130" class="s-ln-acc"/>
+      <text x="560" y="128" class="s-acc s-sm">p[i] = p[j]</text>
+      <text x="40" y="154" class="s-warn s-sm">p[j] &gt; r − i</text>
+      <line x1="100" y1="164" x2="360" y2="164" class="s-ln-warn"/><line x1="330" y1="170" x2="530" y2="170" class="s-ln-warn"/>
+      <text x="560" y="168" class="s-warn s-sm">p[i] = r − i</text>
+      <text x="40" y="194" class="s-mod s-sm">p[j] = r − i</text>
+      <line x1="130" y1="204" x2="330" y2="204" class="s-ln-mod"/><line x1="330" y1="210" x2="530" y2="210" class="s-ln-mod"/><line x1="530" y1="210" x2="590" y2="210" class="s-ln-mod s-dash"/>
+      <text x="560" y="226" class="s-mod s-sm">expand past r</text>
+    </svg>
+    <figcaption><b>The three cases.</b> Top: \(j\)'s palindrome lies strictly inside the box, so \(i\)'s is an exact copy. Middle: \(j\)'s sticks out on the left, and \(i\)'s stops exactly at \(r\). Bottom: \(j\)'s touches the left edge; \(i\)'s is at least \(r - i\) and must be extended by comparison.</figcaption>
+  </figure>
+  <div class="box thm"><span class="tag">Theorem · the three cases</span>
+    <p>Let \(i &lt; r\), \(j = 2c - i\), \(L = 2c - r\). Mirror symmetry inside the box gives \(p[i] \ge \min(p[j], r - i)\).</p>
+    <p><b>If \(p[j] &lt; r - i\), then \(p[i] = p[j]\):</b> the mismatching pair just outside \(j\)'s palindrome lies inside the box, so its mirror image, just outside \(i\)'s, mismatches too.</p>
+    <p><b>If \(p[j] &gt; r - i\), then \(p[i] = r - i\).</b> By maximality of \(c\)'s palindrome, \(t[L-1] \ne t[r+1]\). Since \(p[j] &gt; j - L\), the palindrome at \(j\) covers \(L-1\), so \(t[L-1] = t[2j - L + 1]\); that position lies inside the box, and reflecting it through \(c\) gives \(t[2j-L+1] = t[2i - r - 1]\). If \(p[i]\) exceeded \(r - i\), then \(t[2i-r-1] = t[r+1]\), so \(t[L-1] = t[r+1]\): contradiction.</p>
+    <p><b>If \(p[j] = r - i\):</b> nothing is known beyond \(r\); compare from there.</p>
+  </div>
+  <div class="box deriv"><span class="tag">Proof · linear time</span>
+    <p>Every successful comparison in the expansion loop extends \(i\)'s palindrome past the current \(r\) (in case 1 of the expansion, \(i \ge r\); in the last case it starts at \(r\)), after which \(r\) is moved to the new end. So successful comparisons number at most \(|t| = 2n+1\) overall, and each centre adds at most one failed comparison: \(O(n)\).</p>
+  </div>
+
+  <h3>Implementation and outputs</h3>
+  <pre><code>def manacher(s):
+    """p[i] for t = sep, s0, sep, s1, ..., sep: radius in t = length of that palindrome in s."""
+    t = [None] * (2 * len(s) + 1)
+    t[1::2] = s                                 # works for str, bytes and lists
+    n, p = len(t), [0] * len(t)
+    c = r = 0                                   # rightmost palindrome: centre c, right end r
+    for i in range(n):
+        if i &lt; r:
+            p[i] = min(r - i, p[2 * c - i])     # mirror
+        a, b = i - p[i] - 1, i + p[i] + 1
+        while a &gt;= 0 and b &lt; n and t[a] == t[b]:
+            a -= 1; b += 1
+        p[i] = b - i - 1
+        if b - 1 &gt; r:
+            c, r = i, b - 1
+    return p
+
+def longest_palindrome(s):                      # LeetCode 5, CSES Longest Palindrome
+    p = manacher(s)
+    i = max(range(len(p)), key=p.__getitem__)
+    start = (i - p[i]) // 2
+    return s[start:start + p[i]]
+
+def count_palindromes(s):                       # LeetCode 647
+    return sum((v + 1) // 2 for v in manacher(s))
+
+def palindrome_checker(s):                      # O(1) test for s[l..r], inclusive
+    p = manacher(s)
+    return lambda l, r: p[l + r + 1] &gt;= r - l + 1</code></pre>
+  <ul>
+    <li><b>Back to indices of \(s\).</b> Letters sit at odd positions of \(t\); a maximal palindrome of \(t\) begins and ends on separators, so it starts at \(t\)-index \(i - p[i]\) (even), and its first letter is \(s[(i - p[i])/2]\). The centre of \(s[l..r]\) is \(t\)-index \(l + r + 1\), which is the checker's formula.</li>
+    <li><b>Counting.</b> A centre with radius \(p\) holds palindromes of lengths \(p, p-2, \dots\) down to 1 or 2: \(\lceil p/2 \rceil\) of them. In the two-array formulation (\(d_1\) odd, \(d_2\) even, counting palindromes per centre) this is the familiar "sum of the radii", \(\sum d_1 + \sum d_2\).</li>
+    <li><b>Palindromic prefix / suffix.</b> Centres with \(i = p[i]\) give palindromes starting at 0; centres with \(i + p[i] = 2n\) give palindromes ending at \(n - 1\).</li>
+    <li><b>Splitting into palindromes.</b> With the \(O(1)\) checker, the DP "fewest palindromic pieces of \(s[0:i]\)" is \(O(n^2)\) instead of \(O(n^3)\) (<a href="p06.html#l87">L87</a>).</li>
+  </ul>
+
+  <h3>Manacher vs hashing vs the eertree</h3>
+  <p><b>Hashing</b> (<a href="#l37">L37</a>) finds the maximal radius at each centre by binary search: \(O(n\log n)\), slower, but it adapts to variants such as "palindromes with at most one mismatch". <b>Manacher</b> is exact, deterministic, \(O(n)\), and answers every centre at once. The <b>eertree</b> (palindromic tree) stores each <em>distinct</em> palindrome as a node (a string of length \(n\) has at most \(n\) distinct non-empty palindromic substrings), supports appending characters online, and counts occurrences per palindrome; reach for it when the question is about distinct palindromes.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Longest Palindrome.</b> <code>longest_palindrome</code> on the input bytes. \(|t| = 2\cdot10^6 + 1\), so this is about as heavy as Python string loops get: measured 2.2 s on random letters and 4.4 s on one repeated letter (CPython 3.12) against a 1 s limit. Submit with PyPy.</li>
+    <li><b>LeetCode 5 — Longest Palindromic Substring</b> and <b>647 — Palindromic Substrings.</b> The two helpers.</li>
+    <li><b>LeetCode 214 — Shortest Palindrome.</b> The longest palindromic prefix is \(\max p[i]\) over centres with \(i = p[i]\); prepend the reverse of the rest.</li>
+    <li><b>LeetCode 1745 — Palindrome Partitioning IV.</b> Three non-empty palindromes: for each cut pair \((i, j)\) test three pieces with the checker; \(O(n^2)\) with \(O(1)\) tests, fine for \(n \le 2000\).</li>
+    <li><b>Codeforces 17E — Palisection.</b> Count pairs of palindromic substrings that overlap: all pairs minus disjoint pairs. From the radii, difference arrays give the number of palindromes starting at and ending at each position; disjoint pairs are \(\sum_k (\text{ending at} \le k)(\text{starting at } k+1)\).</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Off-by-one converting back</b>: start \((i - p[i])/2\), length \(p[i]\). Check on <code>"a"</code>, <code>"aa"</code>, <code>"aba"</code> before anything else.</li>
+      <li><b>Using the mirror without the cap</b> <code>min(r - i, …)</code>: overclaims in case 2.</li>
+      <li><b>Updating \(c, r\) when the palindrome does not reach further right</b>: harmless here, fatal in variants that use \(c\).</li>
+      <li><b>Counting with \(\sum p[i]\)</b> instead of \(\sum \lceil p[i]/2 \rceil\): each palindrome counted about twice.</li>
+      <li><b>String building</b>: <code>'#'.join(s)</code> on a \(10^6\) string is fine; concatenating in a loop is not (<a href="#l36">L36</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Longest Palindrome.</li>
+      <li>LeetCode 5, 647, 214, 1745; Codeforces 17E — Palisection.</li>
+      <li>Stress <code>manacher</code> against expand-around-centre on 10,000 random strings over <code>{a, b}</code>.</li>
+      <li><b>Goal:</b> an O(n) palindrome structure, fully understood: you can prove case 2 on a whiteboard.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Manacher 1975, “A new linear-time ‘on-line’ algorithm for finding the smallest initial palindrome of a string”, <i>J. ACM</i> · CP-Algorithms, “Manacher's Algorithm - Finding all sub-palindromes in O(N)” · Rubinchik &amp; Shur, “EERTREE: An efficient data structure for processing palindromes in strings” (<i>European J. Combinatorics</i>, 2018)</p>
+</article>
+<!-- ================================================================ L41 -->
+<article class="day" id="l41">
+  <header class="day-head">
+    <span class="day-no">L41 · DAY 29</span>
+    <h2>Trie (Prefix Tree)</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">A trie stores a set of strings as a tree of shared prefixes, so every question about prefixes ("how many words start with this?", "which stored word is a prefix of this text?") costs time proportional to the query's length, not the dictionary's size. In Python the hard part is not the idea but the memory layout.</p>
+
+  <h3>Why a trie beats a hash set for prefixes</h3>
+  <p>A <code>set</code> of words answers "is \(w\) present?" in \(O(|w|)\) (hashing reads the whole string), but "how many words start with \(p\)?" needs either a scan of the set or every prefix of every word stored separately (\(\sum |w|^2/2\) characters). A trie stores each distinct prefix once, as a node; the path from the root spells it.</p>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A <b>trie</b> over alphabet \(\Sigma\) is a rooted tree whose edges carry characters, with distinct characters on the edges leaving any node. Node \(v\) represents the string read along the root-to-\(v\) path. Each node stores <code>pass[v]</code> (words in the set having this prefix) and <code>end[v]</code> (words equal to it). Insert, search and prefix count are \(O(|w|)\); the number of nodes is at most \(1 + \sum |w|\).</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 245" role="img" aria-label="Trie of to, tea, ted, ten, in, inn with pass counts at each node">
+      <line x1="320" y1="30" x2="200" y2="90" class="s-ln"/><line x1="320" y1="30" x2="460" y2="90" class="s-ln"/>
+      <line x1="200" y1="90" x2="130" y2="150" class="s-ln"/><line x1="200" y1="90" x2="270" y2="150" class="s-ln"/>
+      <line x1="270" y1="150" x2="190" y2="210" class="s-ln"/><line x1="270" y1="150" x2="270" y2="210" class="s-ln"/><line x1="270" y1="150" x2="350" y2="210" class="s-ln"/>
+      <line x1="460" y1="90" x2="460" y2="150" class="s-ln"/><line x1="460" y1="150" x2="460" y2="210" class="s-ln"/>
+      <text x="252" y="54" class="s-acc s-mid">t</text><text x="398" y="54" class="s-acc s-mid">i</text>
+      <text x="155" y="116" class="s-acc s-mid">o</text><text x="246" y="116" class="s-acc s-mid">e</text>
+      <text x="220" y="178" class="s-acc s-mid">a</text><text x="262" y="184" class="s-acc s-mid">d</text><text x="320" y="178" class="s-acc s-mid">n</text>
+      <text x="472" y="124" class="s-acc s-mid">n</text><text x="472" y="184" class="s-acc s-mid">n</text>
+      <circle cx="320" cy="30" r="15" class="s-node"/><text x="320" y="35" class="s-mid s-sm">6</text>
+      <circle cx="200" cy="90" r="15" class="s-node"/><text x="200" y="95" class="s-mid s-sm">4</text>
+      <circle cx="460" cy="90" r="15" class="s-node"/><text x="460" y="95" class="s-mid s-sm">2</text>
+      <circle cx="130" cy="150" r="15" class="s-node-mod"/><text x="130" y="155" class="s-mid s-sm">1</text>
+      <circle cx="270" cy="150" r="15" class="s-node"/><text x="270" y="155" class="s-mid s-sm">3</text>
+      <circle cx="460" cy="150" r="15" class="s-node-mod"/><text x="460" y="155" class="s-mid s-sm">2</text>
+      <circle cx="190" cy="210" r="15" class="s-node-mod"/><text x="190" y="215" class="s-mid s-sm">1</text>
+      <circle cx="270" cy="210" r="15" class="s-node-mod"/><text x="270" y="215" class="s-mid s-sm">1</text>
+      <circle cx="350" cy="210" r="15" class="s-node-mod"/><text x="350" y="215" class="s-mid s-sm">1</text>
+      <circle cx="460" cy="210" r="15" class="s-node-mod"/><text x="460" y="215" class="s-mid s-sm">1</text>
+      <text x="130" y="182" class="s-ink3 s-mid s-sm">to</text><text x="190" y="242" class="s-ink3 s-mid s-sm">tea</text><text x="270" y="242" class="s-ink3 s-mid s-sm">ted</text>
+      <text x="350" y="242" class="s-ink3 s-mid s-sm">ten</text><text x="500" y="155" class="s-ink3 s-sm">in</text><text x="500" y="215" class="s-ink3 s-sm">inn</text>
+      <text x="560" y="40" class="s-ink2 s-sm s-mid">number = pass count</text>
+      <text x="560" y="58" class="s-ink2 s-sm s-mid">shaded = a word ends</text>
+    </svg>
+    <figcaption><b>Six words, ten nodes.</b> "How many words start with <code>te</code>?" walks two edges and reads 3. A word can end at an internal node (<code>in</code>), which is why "ends here" must be stored separately from "has children".</figcaption>
+  </figure>
+
+  <h3>Node design in Python, measured</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>layout</th><th>memory per node</th><th>build, \(10^6\) chars</th><th>use when</th></tr></thead>
+    <tbody>
+      <tr><td>object with a <code>dict</code> of children</td><td class="num">≈ 225 B (sparse; more when bushy)</td><td class="num">1.55 s</td><td>readable code, large or unknown alphabets</td></tr>
+      <tr><td>list of 26-slot lists</td><td class="num">≈ 300 B</td><td class="num">–</td><td>never: worst of both</td></tr>
+      <tr><td>one flat <code>list</code>, <code>nxt[26*v + c]</code></td><td class="num">≈ 210 B + child ints</td><td class="num">0.40 s</td><td>fast, if memory allows</td></tr>
+      <tr><td>flat <code>array('i')</code>, preallocated</td><td class="num">104 B</td><td class="num">0.63 s</td><td>\(10^6\) nodes under 256 MB</td></tr>
+    </tbody>
+  </table></div>
+  <p class="code-cap">Random 10-letter words, CPython 3.12, <code>tracemalloc</code> for memory. At \(10^6\) nodes, everything except the <code>array</code> needs over 200 MB. Preallocate \(1 + \sum|w|\) nodes so nothing grows inside the loop.</p>
+
+  <h3>Operations: insert, search, prefix count, delete</h3>
+  <p>Insert walks the word, creating missing children and incrementing <code>pass</code> along the path, then increments <code>end</code>. Search and <code>startsWith</code> walk without creating; a missing child means "absent". <b>Delete by counting:</b> walk the path decrementing <code>pass</code> and finally <code>end</code>. Nodes are never removed, so a node can exist with <code>pass = 0</code>; every query must test counts, not existence. This avoids the fiddly bottom-up node removal and keeps the flat arrays valid.</p>
+  <pre><code>class TrieNode:
+    __slots__ = ("ch", "pass_", "end")
+    def __init__(self):
+        self.ch, self.pass_, self.end = {}, 0, 0
+
+class Trie:                                     # LeetCode 208, plus counts and delete
+    def __init__(self):
+        self.root = TrieNode()
+
+    def insert(self, w):
+        v = self.root
+        v.pass_ += 1
+        for c in w:
+            nx = v.ch.get(c)
+            if nx is None:
+                nx = v.ch[c] = TrieNode()
+            v = nx
+            v.pass_ += 1
+        v.end += 1
+
+    def _walk(self, w):
+        v = self.root
+        for c in w:
+            v = v.ch.get(c)
+            if v is None:
+                return None
+        return v
+
+    def search(self, w):
+        v = self._walk(w); return bool(v and v.end)
+    def starts_with(self, p):
+        v = self._walk(p); return bool(v and v.pass_)
+    def count_prefix(self, p):
+        v = self._walk(p); return v.pass_ if v else 0
+
+    def delete(self, w):                        # w must be present
+        v = self.root
+        v.pass_ -= 1
+        for c in w:
+            v = v.ch[c]
+            v.pass_ -= 1
+        v.end -= 1</code></pre>
+  <p>The CP version keeps the same logic in flat arrays, with node 0 as the root and 0 also meaning "no child" (no edge can point back to the root):</p>
+  <pre><code>from array import array
+
+class FlatTrie:                                 # lowercase bytes words
+    def __init__(self, max_nodes):              # max_nodes = 1 + total length
+        self.nxt = array("i", bytes(4 * 26 * max_nodes))
+        self.cnt = array("i", bytes(4 * max_nodes))
+        self.end = array("i", bytes(4 * max_nodes))
+        self.size = 1
+
+    def insert(self, w):
+        nxt, cnt, v = self.nxt, self.cnt, 0
+        cnt[0] += 1
+        for x in w:
+            k = 26 * v + x - 97
+            if not nxt[k]:
+                nxt[k] = self.size
+                self.size += 1
+            v = nxt[k]
+            cnt[v] += 1
+        self.end[v] += 1
+
+    def count_prefix(self, p):
+        nxt, v = self.nxt, 0
+        for x in p:
+            v = nxt[26 * v + x - 97]
+            if not v:
+                return 0
+        return self.cnt[v]</code></pre>
+
+  <h3>Autocomplete, LCP of a set, and trie + search</h3>
+  <ul>
+    <li><b>Longest common prefix of all words:</b> walk from the root while the node has exactly one child and no word ends there.</li>
+    <li><b>Autocomplete:</b> walk to the prefix's node, then DFS in alphabetical order for the first \(k\) ends. If the dictionary is static, a sorted list plus <code>bisect_left(words, prefix)</code> and a look at the next \(k\) entries is shorter and fast in Python.</li>
+    <li><b>Word break:</b> <code>ok[i]</code> = "\(s[0:i]\) splits into words". From each <code>ok[i]</code>, walk the trie along \(s[i:]\); every end node reached at \(j\) sets <code>ok[j+1]</code>. The trie stops the walk as soon as no word continues, unlike testing every slice against a set.</li>
+    <li><b>Word search II:</b> DFS over the grid while descending the trie; a path whose letters leave the trie is abandoned at once. Remove a word's end mark when found and prune empty branches on the way back, or the same dead branches are explored again from every cell.</li>
+  </ul>
+  <pre><code>def find_words(board, words):                   # LeetCode 212
+    root = {}
+    for w in words:
+        node = root
+        for c in w:
+            node = node.setdefault(c, {})
+        node["$"] = w
+    R, C, out = len(board), len(board[0]), []
+    def dfs(i, j, parent):
+        c = board[i][j]
+        node = parent[c]
+        w = node.pop("$", None)
+        if w:
+            out.append(w)
+        board[i][j] = "#"                       # visited on this path
+        for a, b in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
+            if 0 &lt;= a &lt; R and 0 &lt;= b &lt; C and board[a][b] in node:
+                dfs(a, b, node)
+        board[i][j] = c
+        if not node:
+            del parent[c]                       # prune: nothing left below
+    for i in range(R):
+        for j in range(C):
+            if board[i][j] in root:
+                dfs(i, j, root)
+    return out</code></pre>
+
+  <h3>Compressed tries, and where suffix trees come from</h3>
+  <p>Chains of single-child nodes waste memory. A <b>compressed trie</b> (radix tree, Patricia trie) merges each chain into one edge labelled with a string; with \(k\) words it has at most \(2k\) nodes. Insert all suffixes of a text into a compressed trie and you have its <b>suffix tree</b>: every substring is a path from the root. Suffix arrays (<a href="#l44">L44</a>) carry the same information in two integer arrays, which is why they replaced suffix trees in contest practice (<a href="#l45">L45</a>).</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Word Combinations.</b> Count ways to split \(s\) (\(n \le 5000\)) into dictionary words (total length up to \(10^6\)): <code>ways[j+1] += ways[i]</code> for every word \(s[i..j]\) found by a trie walk from \(i\). The dictionary needs <code>FlatTrie</code>; the DP is \(O(n \cdot \text{max word length})\), up to \(2.5\cdot10^7\) steps, so use PyPy.</li>
+    <li><b>LeetCode 208 — Implement Trie.</b> <code>Trie</code>. <b>211 — Add and Search Word.</b> A <code>'.'</code> branches into every child: DFS over the trie.</li>
+    <li><b>LeetCode 212 — Word Search II.</b> <code>find_words</code>. <b>139 — Word Break.</b> The <code>ok[]</code> DP above.</li>
+    <li><b>LeetCode 648 — Replace Words.</b> For each word, walk the roots' trie and stop at the first end node.</li>
+    <li><b>LeetCode 720 — Longest Word in Dictionary.</b> DFS from the root only through end nodes; the deepest node reached (ties: smallest letters first) is the answer.</li>
+    <li><b>LeetCode 1268 — Search Suggestions System.</b> Sorted list + <code>bisect</code>, three candidates per prefix; or store the three smallest words at each trie node while inserting in sorted order.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>MemoryError / MLE</b> with object or list-of-lists nodes at \(10^6\) nodes: the table above. Preallocate an <code>array</code>.</li>
+      <li><b>Testing node existence after deletions</b>: deleted words leave nodes with zero counts. Test <code>pass</code> and <code>end</code>.</li>
+      <li><b><code>setdefault(c, TrieNode())</code></b> constructs a node on every call, even when the child exists: slow. Use <code>get</code> then assign.</li>
+      <li><b>Forgetting that words end at internal nodes</b> (<code>"in"</code> under <code>"inn"</code>): <code>end</code> is not "is a leaf".</li>
+      <li><b>Word Search II without pruning</b>: TLE on boards full of the same letter.</li>
+      <li><b>Recursive DFS over a deep trie</b> (a \(10^5\)-letter word): <code>RecursionError</code>. Iterate with a stack.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Word Combinations.</li>
+      <li>LeetCode 208, 211, 212, 139, 648, 720, 1268.</li>
+      <li>Stress <code>Trie</code> and <code>FlatTrie</code> against a <code>Counter</code> of prefixes on random insert/delete/count sequences.</li>
+      <li><b>Goal:</b> two trie implementations, and knowing when to use which.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Fredkin 1960, “Trie memory”, <i>CACM</i> · Morrison 1968, “PATRICIA”, <i>J. ACM</i> · Sedgewick &amp; Wayne, <i>Algorithms</i>, 4th ed., §5.2 (tries) · CP-Algorithms, “Aho-Corasick algorithm” (its first section builds the trie)</p>
+</article>
+<!-- ================================================================ L42 -->
+<article class="day" id="l42">
+  <header class="day-head">
+    <span class="day-no">L42 · DAY 29</span>
+    <h2>Binary Trie &amp; XOR Problems</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">Store numbers as bit strings, most significant bit first, in a trie with two children per node. Because one high bit outweighs all lower bits together, "maximise x XOR y" becomes a walk from the root choosing the opposite bit whenever it exists, and counting or ranking XOR values becomes the same walk with subtree counts.</p>
+
+  <h3>XOR is bitwise independent</h3>
+  <p>Bit \(b\) of \(x \oplus y\) depends only on bit \(b\) of \(x\) and of \(y\): no carries. XOR is associative and commutative, \(x \oplus x = 0\) and \(x \oplus 0 = x\). The consequence for arrays: with prefix XORs \(P_0 = 0\), \(P_{i+1} = P_i \oplus a_i\), the XOR of \(a[l..r]\) is \(P_{r+1} \oplus P_l\). <b>Every subarray question becomes a question about pairs of prefixes</b>, as with prefix sums (<a href="p01.html#l12">L12</a>).</p>
+
+  <h3>The binary trie</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>Fix a width \(B\) with all values \(&lt; 2^B\) (30 bits for values up to \(10^9\), 60 for \(10^{18}\)). Insert \(x\) by walking from the root through bits \(B-1, \dots, 0\), going to child 0 or 1. Every number is a root-to-leaf path of length exactly \(B\), and each node stores <code>cnt</code>, the number of stored values below it, so a multiset with deletions is just <code>cnt -= 1</code> along the path. Every operation is \(O(B)\); the trie has at most \(1 + nB\) nodes.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 690 245" role="img" aria-label="Binary trie of 2, 5, 7 with 3 bits; the query 3 follows opposite bits to 5, giving 6">
+      <line x1="320" y1="30" x2="200" y2="90" class="s-ln"/><line x1="320" y1="30" x2="440" y2="90" class="s-ln-acc"/>
+      <line x1="200" y1="90" x2="200" y2="150" class="s-ln"/>
+      <line x1="440" y1="90" x2="380" y2="150" class="s-ln-acc"/><line x1="440" y1="90" x2="500" y2="150" class="s-ln"/>
+      <line x1="200" y1="150" x2="200" y2="210" class="s-ln"/><line x1="380" y1="150" x2="380" y2="210" class="s-ln-acc"/><line x1="500" y1="150" x2="500" y2="210" class="s-ln"/>
+      <text x="252" y="54" class="s-mid s-sm">0</text><text x="388" y="54" class="s-acc s-mid s-sm">1</text>
+      <text x="212" y="124" class="s-mid s-sm">1</text><text x="400" y="118" class="s-acc s-mid s-sm">0</text><text x="482" y="118" class="s-mid s-sm">1</text>
+      <text x="212" y="184" class="s-mid s-sm">0</text><text x="392" y="184" class="s-acc s-mid s-sm">1</text><text x="512" y="184" class="s-mid s-sm">1</text>
+      <circle cx="320" cy="30" r="14" class="s-node"/><text x="320" y="35" class="s-mid s-sm">3</text>
+      <circle cx="200" cy="90" r="14" class="s-node"/><text x="200" y="95" class="s-mid s-sm">1</text>
+      <circle cx="440" cy="90" r="14" class="s-node"/><text x="440" y="95" class="s-mid s-sm">2</text>
+      <circle cx="200" cy="150" r="14" class="s-node"/><text x="200" y="155" class="s-mid s-sm">1</text>
+      <circle cx="380" cy="150" r="14" class="s-node"/><text x="380" y="155" class="s-mid s-sm">1</text>
+      <circle cx="500" cy="150" r="14" class="s-node"/><text x="500" y="155" class="s-mid s-sm">1</text>
+      <circle cx="200" cy="210" r="14" class="s-node-mod"/><text x="200" y="215" class="s-mid s-sm">1</text>
+      <circle cx="380" cy="210" r="14" class="s-node-mod"/><text x="380" y="215" class="s-mid s-sm">1</text>
+      <circle cx="500" cy="210" r="14" class="s-node-mod"/><text x="500" y="215" class="s-mid s-sm">1</text>
+      <text x="200" y="240" class="s-ink3 s-mid s-sm">2 = 010</text><text x="380" y="240" class="s-acc s-mid s-sm">5 = 101</text><text x="500" y="240" class="s-ink3 s-mid s-sm">7 = 111</text>
+      <text x="560" y="40" class="s-ink2 s-sm">query x = 3 = 011</text>
+      <text x="560" y="60" class="s-ink2 s-sm">bit 2: want 1 ✓</text>
+      <text x="560" y="80" class="s-ink2 s-sm">bit 1: want 0 ✓</text>
+      <text x="560" y="100" class="s-ink2 s-sm">bit 0: want 0 ✗</text>
+      <text x="560" y="124" class="s-acc s-sm">3 ⊕ 5 = 6</text>
+    </svg>
+    <figcaption><b>Greedy descent for <code>max_xor(3)</code>.</b> At each level take the child whose bit differs from \(x\)'s if it holds any values; otherwise the other one. Node labels are <code>cnt</code>. The other candidates give \(3 \oplus 7 = 4\) and \(3 \oplus 2 = 1\).</figcaption>
+  </figure>
+
+  <h3>Maximum XOR pair: why the greedy descent is optimal</h3>
+  <div class="box thm"><span class="tag">Theorem · bit significance dominates</span>
+    <p>\(2^b &gt; \sum_{i&lt;b} 2^i = 2^b - 1\). So among the stored \(y\), any \(y\) giving bit \(b\) of \(x \oplus y\) equal to 1 beats every \(y\) giving 0 there, provided the higher bits agree. By induction from the top bit: after deciding bits \(B-1..b+1\) optimally, the candidates are exactly the values under the current node, and choosing the opposite-bit child when it is non-empty is forced. The walk returns \(\max_y x \oplus y\) in \(O(B)\). Inserting all values and querying each gives the best pair in \(O(nB)\).</p>
+  </div>
+
+  <h3>Implementation</h3>
+  <pre><code>class BinaryTrie:
+    """Multiset of ints in [0, 2**B). Node 0 is the root; a child index of 0 means none."""
+    def __init__(self, B=30):
+        self.B, self.c0, self.c1, self.cnt = B, [0], [0], [0]
+
+    def add(self, x, d=1):                  # d = -1 erases one copy (x must be present)
+        c0, c1, cnt = self.c0, self.c1, self.cnt
+        v = 0
+        cnt[0] += d
+        for b in range(self.B - 1, -1, -1):
+            ch = c1 if x &gt;&gt; b &amp; 1 else c0
+            if not ch[v]:
+                ch[v] = len(cnt)
+                c0.append(0); c1.append(0); cnt.append(0)
+            v = ch[v]
+            cnt[v] += d
+
+    def max_xor(self, x):                   # max x ^ y over stored y (non-empty)
+        c0, c1, cnt = self.c0, self.c1, self.cnt
+        v = res = 0
+        for b in range(self.B - 1, -1, -1):
+            xb = x &gt;&gt; b &amp; 1
+            opp = (c0 if xb else c1)[v]
+            if opp and cnt[opp]:
+                v, res = opp, res | 1 &lt;&lt; b
+            else:
+                v = (c1 if xb else c0)[v]
+        return res
+
+    def count_less(self, x, k):             # number of stored y with x ^ y &lt; k
+        c0, c1, cnt = self.c0, self.c1, self.cnt
+        if k &gt;&gt; self.B:
+            return cnt[0]                   # every XOR is below 2**B &lt;= k
+        v = res = 0
+        for b in range(self.B - 1, -1, -1):
+            xb, kb = x &gt;&gt; b &amp; 1, k &gt;&gt; b &amp; 1
+            same = (c1 if xb else c0)[v]    # child where the XOR bit is 0
+            if kb:
+                res += cnt[same] if same else 0
+                v = (c0 if xb else c1)[v]   # continue with XOR bit 1
+            else:
+                v = same
+            if not v:
+                break
+        return res
+
+    def kth_max_xor(self, x, k):            # k-th largest x ^ y, 1 &lt;= k &lt;= size
+        c0, c1, cnt = self.c0, self.c1, self.cnt
+        v = res = 0
+        for b in range(self.B - 1, -1, -1):
+            xb = x &gt;&gt; b &amp; 1
+            opp = (c0 if xb else c1)[v]
+            c = cnt[opp] if opp else 0
+            if c &gt;= k:
+                v, res = opp, res | 1 &lt;&lt; b
+            else:
+                k -= c
+                v = (c1 if xb else c0)[v]
+        return res
+
+def max_xor_subarray(a, B=30):
+    t, pre, best = BinaryTrie(B), 0, 0
+    t.add(0)                                # the empty prefix P_0
+    for x in a:
+        pre ^= x
+        best = max(best, t.max_xor(pre))
+        t.add(pre)
+    return best</code></pre>
+  <p class="code-cap"><b>count_less</b>: when \(k\)'s bit is 1, every value whose XOR bit is 0 here is already smaller than \(k\) whatever follows, so add that whole subtree and continue on the XOR-bit-1 side. Pairs with XOR in \([L, R]\): <code>count_less(x, R + 1) - count_less(x, L)</code>.</p>
+  <p><b>Python notes.</b> Three parallel lists keep nodes as plain ints. At \(nB\) above a few million nodes, preallocate <code>array('i')</code> storage as in <a href="#l41">L41</a>, and shrink \(B\) to <code>max(a).bit_length()</code>. For the plain maximum XOR pair there is a trie-free method that runs in C-speed set operations: decide the answer's bits from the top, keeping the set of value prefixes <code>{x &gt;&gt; b}</code>, and test whether some pair of prefixes XORs to the candidate.</p>
+  <pre><code>def max_xor_pair(nums, B=31):               # LeetCode 421 with sets: O(nB)
+    ans = 0
+    for b in range(B - 1, -1, -1):
+        cand = ans | 1 &lt;&lt; b
+        pref = {x &gt;&gt; b for x in nums}
+        if any(cand &gt;&gt; b ^ p in pref for p in pref):
+            ans = cand
+    return ans</code></pre>
+
+  <h3>Deletions, persistence, and the XOR basis</h3>
+  <p><b>Deletions</b> are <code>add(x, -1)</code>; queries skip children with <code>cnt == 0</code>, exactly the trick from <a href="#l41">L41</a>. <b>Persistent binary trie</b> (<a href="p07.html#l109">L109</a>): make each insertion copy the \(B+1\) nodes on its path instead of modifying them, keeping a root per version. With version \(i\) = "first \(i\) values inserted", the counts of version \(r\) minus version \(l\) describe the values in \(a[l..r-1]\), so "max \(x \oplus a_j\) for \(l \le j &lt; r\)" is one simultaneous walk down two roots. <b>XOR of any subset</b> is a different question: the reachable XORs form a vector space over \(\mathbb{F}_2\), and a basis built by elimination answers "maximum subset XOR" (theory in <a href="p08.html#l125">L125</a>):</p>
+  <pre><code>def max_subset_xor(a):                      # XOR basis by elimination over GF(2)
+    basis = []
+    for x in a:
+        for b in basis:
+            x = min(x, x ^ b)               # clears b's leading bit from x if present
+        if x:
+            basis.append(x)
+    best = 0
+    for b in sorted(basis, reverse=True):
+        best = max(best, best ^ b)
+    return best</code></pre>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>LeetCode 421 — Maximum XOR of Two Numbers in an Array.</b> Trie: insert all, query each; or <code>max_xor_pair</code>.</li>
+    <li><b>LeetCode 1707 — Maximum XOR With an Element From Array.</b> Offline: sort values and queries by limit \(m\), insert values \(\le m\) as the limit grows, answer <code>max_xor(x)</code> or \(-1\) if nothing is inserted. \(O((n+q)(B + \log n))\).</li>
+    <li><b>LeetCode 1938 — Maximum Genetic Difference Query.</b> DFS the tree (with an explicit stack): insert a node's value on entry, erase it on exit, so the trie holds exactly the root-to-node path while that node's queries are answered.</li>
+    <li><b>LeetCode 2479 — Maximum XOR of Two Non-Overlapping Subtrees.</b> Compute subtree sums. In DFS order, query a node's sum against the trie <em>before</em> descending, and insert it after its subtree is finished: the trie then holds exactly the finished subtrees, which are disjoint from the current one. Sums reach about \(5\cdot10^{13}\), so \(B = 46\).</li>
+    <li><b>Codeforces 706D — Vasiliy's Multiset.</b> <code>+ x</code>, <code>- x</code>, <code>? x</code> on a multiset that always contains 0: <code>add</code>, <code>add(x, -1)</code>, <code>max_xor</code>.</li>
+    <li><b>Maximum XOR subarray</b> (a classic): <code>max_xor_subarray</code>; count subarrays with XOR \(&lt; k\) by summing <code>count_less(pre, k)</code> before each insertion.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Inconsistent widths</b>: inserting with 30 bits and querying with 31, or a value \(\ge 2^B\) (its top bits are silently ignored).</li>
+      <li><b>Forgetting \(P_0 = 0\)</b> in subarray problems: subarrays starting at index 0 are missed.</li>
+      <li><b>Querying an empty trie</b>: <code>max_xor</code> walks into node 0 again and returns garbage. Check <code>cnt[0]</code>.</li>
+      <li><b>Following a missing child</b> in counting walks: index 0 is the root, so a missing child must stop the walk, not restart it.</li>
+      <li><b>Negative numbers</b>: Python's <code>&gt;&gt;</code> on negatives yields infinitely many 1 bits. Offset or mask first.</li>
+      <li><b>Operator precedence</b>: <code>x &gt;&gt; b &amp; 1</code> is <code>(x &gt;&gt; b) &amp; 1</code>, but <code>res | 1 &lt;&lt; b</code> is <code>res | (1 &lt;&lt; b)</code>; when in doubt, parenthesise.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>LeetCode 421, 1707, 1938, 2479.</li>
+      <li>Codeforces 706D — Vasiliy's Multiset; the maximum XOR subarray problem.</li>
+      <li>Stress <code>max_xor</code>, <code>count_less</code> and <code>kth_max_xor</code> against brute force over small random multisets with deletions.</li>
+      <li><b>Goal:</b> any XOR-pair problem becomes routine.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Sedgewick &amp; Wayne, <i>Algorithms</i>, 4th ed., §5.2 (tries, applied here to bit strings) · CP-Algorithms, “Gauss method for solving system of linear equations” (the modulo-2 case is the XOR basis) · Halim &amp; Halim, <i>Competitive Programming 4</i>, ch. 6</p>
+</article>
+<!-- ================================================================ L43 -->
+<article class="day" id="l43">
+  <header class="day-head">
+    <span class="day-no">L43 · DAY 30</span>
+    <h2>Aho–Corasick: Multi-Pattern Matching</h2>
+    <p class="day-meta"><span class="vid">55m video</span></p>
+  </header>
+
+  <p class="thesis">Aho–Corasick is KMP run on a trie: put all patterns in one trie, give every node a failure link to the longest proper suffix of its string that is also in the trie, and scan the text once. Every pattern occurrence is then visible from the current node, and the resulting automaton is also the state space for DP over strings that must avoid (or contain) a set of words.</p>
+
+  <h3>The problem, and the trie</h3>
+  <p>Given patterns \(p_1, \dots, p_k\) of total length \(L\) and a text of length \(n\), report or count every occurrence. Running KMP once per pattern costs \(O(kn + L)\), which is \(5\cdot10^{10}\) at CSES sizes. First insert every pattern into a trie (<a href="#l41">L41</a>); node \(v\) represents a string \(\text{str}(v)\), and patterns end at marked nodes. Reading the text while walking down the trie works until a character has no edge; the question, as in KMP, is where to continue without re-reading.</p>
+
+  <h3>Suffix links, built by BFS</h3>
+  <div class="box def"><span class="tag">Definition · suffix (failure) link</span>
+    <p>\(\text{link}(v)\) is the node for the longest <em>proper</em> suffix of \(\text{str}(v)\) that is a node of the trie (the root for the empty string). For one pattern, the trie is a path and \(\text{link}\) of the node at depth \(j\) is the node at depth \(\pi[j-1]\): exactly KMP's failure link (<a href="#l38">L38</a>).</p>
+  </div>
+  <div class="box thm"><span class="tag">Theorem · the link recurrence</span>
+    <p>For the child \(u\) of \(v\) along character \(c\) (with \(v\) not the root), \(\text{link}(u) = \text{go}(\text{link}(v), c)\), where \(\text{go}(w, c)\) is "the node reached from \(w\) on \(c\), falling back along links when there is no edge". Children of the root link to the root. <b>Why:</b> a proper suffix of \(\text{str}(v)\,c\) that lies in the trie is a suffix of \(\text{str}(v)\) extended by \(c\); the suffixes of \(\text{str}(v)\) in the trie, longest first, are \(\text{link}(v), \text{link}(\text{link}(v)), \dots\), and \(\text{go}\) tries them in that order, as KMP's fallback loop does. <b>BFS order is required:</b> \(\text{link}(v)\) is strictly shallower than \(v\), so if nodes are processed by depth, everything \(\text{go}(\text{link}(v), c)\) needs is final. DFS order would read unfinished links.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 240" role="img" aria-label="Aho-Corasick trie for he, she, his, hers with suffix links">
+      <defs><marker id="ah-l43" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <line x1="82" y1="116" x2="140" y2="76" class="s-ln"/><line x1="82" y1="124" x2="140" y2="184" class="s-ln"/>
+      <line x1="182" y1="66" x2="238" y2="44" class="s-ln"/><line x1="182" y1="74" x2="238" y2="106" class="s-ln"/>
+      <line x1="182" y1="190" x2="238" y2="190" class="s-ln"/>
+      <line x1="282" y1="40" x2="338" y2="40" class="s-ln"/><line x1="282" y1="110" x2="338" y2="110" class="s-ln"/><line x1="282" y1="190" x2="338" y2="190" class="s-ln"/>
+      <line x1="382" y1="40" x2="438" y2="40" class="s-ln"/>
+      <rect x="40" y="106" width="42" height="28" rx="6" class="s-node"/><text x="61" y="125" class="s-mid s-sm">root</text>
+      <rect x="140" y="56" width="42" height="28" rx="6" class="s-node"/><text x="161" y="75" class="s-mid">h</text>
+      <rect x="140" y="176" width="42" height="28" rx="6" class="s-node"/><text x="161" y="195" class="s-mid">s</text>
+      <rect x="240" y="26" width="42" height="28" rx="6" class="s-node-mod"/><text x="261" y="45" class="s-mid">he</text>
+      <rect x="240" y="96" width="42" height="28" rx="6" class="s-node"/><text x="261" y="115" class="s-mid">hi</text>
+      <rect x="240" y="176" width="42" height="28" rx="6" class="s-node"/><text x="261" y="195" class="s-mid">sh</text>
+      <rect x="340" y="26" width="42" height="28" rx="6" class="s-node"/><text x="361" y="45" class="s-mid">her</text>
+      <rect x="340" y="96" width="42" height="28" rx="6" class="s-node-mod"/><text x="361" y="115" class="s-mid">his</text>
+      <rect x="340" y="176" width="42" height="28" rx="6" class="s-node-mod"/><text x="361" y="195" class="s-mid">she</text>
+      <rect x="440" y="26" width="46" height="28" rx="6" class="s-node-mod"/><text x="463" y="45" class="s-mid">hers</text>
+      <path d="M252,206 C220,236 170,236 165,86" class="s-ln-acc s-dash" marker-end="url(#ah-l43)"/>
+      <path d="M368,176 C380,130 300,90 268,56" class="s-ln-acc s-dash" marker-end="url(#ah-l43)"/>
+      <path d="M352,126 C330,170 230,170 184,184" class="s-ln-acc s-dash" marker-end="url(#ah-l43)"/>
+      <path d="M470,56 C480,170 300,230 184,200" class="s-ln-acc s-dash" marker-end="url(#ah-l43)"/>
+      <text x="520" y="110" class="s-acc s-sm">dashed: suffix links</text>
+      <text x="520" y="128" class="s-ink2 s-sm">(all others → root)</text>
+      <text x="520" y="152" class="s-ink2 s-sm">shaded: a pattern ends</text>
+    </svg>
+    <figcaption><b>Patterns he, she, his, hers.</b> <code>sh → h</code>, <code>she → he</code>, <code>his → s</code>, <code>hers → s</code>. After reading "she" the automaton is at <code>she</code>, and following one link reaches <code>he</code>, which also ends a pattern: both occurrences end at this text position.</figcaption>
+  </figure>
+
+  <h3>Reporting matches, the automaton, and complexity</h3>
+  <p>At any moment, the patterns that end at the current text position are exactly the marked nodes on the suffix-link chain from the current node. Walking the whole chain at every position can cost \(O(n \cdot \max_i |p_i|)\) (text <code>aaaa…</code>, patterns <code>a</code>, <code>aa</code>, <code>aaa</code>, …), so precompute the <b>dictionary (output) link</b>: the nearest <em>marked</em> node strictly up the chain. Following dictionary links visits only matches. <b>Automaton form:</b> fill in \(\text{go}(v, c)\) for every node and character during the BFS (copy \(\text{go}(\text{link}(v), c)\) when there is no edge); then scanning is one table lookup per character. Totals: \(O(L\Sigma)\) to build, \(O(n)\) to scan, plus \(O(\text{matches})\) to list them.</p>
+  <pre><code>from collections import deque
+
+class AhoCorasick:
+    """Patterns are bytes over a-z. Node 0 is the root."""
+    def __init__(self, patterns):
+        go, term, self.end_of = [[-1] * 26], [[]], []
+        for pid, p in enumerate(patterns):          # 1. the trie
+            v = 0
+            for x in p:
+                c = x - 97
+                if go[v][c] &lt; 0:
+                    go[v][c] = len(go)
+                    go.append([-1] * 26); term.append([])
+                v = go[v][c]
+            term[v].append(pid)
+            self.end_of.append(v)
+        n = len(go)
+        link, out, order, q = [0] * n, [-1] * n, [], deque()
+        for c in range(26):                         # 2. depth-1 nodes link to the root
+            if go[0][c] &lt; 0:
+                go[0][c] = 0
+            else:
+                q.append(go[0][c])
+        while q:                                    # 3. BFS: links and automaton edges
+            v = q.popleft()
+            order.append(v)
+            for c in range(26):
+                u = go[v][c]
+                if u &lt; 0:
+                    go[v][c] = go[link[v]][c]
+                else:
+                    w = link[u] = go[link[v]][c]
+                    out[u] = w if term[w] else out[w]   # nearest marked node up the chain
+                    q.append(u)
+        self.go, self.link, self.out, self.order, self.term = go, link, out, order, term
+
+    def matches(self, text):                        # (end index, pattern id) for every occurrence
+        go, out, term, v, res = self.go, self.out, self.term, 0, []
+        for i, x in enumerate(text):
+            v = go[v][x - 97]
+            u = v if term[v] else out[v]
+            while u &gt; 0:
+                res.extend((i, pid) for pid in term[u])
+                u = out[u]
+        return res
+
+    def count(self, text):                          # occurrences of each pattern
+        go, hits, v = self.go, [0] * len(self.go), 0
+        for x in text:
+            v = go[v][x - 97]
+            hits[v] += 1
+        for v in reversed(self.order):              # deepest first: push counts up the links
+            hits[self.link[v]] += hits[v]
+        return [hits[v] for v in self.end_of]</code></pre>
+  <p class="code-cap"><b>Counting without listing:</b> pattern \(p\) ends at position \(i\) iff \(p\)'s node is on the link chain of the state after \(i\). So record one hit per position at the current state, then sum hits over each node's subtree in the <em>link tree</em>, processing nodes in reverse BFS order. \(O(L\Sigma + n)\), independent of the number of matches.</p>
+
+  <h3>DP over automaton states</h3>
+  <p>"How many strings of length \(n\) contain none of the patterns?" A string avoids the patterns iff its automaton walk never visits a node whose link chain contains a marked node. Mark those nodes <code>bad</code> (in BFS order, <code>bad[v] = marked(v) or bad[link[v]]</code>), and count walks of length \(n\) that stay on good nodes: <code>dp[v]</code> = number of strings so far ending in state \(v\). \(O(n \cdot \text{nodes} \cdot \Sigma)\); with matrix power for huge \(n\) (<a href="p06.html#l101">L101</a>). This (position, automaton node) state is why Aho–Corasick shows up in hard DP problems, and the single-pattern version is CSES — Required Substring (<a href="#l38">L38</a>, <a href="p06.html#l88">L88</a>).</p>
+  <pre><code>def count_avoiding(patterns, n, MOD=10**9 + 7):    # length-n strings over a-z with no pattern
+    ac = AhoCorasick(patterns)
+    go, link, N = ac.go, ac.link, len(ac.go)
+    bad = [bool(t) for t in ac.term]
+    for v in ac.order:
+        bad[v] = bad[v] or bad[link[v]]
+    dp = [0] * N
+    dp[0] = 1
+    for _ in range(n):
+        nd = [0] * N
+        for v in range(N):
+            if dp[v] and not bad[v]:
+                for u in go[v]:
+                    nd[u] += dp[v]
+        dp = [x % MOD for x in nd]
+    return sum(x for v, x in enumerate(dp) if not bad[v]) % MOD</code></pre>
+
+  <h3>Memory, large alphabets, and when hashing is simpler</h3>
+  <p>The full table is \(\text{nodes} \times \Sigma\): for \(5\cdot10^5\) nodes and 26 letters, \(1.3\cdot10^7\) entries, which as lists of lists is well over 100 MB in CPython, and the build loop is the slow part: measured 7.4 s in CPython 3.12 to build \(3.8\cdot10^5\) nodes from \(5\cdot10^5\) random pattern characters, against 0.44 s to then count over a \(10^5\)-character text. For a large alphabet, keep only trie edges in per-node dicts and compute transitions on the fly with KMP's fallback loop; the scan stays amortised \(O(1)\) per character. <b>Hashing is simpler</b> when patterns have few distinct lengths: for each length \(\ell\), roll a window hash of the text and look it up in the set of pattern hashes of length \(\ell\) (<a href="#l37">L37</a>). There are at most about \(\sqrt{2L}\) distinct lengths, so this is \(O(n\sqrt{L})\) at worst, and \(O(n)\) when all patterns share a length.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Counting Patterns.</b> <code>count</code>. Text \(10^5\), patterns total \(5\cdot10^5\).</li>
+    <li><b>CSES — Pattern Positions.</b> First occurrence of each pattern: record the first index at which each state is visited, propagate the minimum up the links in reverse BFS order, and print <code>first - len(p) + 2</code> (1-based start), or \(-1\).</li>
+    <li><b>CSES — Finding Patterns.</b> Present iff its count is positive.</li>
+    <li><b>LeetCode 1408 — String Matching in an Array.</b> Tiny limits: <code>any(w in v for v in words if v != w)</code> is the intended solution; Aho–Corasick over all words is the scalable one.</li>
+    <li><b>LeetCode 616 — Add Bold Tag in String.</b> Mark every covered position from the matches (end index and pattern length give the interval), merge runs, insert tags.</li>
+    <li><b>Codeforces Aho–Corasick DP problems:</b> filter the problemset by the tag <code>string suffix structures</code> with <code>dp</code>; typical statements count strings of length \(n\) that contain or avoid given words.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>DFS instead of BFS</b> for links: reads links that are not computed yet. Wrong answers on most inputs.</li>
+      <li><b>Linking root's children to themselves</b> (<code>go[link[v]][c]</code> with \(v\) = root returns the child itself): infinite loops. Root children link to 0.</li>
+      <li><b>Reporting only the current node's patterns</b>: misses patterns that are suffixes of others (<code>he</code> inside <code>she</code>). Follow dictionary links, or propagate counts.</li>
+      <li><b>Walking the whole link chain per character</b>: quadratic-ish on texts like <code>aaaa…</code> with patterns <code>a, aa, aaa, …</code>.</li>
+      <li><b>Duplicate patterns</b>: two ids end at one node; keep a list, as <code>term</code> does, or map ids to nodes.</li>
+      <li><b>Python build time</b>: the 26-way BFS loop is the bottleneck; use PyPy at CSES sizes.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Counting Patterns, Pattern Positions, Finding Patterns.</li>
+      <li>LeetCode 1408, 616.</li>
+      <li><code>count_avoiding</code> for patterns {<code>ab</code>, <code>bb</code>} over a two-letter alphabet by hand for \(n \le 4\), then by code.</li>
+      <li><b>Goal:</b> you can build the automaton and run DP on it.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Aho &amp; Corasick 1975, “Efficient string matching: an aid to bibliographic search”, <i>CACM</i> · CP-Algorithms, “Aho-Corasick algorithm” · Crochemore, Hancart &amp; Lecroq, <i>Algorithms on Strings</i></p>
+</article>
+<!-- ================================================================ L44 -->
+<article class="day" id="l44">
+  <header class="day-head">
+    <span class="day-no">L44 · DAY 31</span>
+    <h2>Suffix Array: Construction and LCP</h2>
+    <p class="day-meta"><span class="vid">60m video</span></p>
+  </header>
+
+  <p class="thesis">Sort all suffixes of a string and keep only their starting positions: that array, plus the longest common prefix of each adjacent pair, is a sorted dictionary of every substring. Prefix doubling builds it by sorting on pairs of ranks, and Kasai's algorithm gets the LCPs in linear time from one inequality.</p>
+
+  <h3>What a suffix array is</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>For \(s\) of length \(n\), the <b>suffix array</b> <code>sa</code> is the permutation of \(0..n-1\) listing the starting positions of the suffixes \(s[i:]\) in lexicographic order; <code>rank</code> is its inverse (<code>rank[sa[i]] = i</code>). The <b>LCP array</b> has <code>lcp[i]</code> = length of the longest common prefix of suffixes <code>sa[i-1]</code> and <code>sa[i]</code> (with <code>lcp[0] = 0</code>). For <code>banana</code>: <code>sa = [5, 3, 1, 0, 4, 2]</code> (a, ana, anana, banana, na, nana), <code>lcp = [0, 1, 3, 0, 0, 2]</code>.</p>
+  </div>
+  <p>A suffix tree holds the same information and more, but costs tens of machine words per character and an intricate construction. Two integer arrays, built with sorting, replaced it in contest practice; most suffix-tree algorithms translate into scans and range minima over <code>sa</code> and <code>lcp</code> (<a href="#l45">L45</a>).</p>
+
+  <h3>Naive construction</h3>
+  <p><code>sorted(range(n), key=lambda i: s[i:])</code> does \(O(n \log n)\) comparisons of \(O(n)\) each, \(O(n^2\log n)\) in the worst case (<code>"aaa…"</code>), and the keys are \(n\) slices, \(O(n^2)\) memory. It is the oracle for stress tests up to \(n \approx 2000\), nothing more.</p>
+
+  <h3>Prefix doubling, O(n log² n)</h3>
+  <p>Rank suffixes by their first \(k\) characters; equal prefixes share a rank. To rank by the first \(2k\) characters, observe that the length-\(2k\) prefix of \(s[i:]\) is the length-\(k\) prefix of \(s[i:]\) followed by the length-\(k\) prefix of \(s[i+k:]\).</p>
+  <div class="box thm"><span class="tag">Theorem · pairs of ranks</span>
+    <p>If <code>rank_k</code> orders suffixes by their first \(k\) characters (shorter-than-\(k\) suffixes compared as whole strings), then ordering by the pair \((\text{rank}_k[i], \text{rank}_k[i+k])\), with \(-1\) when \(i + k \ge n\), orders them by their first \(2k\) characters. Comparing two length-\(2k\) prefixes is comparing first halves, then second halves on a tie, and ranks preserve both comparisons. The \(-1\) plays the role of a sentinel smaller than every character: a suffix that ends inside the window precedes every extension of it. After \(\lceil \log_2 n \rceil\) rounds all ranks are distinct and the order is final. Each round is one sort: \(O(n\log n)\), total \(O(n \log^2 n)\).</p>
+  </div>
+  <div class="box intuition"><span class="tag">Worked example · <code>banana&#36;</code> as cyclic shifts</span>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>\(i\)</th><th>char</th><th>rank (k=1)</th><th>pair k=1</th><th>rank (k=2)</th><th>pair k=2</th><th>final rank</th></tr></thead>
+      <tbody>
+        <tr><td class="num">0</td><td>b</td><td class="num">2</td><td>(2,1)</td><td class="num">3</td><td>(3,4)</td><td class="num">4</td></tr>
+        <tr><td class="num">1</td><td>a</td><td class="num">1</td><td>(1,3)</td><td class="num">2</td><td>(2,2)</td><td class="num">3</td></tr>
+        <tr><td class="num">2</td><td>n</td><td class="num">3</td><td>(3,1)</td><td class="num">4</td><td>(4,4)</td><td class="num">6</td></tr>
+        <tr><td class="num">3</td><td>a</td><td class="num">1</td><td>(1,3)</td><td class="num">2</td><td>(2,1)</td><td class="num">2</td></tr>
+        <tr><td class="num">4</td><td>n</td><td class="num">3</td><td>(3,1)</td><td class="num">4</td><td>(4,0)</td><td class="num">5</td></tr>
+        <tr><td class="num">5</td><td>a</td><td class="num">1</td><td>(1,0)</td><td class="num">1</td><td>(1,3)</td><td class="num">1</td></tr>
+        <tr><td class="num">6</td><td>&#36;</td><td class="num">0</td><td>(0,2)</td><td class="num">0</td><td>(0,2)</td><td class="num">0</td></tr>
+      </tbody>
+    </table></div>
+    <p>With a sentinel <code>&#36;</code> smaller than every letter, sorting cyclic shifts equals sorting suffixes, and pairs wrap around with index \((i+k) \bmod n\). After the \(k=2\) round all ranks differ: <code>sa = [6, 5, 3, 1, 0, 4, 2]</code>, and dropping the sentinel gives the <code>banana</code> array above.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 150" role="img" aria-label="The first 2k characters of suffix i are the first k of suffix i and the first k of suffix i plus k">
+      <rect x="40" y="40" width="560" height="30" class="s-node"/>
+      <rect x="160" y="40" width="140" height="30" class="s-node-mod"/>
+      <rect x="300" y="40" width="140" height="30" class="s-acc" fill-opacity="0.25"/>
+      <text x="160" y="32" class="s-ink3 s-sm s-mid">i</text><text x="300" y="32" class="s-ink3 s-sm s-mid">i + k</text><text x="440" y="32" class="s-ink3 s-sm s-mid">i + 2k</text>
+      <text x="230" y="60" class="s-mid s-sm">first k</text><text x="370" y="60" class="s-mid s-sm">next k</text>
+      <text x="230" y="98" class="s-mod s-mid">rank[i]</text><text x="370" y="98" class="s-acc s-mid">rank[i + k]</text>
+      <text x="320" y="132" class="s-ink2 s-mid">sort key for round 2k: (rank[i], rank[i + k])</text>
+    </svg>
+    <figcaption><b>Why doubling works.</b> Both halves were ranked in the previous round, so one pair of integers stands for \(2k\) characters and every comparison is \(O(1)\).</figcaption>
+  </figure>
+
+  <h3>Implementation: sort-based and radix-based</h3>
+  <p>In Python the fastest version packs each pair into one integer and lets the C sort do the work; Timsort also benefits because the previous round's order is already sorted by the first key. The \(O(n\log n)\) version replaces each sort by two counting-sort passes; on cyclic shifts, sorting by the second key is free (shift the previous order by \(k\)), so one stable counting sort by the first key suffices. Fewer operations, but all of them in Python bytecode.</p>
+  <pre><code>def suffix_array(s):
+    """Prefix doubling with integer keys and list.sort: O(n log^2 n) worst case.
+    s: str, bytes, or a list of ints."""
+    n = len(s)
+    codes = [ord(c) for c in s] if isinstance(s, str) else list(s)
+    alpha = {c: r for r, c in enumerate(sorted(set(codes)))}
+    rank = [alpha[c] for c in codes]                # dense ranks 0..n-1
+    sa = sorted(range(n), key=rank.__getitem__)
+    k = 1
+    while n and rank[sa[-1]] &lt; n - 1:
+        key = [rank[i] * (n + 1) + (rank[i + k] + 1 if i + k &lt; n else 0) for i in range(n)]
+        sa.sort(key=key.__getitem__)
+        new = [0] * n
+        for j in range(1, n):
+            new[sa[j]] = new[sa[j - 1]] + (key[sa[j]] != key[sa[j - 1]])
+        rank = new
+        k *= 2
+    return sa
+
+def suffix_array_radix(s):
+    """Cyclic shifts of s + sentinel, counting sort per round: O(n log n)."""
+    codes = list(s) if isinstance(s, (bytes, bytearray)) else [ord(c) for c in s]
+    a = [x + 1 for x in codes] + [0]                # 0 = sentinel, below every char
+    n = len(a)
+    m = max(a) + 1
+    cnt = [0] * m
+    for x in a:
+        cnt[x] += 1
+    for i in range(1, m):
+        cnt[i] += cnt[i - 1]
+    p = [0] * n
+    for i in range(n - 1, -1, -1):
+        cnt[a[i]] -= 1
+        p[cnt[a[i]]] = i
+    c = [0] * n
+    for i in range(1, n):
+        c[p[i]] = c[p[i - 1]] + (a[p[i]] != a[p[i - 1]])
+    k = 1
+    while k &lt; n and c[p[-1]] &lt; n - 1:
+        pn = [(x - k) % n for x in p]               # already ordered by the second half
+        cnt = [0] * (c[p[-1]] + 1)
+        for x in c:
+            cnt[x] += 1
+        for i in range(1, len(cnt)):
+            cnt[i] += cnt[i - 1]
+        for x in reversed(pn):                      # stable counting sort by the first half
+            cnt[c[x]] -= 1
+            p[cnt[c[x]]] = x
+        cn = [0] * n
+        for i in range(1, n):
+            cur, prev = p[i], p[i - 1]
+            cn[cur] = cn[prev] + (c[cur] != c[prev] or c[(cur + k) % n] != c[(prev + k) % n])
+        c = cn
+        k *= 2
+    return p[1:]                                    # drop the sentinel's suffix
+
+def kasai(s, sa):
+    """lcp[i] = LCP of suffixes sa[i-1] and sa[i]; lcp[0] = 0. O(n)."""
+    n = len(s)
+    rank = [0] * n
+    for i, p in enumerate(sa):
+        rank[p] = i
+    lcp, h = [0] * n, 0
+    for i in range(n):                              # suffixes in text order, not sorted order
+        if rank[i]:
+            j = sa[rank[i] - 1]
+            while i + h &lt; n and j + h &lt; n and s[i + h] == s[j + h]:
+                h += 1
+            lcp[rank[i]] = h
+            if h:
+                h -= 1                              # suffix i+1 keeps at least h-1
+        else:
+            h = 0
+    return lcp</code></pre>
+  <p class="code-cap">Stress all three against <code>sorted(range(n), key=lambda i: s[i:])</code> and a brute-force LCP on random strings over <code>{a, b}</code> (long repeats) and on <code>"a" * n</code> (the most rounds).</p>
+
+  <h3>Kasai's algorithm and its proof</h3>
+  <div class="box deriv"><span class="tag">Proof · \(h \ge h_{\text{prev}} - 1\)</span>
+    <p>Process suffixes in text order and let \(h_i\) be the LCP of suffix \(i\) with its predecessor \(j\) in sorted order. If \(h_i &gt; 0\), then \(s[j:] &lt; s[i:]\) share their first character, so dropping it gives \(s[j+1:] &lt; s[i+1:]\) with LCP \(h_i - 1\). The predecessor \(j'\) of \(s[i+1:]\) in sorted order lies between them or equals \(s[j+1:]\), and any string sorted between two strings shares their common prefix. Hence \(h_{i+1} = \text{LCP}(s[j':], s[i+1:]) \ge h_i - 1\).</p>
+    <p><b>Cost:</b> starting each comparison at \(h - 1\) instead of 0, \(h\) decreases by at most 1 per step (\(\le n\) total) and never exceeds \(n\), so the total number of increments is at most \(2n\): \(O(n)\).</p>
+  </div>
+
+  <h3>A sorted dictionary of all substrings</h3>
+  <p>Every substring is a prefix of some suffix. Walk <code>sa</code> in order: suffix <code>sa[i]</code> contributes the prefixes of lengths <code>lcp[i]+1 .. n-sa[i]</code>, and the shorter ones were already contributed by its predecessor. So the distinct substrings in lexicographic order are exactly "for each \(i\), the prefixes of <code>s[sa[i]:]</code> longer than <code>lcp[i]</code>", and there are \(\frac{n(n+1)}{2} - \sum \text{lcp}\) of them. Every application in <a href="#l45">L45</a> is a scan of this picture.</p>
+
+  <h3>Python reality check</h3>
+  <p>Measured on CPython 3.12 for \(n = 2\cdot10^5\): <code>suffix_array</code> took 1.15 s on random letters and 3.64 s on <code>"a" * n</code> (the maximum number of rounds); <code>suffix_array_radix</code> took 1.56 s and 4.73 s; <code>kasai</code> 0.5 s and 0.2 s. The asymptotically better radix version loses because its loops run in bytecode while <code>list.sort</code> runs in C. For \(n \le 2\cdot10^5\) use the sort-based version (under PyPy where possible); beyond that, consider whether hashing with binary search answers the question, or use PyPy. Linear-time constructions (SA-IS, DC3) exist and are what C++ libraries ship.</p>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Distinct Substrings.</b> \(n(n+1)/2 - \sum \text{lcp}\).</li>
+    <li><b>CSES — Repeating Substring.</b> The longest substring occurring twice is a common prefix of two adjacent suffixes: \(\max \text{lcp}\), printed as <code>s[sa[i]:sa[i]+lcp[i]]</code>, or \(-1\) if it is 0.</li>
+    <li><b>CSES — Substring Order I.</b> The \(k\)-th smallest distinct substring: walk <code>sa</code>; suffix \(i\) adds <code>n - sa[i] - lcp[i]</code> new substrings in order; when \(k\) falls inside, the answer is <code>s[sa[i] : sa[i] + lcp[i] + k]</code>.</li>
+    <li><b>Codeforces EDU — Suffix Array, steps 1–2.</b> Construction exercises: build the array for one string, then use it in the step's follow-up problems. Submit both builds and compare times.</li>
+  </ul>
+  <pre><code>def kth_distinct(s, k):                         # CSES Substring Order I (1-indexed k)
+    sa = suffix_array(s)
+    lcp = kasai(s, sa)
+    for i, p in enumerate(sa):
+        new = len(s) - p - lcp[i]
+        if k &lt;= new:
+            return s[p:p + lcp[i] + k]
+        k -= new
+    return None</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Packed keys that collide</b>: <code>rank * (n+1) + second</code> needs every rank and second key below \(n + 1\); raw character codes (up to 255) violate this for short strings. Compress characters to dense ranks first.</li>
+      <li><b>Missing sentinel semantics</b>: a suffix that ends inside the window must sort first; use \(-1\) (or a 0 sentinel) for "past the end", never a wrap-around on non-cyclic arrays.</li>
+      <li><b>Kasai in sorted order</b> instead of text order: the \(h - 1\) carry-over is invalid and the runtime becomes quadratic.</li>
+      <li><b>Off-by-one LCP convention</b>: is <code>lcp[i]</code> between <code>sa[i-1]</code> and <code>sa[i]</code>, or <code>sa[i]</code> and <code>sa[i+1]</code>? Pick one and comment it.</li>
+      <li><b>The naive oracle on big inputs</b>: \(n^2\) memory from the slice keys; keep it to \(n \le 2000\).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Distinct Substrings, Repeating Substring, Substring Order I.</li>
+      <li>Codeforces EDU — Suffix Array, steps 1–2.</li>
+      <li>Redo the <code>banana&#36;</code> table by hand for <code>abaab&#36;</code>, then check with <code>suffix_array_radix</code>.</li>
+      <li><b>Goal:</b> a working suffix array + LCP in your <code>strings.py</code>, stress-tested.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Manber &amp; Myers 1993, “Suffix arrays: a new method for on-line string searches”, <i>SIAM J. Comput.</i> · Kasai et al. 2001, “Linear-time longest-common-prefix computation in suffix arrays and its applications”, CPM · CP-Algorithms, “Suffix Array” · Codeforces EDU (ITMO Academy), “Suffix Array” course</p>
+</article>
+<!-- ================================================================ L45 -->
+<article class="day" id="l45">
+  <header class="day-head">
+    <span class="day-no">L45 · DAY 31</span>
+    <h2>Suffix Array Applications &amp; Automaton Overview</h2>
+    <p class="day-meta"><span class="vid">50m video</span></p>
+  </header>
+
+  <p class="thesis">Almost every suffix-array application is one of three moves: scan adjacent pairs of the LCP array, take a range minimum of it, or binary search the sorted suffixes. Concatenating strings with a separator turns two-string questions into one-string ones, and the suffix automaton is the tool to know about for the rare problems those moves do not cover.</p>
+
+  <h3>The catalogue</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>question</th><th>move</th><th>cost after building</th></tr></thead>
+    <tbody>
+      <tr><td>number of distinct substrings</td><td>\(\frac{n(n+1)}{2} - \sum \text{lcp}\)</td><td>\(O(n)\)</td></tr>
+      <tr><td>distinct substrings of each length</td><td>difference array over <code>lcp[i]+1 .. n-sa[i]</code></td><td>\(O(n)\)</td></tr>
+      <tr><td>longest repeated substring</td><td>\(\max \text{lcp}\)</td><td>\(O(n)\)</td></tr>
+      <tr><td>longest common substring of \(s, t\)</td><td>adjacent pairs from different strings in \(s\,\#\,t\)</td><td>\(O(n)\)</td></tr>
+      <tr><td>\(k\)-th substring (distinct / with repeats)</td><td>walk <code>sa</code> / descend SA ranges</td><td>\(O(n)\) / \(O(|ans|\log n)\)</td></tr>
+      <tr><td>LCP of any two suffixes</td><td>range minimum over <code>lcp</code></td><td>\(O(1)\) per query</td></tr>
+      <tr><td>occurrences of a pattern</td><td>binary search on <code>sa</code></td><td>\(O(m\log n)\)</td></tr>
+    </tbody>
+  </table></div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Sorted suffixes of banana with the shared LCP part and the new substrings each contributes">
+      <text x="40" y="22" class="s-ink2 s-sm">sa</text><text x="150" y="22" class="s-ink2 s-sm">sorted suffixes</text><text x="440" y="22" class="s-ink2 s-sm">lcp</text><text x="500" y="22" class="s-ink2 s-sm">new</text>
+      <text x="40" y="48" class="s-mid">5</text><rect x="150" y="32" width="24" height="24" class="s-acc" fill-opacity="0.25"/><text x="162" y="49" class="s-mid">a</text><text x="446" y="48" class="s-mid">0</text><text x="508" y="48" class="s-mid">1</text>
+      <text x="40" y="76" class="s-mid">3</text><rect x="150" y="60" width="24" height="24" class="s-node-mod"/><rect x="176" y="60" width="24" height="24" class="s-acc" fill-opacity="0.25"/><rect x="202" y="60" width="24" height="24" class="s-acc" fill-opacity="0.25"/><text x="162" y="77" class="s-mid">a</text><text x="188" y="77" class="s-mid">n</text><text x="214" y="77" class="s-mid">a</text><text x="446" y="76" class="s-mid">1</text><text x="508" y="76" class="s-mid">2</text>
+      <text x="40" y="104" class="s-mid">1</text><rect x="150" y="88" width="76" height="24" class="s-node-mod"/><rect x="228" y="88" width="24" height="24" class="s-acc" fill-opacity="0.25"/><rect x="254" y="88" width="24" height="24" class="s-acc" fill-opacity="0.25"/><text x="188" y="105" class="s-mid">a n a</text><text x="240" y="105" class="s-mid">n</text><text x="266" y="105" class="s-mid">a</text><text x="446" y="104" class="s-mid">3</text><text x="508" y="104" class="s-mid">2</text>
+      <text x="40" y="132" class="s-mid">0</text><rect x="150" y="116" width="154" height="24" class="s-acc" fill-opacity="0.25"/><text x="227" y="133" class="s-mid">b a n a n a</text><text x="446" y="132" class="s-mid">0</text><text x="508" y="132" class="s-mid">6</text>
+      <text x="40" y="160" class="s-mid">4</text><rect x="150" y="144" width="50" height="24" class="s-acc" fill-opacity="0.25"/><text x="175" y="161" class="s-mid">n a</text><text x="446" y="160" class="s-mid">0</text><text x="508" y="160" class="s-mid">2</text>
+      <text x="40" y="188" class="s-mid">2</text><rect x="150" y="172" width="50" height="24" class="s-node-mod"/><rect x="202" y="172" width="50" height="24" class="s-acc" fill-opacity="0.25"/><text x="175" y="189" class="s-mid">n a</text><text x="227" y="189" class="s-mid">n a</text><text x="446" y="188" class="s-mid">2</text><text x="508" y="188" class="s-mid">2</text>
+      <text x="580" y="120" class="s-acc s-mid s-sm">15 distinct</text><text x="580" y="138" class="s-ink2 s-mid s-sm">= 21 − 6</text>
+    </svg>
+    <figcaption><b>The sorted dictionary of <code>banana</code>.</b> Each row's first <code>lcp</code> letters repeat the row above; every prefix longer than that is a new distinct substring. Summing the last column, or subtracting the LCPs from \(n(n+1)/2\), gives 15.</figcaption>
+  </figure>
+
+  <h3>Repeats, and two strings at once</h3>
+  <p>The longest substring occurring twice is a common prefix of two suffixes, and the longest common prefix of any two suffixes is achieved by some <em>adjacent</em> pair, so it is \(\max \text{lcp}\). For the <b>longest common substring</b> of \(s\) and \(t\), build one suffix array of \(u = s\,\#\,t\) with a separator \(\#\) occurring in neither string. Label each suffix by origin (start \(&lt; |s|\) or not). An answer is a common prefix of an \(s\)-suffix and a \(t\)-suffix; it cannot run through \(\#\), because the \(t\)-suffix contains no \(\#\). Between any such pair in sorted order the origin flips somewhere, and the adjacent pair at the flip has LCP at least the pair's, so scanning adjacent pairs with different origins finds the maximum. One separator per extra string extends this to \(k\) strings with a sliding window over <code>sa</code>.</p>
+  <pre><code>from bisect import bisect_left, bisect_right
+from itertools import accumulate
+# suffix_array and kasai from L44
+
+def longest_common_substring(s, t):
+    u = s + "\x01" + t                          # "\x01" must occur in neither string
+    sa = suffix_array(u)
+    lcp = kasai(u, sa)
+    best, pos, n1 = 0, 0, len(s)
+    for i in range(1, len(u)):
+        if (sa[i] &lt; n1) != (sa[i - 1] &lt; n1) and lcp[i] &gt; best:
+            best, pos = lcp[i], sa[i]
+    return u[pos:pos + best]
+
+def occurrences(s, sa, p):                      # start positions of p, O(|p| log n)
+    key = lambda i: s[i:i + len(p)]
+    lo, hi = bisect_left(sa, p, key=key), bisect_right(sa, p, key=key)
+    return sorted(sa[lo:hi])
+
+def substring_distribution(s):                  # CSES: distinct substrings of each length
+    n = len(s)
+    sa = suffix_array(s); lcp = kasai(s, sa)
+    d = [0] * (n + 2)
+    for i, p in enumerate(sa):                  # sa[i] adds lengths lcp[i]+1 .. n-p
+        d[lcp[i] + 1] += 1
+        d[n - p + 1] -= 1
+    return list(accumulate(d))[1:n + 1]</code></pre>
+  <p class="code-cap"><b>Pattern search:</b> suffixes starting with \(p\) form one contiguous block of <code>sa</code>, so two binary searches find it; <code>bisect</code> with <code>key=</code> (Python 3.10+) compares length-\(|p|\) slices. Count = block size, positions = the block.</p>
+
+  <h3>The \(k\)-th substring, with and without repeats</h3>
+  <p><b>Distinct</b> (CSES — Substring Order I): walk <code>sa</code>, each suffix adding <code>n - sa[i] - lcp[i]</code> substrings in order (<a href="#l44">L44</a>). <b>Counted with multiplicity</b> (CSES — Substring Order II) needs a descent. Keep the current prefix \(P\) of length \(L\) and the block <code>sa[lo:hi]</code> of suffixes that start with it. In sorted order with repeats, the \(hi - lo\) copies of \(P\) come first; then the extensions, grouped by the next character. With prefix sums of suffix lengths, the number of substrings longer than \(L\) inside <code>sa[lo:x]</code> is \(\text{PS}[x] - \text{PS}[lo] - L(x - lo)\), which increases with \(x\), so one binary search finds the suffix where \(k\) falls, and two more find its character group. Each step extends \(P\) by one character: \(O(|\text{answer}| \log n)\).</p>
+  <pre><code>def kth_with_repeats(s, k):                     # CSES Substring Order II, 1-indexed
+    n, sa = len(s), suffix_array(s)
+    PS = [0] + list(accumulate(n - p for p in sa))
+    lo, hi, L = 0, n, 0
+    while True:
+        if L:
+            if k &lt;= hi - lo:
+                return s[sa[lo]:sa[lo] + L]
+            k -= hi - lo
+            if sa[lo] + L == n:                 # the suffix equal to P sorts first; it cannot grow
+                lo += 1
+        base = PS[lo] - L * lo
+        cum = lambda x: PS[x] - L * x - base    # substrings longer than L in sa[lo:x]
+        x = lo + bisect_left(range(lo, hi + 1), k, key=cum)
+        c = s[sa[x - 1] + L]
+        nxt = lambda i: s[sa[i] + L]
+        g_lo = lo + bisect_left(range(lo, hi), c, key=nxt)
+        g_hi = lo + bisect_right(range(lo, hi), c, key=nxt)
+        k -= cum(g_lo)
+        lo, hi, L = g_lo, g_hi, L + 1</code></pre>
+
+  <h3>LCP of arbitrary suffixes: RMQ on the LCP array</h3>
+  <div class="box thm"><span class="tag">Theorem · LCP is a range minimum</span>
+    <p>For suffixes \(a \ne b\) with ranks \(x &lt; y\), \(\text{LCP}(a, b) = \min(\text{lcp}[x+1..y])\). <b>Proof:</b> every suffix sorted between them starts with their common prefix \(w\), so each adjacent LCP in the range is \(\ge |w|\). Conversely, if all adjacent LCPs were \(&gt; |w|\), all suffixes in the range, including \(a\) and \(b\), would share the character after \(w\), contradicting maximality of \(w\).</p>
+  </div>
+  <p>A sparse table over <code>lcp</code> (built once, \(O(n\log n)\)) answers each minimum in \(O(1)\); the structure itself is <a href="p07.html#l103">L103</a>'s. This is the bridge from strings to range-query structures: comparing \(s[i:]\) and \(s[j:]\) quickly ("longest common extension") makes many hashing solutions deterministic.</p>
+
+  <h3>Suffix automaton and suffix tree</h3>
+  <p>The <b>suffix tree</b> is the compressed trie of all suffixes (<a href="#l41">L41</a>): \(O(n)\) nodes, built online by Ukkonen's algorithm, and its leaves read left to right are the suffix array. The <b>suffix automaton</b> is the smallest DFA accepting exactly the suffixes of \(s\); every substring is a path from the start. It has at most \(2n - 1\) states and \(3n - 4\) transitions (for \(n \ge 3\)), is built online one character at a time in amortised \(O(n)\) (constant alphabet), and its suffix links form the suffix tree of the reversed string. What it adds: online appends, the number of distinct substrings as \(\sum_v (\text{len}(v) - \text{len}(\text{link}(v)))\), occurrence counts for every distinct substring by propagating along links, and the shortest non-occurring string. The construction is short enough to keep in the library:</p>
+  <pre><code>def suffix_automaton(s):
+    nxt, link, length, last = [{}], [-1], [0], 0
+    for ch in s:
+        cur = len(length)
+        nxt.append({}); length.append(length[last] + 1); link.append(0)
+        p = last
+        while p != -1 and ch not in nxt[p]:
+            nxt[p][ch] = cur
+            p = link[p]
+        if p != -1:
+            q = nxt[p][ch]
+            if length[p] + 1 == length[q]:
+                link[cur] = q
+            else:                               # split q: a clone with the shorter length
+                clone = len(length)
+                nxt.append(dict(nxt[q])); length.append(length[p] + 1); link.append(link[q])
+                while p != -1 and nxt[p].get(ch) == q:
+                    nxt[p][ch] = clone
+                    p = link[p]
+                link[q] = link[cur] = clone
+        last = cur
+    return nxt, link, length
+
+def distinct_substrings(s):
+    nxt, link, length = suffix_automaton(s)
+    return sum(length[v] - length[link[v]] for v in range(1, len(length)))</code></pre>
+  <p>Honest advice: in the experience of most competitors, suffix automata and suffix trees are rarely needed below about Codeforces 2200; suffix arrays, hashing and the linear-time matchers cover the rest, and they are easier to debug under time pressure.</p>
+
+  <h3>Decision guide</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>the problem needs</th><th>reach for</th></tr></thead>
+    <tbody>
+      <tr><td>one pattern, deterministic; borders, periods</td><td>KMP / Z (<a href="#l38">L38</a>, <a href="#l39">L39</a>)</td></tr>
+      <tr><td>substring equality queries; "longest X" by binary search; quick to write</td><td>hashing (<a href="#l37">L37</a>)</td></tr>
+      <tr><td>many patterns in one text; DP avoiding words</td><td>Aho–Corasick (<a href="#l43">L43</a>)</td></tr>
+      <tr><td>palindromes</td><td>Manacher (<a href="#l40">L40</a>)</td></tr>
+      <tr><td>sorted order of substrings, \(k\)-th substring, distinct counts, LCP of any two suffixes, many queries against one text</td><td>suffix array + LCP (+ sparse table)</td></tr>
+      <tr><td>online appends, per-substring occurrence counts, minimal automaton</td><td>suffix automaton</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Problems</h3>
+  <ul>
+    <li><b>CSES — Substring Distribution.</b> <code>substring_distribution</code>.</li>
+    <li><b>CSES — Substring Order II.</b> <code>kth_with_repeats</code>.</li>
+    <li><b>CSES — String Functions.</b> Print the Z-function and the prefix function of the input: a warm-up from <a href="#l38">L38</a> and <a href="#l39">L39</a>.</li>
+    <li><b>LeetCode 1044 — Longest Duplicate Substring.</b> \(\max \text{lcp}\); deterministic, unlike the hashing solution.</li>
+    <li><b>LeetCode 718 — Maximum Length of Repeated Subarray.</b> Integer arrays: <code>suffix_array</code> accepts lists, so concatenate <code>a + [-1] + b</code> and run the two-origin scan. With lengths up to 1000 the \(O(nm)\) DP is also fine.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>A separator that occurs in the input</b>, or the same separator twice when joining several strings: LCPs run across the join. Use values outside the alphabet, distinct per join.</li>
+      <li><b>Forgetting the origin check</b> in LCS: you get the longest repeat inside \(s\) instead.</li>
+      <li><b>RMQ over the wrong range</b>: \(\min(\text{lcp}[x+1..y])\), not \(\text{lcp}[x..y]\).</li>
+      <li><b>Long answers</b>: <code>kth_with_repeats</code> answers can be \(10^5\) characters; each step is three binary searches with Python key calls, so it is fine, but recomputing slices in the key for long \(L\) would not be.</li>
+      <li><b>Suffix automaton in Python</b>: dict-per-state is easy but uses a lot of memory at \(n = 10^6\); for big inputs prefer the suffix array or PyPy.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>CSES — Substring Distribution, Substring Order II, String Functions.</li>
+      <li>LeetCode 1044, 718.</li>
+      <li>Stress <code>distinct_substrings</code> (automaton) against \(\frac{n(n+1)}{2} - \sum \text{lcp}\) and a brute-force set on random strings.</li>
+      <li><b>Goal:</b> you solve suffix-array applications by combining the three moves.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> CP-Algorithms, “Suffix Array” (applications) and “Suffix Automaton” · Blumer et al. 1985, “The smallest automaton recognizing the subwords of a text”, <i>Theoretical Computer Science</i> · Ukkonen 1995, “On-line construction of suffix trees”, <i>Algorithmica</i> · Gusfield, <i>Algorithms on Strings, Trees, and Sequences</i>, Part II</p>
+</article>
+<!-- ================================================================ L46 -->
+<article class="day project" id="l46">
+  <header class="day-head">
+    <span class="day-no">L46 · DAY 32</span>
+    <h2>Contest Day 3 + Editorial (Strings)</h2>
+    <p class="day-meta"><span class="vid">90m video</span><span class="tagx">contest day</span></p>
+  </header>
+
+  <p class="thesis">String problems reward picking the simplest tool that answers the question and then verifying it against slicing brute force, because string bugs (an off-by-one in a radius, a separator that appears in the input) pass the samples and fail test 30. Five problems in two and a half hours, one per tool family.</p>
+
+  <h3>Contest setup</h3>
+  <p>Two and a half hours, five problems, \(n \le 2\cdot10^5\) and lowercase letters unless stated, 2 s per test, PyPy allowed, your <code>strings.py</code> from <a href="#l37">L37</a>–<a href="#l45">L45</a> allowed. The problems are written for this course; each lists the closest judge problem for a real submission. Target difficulty runs from about Codeforces 1300 to 1900 (rough estimates). Before submitting anything, run it against a brute force built from <code>s[i:j]</code> slices on a few hundred random strings over <code>{a, b}</code> (<a href="p00.html#l10">L10</a>): a two-letter alphabet produces the long repeats where string code breaks. Measured at full size in CPython 3.12, the reference solutions below take about 4 s (P1), 2.5 s (P3, \(n = 10^5\)), 1.7 s (P4) and 2.1 s (P5), so submit with PyPy; P2 takes 0.2 s.</p>
+  <ol>
+    <li><b>P1 · Popular substring.</b> Given \(s\) and \(k\), the length of the longest substring occurring at least \(k\) times (overlaps allowed), or 0. Sample: <code>abababa</code>, \(k = 3\) → <code>3</code> (<code>aba</code>). Closest: LeetCode 1044.</li>
+    <li><b>P2 · Border census.</b> For every prefix of \(s\) that is also a suffix (the whole string included), print its length and its number of occurrences in \(s\), by increasing length. Sample: <code>ABACABA</code> → <code>1 4</code>, <code>3 2</code>, <code>7 1</code>. Closest: Codeforces 432D — Prefixes and Suffixes.</li>
+    <li><b>P3 · Low-XOR subarrays.</b> Integers \(a_i &lt; 2^{30}\) and \(k\); count subarrays whose XOR is less than \(k\). Sample: <code>[1, 2, 3]</code>, \(k = 2\) → <code>3</code>. Closest: the maximum-XOR-subarray family (<a href="#l42">L42</a>).</li>
+    <li><b>P4 · Two palindromes.</b> The largest total length of two non-overlapping palindromic substrings (\(n \ge 2\)). Sample: <code>abacdc</code> → <code>6</code> (<code>aba</code> + <code>cdc</code>). Closest: Codeforces 17E — Palisection (harder).</li>
+    <li><b>P5 · Echoes.</b> The number of distinct substrings that occur at least twice. Sample: <code>abab</code> → <code>3</code> (<code>a</code>, <code>b</code>, <code>ab</code>). Closest: CSES — Distinct Substrings, Repeating Substring.</li>
+  </ol>
+
+  <h3>The "which string tool?" decision tree</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 280" role="img" aria-label="Decision tree from the kind of string question to the tool">
+      <defs><marker id="ah-l46" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="118" width="150" height="44" rx="6" class="s-node"/><text x="95" y="137" class="s-mid s-sm">what does the</text><text x="95" y="152" class="s-mid s-sm">question compare?</text>
+      <rect x="230" y="14" width="210" height="26" rx="4" class="s-node"/><text x="240" y="31" class="s-sm">one pattern vs a text</text>
+      <rect x="230" y="50" width="210" height="26" rx="4" class="s-node"/><text x="240" y="67" class="s-sm">many patterns vs a text</text>
+      <rect x="230" y="86" width="210" height="26" rx="4" class="s-node"/><text x="240" y="103" class="s-sm">pairs of substrings, longest X</text>
+      <rect x="230" y="122" width="210" height="26" rx="4" class="s-node"/><text x="240" y="139" class="s-sm">palindromes</text>
+      <rect x="230" y="158" width="210" height="26" rx="4" class="s-node"/><text x="240" y="175" class="s-sm">all substrings: order, counts</text>
+      <rect x="230" y="194" width="210" height="26" rx="4" class="s-node"/><text x="240" y="211" class="s-sm">prefixes of a word set</text>
+      <rect x="230" y="230" width="210" height="26" rx="4" class="s-node"/><text x="240" y="247" class="s-sm">XOR of numbers, bitwise</text>
+      <path d="M170,140 L226,27" class="s-ln" marker-end="url(#ah-l46)"/><path d="M170,140 L226,63" class="s-ln" marker-end="url(#ah-l46)"/>
+      <path d="M170,140 L226,99" class="s-ln" marker-end="url(#ah-l46)"/><path d="M170,140 L226,135" class="s-ln" marker-end="url(#ah-l46)"/>
+      <path d="M170,140 L226,171" class="s-ln" marker-end="url(#ah-l46)"/><path d="M170,140 L226,207" class="s-ln" marker-end="url(#ah-l46)"/>
+      <path d="M170,140 L226,243" class="s-ln" marker-end="url(#ah-l46)"/>
+      <rect x="480" y="14" width="190" height="26" rx="4" class="s-node-mod"/><text x="490" y="31" class="s-sm">KMP (stream) or Z (L38–39)</text>
+      <rect x="480" y="50" width="190" height="26" rx="4" class="s-node-mod"/><text x="490" y="67" class="s-sm">Aho–Corasick (L43)</text>
+      <rect x="480" y="86" width="190" height="26" rx="4" class="s-node-mod"/><text x="490" y="103" class="s-sm">hash + binary search (L37)</text>
+      <rect x="480" y="122" width="190" height="26" rx="4" class="s-node-mod"/><text x="490" y="139" class="s-sm">Manacher (L40)</text>
+      <rect x="480" y="158" width="190" height="26" rx="4" class="s-node-mod"/><text x="490" y="175" class="s-sm">suffix array + LCP (L44–45)</text>
+      <rect x="480" y="194" width="190" height="26" rx="4" class="s-node-mod"/><text x="490" y="211" class="s-sm">trie (L41)</text>
+      <rect x="480" y="230" width="190" height="26" rx="4" class="s-node-mod"/><text x="490" y="247" class="s-sm">binary trie (L42)</text>
+      <line x1="440" y1="27" x2="476" y2="27" class="s-ln" marker-end="url(#ah-l46)"/><line x1="440" y1="63" x2="476" y2="63" class="s-ln" marker-end="url(#ah-l46)"/>
+      <line x1="440" y1="99" x2="476" y2="99" class="s-ln" marker-end="url(#ah-l46)"/><line x1="440" y1="135" x2="476" y2="135" class="s-ln" marker-end="url(#ah-l46)"/>
+      <line x1="440" y1="171" x2="476" y2="171" class="s-ln" marker-end="url(#ah-l46)"/><line x1="440" y1="207" x2="476" y2="207" class="s-ln" marker-end="url(#ah-l46)"/>
+      <line x1="440" y1="243" x2="476" y2="243" class="s-ln" marker-end="url(#ah-l46)"/>
+    </svg>
+    <figcaption><b>Simplest tool first.</b> Hashing solves many problems in each row with more risk and less code; a suffix array solves most of them deterministically with more code. In a contest, start with the row's first tool and move down only if it cannot answer the question.</figcaption>
+  </figure>
+
+  <h3>Editorial</h3>
+  <p><b>P1 (hashing + binary search).</b> If a substring of length \(L\) occurs \(k\) times, so does its length-\(L-1\) prefix, so the predicate is monotone; the answer is at most \(n - k + 1\). For a candidate \(L\), count window hashes in a dict and stop at the first count reaching \(k\). \(O(n \log n)\) expected, with \(2^{61}-1\) and a random base (a \(10^9\) modulus would merge distinct windows, <a href="#l37">L37</a>).</p>
+  <pre><code># Hashing, prefix_function, prefix_occurrences, BinaryTrie, manacher,
+# suffix_array, kasai: from strings.py (L37-L45)
+from itertools import accumulate
+
+def p1(s, k):
+    H = Hashing(s)
+    h, pw, M = H.h, H.p, H.M
+    def ok(L):
+        cnt = {}
+        for i in range(len(s) - L + 1):
+            x = (h[i + L] - h[i] * pw[L]) % M
+            c = cnt.get(x, 0) + 1
+            if c &gt;= k:
+                return True
+            cnt[x] = c
+        return False
+    lo, hi = 0, len(s) - k + 1                  # invariant: lo works (0 always does)
+    while lo &lt; hi:
+        mid = (lo + hi + 1) // 2
+        if ok(mid):
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo</code></pre>
+  <p><b>P2 (prefix function).</b> The prefix-suffixes are \(n\) and the border chain \(\pi[n-1], \pi[\pi[n-1]-1], \dots\); their occurrence counts come from pushing counts down the chain (<a href="#l38">L38</a>'s <code>prefix_occurrences</code>). \(O(n)\).</p>
+  <pre><code>def p2(s):
+    pi, cnt = prefix_function(s), prefix_occurrences(s)
+    out, b = [], len(s)
+    while b:
+        out.append((b, cnt[b]))
+        b = pi[b - 1]
+    return out[::-1]</code></pre>
+  <p><b>P3 (binary trie).</b> Subarray XOR is \(P_r \oplus P_l\) for prefix XORs, so for each \(r\) count earlier prefixes \(y\) with \(P_r \oplus y &lt; k\): <code>count_less</code>, then insert \(P_r\). Insert \(P_0 = 0\) first. \(O(nB)\).</p>
+  <pre><code>def p3(a, k, B=30):
+    t, pre, total = BinaryTrie(B), 0, 0
+    t.add(0)
+    for x in a:
+        pre ^= x
+        total += t.count_less(pre, k)
+        t.add(pre)
+    return total</code></pre>
+  <p><b>P4 (Manacher).</b> Split at a cut \(e\): the best answer is the longest palindrome inside \(s[0..e]\) plus the longest inside \(s[e+1..]\), maximised over \(e\). The longest palindrome <em>ending at</em> each position comes from the radii: in Manacher's string \(t\), letter \(s_e\) sits at \(E = 2e + 1\), and a centre \(j \le E\) has a palindrome ending at \(E\) iff \(j + p[j] - 1 \ge E\), of length \(E - j + 1\). The leftmost such centre gives the longest, and a centre that cannot reach \(E\) cannot reach anything later, so one pointer sweeps all centres once: \(O(n)\). Run it on the reversed string for "longest starting at", then take prefix and suffix maxima.</p>
+  <pre><code>def longest_ending_at(s):
+    p, res, j = manacher(s), [0] * len(s), 0
+    for e in range(len(s)):
+        E = 2 * e + 1                           # index of s[e] in Manacher's t
+        while j + p[j] - 1 &lt; E:                 # centre j can no longer reach
+            j += 1
+        res[e] = E - j + 1
+    return res
+
+def p4(s):
+    left = list(accumulate(longest_ending_at(s), max))
+    start = longest_ending_at(s[::-1])[::-1]    # longest palindrome starting at each index
+    right = list(accumulate(start[::-1], max))[::-1]
+    return max(left[e] + right[e + 1] for e in range(len(s) - 1))</code></pre>
+  <p><b>P5 (suffix array).</b> A substring occurring at least twice is a common prefix of two adjacent suffixes in sorted order, and its occurrences form one contiguous block. Count it at the first adjacent pair of its block, where the LCP rises: position \(i\) contributes the lengths in \((\text{lcp}[i-1], \text{lcp}[i]]\), so the answer is \(\sum_i \max(0, \text{lcp}[i] - \text{lcp}[i-1])\). \(O(n\log^2 n)\) for the build, \(O(n)\) after.</p>
+  <pre><code>def p5(s):
+    lcp = kasai(s, suffix_array(s))
+    return sum(max(0, lcp[i] - lcp[i - 1]) for i in range(1, len(s)))</code></pre>
+
+  <h3>Common bugs, and how to catch them</h3>
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Mod arithmetic</b>: a fixed base (hackable), a \(10^9\) modulus with a set of \(10^5\) hashes (collides), or a missing <code>% M</code> after subtraction in a port to another language.</li>
+      <li><b>Sentinels and separators</b>: a separator that occurs in the input, or the same separator used twice when joining several strings.</li>
+      <li><b>Half-open vs inclusive</b>: <code>get(l, r)</code> is \([l, r)\); the palindrome checker took inclusive \([l, r]\); Manacher's radius is a length in \(s\). Write the convention next to every helper.</li>
+      <li><b>P1's upper bound</b> \(n - k + 1\), and the case \(k = 1\) (answer \(n\)).</li>
+      <li><b>P3 without \(P_0\)</b>: subarrays starting at index 0 vanish.</li>
+      <li><b>P4's cut</b>: a palindrome may not cross the cut; prefix/suffix maxima enforce it.</li>
+      <li><b>Verification</b>: every string function above has a brute force in three lines of slicing. Not running it is the most expensive bug of all.</li>
+    </ul>
+  </div>
+  <div class="box algo"><span class="tag">Algorithm · the stress loop for string code</span>
+    <ol>
+      <li>Generator: random length 1–12 over <code>"ab"</code> (and sometimes <code>"abc"</code>), plus parameters (\(k\), arrays).</li>
+      <li>Brute force from definitions: enumerate <code>s[i:j]</code>, count with <code>str.count</code>-free loops (it does not count overlaps), test palindromes with <code>t == t[::-1]</code>.</li>
+      <li>Compare on thousands of cases; on a mismatch, shrink the input and print both outputs (<a href="p00.html#l10">L10</a>).</li>
+    </ol>
+  </div>
+
+  <h3>Upsolve plan</h3>
+  <ol>
+    <li>Same day: read one editorial paragraph per unsolved problem, then write it from scratch without looking.</li>
+    <li>Stress every solution, including the ones that passed during the contest.</li>
+    <li>Next day: submit the closest judge problems (LeetCode 1044, Codeforces 432D, Codeforces 17E, CSES — Distinct Substrings) and one problem from the Codeforces tag <code>strings</code> rated near your level.</li>
+    <li>Add every helper you had to rewrite during the contest to <code>strings.py</code>, with its test.</li>
+  </ol>
+  <ul class="deliverables">
+    <li>At least 3 of 5 solved within two and a half hours.</li>
+    <li>All five upsolved and passing a stress test against slicing brute force.</li>
+    <li><code>strings.py</code> with tests: <code>Hashing</code>, <code>prefix_function</code>, <code>kmp_search</code>, <code>kmp_automaton</code>, <code>z_function</code>, <code>manacher</code>, <code>Trie</code>/<code>FlatTrie</code>, <code>BinaryTrie</code>, <code>AhoCorasick</code>, <code>suffix_array</code>, <code>kasai</code>.</li>
+    <li>The decision tree printed next to Phase 2's structure flowchart.</li>
+    <li>A mistake log entry for every failed submission.</li>
+  </ul>
+
+  <div class="practice"><h4>Practice</h4>
+    <ol>
+      <li>The five contest problems, then LeetCode 1044, Codeforces 432D — Prefixes and Suffixes, Codeforces 17E — Palisection, CSES — Distinct Substrings, CSES — Repeating Substring.</li>
+      <li>One virtual contest on Codeforces with at least two string problems; label each with its decision-tree row before solving.</li>
+      <li><b>Goal:</b> 3+/5 and a personal <code>strings.py</code> library file.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Laaksonen, <i>Competitive Programmer's Handbook</i>, ch. 26 (string algorithms) · CP-Algorithms, “String Processing” section · Halim &amp; Halim, <i>Competitive Programming 4</i>, ch. 6</p>
+</article>
+
+<nav class="modnav">
+  <a href="p02.html"><small>Previous · Days 18–24</small>◂ Phase 2 — Linear Data Structures</a>
+  <a class="next" href="p04.html"><small>Next · Days 33–43</small>Phase 4 — Recursion, Backtracking, Divide &amp; Conquer, Trees ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

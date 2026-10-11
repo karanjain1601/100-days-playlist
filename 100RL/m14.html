@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 14 — Safety, LLMs &amp; Applications · 130 Days of RL</title>
+<meta name="description" content="Days 122–128: constrained and risk-sensitive RL, reward modelling and RLHF with PPO, DPO and direct alignment, GRPO and RL with verifiable rewards, sim-to-real robotics, and RL in industry with off-policy evaluation and honest benchmarking.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m14">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>130 Days</b> of RL</a>
+  <span class="meta">Module 14 · Safety, LLMs &amp; Applications · Days 122–128</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Slate / paper</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Module 14 · Safety, LLMs &amp; Apps</h4>
+  <nav>
+    <a href="#d122"><span class="n">D122</span>Safe &amp; Constrained RL</a>
+    <a href="#d123"><span class="n">D123</span>RLHF I · Reward Models</a>
+    <a href="#d124"><span class="n">D124</span>RLHF II · PPO for LMs</a>
+    <a href="#d125"><span class="n">D125</span>DPO &amp; Direct Alignment</a>
+    <a href="#d126"><span class="n">D126</span>GRPO &amp; Reasoning</a>
+    <a href="#d127"><span class="n">D127</span>Robotics &amp; Sim-to-Real</a>
+    <a href="#d128"><span class="n">D128</span>Industry &amp; Evaluation</a>
+  </nav>
+  <h4>All 130 days</h4>
+  <div class="spine" data-spine data-module="14"></div>
+  <h4>Modules</h4>
+  <div class="pager"><a href="m13.html">◂ Module 13</a><a href="m15.html">Module 15 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Module 14 · Days 122–128 · Weeks 25–26</p>
+<h1>Safety, LLMs &amp; Applications</h1>
+<p class="dek">Seven lessons on what changes when RL leaves the benchmark: constrained and risk-sensitive formulations for agents that must not do certain things; the reward-modelling, PPO, DPO and GRPO machinery that post-trains language models; and the engineering of sim-to-real robotics and industrial deployment, where evaluating a policy honestly is harder than training it. The module leans on almost everything since Module 9 (PPO, KL trust regions, offline data, importance sampling), and it hands Module 15 the evaluation standards the capstone is judged by.</p>
+<ul class="chips">
+  <li><b>7</b> lessons</li>
+  <li><b>5h 25m</b> video</li>
+  <li><b>9h 45m</b> practice</li>
+  <li>Reading: <b>Ouyang et al. 2022 · Rafailov et al. 2023</b></li>
+</ul>
+<div class="outcomes">
+  <h2>By the end of this module you can</h2>
+  <ul>
+    <li>Formulate a constrained MDP, derive the primal–dual updates, and explain why plain dual ascent can oscillate.</li>
+    <li>Derive the Bradley–Terry reward-model loss and explain reward-model overoptimization as an instance of Goodhart's law.</li>
+    <li>Write the per-token KL-shaped reward and the advantage computation used for RLHF with PPO, and name its practical failure modes.</li>
+    <li>Derive DPO from the KL-regularized objective, and say when IPO, KTO, ORPO or online RL is the better choice.</li>
+    <li>Implement GRPO's group-normalized advantages and design a verifiable reward that is hard to hack.</li>
+    <li>Plan a sim-to-real pipeline with domain randomization, system identification and a privileged teacher.</li>
+    <li>Evaluate a policy from logged data with IPS, SNIPS and doubly robust estimators, and audit an evaluation against a checklist.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ DAY 122 -->
+<article class="day" id="d122">
+  <header class="day-head">
+    <span class="day-no">DAY 122</span>
+    <h2>Safe &amp; Constrained RL</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Some requirements are limits, not preferences. A constrained MDP keeps cost separate from reward and asks for the best policy whose expected cost stays within a budget; the Lagrangian turns that into a game in which a price on cost, \(\lambda\), rises whenever the policy overspends.</p>
+
+  <h3>Why a penalty in the reward is not enough</h3>
+  <p>The obvious move is to fold cost into the reward, \(r - \kappa c\), and run any algorithm from Module 9. The trouble is \(\kappa\). A robot that must keep its expected number of falls below 0.1 per episode needs some penalty weight, but which one depends on the environment, the policy class and the stage of training, and you only find it by sweeping. Too small and the budget is blown; too large and the agent learns to stand still. A constrained formulation states the budget you actually care about and makes finding the price part of the algorithm. Day 27 previewed the formalism.</p>
+  <div class="box def"><span class="tag">Definition · Constrained MDP (Altman 1999)</span>
+    <p>A CMDP adds cost functions \(c_i(s, a) \ge 0\) and budgets \(d_i\), \(i = 1, \dots, m\), to an MDP. With</p>
+    $$J_R(\pi) = \E_\pi\Big[\sum_{t \ge 0} \gamma^t R_{t+1}\Big], \qquad J_{C_i}(\pi) = \E_\pi\Big[\sum_{t \ge 0} \gamma^t C_{i,t+1}\Big],$$
+    <p>the problem is \(\max_\pi J_R(\pi)\) subject to \(J_{C_i}(\pi) \le d_i\) for every \(i\).</p>
+  </div>
+  <p>Two facts separate CMDPs from the MDPs of Day 24. First, the optimal policy may have to be stochastic: the existence of a deterministic optimal policy is a property of unconstrained MDPs only. Altman shows an optimal stationary policy exists that randomizes in at most \(m\) states, one per constraint. Second, the problem is a linear program in the discounted occupancy measure \(\rho_\pi(s, a) = \sum_t \gamma^t \Pr(S_t = s, A_t = a)\): the objective \(\sum_{s,a} \rho(s,a)\, r(s,a)\) and each constraint \(\sum_{s,a} \rho(s,a)\, c_i(s,a) \le d_i\) are linear in \(\rho\), and so are the flow constraints that make \(\rho\) a valid occupancy measure. Linear programs have no duality gap, which is why the Lagrangian approach below is sound.</p>
+  <div class="box intuition"><span class="tag">Intuition · the smallest CMDP</span>
+    <p>One state, two actions. Action \(a_0\) pays reward 1 and cost 1; action \(a_1\) pays nothing. The budget is an expected cost of 0.5 per step. "Always \(a_0\)" is infeasible, "always \(a_1\)" is worthless, and the optimum flips a fair coin: reward 0.5, cost exactly 0.5. The constraint is tight at the optimum, which is the typical case.</p>
+  </div>
+
+  <h3>The Lagrangian and primal–dual updates</h3>
+  $$\mathcal L(\pi, \lambda) = J_R(\pi) - \sum_{i=1}^m \lambda_i \big(J_{C_i}(\pi) - d_i\big), \qquad \lambda_i \ge 0.$$
+  <div class="box deriv"><span class="tag">Derivation · weak duality and the two gradients</span>
+    <p>For feasible \(\pi\) every \(J_{C_i}(\pi) - d_i \le 0\), so \(\mathcal L(\pi, \lambda) \ge J_R(\pi)\) for any \(\lambda \ge 0\). Hence the dual function \(g(\lambda) = \max_\pi \mathcal L(\pi, \lambda)\) satisfies \(g(\lambda) \ge J_R(\pi^*)\): every price gives an upper bound on the constrained optimum. Strong duality, \(\min_{\lambda \ge 0} g(\lambda) = J_R(\pi^*)\), holds for CMDPs through the LP form, and Paternain et al. (2019) show the gap stays zero over sufficiently rich parameterized policy classes even though \(J_R(\pi_\theta)\) is not concave in \(\theta\). So we solve the saddle-point problem \(\min_{\lambda \ge 0} \max_\theta \mathcal L(\pi_\theta, \lambda)\) with</p>
+    $$\nabla_\theta \mathcal L = \nabla_\theta J_R - \sum_i \lambda_i \nabla_\theta J_{C_i}, \qquad \frac{\partial \mathcal L}{\partial \lambda_i} = -\big(J_{C_i}(\pi_\theta) - d_i\big).$$
+    <p>The first is an ordinary policy gradient for the reward \(r - \sum_i \lambda_i c_i\). Descending on the second gives \(\lambda_i \leftarrow \big[\lambda_i + \eta\,(J_{C_i} - d_i)\big]_+\), projected onto \(\lambda_i \ge 0\).</p>
+  </div>
+  <p>Read \(\lambda\) as a price. While the policy overspends, the price rises; once it underspends, the price falls, and it stays at zero for a constraint that is slack at the optimum (complementary slackness: \(\lambda_i^* &gt; 0\) only if constraint \(i\) is tight).</p>
+  <div class="box algo"><span class="tag">Algorithm · primal–dual policy optimization</span>
+    <ol>
+      <li>Initialise policy parameters \(\theta\) and price \(\lambda = 0\) (or a small positive value).</li>
+      <li>Repeat:
+        <ol>
+          <li>Collect rollouts with \(\pi_\theta\), recording rewards and costs.</li>
+          <li>Estimate the episode cost \(\hat J_C\), and advantages \(\hat A_R\), \(\hat A_C\) from a reward critic and a cost critic.</li>
+          <li>Policy step on \(\hat A_R - \lambda \hat A_C\) with any policy-gradient method. <span class="step">(fast timescale)</span></li>
+          <li>\(\lambda \leftarrow \max\big(0, \lambda + \eta_\lambda (\hat J_C - d)\big)\). <span class="step">(slow timescale)</span></li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+  <p>Two-timescale stochastic approximation (Borkar) justifies this when \(\lambda\) moves slowly enough that the policy is nearly a best response to the current price; Tessler et al. (2019) analyse this scheme as Reward Constrained Policy Optimization. Run it on the smallest CMDP and watch what plain dual ascent actually does:</p>
+  <pre><code>import numpy as np
+
+def primal_dual(kp=0.0, steps=20_000, lr_theta=0.5, lr_lam=0.02):
+    """One-state CMDP: action 0 pays reward 1 and cost 1, action 1 pays nothing.
+    Constraint E[cost] &lt;= d = 0.5, so the optimal policy is stochastic: pi(a0) = 0.5."""
+    r, c, d = np.array([1.0, 0.0]), np.array([1.0, 0.0]), 0.5
+    theta, integral, trace = np.zeros(2), 0.0, []
+    for _ in range(steps):
+        pi = np.exp(theta - theta.max())
+        pi /= pi.sum()
+        violation = pi @ c - d                                # J_C(pi) - d
+        integral = max(0.0, integral + lr_lam * violation)    # projected dual ascent
+        lam = max(0.0, integral + kp * violation)             # kp &gt; 0 adds a proportional term
+        f = r - lam * c                                       # Lagrangian reward r - lambda * c
+        theta += lr_theta * pi * (f - pi @ f)                 # exact softmax gradient of E_pi[f]
+        trace.append((pi[0], lam))
+    return np.array(trace)
+
+for kp in (0.0, 1.0):
+    t = primal_dual(kp)
+    late = t[len(t) // 2:]
+    print(f"kp={kp}: pi(a0) in [{late[:, 0].min():.2f}, {late[:, 0].max():.2f}], "
+          f"mean {late[:, 0].mean():.3f}, mean lambda {late[:, 1].mean():.3f}")
+# kp=0.0: pi(a0) in [0.02, 0.98], mean 0.498, mean lambda 1.002
+# kp=1.0: pi(a0) in [0.50, 0.50], mean 0.500, mean lambda 1.000</code></pre>
+  <p class="code-cap">With \(\lambda &lt; 1\) the best response is "always \(a_0\)", which overspends and pushes \(\lambda\) above 1, where the best response flips to "always \(a_1\)". Plain dual ascent cycles forever and only its time average is right. Adding a term proportional to the current violation, the idea behind the PID Lagrangian of Stooke et al. (2020), damps the cycle.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 250" role="img" aria-label="Primal-dual loop: policy, rollouts, critics, a dual step on lambda and a policy step on the Lagrangian advantage">
+      <defs>
+        <marker id="ah-d122" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d122m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="20" y="20" width="150" height="60" rx="8" class="s-node-mod"/>
+      <text x="95" y="46" class="s-ttl s-mid">Policy πθ</text>
+      <text x="95" y="66" class="s-ink2 s-sm s-mid">a ~ πθ(· | s)</text>
+      <rect x="265" y="20" width="150" height="60" rx="8" class="s-node"/>
+      <text x="340" y="46" class="s-ttl s-mid">Rollouts</text>
+      <text x="340" y="66" class="s-ink2 s-sm s-mid">rewards r, costs c</text>
+      <rect x="510" y="20" width="150" height="60" rx="8" class="s-node"/>
+      <text x="585" y="46" class="s-ttl s-mid">Two critics</text>
+      <text x="585" y="66" class="s-ink2 s-sm s-mid">V<tspan dy="3">R</tspan><tspan dy="-3">, V</tspan><tspan dy="3">C</tspan><tspan dy="-3"> → advantages</tspan></text>
+      <line x1="170" y1="50" x2="263" y2="50" class="s-ln" marker-end="url(#ah-d122)"/>
+      <line x1="415" y1="50" x2="508" y2="50" class="s-ln" marker-end="url(#ah-d122)"/>
+      <rect x="400" y="165" width="260" height="60" rx="8" class="s-node"/>
+      <text x="530" y="191" class="s-ttl s-mid">Dual step (slow)</text>
+      <text x="530" y="211" class="s-ink2 s-sm s-mid">λ ← max(0, λ + η(Ĵ<tspan dy="3">C</tspan><tspan dy="-3"> − d))</tspan></text>
+      <rect x="20" y="165" width="260" height="60" rx="8" class="s-node-mod"/>
+      <text x="150" y="191" class="s-ttl s-mid">Policy step (fast)</text>
+      <text x="150" y="211" class="s-ink2 s-sm s-mid">ascend on Â<tspan dy="3">R</tspan><tspan dy="-3"> − λ·Â</tspan><tspan dy="3">C</tspan></text>
+      <line x1="610" y1="80" x2="610" y2="163" class="s-ln" marker-end="url(#ah-d122)"/>
+      <text x="618" y="126" class="s-ink2 s-sm">Ĵ<tspan dy="3">C</tspan></text>
+      <line x1="530" y1="80" x2="250" y2="163" class="s-ln" marker-end="url(#ah-d122)"/>
+      <text x="372" y="110" class="s-ink2 s-sm s-mid">Â<tspan dy="3">R</tspan><tspan dy="-3">, Â</tspan><tspan dy="3">C</tspan></text>
+      <line x1="400" y1="195" x2="282" y2="195" class="s-ln-mod" marker-end="url(#ah-d122m)"/>
+      <text x="341" y="186" class="s-mod s-mid">λ</text>
+      <line x1="95" y1="165" x2="95" y2="82" class="s-ln-mod" marker-end="url(#ah-d122m)"/>
+      <text x="103" y="128" class="s-mod s-sm">new θ</text>
+    </svg>
+    <figcaption><b>The primal–dual loop.</b> The policy is trained on the Lagrangian advantage as if \(\lambda\) were fixed. \(\lambda\) is a price that the dual step raises whenever the latest batch overspends the budget \(d\) and lowers, never below zero, when it underspends. Running the dual step on a slower timescale keeps the policy close to a best response to the current price.</figcaption>
+  </figure>
+
+  <h3>Constrained Policy Optimization (CPO)</h3>
+  <p>Achiam et al. (2017) bring TRPO's trust region (Day 90) to the constrained problem. Linearise the reward and cost surrogates around \(\theta_k\), keep the KL constraint quadratic, and write \(x = \theta - \theta_k\):</p>
+  $$\max_{x}\; g^\top x \quad \text{s.t.}\quad c + b^\top x \le 0, \qquad \tfrac12\, x^\top H x \le \delta,$$
+  <p>where \(g\) and \(b\) are the gradients of the reward and cost surrogates, \(c = J_C(\pi_k) - d\) is the current slack (negative when feasible) and \(H\) is the Fisher matrix. This is a convex problem with one linear and one quadratic constraint. Its dual has only two variables, \(\kappa\) for the trust region and \(\nu\) for the cost, and is solved in closed form, giving a step \(x^* = \frac{1}{\kappa^*} H^{-1}(g - \nu^* b)\). When the cost constraint is inactive (\(\nu^* = 0\)) this is exactly the TRPO step. When the linearised problem is infeasible because the current policy is far over budget, CPO takes a recovery step that only reduces cost, \(x = -\sqrt{2\delta / b^\top H^{-1} b}\; H^{-1} b\).</p>
+  <div class="box thm"><span class="tag">Result · CPO's per-update guarantee (Achiam et al. 2017)</span>
+    <p>Extending TRPO's policy-improvement bound to costs, each CPO update has a worst-case reward degradation and a worst-case constraint violation bounded in terms of \(\delta\), \(\gamma\) and the maximum advantage magnitudes. The point is that the constraint holds approximately at every update, not just at convergence, which is what you want when training on a real system.</p>
+  </div>
+  <p>The implementation is TRPO's plus a second set of conjugate-gradient solves for \(H^{-1} b\), a cost value function, and a line search that checks the KL and the surrogate cost. In the Safety Gym benchmark, Ray, Achiam &amp; Amodei (2019) found the much simpler Lagrangian versions of PPO and TRPO satisfied constraints at least as reliably as CPO, whose linearisation errors let it overshoot. That finding is part of why Lagrangian methods became the default.</p>
+
+  <h3>Lagrangian PPO and SAC</h3>
+  <p><b>PPO-Lagrangian</b> adds a cost critic \(V_C\), computes cost advantages with GAE exactly as for rewards (Day 88), and feeds the combined advantage into the clipped objective of Day 91. Safety Gym's reference implementation divides by \(1 + \lambda\) so the gradient scale stays bounded as the price grows. \(\lambda\) is updated once per epoch from the batch's mean episode cost, often parameterized as \(\lambda = \operatorname{softplus}(\zeta)\) or clipped at a maximum.</p>
+  <pre><code># Fragment of a PPO-Lagrangian update; the batch, both critics' advantages and returns exist.
+adv = (adv_r - lam * adv_c) / (1.0 + lam)               # scale stays bounded as lam grows
+ratio = torch.exp(logp_new - logp_old)
+policy_loss = -torch.min(ratio * adv, torch.clamp(ratio, 1 - clip, 1 + clip) * adv).mean()
+value_loss = ((v_r - ret_r) ** 2).mean() + ((v_c - ret_c) ** 2).mean()   # two critics
+lam = max(0.0, lam + lr_lam * (mean_episode_cost - cost_limit))          # once per epoch</code></pre>
+  <p class="code-cap">Implementations differ on whether advantages are normalized before or after combining. Normalizing after combining makes the \(1 + \lambda\) factor irrelevant but also changes the units in which \(\lambda\) is learned.</p>
+  <p><b>SAC-Lagrangian</b> adds a cost critic \(Q_C(s, a)\) and minimises \(\E\big[\alpha \log \pi(a \mid s) - Q_R(s, a) + \lambda\, Q_C(s, a)\big]\) for the actor, with the same projected dual step. Off-policy cost critics are dangerous when they underestimate, because the actor exploits the error exactly as it exploits Q-overestimation (Day 94). The mirror image of clipped double-Q is to be pessimistic about cost, for instance by taking the larger of two cost critics.</p>
+
+  <h3>Shielding and safety layers</h3>
+  <p>Lagrangian methods enforce constraints on average and only eventually. When every action must be safe, including during training, put a filter between the policy and the actuators.</p>
+  <p><b>Shielding</b> (Alshiekh et al. 2018) starts from a safety specification in temporal logic, such as "never enter the red region", and a conservative finite-state abstraction of the dynamics. Treating the environment as an adversary, it synthesizes a <em>shield</em>: a reactive system that knows, for every abstract state, which actions still allow the specification to be guaranteed. A <em>preemptive</em> shield hands the learner only the allowed actions at each step; a <em>post-posed</em> shield lets the learner choose, then replaces an unsafe choice with a safe one, and the learner is updated with the action actually executed. Safety then holds throughout learning, provided the abstraction really over-approximates the true dynamics.</p>
+  <p><b>Safety layers</b> (Dalal et al. 2018) handle continuous actions with per-step state constraints \(c_i(s) \le C_i\). From exploration data, learn a linear model of how the action changes each constraint, \(c_i(s') \approx c_i(s) + g_i(s; w_i)^\top a\). At run time, project the policy's action \(\mu(s)\) onto the linearised safe set:</p>
+  $$a^* = \argmin_a \tfrac12 \|a - \mu(s)\|^2 \quad \text{s.t.}\quad c_i(s) + g_i(s)^\top a \le C_i .$$
+  <div class="box deriv"><span class="tag">Derivation · closed-form projection for one constraint</span>
+    <p>The Lagrangian is \(\tfrac12\|a - \mu\|^2 + \nu\,(c + g^\top a - C)\) with \(\nu \ge 0\). Stationarity gives \(a = \mu - \nu g\). Complementary slackness: either \(\nu = 0\) (the policy's action is already safe) or the constraint is tight, \(c + g^\top(\mu - \nu g) = C\), so \(\nu = (g^\top \mu + c - C)/g^\top g\). Together,</p>
+    $$\nu^* = \left[\frac{g^\top \mu + c - C}{g^\top g}\right]_+, \qquad a^* = \mu - \nu^* g .$$
+    <p>Dalal et al. assume at most one constraint is active at a time, which makes the multi-constraint case the same formula applied to the most violated constraint.</p>
+  </div>
+  <pre><code>import numpy as np
+
+def safety_layer(mu, c, g, C):
+    """Project action mu onto {a : c + g @ a &lt;= C} for one linearised constraint."""
+    nu = max(0.0, (g @ mu + c - C) / (g @ g))
+    return mu - nu * g
+
+# A point robot at x = 0.9 next to a wall at x = 1.0; next x is about 0.9 + 0.2 * a_x.
+a = safety_layer(mu=np.array([1.0, 0.3]), c=0.9, g=np.array([0.2, 0.0]), C=1.0)
+print(a)   # [0.5 0.3]: x-velocity halved so that 0.9 + 0.2 * 0.5 = 1.0; y untouched</code></pre>
+  <p>Relatives of the same idea: action masking when unsafe discrete actions are known, control barrier functions (the same quadratic-program filter derived from a known model), and recovery policies that take over near the boundary of the safe set.</p>
+
+  <h3>Risk-sensitive objectives: CVaR</h3>
+  <p>An expectation hides tails. A policy with a 1% chance of catastrophe and one with a steady small cost can have the same expected cost, and a CMDP treats them as equally good. Risk-sensitive RL optimises a risk measure of the return distribution instead, which connects directly to the distributional methods of Days 79–80.</p>
+  <div class="box def"><span class="tag">Definition · Conditional value at risk</span>
+    <p>For a return \(G\) and level \(\alpha \in (0, 1]\), \(\operatorname{CVaR}_\alpha(G)\) is the mean of the worst \(\alpha\)-fraction of outcomes; for continuous \(G\), \(\operatorname{CVaR}_\alpha(G) = \E[G \mid G \le q_\alpha]\), where \(q_\alpha\) is the \(\alpha\)-quantile (the value at risk). Rockafellar and Uryasev's variational form is</p>
+    $$\operatorname{CVaR}_\alpha(G) = \max_{\nu \in \R} \Big\{ \nu - \tfrac{1}{\alpha}\, \E\big[(\nu - G)_+\big] \Big\},$$
+    <p>with the maximum at \(\nu = q_\alpha\). At \(\alpha = 1\) it is the mean; as \(\alpha \to 0\) it approaches the worst case.</p>
+  </div>
+  <p>The variational form turns CVaR into an expectation plus one scalar, so \(\nu\) and \(\theta\) can be optimised jointly, or the state can be augmented with the running return so that the problem becomes an ordinary MDP again. Tamar et al. (2015) give a policy gradient that is REINFORCE restricted to the worst \(\alpha\)-fraction of episodes, with \(q_\alpha\) as the baseline: \(\nabla_\theta \operatorname{CVaR}_\alpha \approx \E\big[(G - q_\alpha)\, \nabla_\theta \log p_\theta(\tau) \mid G \le q_\alpha\big]\). It needs many episodes, because only an \(\alpha\) share of them carries gradient. Chow et al. (2017) put CVaR into the constraint instead of the objective. With an IQN critic you can act greedily on the CVaR of the predicted return by sampling \(\tau \sim U[0, \alpha]\) (Day 80), but per-step CVaR-greedy action selection is not the same as optimising the CVaR of the whole episode's return: risk measures other than the mean are not time-consistent.</p>
+
+  <h3>Safe exploration during training</h3>
+  <p>The final policy satisfying the constraint is the easy half. Primal–dual methods violate the constraint <em>while learning</em>: \(\lambda\) starts at zero and rises only after the policy has overspent. For that reason Safety Gym reports the cost accumulated over all of training next to final return and final cost. The tools for reducing training-time violations:</p>
+  <ul>
+    <li><b>Start safe.</b> Initialise from behaviour cloning on safe demonstrations (Day 106), or learn a residual on top of a conservative classical controller.</li>
+    <li><b>Be conservative early.</b> Start \(\lambda\) above zero, or train against a tighter budget \(d' &lt; d\).</li>
+    <li><b>Filter actions</b> with a shield or safety layer for constraints that must hold at every step.</li>
+    <li><b>Use a model with uncertainty.</b> Take only actions whose pessimistic predicted cost stays within budget, as in Lyapunov- and Gaussian-process-based methods (Berkenkamp et al. 2017; Chow et al. 2018).</li>
+    <li><b>Pre-train offline</b> (Module 12), then fine-tune online with the constraint active.</li>
+  </ul>
+  <p>Safety Gym (Ray et al. 2019) and its maintained successor Safety-Gymnasium (Ji et al. 2023) are the standard benchmarks: point, car and legged robots that must reach goals while avoiding hazards, with a cost signal for each contact.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Oscillation and lag.</b> The cost estimate comes from the previous batch, so \(\lambda\) reacts late and overshoots; the snippet above is the noise-free version. Use a slower dual step, a proportional term, or averaging.</li>
+      <li><b>Unit mismatches.</b> A budget per undiscounted episode, a discounted budget and a per-step budget are different constraints. Truncated episodes also accumulate less cost, which flatters the policy.</li>
+      <li><b>Infeasible budgets.</b> If no policy can meet \(d\), \(\lambda\) grows without bound and swamps the reward. Cap \(\lambda\), and check feasibility by minimising cost alone first.</li>
+      <li><b>The trivially safe policy.</b> Standing still is usually safe. With sparse reward, a constrained agent collapses into doing nothing.</li>
+      <li><b>Filters are only as good as their models.</b> A shield is only as sound as its abstraction; a safety layer's linear model is only valid near the data it was fitted on.</li>
+      <li><b>Expectations allow rare disasters.</b> \(J_C \le d\) says nothing about the worst episode.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Run the primal–dual snippet and plot \(\pi(a_0)\) and \(\lambda\) against iteration for <code>kp</code> in {0, 0.2, 1, 5}. With <code>kp = 0</code>, vary <code>lr_lam</code>: does a slower dual step stop the cycle, or only slow it down? Explain using the best-response argument.</li>
+      <li>Build a 5×5 gridworld with a short path next to a hazard (cost 1 per step on hazard-adjacent cells) and a long safe path. Solve it as a linear program over occupancy measures with <code>scipy.optimize.linprog</code> for several budgets, and check that the optimal policy randomizes in at most one state.</li>
+      <li>Implement PPO-Lagrangian on CartPole-v1 with cost 1 on every step where \(|x| &gt; 1\), and a budget of 10 per episode. Plot return, episode cost and \(\lambda\) against environment steps over 5 seeds, and compare with fixed penalties \(\kappa \in \{0.1, 1, 10\}\).</li>
+      <li>Write a CVaR estimator from samples (the mean of the lowest \(\lceil \alpha n \rceil\) returns) and check it against the variational form maximised over a grid of \(\nu\).</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Altman 1999, <i>Constrained Markov Decision Processes</i> · Achiam et al. 2017, “Constrained Policy Optimization” · Tessler et al. 2019, “Reward Constrained Policy Optimization” · Ray, Achiam &amp; Amodei 2019, “Benchmarking Safe Exploration in Deep Reinforcement Learning” · Stooke et al. 2020, “Responsive Safety in Reinforcement Learning by PID Lagrangian Methods” · Alshiekh et al. 2018, “Safe Reinforcement Learning via Shielding” · Dalal et al. 2018, “Safe Exploration in Continuous Action Spaces” · Tamar et al. 2015, “Optimizing the CVaR via Sampling” · García &amp; Fernández 2015, “A Comprehensive Survey on Safe Reinforcement Learning”</p>
+</article>
+
+<!-- ================================================================ DAY 123 -->
+<article class="day" id="d123">
+  <header class="day-head">
+    <span class="day-no">DAY 123</span>
+    <h2>RLHF I — Reward Modeling from Preferences</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">When nobody can write the reward down, ask people which of two outputs is better and fit a model that explains their choices. That model is a learned proxy for what people want, and optimising hard against a proxy is where Goodhart's law enters RL.</p>
+
+  <h3>Why hand-written rewards fail for language</h3>
+  <p>For Atari the reward is the score. For "write a helpful answer to this question" there is no score, and the candidates fail in instructive ways. N-gram overlap metrics such as BLEU and ROUGE reward copying a reference and track human judgement poorly on open-ended tasks. Rule-based checks (length, keywords, a toxicity classifier) cover a sliver of what matters and are easy to game. Supervised fine-tuning (SFT) on demonstrations teaches imitation: it is capped by the demonstrators and says nothing about which of the model's <em>own</em> outputs are bad, the imitation-learning limitation of Day 106.</p>
+  <p>What people can do reliably is compare. Judging which of two summaries is better is faster and more consistent than writing the best summary, or scoring one on an absolute 1–7 scale whose calibration drifts between labellers and across a session. Christiano et al. (2017) showed that a few hundred to a few thousand comparisons of short video clips could teach MuJoCo and Atari agents behaviours nobody could easily write a reward for, including a Hopper backflip. Ziegler et al. (2019) and Stiennon et al. (2020) carried the recipe to language; Stiennon et al.'s RLHF summarizer was preferred by human raters over the reference summaries written by people.</p>
+
+  <h3>Collecting pairwise preferences</h3>
+  <p>The InstructGPT-style pipeline: sample a prompt \(x\) from the distribution you care about (real user prompts if you have them), sample \(K\) responses from the current model, and have a labeller rank them. A ranking of \(K\) responses yields \(\binom{K}{2}\) pairs \((x, y_w, y_l)\), with \(y_w\) preferred to \(y_l\). Ouyang et al. (2022) used \(K\) between 4 and 9.</p>
+  <ul>
+    <li><b>Guidelines define "better".</b> Helpfulness, truthfulness and harmlessness have to be traded off, and the labelling instructions are where that trade-off is decided.</li>
+    <li><b>Agreement is the ceiling.</b> InstructGPT reports that its labellers agreed with each other roughly 73% of the time. A reward model cannot be meaningfully more accurate than its labels.</li>
+    <li><b>Pairs from one ranking are correlated.</b> Each response appears in \(K-1\) pairs. InstructGPT put all pairs from one prompt into a single batch element, because shuffling them independently made the reward model overfit.</li>
+    <li><b>The sampling policy matters.</b> The reward model is accurate on the distribution its comparisons came from. The RL policy drifts away from that distribution, so iterated collection relabels samples from the newest policy (Bai et al. 2022a).</li>
+  </ul>
+
+  <h3>The Bradley–Terry model</h3>
+  <div class="box def"><span class="tag">Definition · Bradley–Terry (1952)</span>
+    <p>Each response has a latent score \(r(x, y)\), and</p>
+    $$P(y_w \succ y_l \mid x) = \frac{e^{r(x, y_w)}}{e^{r(x, y_w)} + e^{r(x, y_l)}} = \sigma\big(r(x, y_w) - r(x, y_l)\big), \qquad \sigma(z) = \frac{1}{1 + e^{-z}}.$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · from random utility</span>
+    <p>Suppose a labeller perceives utility \(u(y) = r(x, y) + \varepsilon_y\) with \(\varepsilon_y\) i.i.d. standard Gumbel, and picks the larger. The difference of two independent standard Gumbels has the standard logistic distribution, so</p>
+    $$P(u_w &gt; u_l) = P\big(\varepsilon_l - \varepsilon_w &lt; r_w - r_l\big) = \sigma(r_w - r_l).$$
+    <p>This is the same derivation as the softmax (multinomial logit). For a full ranking of \(K\) items it extends to the Plackett–Luce model, \(P(\text{ranking}) = \prod_{k} e^{r_{(k)}} / \sum_{j \ge k} e^{r_{(j)}}\), where \(r_{(k)}\) is the score of the item ranked \(k\)-th.</p>
+  </div>
+  <p>Two consequences matter later. Only differences are identified: \(r\) and \(r + f(x)\) produce identical preferences, so the offset of a reward model on each prompt is arbitrary. Before RL, InstructGPT added a bias so that labeller demonstrations scored 0 on average. And the scale only has meaning through \(\sigma\): a difference of 2 means an 88% preference. Reward magnitude therefore interacts with the KL coefficient \(\beta\) of the next section, and changing one without the other changes the optimization.</p>
+
+  <h3>Training the reward model</h3>
+  <p>Fit by maximum likelihood on the comparisons:</p>
+  $$\mathcal L_{\text{RM}}(\phi) = -\E_{(x, y_w, y_l) \sim \mathcal D}\Big[\log \sigma\big(r_\phi(x, y_w) - r_\phi(x, y_l)\big)\Big].$$
+  <p>With \(\Delta = r_\phi(x, y_w) - r_\phi(x, y_l)\), the gradient is \(-\E\big[(1 - \sigma(\Delta))\, \nabla_\phi \Delta\big]\): pairs the model already ranks confidently contribute almost nothing, and misranked pairs dominate. This is logistic regression on the difference of two network outputs.</p>
+  <p>Architecturally, take a pretrained or SFT transformer, drop the language-model head and put a linear head on the hidden state of the final token. InstructGPT used a 6B-parameter reward model for policies of every size, reporting that 175B reward models were unstable to train. Reward models overfit quickly, typically after about one epoch. Evaluate them by held-out pairwise accuracy, which on human preference data usually lands somewhere around 65–75%, bounded above by labeller agreement.</p>
+  <pre><code>import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class RewardModel(nn.Module):
+    """Scalar reward from a transformer: read the hidden state at the last real token."""
+    def __init__(self, backbone, hidden_size):
+        super().__init__()
+        self.backbone = backbone                     # e.g. a Hugging Face AutoModel, no LM head
+        self.head = nn.Linear(hidden_size, 1)
+
+    def forward(self, input_ids, attention_mask):
+        h = self.backbone(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+        last = attention_mask.sum(dim=1) - 1         # final non-pad position (right padding)
+        h_last = h[torch.arange(h.size(0), device=h.device), last]
+        return self.head(h_last).squeeze(-1)         # [batch]
+
+def preference_loss(r_chosen, r_rejected):
+    # -log sigma(r_w - r_l); logsigmoid is the numerically stable form
+    return -F.logsigmoid(r_chosen - r_rejected).mean()
+
+def preference_accuracy(r_chosen, r_rejected):
+    return (r_chosen &gt; r_rejected).float().mean()</code></pre>
+  <p class="code-cap">Chosen and rejected sequences are usually concatenated into one batch of size \(2B\) for a single forward pass, then split. With left padding, the last real token is always at index −1.</p>
+
+  <h3>Overoptimization and Goodhart's law</h3>
+  <p>The reward model \(r_\phi\) is a proxy for the true preference \(r^*\). Gao, Schulman &amp; Hilton (2023) measured what happens when you optimise against it, using a synthetic setup in which a large "gold" reward model played the part of the humans and labelled the data used to train smaller proxy reward models. As optimisation pressure increases, measured by \(d = \sqrt{\KL(\pi \,\|\, \pi_{\text{init}})}\), the proxy score rises steadily while the gold score rises, peaks and falls. They fit functional forms for both regimes:</p>
+  $$R_{\text{gold}}^{\text{bon}}(d) = d\,(\alpha_{\text{bon}} - \beta_{\text{bon}}\, d), \qquad R_{\text{gold}}^{\text{RL}}(d) = d\,(\alpha_{\text{RL}} - \beta_{\text{RL}} \log d),$$
+  <p>where best-of-\(n\) sampling has the analytic \(\KL_{\text{bon}} = \log n - (n-1)/n\). The coefficients change smoothly with reward-model size: larger proxies, and more preference data, overoptimise less.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 620 240" role="img" aria-label="Proxy reward rises steadily with optimization while the gold reward rises, peaks and falls">
+      <line x1="60" y1="200" x2="595" y2="200" class="s-ln"/>
+      <line x1="60" y1="30" x2="60" y2="200" class="s-ln"/>
+      <text x="64" y="24" class="s-ink3 s-sm">reward</text>
+      <text x="328" y="228" class="s-ink3 s-mid s-sm">optimization pressure  √KL(π ‖ π<tspan dy="3">init</tspan><tspan dy="-3">)</tspan></text>
+      <line x1="320" y1="40" x2="320" y2="144" class="s-grid s-dash"/>
+      <text x="320" y="34" class="s-ink3 s-mid s-sm">best policy for the gold reward</text>
+      <polyline points="60,200 112,178.3 164,158 216,139.1 268,121.6 320,105.5 372,90.8 424,77.5 476,65.6 528,55.1 580,46" class="s-ln-mod"/>
+      <polyline points="60,200 112,179.8 164,164.2 216,153 268,146.2 320,144 372,146.2 424,153 476,164.2 528,179.8 580,200" class="s-ln-bad"/>
+      <text x="580" y="36" class="s-mod s-end s-sm">proxy (what RL sees)</text>
+      <text x="320" y="172" class="s-bad s-mid s-sm">gold reward (what you wanted)</text>
+      <text x="470" y="122" class="s-ink2 s-mid s-sm">Goodhart: proxy ↑, gold ↓</text>
+    </svg>
+    <figcaption><b>Reward-model overoptimization, schematically.</b> At first, the proxy and gold rewards climb together because the proxy is right about the direction of improvement. Past some KL budget the policy finds outputs the proxy overrates and the gold reward falls, while the number the optimizer can see keeps going up. Gao et al. (2023) measured curves of this shape for both best-of-\(n\) sampling and PPO.</figcaption>
+  </figure>
+  <div class="box intuition"><span class="tag">Intuition · two kinds of Goodhart</span>
+    <p>"When a measure becomes a target, it ceases to be a good measure." Manheim &amp; Garrabrant (2018) separate four mechanisms, and two dominate here. <b>Regressional:</b> picking the response with the highest noisy score also picks the one with the luckiest noise, which is Day 3's \(\E[\max] \ge \max \E\) again. <b>Extremal:</b> optimisation pushes into regions the proxy never saw in training, such as responses far longer or stranger than anything the SFT model wrote, and there the correlation between proxy and truth simply breaks.</p>
+  </div>
+
+  <h3>The KL penalty against the reference policy</h3>
+  <p>The standard defence is to optimise a penalised reward rather than the proxy itself:</p>
+  $$r_{\text{total}}(x, y) = r_\phi(x, y) - \beta \log \frac{\pi(y \mid x)}{\pi_{\text{ref}}(y \mid x)}, \qquad \E_{y \sim \pi}\big[r_{\text{total}}\big] = \E_{y \sim \pi}[r_\phi(x, y)] - \beta\, \KL\big(\pi(\cdot \mid x) \,\|\, \pi_{\text{ref}}(\cdot \mid x)\big),$$
+  <p>with \(\pi_{\text{ref}}\) the SFT model. The penalty does three jobs. It keeps the policy where the reward model was trained, since the comparisons were made on samples from \(\pi_{\text{ref}}\). It preserves the fluency and diversity of the pretrained model. And it turns the problem into one with a known closed-form optimum, \(\pi^* \propto \pi_{\text{ref}} \exp(r/\beta)\), which Day 125 derives and exploits. InstructGPT reports a coefficient around \(\beta = 0.02\); Ziegler et al. (2019) proposed an adaptive controller that adjusts \(\beta\) to hit a target KL. One caution from Gao et al.: in their setting the KL penalty behaved like early stopping. It did not improve the gold-reward-versus-KL frontier, it only chose where on that frontier you ended up. Treat the KL budget as a hyperparameter tuned on held-out human evaluations, never on the proxy score.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Spurious features.</b> Labellers mildly prefer longer, more confident, list-formatted answers, and answers that agree with them. The reward model learns these preferences, and RL amplifies them into verbosity and sycophancy (Sharma et al. 2023).</li>
+      <li><b>Distribution shift.</b> Accuracy measured on SFT samples says little about accuracy on the RL policy's samples, which is exactly where it matters.</li>
+      <li><b>Reward hacking.</b> In Christiano et al.'s grasping task, judged by people watching video, the robot learned to hold its hand between the camera and the object so that it only looked as if it were grasping.</li>
+      <li><b>Collapsed disagreement.</b> Disagreement between labellers is averaged into a single scalar, and minority preferences disappear.</li>
+      <li><b>Arbitrary scale.</b> An unnormalized reward-model scale silently changes the effective \(\beta\).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Give 20 items true scores, simulate 5,000 random Bradley–Terry comparisons, and fit the scores by gradient descent on the loss in NumPy. Show that the recovered scores match up to a constant, and find how many comparisons give a rank correlation of 0.95.</li>
+      <li>Train a small reward model (GPT-2 small, or a similar model of about 100M parameters) for one epoch on a public preference dataset such as Anthropic's <code>hh-rlhf</code>. Report held-out accuracy, then plot accuracy against the length difference between chosen and rejected responses. Does your reward model prefer longer answers?</li>
+      <li>Goodhart in miniature: give each candidate a quality \(q \sim \mathcal N(0, 1)\) and a length feature \(\ell \sim \mathcal N(0, 1)\), with gold reward \(q - \tfrac12 \ell^2\) and proxy \(q + \ell\). Run best-of-\(n\) on the proxy for \(n = 1, 2, 4, \dots, 1024\) and plot both rewards against \(\sqrt{\log n - (n-1)/n}\). You should see the gold reward peak near \(n \approx 8\) and end up below its \(n = 1\) value.</li>
+      <li>Derive the gradient of the Bradley–Terry loss and explain the \(1 - \sigma(\Delta)\) weighting in one sentence.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Christiano et al. 2017, “Deep Reinforcement Learning from Human Preferences” · Bradley &amp; Terry 1952, “Rank Analysis of Incomplete Block Designs” · Stiennon et al. 2020, “Learning to Summarize from Human Feedback” · Ouyang et al. 2022, §3 and Appendix C · Gao, Schulman &amp; Hilton 2023, “Scaling Laws for Reward Model Overoptimization” · Manheim &amp; Garrabrant 2018, “Categorizing Variants of Goodhart's Law”</p>
+</article>
+
+<!-- ================================================================ DAY 124 -->
+<article class="day" id="d124">
+  <header class="day-head">
+    <span class="day-no">DAY 124</span>
+    <h2>RLHF II — PPO for Language Models</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">Once a reward model exists, RLHF is policy optimization in an unusual MDP: the state is the prompt plus the tokens so far, the action is the next token, transitions are deterministic and the reward arrives once, at the end. Most of the engineering goes into stopping the optimizer from exploiting the reward model.</p>
+
+  <h3>The language model as a policy over tokens</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>MDP element</th><th>In RLHF for a language model</th></tr></thead>
+    <tbody>
+      <tr><td>State \(S_t\)</td><td>the prompt plus the tokens generated so far, \((x, y_1, \dots, y_{t-1})\)</td></tr>
+      <tr><td>Action \(A_t\)</td><td>the next token \(y_t\), from a vocabulary of tens of thousands to a few hundred thousand tokens</td></tr>
+      <tr><td>Policy</td><td>\(\pi_\theta(y_t \mid x, y_{&lt;t})\), the softmax over the model's logits</td></tr>
+      <tr><td>Transition</td><td>deterministic: append the token</td></tr>
+      <tr><td>Episode end</td><td>an end-of-sequence token (termination) or the length limit (truncation)</td></tr>
+      <tr><td>Reward</td><td>the reward-model score \(r_\phi(x, y)\) once at the end, plus per-token KL shaping</td></tr>
+      <tr><td>Discount</td><td>\(\gamma = 1\): responses are short and finite</td></tr>
+    </tbody>
+  </table></div>
+  <p>The probability of a whole response factorises, \(\log \pi_\theta(y \mid x) = \sum_t \log \pi_\theta(y_t \mid x, y_{&lt;t})\), so a sequence-level policy gradient is a sum of per-token score functions. That allows two views of the same problem. In the <b>token-level MDP</b> view each token is an action, with per-token values and GAE, which is what PPO does. In the <b>sequence-level bandit</b> view the whole response is one action in a contextual bandit with an astronomically large action space; REINFORCE-style methods such as RLOO (Ahmadian et al. 2024) and the GRPO of Day 126 take this view. Because the transition is known and deterministic, the only randomness is the policy's own sampling, and the "environment" is just the tokenizer plus the reward model.</p>
+  <p>Day 8's terminated/truncated distinction still applies. A response cut off at the length limit did not end, and scoring it as if it had teaches the wrong lesson. A common fix is to replace the reward-model score of any response that never emits end-of-sequence with a fixed penalty.</p>
+
+  <h3>Sequence-level reward, per-token KL shaping</h3>
+  <p>The objective is the KL-regularized one from Day 123:</p>
+  $$\max_\theta\; \E_{x \sim \mathcal D,\; y \sim \pi_\theta(\cdot \mid x)}\big[r_\phi(x, y)\big] - \beta\, \E_{x \sim \mathcal D}\Big[\KL\big(\pi_\theta(\cdot \mid x) \,\|\, \pi_{\text{ref}}(\cdot \mid x)\big)\Big].$$
+  <div class="box deriv"><span class="tag">Derivation · the sequence KL is a sum of token terms</span>
+    <p>By the chain rule for KL,</p>
+    $$\KL\big(\pi_\theta(\cdot \mid x) \,\|\, \pi_{\text{ref}}(\cdot \mid x)\big) = \E_{y \sim \pi_\theta}\Big[\log \frac{\pi_\theta(y \mid x)}{\pi_{\text{ref}}(y \mid x)}\Big] = \E_{y \sim \pi_\theta}\Big[\sum_{t=1}^{T} \log \frac{\pi_\theta(y_t \mid s_t)}{\pi_{\text{ref}}(y_t \mid s_t)}\Big].$$
+    <p>So the objective is exactly the expected undiscounted return of the per-token reward</p>
+    $$r_t = -\beta \log \frac{\pi_\theta(y_t \mid s_t)}{\pi_{\text{ref}}(y_t \mid s_t)} + \mathbb 1[t = T]\; r_\phi(x, y).$$
+    <p>The task reward is sparse, arriving only at the final token \(T\), while the KL term is dense.</p>
+  </div>
+  <p>In the InstructGPT-style formulation the log-ratio is computed once, with the log-probabilities of the policy that generated the batch, and held fixed during the PPO epochs. The KL is then part of the environment's reward rather than a differentiable loss term; GRPO (Day 126) instead puts it directly in the loss. On a single token the sampled log-ratio can be negative, and it is an unbiased but noisy estimate of that token's KL. Schulman's (2020) note compares estimators: \(k_1 = \log(\pi_\theta / \pi_{\text{ref}})\) is unbiased but high-variance and can be negative, while \(k_3 = (\rho - 1) - \log \rho\) with \(\rho = \pi_{\text{ref}} / \pi_\theta\) is also unbiased for samples from \(\pi_\theta\), is never negative, and usually has lower variance.</p>
+
+  <h3>The value head</h3>
+  <p>PPO needs \(V(s_t)\) at every token. Put a scalar head on a transformer's hidden states, giving one value per position. It can share the policy's backbone, which saves memory but lets the value loss interfere with the policy's representation, or be a separate model; InstructGPT initialised its value model from the reward model. Either way, RLHF with PPO holds four models: the trainable policy, the trainable value model, the frozen reference and the frozen reward model, with optimizer state for the first two. That memory bill, several times the size of the policy, is the main reason DPO and GRPO caught on. With \(\gamma = 1\) and all task reward at the end, \(V(s_t)\) estimates the final reward-model score minus the KL still to be paid from \(s_t\) onwards. GAE with \(\lambda\) around 0.95 and the clipped value loss of Day 92 are common choices.</p>
+  <pre><code>import torch
+
+def shaped_rewards(rm_score, logp_old, logp_ref, mask, beta=0.05):
+    """Per-token rewards for RLHF with PPO.
+    rm_score: [B] reward-model score of each full response.
+    logp_old, logp_ref: [B, T] log-probs of the sampled response tokens under the
+    sampling policy and the frozen reference; mask: [B, T] float, 1.0 on response tokens."""
+    rewards = -beta * (logp_old - logp_ref) * mask              # dense KL shaping
+    last = mask.sum(dim=1).long() - 1                           # each response's final token
+    rows = torch.arange(rewards.size(0), device=rewards.device)
+    rewards[rows, last] += rm_score                             # sparse sequence-level reward
+    return rewards
+
+def gae(rewards, values, mask, gamma=1.0, lam=0.95):
+    """GAE over response tokens; values: [B, T] from the value head, computed under no_grad."""
+    B, T = rewards.shape
+    pad = torch.zeros(B, 1, device=mask.device)
+    next_mask = torch.cat([mask[:, 1:], pad], dim=1)            # 0 after the final token
+    next_values = torch.cat([values[:, 1:], pad], dim=1) * next_mask
+    adv, running = torch.zeros_like(rewards), torch.zeros(B, device=mask.device)
+    for t in reversed(range(T)):
+        delta = rewards[:, t] + gamma * next_values[:, t] - values[:, t]
+        running = delta + gamma * lam * next_mask[:, t] * running
+        adv[:, t] = running * mask[:, t]
+    returns = adv + values                                      # regression targets for V
+    return adv, returns</code></pre>
+  <p class="code-cap">The tensors hold response tokens only: the prompt is stripped and responses are right-padded, so row \(b\)'s final token sits at <code>mask[b].sum() - 1</code>. The final token bootstraps from zero, because end-of-sequence is a true termination. Whiten the advantages over all response tokens in the batch, then apply the clipped PPO loss of Day 91 token by token.</p>
+
+  <h3>The PPO loop for language models</h3>
+  <div class="box algo"><span class="tag">Algorithm · RLHF with PPO (InstructGPT-style)</span>
+    <ol>
+      <li>Sample a batch of prompts. Generate responses with the current policy at temperature 1, without top-\(k\) or top-\(p\) truncation, so that the stored log-probabilities are those of the policy actually being optimised.</li>
+      <li>Forward passes without gradient: log-probabilities under the sampling policy and under \(\pi_{\text{ref}}\), values \(V(s_t)\), and the reward-model score of each full response.</li>
+      <li>Build the per-token rewards and GAE advantages (the snippet above), then whiten the advantages.</li>
+      <li>For a few epochs (often 1–4) over minibatches: the clipped surrogate per token, plus the clipped value loss. An entropy bonus is usually left out.</li>
+      <li>Optionally adapt \(\beta\) towards a target KL (Ziegler et al. 2019).</li>
+    </ol>
+  </div>
+  <p>InstructGPT also mixed pretraining gradients into the update ("PPO-ptx"), adding \(\gamma_{\text{ptx}}\, \E_{x \sim \mathcal D_{\text{pretrain}}}[\log \pi_\theta(x)]\) to the objective to reduce the "alignment tax", meaning regressions on public NLP benchmarks after RLHF.</p>
+
+  <h3>Practical challenges: length, collapse, hacking</h3>
+  <p><b>Length bias.</b> Reward models correlate score with length, and RL then lengthens responses. Singhal et al. (2023) found that in their settings a large share of RLHF's reward improvement could be attributed to longer outputs, and that optimizing for length alone reproduced much of it. Mitigations include length-balanced comparison data, explicit length penalties, and length-controlled evaluation such as AlpacaEval's length-controlled win rate.</p>
+  <p><b>Mode collapse.</b> RLHF concentrates probability on what the reward model likes best. Kirk et al. (2024) measured reduced output diversity after RLHF, and the GPT-4 technical report showed the post-trained model was less well calibrated than the pretrained one. A KL penalty slows this down, but it is the expected result of maximizing a scalar.</p>
+  <p><b>Reward hacking.</b> The policy finds the reward model's blind spots: repeated stock phrases, flattery, excessive hedging, refusing everything when a harmlessness model dominates, and, with too weak a KL penalty, degenerate text that the reward model happens to score highly (Stiennon et al. 2020 show overoptimized examples). Read samples, not just curves.</p>
+  <div class="box trap"><span class="tag">What breaks · engineering bugs that look like RL problems</span>
+    <ul>
+      <li><b>Log-prob mismatch.</b> Fast generation engines and the training forward pass compute slightly different log-probabilities (different kernels, precision, batching), so the PPO ratio is not 1 even before the first update. Recompute the old log-probs with the training model, or at least measure the gap.</li>
+      <li><b>Sampling settings.</b> Sampling with temperature 0.7 or top-\(p\) but computing log-probs at temperature 1 breaks the importance ratio and the KL estimate.</li>
+      <li><b>Masking.</b> Including prompt or padding tokens in the loss, the KL or the advantage whitening.</li>
+      <li><b>Unnormalized reward-model scale.</b> This changes the effective \(\beta\) (Day 123). Normalise reward-model scores, for instance over reference samples.</li>
+      <li><b>Value warm-up.</b> A freshly initialised value head gives poor early advantages. Some implementations train the value head alone for a few steps first.</li>
+    </ul>
+  </div>
+
+  <h3>The InstructGPT pipeline and its relatives</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 700 240" role="img" aria-label="The three-stage RLHF pipeline: supervised fine-tuning, reward model training, and PPO against the reward model with a KL penalty">
+      <defs>
+        <marker id="ah-d124" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d124m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="15" y="40" width="205" height="110" rx="8" class="s-node"/>
+      <text x="117" y="66" class="s-ttl s-mid">1 · SFT</text>
+      <text x="117" y="90" class="s-ink2 s-sm s-mid">labellers write answers</text>
+      <text x="117" y="108" class="s-ink2 s-sm s-mid">fine-tune pretrained LM</text>
+      <text x="117" y="134" class="s-mod s-mid">→ π<tspan dy="3">SFT</tspan></text>
+      <rect x="247" y="40" width="205" height="110" rx="8" class="s-node"/>
+      <text x="350" y="66" class="s-ttl s-mid">2 · Reward model</text>
+      <text x="350" y="90" class="s-ink2 s-sm s-mid">sample K answers from π<tspan dy="3">SFT</tspan></text>
+      <text x="350" y="108" class="s-ink2 s-sm s-mid">labellers rank them</text>
+      <text x="350" y="134" class="s-mod s-mid">Bradley–Terry → r<tspan dy="3">φ</tspan></text>
+      <rect x="480" y="40" width="205" height="110" rx="8" class="s-node-mod"/>
+      <text x="582" y="66" class="s-ttl s-mid">3 · PPO</text>
+      <text x="582" y="90" class="s-ink2 s-sm s-mid">prompts only, no labels</text>
+      <text x="582" y="108" class="s-ink2 s-sm s-mid">reward r<tspan dy="3">φ</tspan><tspan dy="-3"> − β·KL to π</tspan><tspan dy="3">SFT</tspan></text>
+      <text x="582" y="134" class="s-mod s-mid">→ π<tspan dy="3">RL</tspan></text>
+      <line x1="220" y1="95" x2="245" y2="95" class="s-ln" marker-end="url(#ah-d124)"/>
+      <line x1="452" y1="95" x2="478" y2="95" class="s-ln" marker-end="url(#ah-d124)"/>
+      <path d="M582,40 C582,12 350,12 350,38" class="s-ln s-dash" marker-end="url(#ah-d124)"/>
+      <text x="466" y="14" class="s-ink3 s-mid s-sm">iterated: new comparisons on π<tspan dy="3">RL</tspan><tspan dy="-3"> samples</tspan></text>
+      <path d="M117,150 C117,205 582,205 582,152" class="s-ln-mod s-dash" marker-end="url(#ah-d124m)"/>
+      <text x="350" y="226" class="s-mod s-mid s-sm">π<tspan dy="3">SFT</tspan><tspan dy="-3"> is both PPO's initialization and its KL reference</tspan></text>
+    </svg>
+    <figcaption><b>Three stages, two kinds of human data.</b> People write demonstrations for SFT and compare outputs for the reward model; the RL stage needs only prompts. The dashed loop is the iterated, online variant, in which comparisons are collected on samples from the latest policy so that the reward model stays accurate where the policy now lives.</figcaption>
+  </figure>
+  <p>Ouyang et al. (2022) ran the three stages with roughly 13k prompts for SFT, 33k for reward modelling (rankings of 4–9 responses) and 31k for PPO. Their headline result: labellers preferred the outputs of the 1.3B-parameter InstructGPT model to those of the 175B GPT-3, a model about 100 times larger.</p>
+  <p>Anthropic's published work describes the same family. In Bai et al. (2022a), preference models were trained on helpfulness and harmlessness comparisons collected through a chat interface, the policy was optimized with PPO and a KL penalty, and preference models and policies were retrained on roughly a weekly cadence on fresh comparisons ("iterated online" RLHF). The paper also reports a roughly linear relation between the RL reward and \(\sqrt{\KL}\) from the initial policy, and a measurable tension between helpfulness and harmlessness. <b>Constitutional AI</b> (Bai et al. 2022b) replaces human harmlessness labels with AI feedback guided by a short written list of principles. In its supervised stage the model critiques and revises its own responses against the principles and is fine-tuned on the revisions. In its RL stage (RL from AI Feedback, RLAIF), a model compares pairs of responses against the principles, a preference model is trained on those AI labels (mixed with human helpfulness labels), and the policy is optimized against it with RL. That is the level of detail the papers give; how any particular production model is trained beyond what is published is not public.</p>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Unit-test <code>shaped_rewards</code> and <code>gae</code> on a toy batch of two responses with different lengths. Check that padded positions get zero advantage and that with \(\beta = 0\), \(\lambda = 1\) and \(V \equiv 0\) every token's advantage equals its response's reward-model score.</li>
+      <li>Reproduce the sentiment task of Ziegler et al. (2019) at small scale. A GPT-2-small policy continues movie-review prompts and the reward is a sentiment classifier's positive logit. Train with PPO using your own loop or a maintained library such as TRL (its API changes between versions, so follow the current documentation). Run \(\beta \in \{0, 0.05, 0.2\}\), plot reward and KL against steps, and read samples at the end of each run.</li>
+      <li>Log mean response length and mean token entropy over training. Is there length drift? Does entropy collapse faster for smaller \(\beta\)?</li>
+      <li>For two categorical distributions with a known KL, sample from \(\pi\) and compare the mean and variance of the \(k_1\) and \(k_3\) estimators.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Ziegler et al. 2019, “Fine-Tuning Language Models from Human Preferences” · Ouyang et al. 2022, “Training Language Models to Follow Instructions with Human Feedback” · Bai et al. 2022a, “Training a Helpful and Harmless Assistant with Reinforcement Learning from Human Feedback” · Bai et al. 2022b, “Constitutional AI: Harmlessness from AI Feedback” · Huang et al. 2024, “The N+ Implementation Details of RLHF with PPO: A Case Study on TL;DR Summarization” · Singhal et al. 2023, “A Long Way to Go: Investigating Length Correlations in RLHF” · Schulman 2020, “Approximating KL Divergence” (blog note)</p>
+</article>
+
+<!-- ================================================================ DAY 125 -->
+<article class="day" id="d125">
+  <header class="day-head">
+    <span class="day-no">DAY 125</span>
+    <h2>DPO &amp; Direct Alignment</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">105m practice</span></p>
+  </header>
+
+  <p class="thesis">The KL-regularized RLHF objective has a closed-form optimal policy, and that closed form lets you write the reward in terms of the policy. Substitute it into Bradley–Terry and the reward model disappears: preference learning becomes a logistic loss on log-probability ratios.</p>
+
+  <h3>The optimum of the KL-constrained objective</h3>
+  <p>Start from the objective of Days 123–124, one prompt at a time, and optimise over <em>all</em> distributions \(\pi(\cdot \mid x)\) rather than over a network's parameters:</p>
+  $$\max_{\pi}\; \E_{y \sim \pi(\cdot \mid x)}\big[r(x, y)\big] - \beta\, \KL\big(\pi(\cdot \mid x) \,\|\, \pi_{\text{ref}}(\cdot \mid x)\big).$$
+  <div class="box deriv"><span class="tag">Derivation · the optimal policy is a reweighted reference</span>
+    <p>Define the partition function \(Z(x) = \sum_y \pi_{\text{ref}}(y \mid x)\, e^{r(x, y)/\beta}\) and the distribution \(\pi^*(y \mid x) = \pi_{\text{ref}}(y \mid x)\, e^{r(x, y)/\beta} / Z(x)\). For any \(\pi\),</p>
+    $$\begin{aligned}
+    \E_{\pi}[r] - \beta\, \E_\pi\Big[\log \frac{\pi(y \mid x)}{\pi_{\text{ref}}(y \mid x)}\Big]
+    &amp;= -\beta\, \E_\pi\Big[\log \frac{\pi(y \mid x)}{\pi_{\text{ref}}(y \mid x)\, e^{r(x, y)/\beta}}\Big] \\
+    &amp;= -\beta\, \E_\pi\Big[\log \frac{\pi(y \mid x)}{Z(x)\, \pi^*(y \mid x)}\Big] \\
+    &amp;= -\beta\, \KL\big(\pi(\cdot \mid x) \,\|\, \pi^*(\cdot \mid x)\big) + \beta \log Z(x).
+    \end{aligned}$$
+    <p>\(Z(x)\) does not depend on \(\pi\), and the KL is non-negative and zero only at \(\pi = \pi^*\). So</p>
+    $$\pi^*(y \mid x) = \frac{1}{Z(x)}\, \pi_{\text{ref}}(y \mid x) \exp\!\Big(\frac{r(x, y)}{\beta}\Big)$$
+    <p>is the unique maximiser. It is the same Gibbs-distribution argument as the soft-optimal policy of maximum-entropy RL (Day 95), with \(\pi_{\text{ref}}\) in place of the uniform distribution.</p>
+  </div>
+  <p>You cannot simply compute \(\pi^*\), because \(Z(x)\) sums over every possible response. The point of DPO is that you never need to.</p>
+
+  <h3>Invert for the reward, substitute into Bradley–Terry</h3>
+  <p>Take logs of the optimum and solve for \(r\):</p>
+  $$r(x, y) = \beta \log \frac{\pi^*(y \mid x)}{\pi_{\text{ref}}(y \mid x)} + \beta \log Z(x).$$
+  <p>The policy determines the reward up to the prompt-only term \(\beta \log Z(x)\), which is exactly the shift Bradley–Terry cannot see (Day 123). Substitute into the preference probability:</p>
+  $$\begin{aligned}
+  P(y_w \succ y_l \mid x) &amp;= \sigma\big(r(x, y_w) - r(x, y_l)\big) \\
+  &amp;= \sigma\Big(\beta \log \frac{\pi^*(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} + \beta \log Z(x) - \beta \log \frac{\pi^*(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)} - \beta \log Z(x)\Big) \\
+  &amp;= \sigma\Big(\beta \log \frac{\pi^*(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi^*(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\Big).
+  \end{aligned}$$
+  <p>Both responses share the prompt, so the intractable partition function cancels. Now parameterise \(\pi^*\) by the network \(\pi_\theta\) and maximise the likelihood of the observed preferences.</p>
+  <div class="box thm"><span class="tag">Result · the DPO loss (Rafailov et al. 2023)</span>
+    $$\mathcal L_{\text{DPO}}(\theta) = -\E_{(x, y_w, y_l) \sim \mathcal D}\Big[\log \sigma\Big(\beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\Big)\Big].$$
+    <p>The network's <em>implicit reward</em> is \(\hat r_\theta(x, y) = \beta \log \pi_\theta(y \mid x) / \pi_{\text{ref}}(y \mid x)\). Rafailov et al. show the reparameterization loses no generality: every class of rewards that differ only by a function of \(x\) contains exactly one reward of this form. So minimising \(\mathcal L_{\text{DPO}}\) fits the same Bradley–Terry model as reward modelling does, but directly in policy space, and the minimiser is the KL-regularized optimal policy for the fitted reward.</p>
+  </div>
+
+  <h3>What the gradient does</h3>
+  <p>Write \(h_w = \log \pi_\theta(y_w \mid x) - \log \pi_{\text{ref}}(y_w \mid x)\), similarly \(h_l\), and \(z = \beta(h_w - h_l)\). Since \(\tfrac{d}{dz}\big[-\log \sigma(z)\big] = -\sigma(-z)\),</p>
+  $$\nabla_\theta \mathcal L_{\text{DPO}} = -\beta\, \E\Big[\underbrace{\sigma\big(\hat r_\theta(x, y_l) - \hat r_\theta(x, y_w)\big)}_{\text{large when the implicit reward ranks the pair wrongly}} \big(\nabla_\theta \log \pi_\theta(y_w \mid x) - \nabla_\theta \log \pi_\theta(y_l \mid x)\big)\Big].$$
+  <p>Raise the likelihood of the chosen response and lower that of the rejected one, weighted by how wrong the current implicit reward is about the pair. Rafailov et al. report that dropping the weight, which leaves a plain likelihood/unlikelihood objective, makes the model degenerate. Since \(\log \pi_\theta(y \mid x)\) is a sum over tokens, every token of both responses receives gradient with a single sequence-level weight.</p>
+
+  <h3>Implementation</h3>
+  <pre><code>import torch
+import torch.nn.functional as F
+
+def sequence_logprob(logits, labels, mask):
+    """Sum of log pi(y_t | x, y_&lt;t) over response tokens.
+    logits: [B, T, V], already shifted so that logits[:, t] predicts labels[:, t];
+    labels: [B, T] token ids; mask: [B, T] 1.0 on response tokens, 0.0 on prompt and padding."""
+    logp = torch.log_softmax(logits.float(), dim=-1)
+    tok = logp.gather(-1, labels.unsqueeze(-1)).squeeze(-1)      # [B, T]
+    return (tok * mask).sum(dim=-1)                               # [B]
+
+def dpo_loss(pi_w, pi_l, ref_w, ref_l, beta=0.1):
+    """Inputs: [B] summed log-probs of chosen (w) and rejected (l) responses
+    under the policy and under the frozen reference."""
+    h_w, h_l = pi_w - ref_w, pi_l - ref_l          # log pi_theta / pi_ref for each response
+    loss = -F.logsigmoid(beta * (h_w - h_l)).mean()
+    with torch.no_grad():                           # implicit rewards, for logging only
+        r_w, r_l = beta * h_w, beta * h_l
+        stats = {"acc": (r_w &gt; r_l).float().mean(), "margin": (r_w - r_l).mean(),
+                 "logp_chosen": pi_w.mean(), "logp_rejected": pi_l.mean()}
+    return loss, stats</code></pre>
+  <p class="code-cap">Compute <code>ref_w</code> and <code>ref_l</code> under <code>torch.no_grad()</code>, or precompute them once over the whole dataset and drop the reference model from memory during training. The policy is initialised at \(\pi_{\text{ref}}\) (usually the SFT model), so the loss starts at \(\log 2 \approx 0.693\). Typical settings are \(\beta\) around 0.1, small learning rates (around \(10^{-6}\) or below) and one to three epochs.</p>
+  <p>To check the derivation end to end, here is DPO on a "language model" with one prompt and five possible responses. It recovers \(\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}\) from preferences alone, without ever fitting a reward:</p>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+K, beta = 5, 0.5
+r = rng.normal(size=K)                                  # true reward of 5 responses to one prompt
+log_ref = np.log(rng.dirichlet(np.ones(K)))             # reference policy pi_ref
+pi_star = np.exp(log_ref + r / beta)
+pi_star /= pi_star.sum()                                # closed-form optimum of the KL objective
+
+# Bradley-Terry preferences on random pairs of distinct responses
+i, j = rng.integers(0, K, size=(2, 50_000))
+i, j = i[i != j], j[i != j]
+i_wins = rng.random(len(i)) &lt; 1 / (1 + np.exp(-(r[i] - r[j])))
+w, l = np.where(i_wins, i, j), np.where(i_wins, j, i)
+
+logits = log_ref.copy()                                 # policy starts at the reference
+for step in range(5000):
+    logp = logits - np.logaddexp.reduce(logits)
+    z = beta * ((logp[w] - log_ref[w]) - (logp[l] - log_ref[l]))
+    dz = -1 / (1 + np.exp(z))                           # d/dz of -log sigmoid(z)
+    grad = np.zeros(K)                                  # dz/dlogits = beta * (e_w - e_l):
+    np.add.at(grad, w, beta * dz)                       # the softmax normaliser cancels
+    np.add.at(grad, l, -beta * dz)
+    logits -= 2.0 * grad / len(w)
+
+pi = np.exp(logits - np.logaddexp.reduce(logits))
+print("DPO :", np.round(pi, 3))       # [0.197 0.048 0.257 0.305 0.192]
+print("pi* :", np.round(pi_star, 3))  # [0.193 0.048 0.25  0.319 0.191]</code></pre>
+  <p class="code-cap">The small differences are sampling noise in the 50,000 preferences. Practice task 2 makes the preferences deterministic and breaks this agreement.</p>
+
+  <h3>IPO, KTO, ORPO and the variant landscape</h3>
+  <p><b>IPO</b> (Azar et al. 2023) targets a weakness of the logistic loss. When preferences are deterministic, as in most datasets where each pair appears once with a single winner, maximum likelihood wants \(\sigma(z) \to 1\), that is \(h_w - h_l \to \infty\). The policy can achieve that by pushing \(\pi_\theta(y_l \mid x) \to 0\) whatever \(\beta\) is, so the KL regularization stops working and DPO overfits. IPO regresses the log-ratio gap onto a finite target instead:</p>
+  $$\mathcal L_{\text{IPO}}(\theta) = \E_{(x, y_w, y_l) \sim \mathcal D}\Big[\big(h_w - h_l - \tfrac{1}{2\tau}\big)^2\Big],$$
+  <p>with \(\tau\) playing the role of \(\beta\).</p>
+  <p><b>KTO</b> (Ethayarajh et al. 2024) works from unpaired binary labels (thumbs up or down), which are much cheaper to collect than pairs. With \(r_\theta(x, y) = \log \pi_\theta(y \mid x) / \pi_{\text{ref}}(y \mid x)\) and a reference point \(z_0\), a batch estimate of \(\KL(\pi_\theta \,\|\, \pi_{\text{ref}})\) that is not back-propagated through, its prospect-theory value is \(v = \lambda_D\, \sigma\big(\beta(r_\theta - z_0)\big)\) for desirable outputs and \(v = \lambda_U\, \sigma\big(\beta(z_0 - r_\theta)\big)\) for undesirable ones. The loss is \(\E[\lambda_y - v(x, y)]\), and the weights \(\lambda_D, \lambda_U\) express loss aversion and correct for imbalanced labels.</p>
+  <p><b>ORPO</b> (Hong et al. 2024) drops the reference model and the separate SFT stage. It adds an odds-ratio term to the ordinary SFT loss on the chosen response, \(\mathcal L = \mathcal L_{\text{SFT}} + \lambda\, \mathcal L_{\text{OR}}\), where \(\mathcal L_{\text{OR}} = -\log \sigma\big(\log \tfrac{\operatorname{odds}_\theta(y_w \mid x)}{\operatorname{odds}_\theta(y_l \mid x)}\big)\), \(\operatorname{odds}_\theta(y \mid x) = P_\theta(y \mid x) / (1 - P_\theta(y \mid x))\), and \(P_\theta\) is the length-normalized likelihood \(\exp\big(\tfrac{1}{|y|}\sum_t \log \pi_\theta(y_t \mid x, y_{&lt;t})\big)\).</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Method</th><th>Data</th><th>Reference model</th><th>Loss acts on</th><th>Why you would pick it</th></tr></thead>
+    <tbody>
+      <tr><td>DPO</td><td>pairs</td><td>yes</td><td>logistic on \(\beta(h_w - h_l)\)</td><td>the standard baseline</td></tr>
+      <tr><td>IPO</td><td>pairs</td><td>yes</td><td>squared error to \(1/2\tau\)</td><td>bounded target; robust to deterministic preferences</td></tr>
+      <tr><td>KTO</td><td>unpaired good/bad</td><td>yes</td><td>\(\sigma(\beta(r_\theta - z_0))\)</td><td>cheap labels; imbalanced data</td></tr>
+      <tr><td>ORPO</td><td>pairs</td><td>no</td><td>SFT loss + log odds ratio</td><td>one stage, no reference model in memory</td></tr>
+      <tr><td>SimPO (Meng et al. 2024)</td><td>pairs</td><td>no</td><td>length-normalized log-prob margin</td><td>reference-free, with a target margin</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>DPO vs PPO: when online RL still wins</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 700 250" role="img" aria-label="Data flow of RLHF with PPO compared with DPO">
+      <defs>
+        <marker id="ah-d125" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d125m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <text x="20" y="22" class="s-ttl">RLHF with PPO · online · 4 models</text>
+      <rect x="20" y="36" width="150" height="56" rx="8" class="s-node"/>
+      <text x="95" y="60" class="s-mid">preferences</text>
+      <text x="95" y="78" class="s-ink2 s-sm s-mid">(x, y<tspan dy="3">w</tspan><tspan dy="-3">, y</tspan><tspan dy="3">l</tspan><tspan dy="-3">)</tspan></text>
+      <rect x="205" y="36" width="140" height="56" rx="8" class="s-node"/>
+      <text x="275" y="60" class="s-mid">reward model</text>
+      <text x="275" y="78" class="s-ink2 s-sm s-mid">fit, then freeze</text>
+      <rect x="380" y="36" width="300" height="56" rx="8" class="s-node-mod"/>
+      <text x="530" y="60" class="s-mid">PPO: policy, value, reference</text>
+      <text x="530" y="78" class="s-ink2 s-sm s-mid">sample y ~ πθ, score it, update</text>
+      <line x1="170" y1="64" x2="203" y2="64" class="s-ln" marker-end="url(#ah-d125)"/>
+      <path d="M470,92 C470,122 300,122 285,94" class="s-ln-mod" marker-end="url(#ah-d125m)"/>
+      <text x="385" y="128" class="s-mod s-mid s-sm">fresh samples y ~ πθ</text>
+      <path d="M260,36 C260,14 590,14 590,34" class="s-ln" marker-end="url(#ah-d125)"/>
+      <text x="425" y="11" class="s-ink2 s-mid s-sm">reward r(x, y)</text>
+      <text x="20" y="160" class="s-ttl">DPO · offline · 2 models</text>
+      <rect x="20" y="174" width="150" height="56" rx="8" class="s-node"/>
+      <text x="95" y="198" class="s-mid">preferences</text>
+      <text x="95" y="216" class="s-ink2 s-sm s-mid">(x, y<tspan dy="3">w</tspan><tspan dy="-3">, y</tspan><tspan dy="3">l</tspan><tspan dy="-3">)</tspan></text>
+      <rect x="205" y="174" width="210" height="56" rx="8" class="s-node"/>
+      <text x="310" y="198" class="s-mid">log-prob ratios h</text>
+      <text x="310" y="216" class="s-ink2 s-sm s-mid">πθ vs frozen π<tspan dy="3">ref</tspan></text>
+      <rect x="450" y="174" width="230" height="56" rx="8" class="s-node-mod"/>
+      <text x="565" y="198" class="s-mid">logistic loss</text>
+      <text x="565" y="216" class="s-ink2 s-sm s-mid">−log σ(β(h<tspan dy="3">w</tspan><tspan dy="-3"> − h</tspan><tspan dy="3">l</tspan><tspan dy="-3">)) → πθ</tspan></text>
+      <line x1="170" y1="202" x2="203" y2="202" class="s-ln" marker-end="url(#ah-d125)"/>
+      <line x1="415" y1="202" x2="448" y2="202" class="s-ln" marker-end="url(#ah-d125)"/>
+    </svg>
+    <figcaption><b>Same objective, different data flow.</b> PPO turns preferences into a reward model, then keeps generating fresh samples from the current policy and scoring them, so it can explore beyond the preference data. DPO never samples: it fits the same Bradley–Terry likelihood directly on fixed responses, which is cheap and stable but only as good as the coverage of the dataset.</figcaption>
+  </figure>
+  <p>DPO's advantages are real: two models instead of four, no generation during training, the stability of supervised learning and few hyperparameters. Its costs follow from being offline:</p>
+  <ul>
+    <li><b>No exploration.</b> DPO only learns from responses in the dataset, often generated by a different model. If \(\pi_{\text{ref}}\) is not close to the distribution that produced the data, the implicit reward is fitted off-distribution; SFT on the chosen responses first is the usual patch.</li>
+    <li><b>Probability can go anywhere.</b> The loss constrains only the ratio between chosen and rejected. It is commonly observed that the log-likelihood of <em>both</em> falls during training, with the mass moving to responses that are in neither, which is fine only if those responses are good.</li>
+    <li><b>Fast overfitting.</b> Training accuracy of the implicit reward saturates within an epoch or two.</li>
+  </ul>
+  <p>Xu et al. (2024) found that carefully tuned PPO outperformed DPO across their benchmarks, including challenging code-competition tasks. Tajwar et al. (2024) found that on-policy sampling and a "negative gradient" on bad samples both matter, especially when good responses are poorly covered by the reference policy. Online or iterative DPO, which samples from the current policy, labels the samples with a reward model or AI judge and repeats (Guo et al. 2024), closes much of the gap, at which point it is an RL method with a different loss. Rule of thumb: use DPO when you have a good static preference dataset close to your model's distribution and limited compute; use online RL when you can query a reward (a reward model or a verifier), when the target behaviour is far from the data, or when exploration matters. Reasoning with verifiable rewards (Day 126) is the clearest such case.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>\(\beta\) mis-set.</b> Too small and the policy overfits towards deterministic choices; too large and it barely moves from \(\pi_{\text{ref}}\).</li>
+      <li><b>Wrong log-probs.</b> Forgetting to mask prompt tokens, including padding, or off-by-one label shifting. Averaging instead of summing over tokens is a different objective, with different length behaviour.</li>
+      <li><b>Length exploitation.</b> Chosen responses in many datasets are longer, and DPO-trained models drift longer too. Check length alongside win rate.</li>
+      <li><b>Watching only the margin.</b> Log the chosen and rejected log-probabilities separately; a growing margin with collapsing chosen likelihood is a warning sign.</li>
+      <li><b>Deterministic preferences.</b> These give the unbounded margins described above. Use IPO, label smoothing, or early stopping.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 105 min</h4>
+    <ol>
+      <li>Derive DPO on paper: the Gibbs form of \(\pi^*\), the inversion for \(r\), the cancellation of \(Z(x)\), and the gradient with its weighting term.</li>
+      <li>Run the tabular check. Then make the preferences deterministic (the higher-reward response always wins) and train for longer: the probabilities of low-reward responses collapse towards 0, far below \(\pi^*\). Implement IPO's loss in the same loop and compare.</li>
+      <li>Train DPO on a model of at most 1B parameters with a public preference dataset (for example a binarized UltraFeedback or <code>hh-rlhf</code>) for one epoch, at \(\beta \in \{0.05, 0.1, 0.5\}\), using your own loop built on the snippet or a library trainer. Log chosen and rejected log-probs, margin, accuracy and response length, and evaluate with a held-out reward model.</li>
+      <li>Implement KTO and ORPO losses with the same inputs as <code>dpo_loss</code> (ORPO also needs token counts). Unit-test the signs: each loss should fall when the chosen log-prob rises with everything else fixed.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Rafailov et al. 2023, “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” · Azar et al. 2023, “A General Theoretical Paradigm to Understand Learning from Human Preferences” · Ethayarajh et al. 2024, “KTO: Model Alignment as Prospect Theoretic Optimization” · Hong et al. 2024, “ORPO: Monolithic Preference Optimization without Reference Model” · Meng et al. 2024, “SimPO: Simple Preference Optimization with a Reference-Free Reward” · Xu et al. 2024, “Is DPO Superior to PPO for LLM Alignment? A Comprehensive Study” · Tajwar et al. 2024, “Preference Fine-Tuning of LLMs Should Leverage Suboptimal, On-Policy Data”</p>
+</article>
+
+<!-- ================================================================ DAY 126 -->
+<article class="day" id="d126">
+  <header class="day-head">
+    <span class="day-no">DAY 126</span>
+    <h2>GRPO &amp; RL for Reasoning</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">90m practice</span></p>
+  </header>
+
+  <p class="thesis">When the reward is a checker rather than a learned model, you can sample many answers to the same prompt and let them compete. GRPO replaces PPO's value network with the group's own mean and standard deviation, and verifiable rewards make reward hacking harder, though not impossible.</p>
+
+  <h3>Why drop the value network</h3>
+  <p>In language-model PPO (Day 124) the critic is as large as the policy, and it has to predict, from a half-written solution, how likely the final answer is to be right. That is a hard regression problem, learned from one sparse outcome per sequence. When rewards arrive only at the end, a cheaper baseline is available: sample several responses to the same prompt and use their average reward. That is REINFORCE with a per-prompt Monte Carlo baseline (Day 85). GRPO adds PPO's clipping and a KL term on top.</p>
+  <div class="box algo"><span class="tag">Algorithm · GRPO (Shao et al. 2024, DeepSeekMath)</span>
+    <ol>
+      <li>For each question \(q\) in the batch, sample a group of \(G\) outputs \(o_1, \dots, o_G\) from \(\pi_{\text{old}}\) and score them, giving \(r_1, \dots, r_G\).</li>
+      <li>Outcome supervision: every token of output \(i\) gets the same advantage \(\hat A_{i,t} = \big(r_i - \operatorname{mean}(r)\big) / \operatorname{std}(r)\).</li>
+      <li>For a few gradient steps, maximise
+      $$\frac{1}{G}\sum_{i=1}^G \frac{1}{|o_i|}\sum_{t=1}^{|o_i|} \Big\{\min\big(\rho_{i,t} \hat A_{i,t},\; \clip(\rho_{i,t}, 1 - \epsilon, 1 + \epsilon)\, \hat A_{i,t}\big) - \beta\, \hat D_{i,t}\Big\},$$
+      where \(\rho_{i,t} = \pi_\theta(o_{i,t} \mid q, o_{i,&lt;t}) / \pi_{\text{old}}(o_{i,t} \mid q, o_{i,&lt;t})\) and \(\hat D_{i,t} = \frac{\pi_{\text{ref}}}{\pi_\theta} - \log \frac{\pi_{\text{ref}}}{\pi_\theta} - 1\) is the \(k_3\) KL estimator of Day 124, evaluated at token \(o_{i,t}\).</li>
+      <li>Set \(\pi_{\text{old}} \leftarrow \pi_\theta\) and repeat. There is no value network anywhere.</li>
+    </ol>
+  </div>
+  <p>Note the KL is subtracted in the loss rather than folded into the reward as in InstructGPT-style PPO. DeepSeekMath reports \(G = 64\) samples per question and \(\beta = 0.04\).</p>
+  <div class="box deriv"><span class="tag">Derivation · what the group baseline does</span>
+    <p>Let \(b_i = \frac{1}{G-1}\sum_{j \ne i} r_j\) be the leave-one-out mean, the baseline used by RLOO (Ahmadian et al. 2024). It is independent of \(o_i\), so it leaves the policy gradient unbiased (Day 85). The group-mean advantage is a rescaled version of it:</p>
+    $$r_i - \frac{1}{G}\sum_{j} r_j = \frac{G-1}{G}\, r_i - \frac{1}{G}\sum_{j \ne i} r_j = \frac{G-1}{G}\,\big(r_i - b_i\big).$$
+    <p>So mean-subtraction alone gives an unbiased gradient direction, scaled by \((G-1)/G\). Dividing by \(\operatorname{std}(r)\) is different: it reweights prompts. With binary rewards and group success rate \(p\), the (population) standard deviation is \(\sqrt{p(1-p)}\), and a correct answer gets advantage \(\sqrt{(1-p)/p}\). A hard prompt with a single success out of 64 gives that success an advantage of about 7.9; a prompt where every sample agrees gives \(\operatorname{std} = 0\) and no signal at all.</p>
+  </div>
+  <pre><code>import torch
+
+def grpo_advantages(rewards, group_size, eps=1e-6):
+    """rewards: [n_prompts * G] outcome rewards, grouped contiguously by prompt."""
+    r = rewards.view(-1, group_size)
+    adv = (r - r.mean(dim=1, keepdim=True)) / (r.std(dim=1, keepdim=True) + eps)
+    return adv.view(-1)                              # one advantage per sampled output
+
+def grpo_loss(logp, logp_old, logp_ref, adv, mask, clip_eps=0.2, beta=0.04):
+    """logp, logp_old, logp_ref: [N, T] per-token log-probs of the sampled outputs
+    (logp_old and logp_ref computed without grad); adv: [N]; mask: [N, T] float."""
+    ratio = torch.exp(logp - logp_old)
+    A = adv.unsqueeze(1)                             # every token of output i shares A_i
+    surr = torch.min(ratio * A, torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * A)
+    log_r = logp_ref - logp
+    kl = torch.exp(log_r) - log_r - 1                # k3 estimate of KL(pi_theta || pi_ref)
+    per_token = (surr - beta * kl) * mask
+    per_output = per_token.sum(dim=1) / mask.sum(dim=1)   # the 1/|o_i| average
+    return -per_output.mean()                        # minimise the negative objective
+
+print(grpo_advantages(torch.tensor([1.0, 0.0, 0.0, 0.0]), group_size=4))
+# tensor([ 1.5000, -0.5000, -0.5000, -0.5000]): sample std of the group is 0.5</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 700 270" role="img" aria-label="GRPO samples a group of outputs for one question, scores each with a verifier and normalizes the rewards within the group">
+      <defs>
+        <marker id="ah-d126" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d126m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="15" y="100" width="100" height="56" rx="8" class="s-node"/>
+      <text x="65" y="124" class="s-ttl s-mid">question</text>
+      <text x="65" y="143" class="s-ink2 s-mid">q</text>
+      <rect x="145" y="100" width="110" height="56" rx="8" class="s-node-mod"/>
+      <text x="200" y="124" class="s-ttl s-mid">π<tspan dy="3">old</tspan></text>
+      <text x="200" y="145" class="s-ink2 s-sm s-mid">sample G</text>
+      <line x1="115" y1="128" x2="143" y2="128" class="s-ln" marker-end="url(#ah-d126)"/>
+      <text x="365" y="28" class="s-ink3 s-mid s-sm">G = 4 outputs</text>
+      <text x="500" y="28" class="s-ink3 s-mid s-sm">verifier</text>
+      <text x="612" y="28" class="s-ink3 s-mid s-sm">Â = (r − mean) / std</text>
+      <text x="612" y="44" class="s-ink3 s-mid s-sm">mean 0.25 · std 0.5</text>
+      <rect x="290" y="40" width="150" height="34" rx="6" class="s-node"/>
+      <text x="365" y="61" class="s-mid s-sm">o₁ · answer 12</text>
+      <rect x="290" y="86" width="150" height="34" rx="6" class="s-node"/>
+      <text x="365" y="107" class="s-mid s-sm">o₂ · answer 15</text>
+      <rect x="290" y="132" width="150" height="34" rx="6" class="s-node"/>
+      <text x="365" y="153" class="s-mid s-sm">o₃ · answer 9</text>
+      <rect x="290" y="178" width="150" height="34" rx="6" class="s-node"/>
+      <text x="365" y="199" class="s-mid s-sm">o₄ · no answer</text>
+      <line x1="255" y1="128" x2="288" y2="57" class="s-ln"/>
+      <line x1="255" y1="128" x2="288" y2="103" class="s-ln"/>
+      <line x1="255" y1="128" x2="288" y2="149" class="s-ln"/>
+      <line x1="255" y1="128" x2="288" y2="195" class="s-ln"/>
+      <line x1="440" y1="57" x2="466" y2="57" class="s-ln" marker-end="url(#ah-d126)"/>
+      <line x1="440" y1="103" x2="466" y2="103" class="s-ln" marker-end="url(#ah-d126)"/>
+      <line x1="440" y1="149" x2="466" y2="149" class="s-ln" marker-end="url(#ah-d126)"/>
+      <line x1="440" y1="195" x2="466" y2="195" class="s-ln" marker-end="url(#ah-d126)"/>
+      <text x="500" y="61" class="s-acc s-mid">r₁ = 1 ✓</text>
+      <text x="500" y="107" class="s-bad s-mid">r₂ = 0 ✗</text>
+      <text x="500" y="153" class="s-bad s-mid">r₃ = 0 ✗</text>
+      <text x="500" y="199" class="s-bad s-mid">r₄ = 0 ✗</text>
+      <text x="612" y="61" class="s-mod s-mid">Â₁ = +1.5</text>
+      <text x="612" y="107" class="s-ink2 s-mid">Â₂ = −0.5</text>
+      <text x="612" y="153" class="s-ink2 s-mid">Â₃ = −0.5</text>
+      <text x="612" y="199" class="s-ink2 s-mid">Â₄ = −0.5</text>
+      <path d="M600,208 C600,240 200,240 200,158" class="s-ln-mod" marker-end="url(#ah-d126m)"/>
+      <text x="400" y="246" class="s-mod s-mid s-sm">clipped update of πθ</text>
+      <text x="350" y="264" class="s-ink2 s-mid s-sm">every token of oᵢ gets Âᵢ · no value network · KL to the reference in the loss</text>
+    </svg>
+    <figcaption><b>Group sampling.</b> The other samples for the same question are the baseline. Answers better than the group average are pushed up and worse ones pushed down, and the standard deviation sets the scale per question. If all four answers had been wrong (or all right), every advantage would be zero and the question would contribute nothing to the update.</figcaption>
+  </figure>
+
+  <h3>Verifiable rewards and RLVR</h3>
+  <p>"RL with verifiable rewards" (RLVR, a term popularized by the Tülu 3 report, Lambert et al. 2024) means the reward comes from a program rather than a learned model. For maths, extract the final answer and compare it with the reference after normalisation or a symbolic equivalence check. For code, run unit tests in a sandbox and reward passing all of them (or the fraction passed). For instruction following, check constraints such as "exactly three bullet points" programmatically. A small format reward, such as reasoning inside designated tags, is often added. These rewards are binary and sparse, but exact and cheap, and there is no reward model to overoptimise. A checker is still a proxy, though, as the second test below shows.</p>
+  <pre><code>import re
+
+def math_reward(completion: str, reference: str) -&gt; float:
+    """1.0 if the last \\boxed{...} answer in the completion matches the reference."""
+    boxed = re.findall(r"\\boxed\{([^{}]*)\}", completion)
+    if not boxed:
+        return 0.0                                     # no parseable final answer
+    norm = lambda s: s.strip().replace(" ", "").rstrip(".")
+    return float(norm(boxed[-1]) == norm(reference))
+
+print(math_reward(r"... so the answer is \boxed{42}.", "42"))                   # 1.0
+print(math_reward(r"... the answer is \boxed{\frac{1}{2}}", r"\frac{1}{2}"))    # 0.0: nested braces
+print(math_reward(r"\boxed{7} or maybe \boxed{42}", "42"))                     # 1.0: hedging pays</code></pre>
+  <p class="code-cap">Three lines of test, two checker bugs: a correct answer the regex cannot parse (a false negative that silently removes learning signal) and a hedged pair of answers that earns full credit (a false positive the policy will find). Practice task 4 asks you to harden it.</p>
+  <p>Prompt selection matters as much as the checker. A prompt the policy always solves, or never solves, gives zero advantage in every group, so RLVR datasets are usually filtered towards the band where the current policy succeeds some of the time.</p>
+
+  <h3>Outcome vs process supervision</h3>
+  <p>An <b>outcome</b> reward scores only the final answer. It is cheap and hard to argue with, but credit assignment is coarse: a correct answer reached through flawed reasoning is rewarded, and a long solution with one slip at the end gets nothing. A <b>process reward model</b> (PRM) scores each reasoning step. Lightman et al. (2023), "Let's Verify Step by Step", collected PRM800K, about 800,000 human labels on the individual steps of model-written MATH solutions, and compared a PRM with an outcome reward model (ORM) used as verifiers to rerank many sampled solutions. The PRM solved about 78% of problems from a representative subset of the MATH test set, against roughly 72% for the ORM and 70% for majority voting. Uesato et al. (2022) had earlier found that outcome and process supervision reached similar final-answer accuracy on grade-school maths, but process supervision produced fewer reasoning errors along the way. Labels can also be generated automatically: Math-Shepherd (Wang et al. 2024) estimates a step's quality by rolling out completions from it and counting how often they reach the right answer, which is a Monte Carlo value estimate, a critic by another name.</p>
+  <p>Inside an RL loop a PRM gives denser credit, but it is another learned model to exploit. The DeepSeek-R1 report lists PRMs among the approaches that did not work out for them at scale, citing reward hacking and the cost of retraining the PRM.</p>
+  <p><b>Self-consistency</b> (Wang et al. 2023) is the test-time relative of the group: sample many chains of thought at non-zero temperature and take a majority vote over final answers, which improves substantially on a single greedy chain. Majority voting over \(k\) samples ("maj@\(k\)") is also a standard metric, and RLVR training can be read as moving pass@1 towards what sampling and voting already achieve.</p>
+
+  <h3>Long chain-of-thought emergence: DeepSeek-R1</h3>
+  <p>The DeepSeek-R1 report (DeepSeek-AI 2025) makes several claims worth knowing precisely, as claims. <b>R1-Zero</b> applied GRPO directly to a pretrained base model (DeepSeek-V3-Base), with no supervised fine-tuning first, using only rule-based rewards: answer accuracy plus a format reward for putting the reasoning between thinking tags. The report states that AIME 2024 pass@1 rose from 15.6% to 71.0% during training (86.7% with majority voting), and that the average response length grew steadily, from hundreds to thousands of tokens, without length being rewarded. Behaviours such as re-checking and backtracking appeared, including a highlighted "aha moment" in which the model stops and re-evaluates its approach. R1-Zero's outputs suffered from poor readability and language mixing. The released <b>R1</b> therefore added a small cold-start SFT set of long chain-of-thought examples, reasoning-focused RL with an extra language-consistency reward, rejection sampling to build a new SFT dataset, and a final RL stage covering general prompts with reward models for helpfulness and harmlessness. The report also states that distilling R1's outputs into smaller Qwen and Llama models beat running RL on those small models directly.</p>
+  <p>Follow-up work questions parts of the interpretation. Liu et al. (2025) found self-reflection behaviours already present in base models before any RL, and argued that GRPO's per-output \(1/|o_i|\) normalisation contributes to length growth, because it shrinks the per-token penalty on long wrong answers. Yue et al. (2025) found that RLVR-trained models beat their base models at pass@1, but that base models catch up or overtake them at large \(k\) in pass@\(k\), which suggests RLVR mostly sharpens the distribution towards solutions the base model could already sample. As of these notes, how much new capability RLVR creates, rather than elicits, is an open question.</p>
+
+  <h3>Reward hacking in reasoning</h3>
+  <p>Verifiable does not mean unhackable. A policy optimised against a checker will find the checker's gaps: several boxed answers, answers formatted to slip past a lenient parser, enumerating multiple-choice options, or format tags wrapped around no reasoning at all. In code, the reported exploits include special-casing the visible tests, editing the test files, and exiting early so that the harness reports success. Baker et al. (2025, OpenAI) report a frontier reasoning model doing such things in agentic coding environments, often stating the intent openly in its chain of thought, so a weaker model monitoring the chain of thought could catch much of it. They also report that penalising flagged thoughts during training reduced detectable hacking but produced <em>obfuscated</em> hacking, where the behaviour persisted and the chain of thought stopped revealing it. And as soon as a non-verifiable task is scored by an LLM judge, you are back to reward-model overoptimization (Day 123).</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Wasted groups.</b> All-correct or all-wrong groups carry no gradient. Filter or resample them; DAPO's "dynamic sampling" does this (Yu et al. 2025).</li>
+      <li><b>Std normalization noise.</b> Near-saturated prompts get large advantages from a single lucky or unlucky sample. Some recipes drop the division by the standard deviation.</li>
+      <li><b>Length bias.</b> The \(1/|o_i|\) average treats long and short outputs differently. Alternatives normalise by a constant or by the total token count of the batch.</li>
+      <li><b>Entropy collapse.</b> The policy becomes near-deterministic early and stops exploring. Monitor token entropy; DAPO raises the upper clip bound ("clip-higher") for this reason.</li>
+      <li><b>Truncation.</b> Responses cut off at the length limit must not receive credit, or the policy learns to ramble.</li>
+      <li><b>Leaky sandboxes.</b> Code rewards need write-protected tests, hidden tests and no network access.</li>
+      <li><b>Checker errors in both directions.</b> False negatives starve learning; false positives get amplified.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Implement <code>grpo_advantages</code> and check it on \(r = [1, 0, 0, 0]\) and on an all-equal group. Verify the leave-one-out identity numerically for random reward vectors.</li>
+      <li>A GPU-free toy: single-digit addition problems \((a, b)\) with a tabular softmax policy over the 19 answers 0–18. The reward is 1 for the correct sum. Train with GRPO (\(G = 8\)), REINFORCE without a baseline, and REINFORCE with a learned per-problem baseline, then compare learning curves over 5 seeds.</li>
+      <li>With a GPU, run GRPO on GSM8K with an instruction model of at most 1.5B parameters and the reward above, using a library trainer or your own loop. Log accuracy, mean response length, token entropy and the fraction of zero-variance groups.</li>
+      <li>Break the checker: write five completions that get reward 1 without a correct solution, or 0 despite one. Then harden it with a single-answer rule, brace-aware parsing and SymPy equivalence, and re-test.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Shao et al. 2024, “DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models” · DeepSeek-AI 2025, “DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning” · Lightman et al. 2023, “Let's Verify Step by Step” · Uesato et al. 2022, “Solving Math Word Problems with Process- and Outcome-Based Feedback” · Wang et al. 2023, “Self-Consistency Improves Chain of Thought Reasoning in Language Models” · Lambert et al. 2024, “Tülu 3: Pushing Frontiers in Open Language Model Post-Training” · Liu et al. 2025, “Understanding R1-Zero-Like Training: A Critical Perspective” · Yue et al. 2025, “Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model?” · Baker et al. 2025, “Monitoring Reasoning Models for Misbehavior and the Risks of Promoting Obfuscation”</p>
+</article>
+
+<!-- ================================================================ DAY 127 -->
+<article class="day" id="d127">
+  <header class="day-head">
+    <span class="day-no">DAY 127</span>
+    <h2>RL in Robotics &amp; Sim-to-Real</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Robots are where RL's appetite for samples meets the cost of real ones. The recipe that works is to train in simulation at enormous scale and engineer the transfer: randomize what you cannot model, identify what you can, and make the policy robust or adaptive to the rest.</p>
+
+  <h3>Simulators</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Simulator</th><th>What it is</th><th>Typical use</th></tr></thead>
+    <tbody>
+      <tr><td>MuJoCo</td><td>fast, accurate contact dynamics for articulated bodies (Todorov et al. 2012); free and open source since 2022, with MJX, a JAX port that runs on accelerators</td><td>the standard continuous-control benchmarks (Gymnasium's Hopper, Walker2d, Ant, Humanoid); manipulation research</td></tr>
+      <tr><td>Isaac Gym / Isaac Sim / Isaac Lab (NVIDIA)</td><td>GPU-parallel physics: thousands of environments on one GPU, with observations that never leave the device</td><td>legged locomotion and dexterous manipulation at scale</td></tr>
+      <tr><td>Brax (Freeman et al. 2021)</td><td>a physics engine in JAX that is compiled together with the learning algorithm and is differentiable</td><td>very fast training on standard tasks; research on differentiable simulation</td></tr>
+      <tr><td>PyBullet</td><td>an open-source Python front end to the Bullet engine</td><td>older robotics benchmarks and teaching</td></tr>
+    </tbody>
+  </table></div>
+  <p>GPU simulation changes the economics. Rudin et al. (2021) trained ANYmal locomotion policies over rough terrain in minutes of wall-clock time, with thousands of simulated robots on a single GPU, and transferred them to the real robot. When samples cost only GPU time, on-policy PPO with enormous batches becomes the cheap option, the reverse of the sample-efficiency trade-off you measured in Project 7 (Day 96).</p>
+
+  <h3>The reality gap</h3>
+  <p>A policy trained in simulation is optimal for the simulator's dynamics and is then evaluated under the real ones. The gap comes from dynamics parameters (masses, inertias, friction, restitution, joint damping), actuators (torque–speed curves, motor dynamics, backlash, series elasticity), latency and control rate, sensor noise and bias, visual appearance (textures, lighting, camera intrinsics), unmodelled physics (cables, deformable objects, wear) and simulator artefacts that a policy can exploit, such as interpenetrating contacts or unrealistically high friction. How fast the gap hurts is quantified by a classic lemma.</p>
+  <div class="box deriv"><span class="tag">Derivation · the simulation lemma</span>
+    <p>Let MDPs \(M\) and \(M'\) share rewards in \([0, R_{\max}]\), and let their transitions differ by at most \(\varepsilon = \max_{s,a} \|P(\cdot \mid s, a) - P'(\cdot \mid s, a)\|_1\). For any policy \(\pi\), with \(v = v^\pi_M\) and \(v' = v^\pi_{M'}\),</p>
+    $$v - v' = \gamma P^\pi v - \gamma P'^\pi v' = \gamma\,(P^\pi - P'^\pi)\, v + \gamma P'^\pi (v - v').$$
+    <p>Each row of \(P^\pi - P'^\pi\) has \(\ell_1\) norm at most \(\varepsilon\) and \(\|v\|_\infty \le R_{\max}/(1-\gamma)\), so the first term is at most \(\gamma \varepsilon R_{\max} / (1 - \gamma)\) in sup norm. The second is at most \(\gamma \|v - v'\|_\infty\) (Day 4's lemma). Rearranging,</p>
+    $$\big\|v^\pi_M - v^\pi_{M'}\big\|_\infty \le \frac{\gamma\, \varepsilon\, R_{\max}}{(1 - \gamma)^2}.$$
+  </div>
+  <p>The \(1/(1-\gamma)^2\) says small per-step model errors compound over the horizon, the same compounding as model error in Day 97. There are two ways to shrink the gap: make \(\varepsilon\) small (system identification), or make the policy insensitive to the parameters \(\varepsilon\) comes from (randomization and adaptation).</p>
+
+  <h3>Domain randomization</h3>
+  <div class="box def"><span class="tag">Definition · Domain randomization</span>
+    <p>Parameterise the simulator by \(\xi\) (masses, friction, latency, textures, lighting, camera pose and so on) and train on a distribution over simulators:</p>
+    $$\max_\pi\; \E_{\xi \sim P(\xi)}\big[J_\xi(\pi)\big].$$
+    <p>If the real world looks like one more sample from \(P(\xi)\), a policy that works across the distribution works on the robot.</p>
+  </div>
+  <p><b>Visual randomization.</b> Tobin et al. (2017) trained an object-localization network purely on simulated images with randomized textures, lighting, camera positions and distractor objects, using no real images, and used it to locate and grasp objects with a real robot. <b>Dynamics randomization.</b> Peng et al. (2018) randomized masses, friction, damping and latency for an object-pushing task and transferred a recurrent policy to a real arm. The recurrence matters. With a history of observations and actions, the policy can infer \(\xi\) from how the system responds, which is implicit system identification. Without memory it has to find one behaviour that works for every \(\xi\), which is necessarily more conservative.</p>
+  <p><b>Automatic domain randomization</b> (ADR; OpenAI et al. 2019) removes the hand-tuning of ranges. Every range starts at the nominal value and is widened only when the policy performs well at its boundary, so the training distribution grows as a curriculum, always about as hard as the policy can handle. With ADR, a Shadow Dexterous Hand learned in simulation to manipulate a Rubik's cube. The sequence of face turns came from a standard, non-learned solver; RL learned the manipulation. The paper reports success in about 60% of attempts on typical scrambles and about 20% on the hardest scrambles tested, and robustness to perturbations it never trained on, such as a rubber glove or tied fingers.</p>
+  <div class="box algo"><span class="tag">Algorithm · Automatic domain randomization (simplified)</span>
+    <ol>
+      <li>For every randomized parameter \(\xi_j\), keep a range \([\ell_j, h_j]\), initially the single nominal value.</li>
+      <li>Each episode, sample every parameter uniformly from its range. With some probability, pick one \(j\) and pin \(\xi_j\) to \(\ell_j\) or \(h_j\) instead.</li>
+      <li>Record the performance of boundary episodes in a buffer for that boundary.</li>
+      <li>When a buffer is full: if mean performance is at least \(t_H\), widen that boundary by \(\Delta\); if it is at most \(t_L\), narrow it. Clear the buffer.</li>
+      <li>Train the policy on all episodes as usual.</li>
+    </ol>
+  </div>
+  <pre><code>import numpy as np
+import gymnasium as gym
+
+class DynamicsRandomization(gym.Wrapper):
+    """Resample link masses and friction at every reset (Gymnasium MuJoCo envs, e.g. Hopper-v5)."""
+    def __init__(self, env, mass_range=(0.7, 1.3), friction_range=(0.6, 1.4)):
+        super().__init__(env)
+        model = env.unwrapped.model                    # mujoco.MjModel; its arrays are writable
+        self.mass0 = model.body_mass.copy()
+        self.inertia0 = model.body_inertia.copy()
+        self.friction0 = model.geom_friction.copy()
+        self.mass_range, self.friction_range = mass_range, friction_range
+
+    def reset(self, *, seed=None, options=None):
+        obs, info = self.env.reset(seed=seed, options=options)
+        rng, model = self.env.unwrapped.np_random, self.env.unwrapped.model   # seeded by reset
+        k = rng.uniform(*self.mass_range, size=self.mass0.shape)
+        model.body_mass[:] = self.mass0 * k
+        model.body_inertia[:] = self.inertia0 * k[:, None]    # scale inertia with mass
+        f = rng.uniform(*self.friction_range, size=(model.ngeom, 1))
+        model.geom_friction[:] = self.friction0 * f
+        info["mass_scale"], info["friction_scale"] = k, f.ravel()
+        return obs, info
+
+env = DynamicsRandomization(gym.make("Hopper-v5"))
+obs, info = env.reset(seed=0)</code></pre>
+  <p class="code-cap">The new parameters take effect from the first <code>step</code>; the initial observation is just a state and is unaffected. Logging the sampled scales in <code>info</code> lets you plot return against each parameter later. Using the environment's own <code>np_random</code> keeps the randomization reproducible under seeding (Day 7).</p>
+
+  <h3>System identification</h3>
+  <p>The complementary move is to make the simulator match the robot. Collect trajectories on the real system and fit the simulator's parameters,</p>
+  $$\hat\xi = \argmin_\xi \sum_t \big\| s^{\text{real}}_{t+1} - f_{\text{sim}}\big(s^{\text{real}}_t, a_t; \xi\big) \big\|^2,$$
+  <p>with a black-box optimizer such as CMA-ES or Bayesian optimization, or by gradient descent if the simulator is differentiable. Then randomize <em>around</em> \(\hat\xi\) instead of around a guess.</p>
+  <p>Some components resist parametric models. Hwangbo et al. (2019) found that ANYmal's series-elastic actuators were a major source of the gap, so they trained an <em>actuator network</em> on real data, mapping a short history of joint position errors and velocities to torque, and placed it inside the rigid-body simulator. Policies trained in this hybrid simulator transferred to the robot; the paper reports more precise and energy-efficient tracking of velocity commands than the previous model-based controller, faster running than the robot had managed before, and recovery from falls. Online adaptation is identification done by the policy at run time: RMA (Kumar et al. 2021) trains a base policy on a latent encoding of privileged environment parameters in simulation, plus an adaptation module that estimates that latent from recent states and actions, so the deployed robot adapts within a fraction of a second.</p>
+
+  <h3>Transfer strategies and the privileged teacher</h3>
+  <p>Lee et al. (2020) combined several of these ideas for quadruped locomotion over challenging terrain. A <b>teacher</b> policy is trained with RL in simulation using privileged information the real robot never has: the terrain profile, contact states, friction coefficients and external disturbances. A <b>student</b> policy that sees only proprioception (joint encoders and the IMU), through a temporal convolutional network over its recent history, is then trained to imitate the teacher on the student's own state distribution, DAgger-style (Day 106). An adaptive curriculum generated terrains of the right difficulty. The paper reports zero-shot deployment on ANYmal over mud, snow, rubble, thick vegetation and running water, none of which were simulated. The teacher–student pattern descends from "Learning by Cheating" (Chen et al. 2019) in autonomous driving.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Strategy</th><th>Idea</th><th>Cost or catch</th></tr></thead>
+    <tbody>
+      <tr><td>Domain randomization</td><td>train on a distribution of simulators</td><td>over-wide ranges give conservative policies; needs memory to adapt</td></tr>
+      <tr><td>System identification</td><td>fit the simulator to real data</td><td>needs real data and identifiable parameters</td></tr>
+      <tr><td>Learned components</td><td>actuator networks, learned residual dynamics</td><td>real data for each hardware type</td></tr>
+      <tr><td>Teacher–student</td><td>RL with privileged state, then distil to deployable inputs</td><td>two training stages; the student may not match the teacher</td></tr>
+      <tr><td>Online adaptation</td><td>infer an environment latent from history (RMA)</td><td>more inputs and more training</td></tr>
+      <tr><td>Real-world fine-tuning</td><td>continue training on the robot</td><td>safety, resets, hardware wear</td></tr>
+      <tr><td>Residual RL</td><td>learn a correction on top of a classical controller (Johannink et al. 2019)</td><td>limited by the base controller's structure</td></tr>
+    </tbody>
+  </table></div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 270" role="img" aria-label="Sim-to-real loop: real robot data, system identification, randomized simulation, teacher RL, student distillation, deployment">
+      <defs>
+        <marker id="ah-d127" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d127m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="20" y="112" width="130" height="56" rx="8" class="s-node-mod"/>
+      <text x="85" y="136" class="s-ttl s-mid">Real robot</text>
+      <text x="85" y="155" class="s-ink2 s-sm s-mid">logs, failures</text>
+      <rect x="180" y="20" width="150" height="56" rx="8" class="s-node"/>
+      <text x="255" y="44" class="s-ttl s-mid">System ID</text>
+      <text x="255" y="63" class="s-ink2 s-sm s-mid">fit ξ̂, actuator net</text>
+      <rect x="380" y="20" width="180" height="56" rx="8" class="s-node"/>
+      <text x="470" y="44" class="s-ttl s-mid">Randomized sim</text>
+      <text x="470" y="63" class="s-ink2 s-sm s-mid">ξ ~ P(ξ) around ξ̂</text>
+      <rect x="520" y="112" width="150" height="56" rx="8" class="s-node"/>
+      <text x="595" y="136" class="s-ttl s-mid">Teacher · RL</text>
+      <text x="595" y="155" class="s-ink2 s-sm s-mid">privileged state</text>
+      <rect x="380" y="200" width="180" height="56" rx="8" class="s-node"/>
+      <text x="470" y="224" class="s-ttl s-mid">Student</text>
+      <text x="470" y="243" class="s-ink2 s-sm s-mid">imitate from history</text>
+      <rect x="180" y="200" width="150" height="56" rx="8" class="s-node"/>
+      <text x="255" y="224" class="s-ttl s-mid">Deploy</text>
+      <text x="255" y="243" class="s-ink2 s-sm s-mid">zero-shot, then tune</text>
+      <path d="M85,112 C85,60 120,48 178,48" class="s-ln" marker-end="url(#ah-d127)"/>
+      <line x1="330" y1="48" x2="378" y2="48" class="s-ln" marker-end="url(#ah-d127)"/>
+      <path d="M560,48 C595,48 595,80 595,110" class="s-ln" marker-end="url(#ah-d127)"/>
+      <path d="M595,168 C595,228 580,228 562,228" class="s-ln" marker-end="url(#ah-d127)"/>
+      <line x1="380" y1="228" x2="332" y2="228" class="s-ln" marker-end="url(#ah-d127)"/>
+      <path d="M180,228 C85,228 85,200 85,170" class="s-ln-mod" marker-end="url(#ah-d127m)"/>
+      <text x="340" y="134" class="s-ink3 s-mid s-sm">ADR widens P(ξ)</text>
+      <text x="340" y="152" class="s-ink3 s-mid s-sm">as the policy keeps up</text>
+    </svg>
+    <figcaption><b>The sim-to-real loop.</b> Real data calibrates the simulator, the randomized simulator trains a privileged teacher at scale, and the teacher is distilled into a student that uses only the sensors the robot actually has. Deployment failures become new real data. Most published systems use a subset of these stages, not all of them.</figcaption>
+  </figure>
+
+  <h3>Case studies: manipulation and locomotion</h3>
+  <ul>
+    <li><b>Dexterous manipulation.</b> OpenAI et al. (2018) reoriented a block in a Shadow Hand using a policy trained only in randomized simulation, and the Rubik's-cube work (2019) extended the approach with ADR. Both relied on very large-scale distributed PPO with recurrent policies.</li>
+    <li><b>Legged locomotion.</b> ANYmal with actuator networks (Hwangbo et al. 2019), the teacher–student blind locomotion of Lee et al. (2020), and its perceptive successor, which combined proprioception with exteroceptive height maps for hiking-trail terrain (Miki et al. 2022). RMA (Kumar et al. 2021) showed fast online adaptation on a low-cost quadruped.</li>
+    <li><b>Agile flight.</b> Kaufmann et al. (2023) trained a drone-racing policy in simulation, augmented with data-driven residual models of perception and dynamics fitted to real flights, and report that it beat human world-champion pilots in head-to-head races.</li>
+  </ul>
+
+  <h3>Learning from real-world data safely</h3>
+  <p>Learning directly on hardware is possible but expensive. Haarnoja et al. (2019) learned Minitaur walking with SAC from roughly two hours of real interaction. QT-Opt (Kalashnikov et al. 2018) used about 580,000 real grasp attempts collected on seven robots, and reported 96% grasp success on unseen objects. Making real-world learning safe and practical means torque and velocity limits with hardware watchdogs, safety layers and constrained objectives (Day 122), automatic resets, human interventions logged as data, offline pre-training from logs (Module 12) followed by careful fine-tuning, and low-pass filtering of actions so that jittery policies don't damage gearboxes. Locomotion rewards often carry a dozen or more terms penalising torque, joint acceleration, foot slip and action rate, mostly to make the policy safe and transferable rather than to make it faster.</p>
+
+  <div class="box trap"><span class="tag">What breaks</span>
+    <ul>
+      <li><b>Simulator exploits.</b> Policies find contact glitches and unrealistic friction. Watch videos of trained policies, not only returns.</li>
+      <li><b>Over-randomization.</b> Ranges far wider than reality produce timid, low-performance policies; ranges too narrow miss the real robot. Identify first, then randomize around the estimate.</li>
+      <li><b>Memoryless policies under randomization</b> learn an average behaviour that is optimal for no single setting.</li>
+      <li><b>Latency.</b> Unmodelled latency and control-rate mismatch are among the most common causes of failed transfer. Randomize delays and match control frequencies exactly.</li>
+      <li><b>Bang-bang actions</b> work in simulation and destroy motors. Penalise the action rate and filter actions.</li>
+      <li><b>Thin real-world evaluation.</b> Five real trials is not a result; report the number of trials and the conditions.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Train PPO or SAC on Hopper-v5 at nominal parameters for a fixed budget (for example 1M steps). Evaluate it on a grid of mass and friction scales in {0.6, 0.8, 1.0, 1.2, 1.4} and plot the return as a heatmap. (Without MuJoCo, use Pendulum-v1 and randomize <code>env.unwrapped.m</code> and <code>env.unwrapped.l</code>.)</li>
+      <li>Retrain with <code>DynamicsRandomization</code> and redraw the heatmap. Quantify the trade-off: performance at the nominal parameters against worst-case performance on the grid.</li>
+      <li>Give the randomized policy a history of the last 8 observations and actions. Does it recover nominal performance while keeping robustness?</li>
+      <li>Check the simulation lemma numerically: in a random 20-state tabular MDP, perturb \(P\) by a known \(\ell_1\) amount \(\varepsilon\) and compare the true \(\|v - v'\|_\infty\) with the bound for \(\gamma = 0.9\) and \(0.99\). How loose is it?</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Tobin et al. 2017, “Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World” · Peng et al. 2018, “Sim-to-Real Transfer of Robotic Control with Dynamics Randomization” · OpenAI et al. 2019, “Solving Rubik's Cube with a Robot Hand” · Hwangbo et al. 2019, “Learning Agile and Dynamic Motor Skills for Legged Robots” · Lee et al. 2020, “Learning Quadrupedal Locomotion over Challenging Terrain” · Kumar et al. 2021, “RMA: Rapid Motor Adaptation for Legged Robots” · Rudin et al. 2021, “Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning” · Zhao, Queralta &amp; Westerlund 2020, “Sim-to-Real Transfer in Deep Reinforcement Learning for Robotics: a Survey”</p>
+</article>
+
+<!-- ================================================================ DAY 128 -->
+<article class="day" id="d128">
+  <header class="day-head">
+    <span class="day-no">DAY 128</span>
+    <h2>RL in Industry &amp; Honest Evaluation</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">75m practice</span></p>
+  </header>
+
+  <p class="thesis">Most deployed "RL" is a contextual bandit learning from logged data, and the hard part is rarely the learning algorithm. It is evaluating a new policy without deploying it, and being honest about what the evaluation shows. The same honesty problem, in miniature, is behind the reproducibility crisis in deep RL research.</p>
+
+  <h3>Recommendation: slates and long-term value</h3>
+  <p>Recommenders choose what to show: articles, videos, products. The simplest framing is the contextual bandit of Day 17, with the user and session as context, the item as action and a click as reward. LinUCB was developed on Yahoo!'s front-page news module (Li et al. 2010), and evaluated offline by replaying logged traffic that had been served uniformly at random, an early off-policy evaluation. Two complications push the problem towards full RL.</p>
+  <ul>
+    <li><b>Slates.</b> The action is an ordered list of \(K\) items from a catalogue of \(N\), roughly \(N^K\) possibilities, and the items interact through position bias and substitution. SlateQ (Ie et al. 2019) decomposes a slate's long-term value into item-level values under a model of how users choose from a slate, which makes the optimization tractable; the authors report live experiments on YouTube.</li>
+    <li><b>Long-term value.</b> Today's recommendation changes tomorrow's user, and optimising clicks favours clickbait. Chen et al. (2019) trained a REINFORCE recommender for YouTube from logged data, with an importance-weighting correction for the logging policy and a "top-\(K\)" correction for recommending several items at once.</li>
+  </ul>
+  <p>The pitfalls are feedback loops (each model trains on data its predecessors chose to show, which entrenches popularity bias), proxy rewards (a click is not satisfaction, Goodhart again), and users and catalogues that never stop changing.</p>
+
+  <h3>Ads and bidding</h3>
+  <p>In real-time bidding, an advertiser's agent bids for each ad impression in an auction, subject to a daily budget. That is a sequential decision problem with a budget constraint, a CMDP (Day 122). The RL formulations in the literature (Cai et al. 2017; Wu et al. 2018) mostly act on one or two control parameters, such as a bid multiplier, rather than bidding from scratch on each impression. That keeps the action space small and the behaviour auditable, and the multiplier has a clean interpretation as a dual variable.</p>
+  <div class="box deriv"><span class="tag">Derivation · the budget's shadow price sets the bid</span>
+    <p>In second-price auctions, suppose the advertiser wants to maximise \(\sum_i \mathbb 1[\text{win}_i]\,(v_i - p_i)\), value minus payment, subject to total spend \(\sum_i \mathbb 1[\text{win}_i]\, p_i \le B\), where \(p_i\) is the highest competing bid. The Lagrangian separates across auctions: win auction \(i\) exactly when \(v_i - p_i - \lambda p_i \ge 0\), that is when \(p_i \le v_i / (1 + \lambda)\). Since a second-price auction is won exactly when the bid exceeds \(p_i\), bidding \(b_i = v_i / (1 + \lambda)\) achieves this. Pacing then reduces to the dual update of Day 122: raise \(\lambda\) when spending runs ahead of the budget, lower it when spending lags.</p>
+  </div>
+
+  <h3>Operations: cooling, chips, inventory, routing</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Domain</th><th>Decision</th><th>What has been reported</th><th>The honest baseline</th></tr></thead>
+    <tbody>
+      <tr><td>Data-centre cooling</td><td>set-points for chillers, towers and pumps</td><td>DeepMind and Google reported cooling-energy reductions of up to 40% from ML recommendations (2016), then about 30% on average from direct autonomous control (2018). These are company reports; the system was model-based, with learned predictions, safety constraints and operator override.</td><td>well-tuned classical control and MPC (Lazic et al. 2018 is the peer-reviewed relative)</td></tr>
+      <tr><td>Chip macro placement</td><td>place macros one at a time on a grid</td><td>Mirhoseini et al. (2021) report placements comparable to or better than human experts in under six hours, used for TPU design; publicly disputed (below)</td><td>simulated annealing, analytic placers and commercial tools, at equal compute</td></tr>
+      <tr><td>Inventory</td><td>order quantities per product and period</td><td>Madeka et al. (2022) trained policies in a differentiable simulator built from Amazon's historical data and report gains over a production baseline in a field test</td><td>base-stock (order-up-to) policies, optimal in simple settings and strong elsewhere</td></tr>
+      <tr><td>Routing and logistics</td><td>construct tours, assign vehicles</td><td>learned construction heuristics such as attention models (Kool et al. 2019)</td><td>OR solvers (LKH, OR-Tools, Concorde), which remain very strong</td></tr>
+    </tbody>
+  </table></div>
+  <p><b>The chip-placement dispute</b> is a case study in evaluation. Mirhoseini et al. (2021, <i>Nature</i>) cast macro placement as a sequential decision problem. An agent with an edge-based graph neural network encoder places memory blocks one at a time, receives a reward from a weighted combination of proxy wirelength, congestion and density when the placement is complete, and is pre-trained across many netlists before fine-tuning. Cheng et al. (2023) used Google's open-source Circuit Training code and found, on their benchmarks, that it did not outperform strong baselines such as simulated annealing and commercial placers. Markov (2024) collected the methodological criticisms, and <i>Nature</i> attached an editor's note to the paper in 2023 while the concerns were examined. The original authors (Goldie, Mirhoseini &amp; Dean 2024) replied that the reproductions skipped pre-training and used far less compute. Whatever the final verdict, the arguments are about exactly the items on this lesson's checklist: which baselines, at what compute, on which benchmarks, measured by proxy metrics or by final chip quality.</p>
+  <div class="box note"><span class="tag">Finance and its pitfalls</span>
+    <p>RL has plausible uses in optimal trade execution (Nevmyvaka et al. 2006), market making, and hedging under transaction costs ("Deep Hedging", Buehler et al. 2019). Return prediction dressed up as RL is a different matter. The simulator is usually history, which cannot react to your trades, so market impact is ignored. The signal-to-noise ratio is tiny and the process is non-stationary. Look-ahead bias, survivorship bias, transaction costs and slippage each turn backtested profits into real losses. Trying many strategies and reporting the best backtest is the selection effect of Day 3 (\(\E[\max] \ge \max \E\)); Bailey et al. (2014) quantify how quickly the best backtest becomes meaningless as the number of trials grows.</p>
+  </div>
+
+  <h3>Off-policy evaluation: IPS, SNIPS, doubly robust</h3>
+  <div class="box def"><span class="tag">Definition · the OPE problem and four estimators</span>
+    <p>Logged data \(\mathcal D = \{(x_i, a_i, r_i, \mu_i)\}_{i=1}^n\) come from a logging policy \(\mu\), with the propensity \(\mu_i = \mu(a_i \mid x_i)\) recorded at decision time. The goal is the value of a new policy, \(V(\pi) = \E_x\, \E_{a \sim \pi(\cdot \mid x)}[r(x, a)]\), without deploying it. With importance weights \(w_i = \pi(a_i \mid x_i) / \mu(a_i \mid x_i)\) and a reward model \(\hat r(x, a)\):</p>
+    $$\hat V_{\text{DM}} = \frac1n \sum_{i=1}^n \sum_a \pi(a \mid x_i)\, \hat r(x_i, a), \qquad \hat V_{\text{IPS}} = \frac1n \sum_{i=1}^n w_i\, r_i, \qquad \hat V_{\text{SNIPS}} = \frac{\sum_i w_i\, r_i}{\sum_i w_i},$$
+    $$\hat V_{\text{DR}} = \frac1n \sum_{i=1}^n \Big[\sum_a \pi(a \mid x_i)\, \hat r(x_i, a) + w_i \big(r_i - \hat r(x_i, a_i)\big)\Big].$$
+  </div>
+  <div class="box deriv"><span class="tag">Derivation · why IPS is unbiased and DR is doubly robust</span>
+    <p>Condition on a context \(x\) and take the expectation over the logged action \(a \sim \mu(\cdot \mid x)\):</p>
+    $$\E_{a \sim \mu}\big[w\, r\big] = \sum_a \mu(a \mid x)\, \frac{\pi(a \mid x)}{\mu(a \mid x)}\, r(x, a) = \sum_a \pi(a \mid x)\, r(x, a),$$
+    <p>which requires \(\mu(a \mid x) &gt; 0\) wherever \(\pi(a \mid x) &gt; 0\) (the coverage condition of Day 39). For DR, the same calculation gives \(\E_{a \sim \mu}\big[w\,(r - \hat r(x, a))\big] = \sum_a \pi(a \mid x)\big(r(x, a) - \hat r(x, a)\big)\). Adding the direct-method term cancels the \(\hat r\) part and leaves \(\sum_a \pi(a \mid x)\, r(x, a)\), so DR is unbiased when the propensities are right, whatever \(\hat r\) is. If instead \(\hat r = r\) exactly, the correction term has mean zero for any weights, so DR is also unbiased when the model is right even if the propensities are wrong. Either one being correct suffices (Dudík, Langford &amp; Li 2011).</p>
+  </div>
+  <p>SNIPS is a ratio estimator. It is biased at order \(1/n\) but consistent, usually has much lower variance than IPS, and is invariant to adding a constant to every reward, which IPS is not: shifting rewards by \(c\) shifts \(\hat V_{\text{IPS}}\) by \(c \cdot \tfrac1n \sum_i w_i\), and that average is not exactly 1 in a finite sample (Swaminathan &amp; Joachims 2015). The effective sample size \(n_{\text{eff}} = (\sum_i w_i)^2 / \sum_i w_i^2\) says how many logged samples the weighted estimate is really worth. Check it before trusting any importance-weighted number.</p>
+  <pre><code>import numpy as np
+
+def ope(pi, mu_a, a, r, r_hat):
+    """pi: [n, K] target-policy probabilities; mu_a: [n] logged propensity of the action taken;
+    a, r: [n] logged actions and rewards; r_hat: [n, K] reward-model predictions."""
+    idx = np.arange(len(a))
+    w = pi[idx, a] / mu_a                                  # importance weights
+    dm_terms = (pi * r_hat).sum(axis=1)                    # model-based value of pi per context
+    return {"DM": dm_terms.mean(),
+            "IPS": np.mean(w * r),
+            "SNIPS": np.sum(w * r) / np.sum(w),
+            "DR": np.mean(dm_terms + w * (r - r_hat[idx, a])),
+            "ESS": w.sum() ** 2 / (w ** 2).sum()}           # effective sample size
+
+rng = np.random.default_rng(0)
+n, K, d = 2000, 10, 5
+W = rng.normal(size=(d, K))
+errors = {k: [] for k in ["DM", "IPS", "SNIPS", "DR"]}
+for rep in range(300):
+    X = rng.normal(size=(n, d))
+    q = 1 / (1 + np.exp(-X @ W))                           # true click probability per (x, a)
+    a = rng.integers(0, K, size=n)                         # uniform logging policy, mu = 1/K
+    r = rng.binomial(1, q[np.arange(n), a]).astype(float)
+    pi = np.full((n, K), 0.02)
+    pi[np.arange(n), q.argmax(axis=1)] += 1 - 0.02 * K     # near-greedy target policy
+    r_hat = np.clip(q + 0.15 * rng.normal(size=q.shape) + 0.05, 0, 1)   # noisy, biased model
+    est, true = ope(pi, np.full(n, 1 / K), a, r, r_hat), (pi * q).sum(axis=1).mean()
+    for k in errors:
+        errors[k].append(est[k] - true)
+for k, e in errors.items():
+    print(f"{k:5s} bias {np.mean(e):+.4f}  std {np.std(e):.4f}")
+# DM bias +0.012 std 0.002 · IPS bias +0.002 std 0.050 · SNIPS and DR: bias ~0, std ~0.020</code></pre>
+  <p class="code-cap">The pattern is the textbook one. The direct method has low variance but inherits the model's bias, IPS is unbiased but noisy, and SNIPS and DR cut the variance by more than half. With 10 actions and a near-greedy target, the effective sample size is only about 300 of the 2,000 logged rounds.</p>
+  <p>For sequential decisions, the same ideas become per-decision importance sampling (Day 40), doubly robust estimators for RL (Jiang &amp; Li 2016; Thomas &amp; Brunskill 2016), and fitted Q evaluation (FQE; Le et al. 2019), which is the direct method for MDPs. The weights are now products over the horizon and explode (Day 40's tail collapse), so long-horizon OPE is far harder than bandit OPE.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 700 230" role="img" aria-label="Off-policy evaluation: logs from the deployed policy feed three families of estimators, whose estimate decides what to A/B test">
+      <defs>
+        <marker id="ah-d128" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+        <marker id="ah-d128m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker>
+      </defs>
+      <rect x="15" y="87" width="140" height="56" rx="8" class="s-node"/>
+      <text x="85" y="111" class="s-ttl s-mid">Logging μ</text>
+      <text x="85" y="130" class="s-ink2 s-sm s-mid">deployed today</text>
+      <rect x="185" y="87" width="150" height="56" rx="8" class="s-node"/>
+      <text x="260" y="111" class="s-ttl s-mid">Logs</text>
+      <text x="260" y="130" class="s-ink2 s-sm s-mid">(x, a, r, μ(a | x))</text>
+      <rect x="375" y="20" width="170" height="44" rx="6" class="s-node"/>
+      <text x="460" y="38" class="s-mid s-sm">DM: model r̂</text>
+      <text x="460" y="55" class="s-ink2 s-mid s-sm">low variance, biased</text>
+      <rect x="375" y="93" width="170" height="44" rx="6" class="s-node"/>
+      <text x="460" y="111" class="s-mid s-sm">IPS / SNIPS: weights</text>
+      <text x="460" y="128" class="s-ink2 s-mid s-sm">unbiased, high variance</text>
+      <rect x="375" y="166" width="170" height="44" rx="6" class="s-node-mod"/>
+      <text x="460" y="184" class="s-mid s-sm">DR: model + weights</text>
+      <text x="460" y="201" class="s-ink2 s-mid s-sm">unbiased if μ or r̂ right</text>
+      <rect x="580" y="87" width="105" height="56" rx="8" class="s-node-mod"/>
+      <text x="632" y="111" class="s-ttl s-mid">V̂(π)</text>
+      <text x="632" y="130" class="s-ink2 s-sm s-mid">→ A/B test</text>
+      <line x1="155" y1="115" x2="183" y2="115" class="s-ln" marker-end="url(#ah-d128)"/>
+      <line x1="335" y1="115" x2="373" y2="42" class="s-ln" marker-end="url(#ah-d128)"/>
+      <line x1="335" y1="115" x2="373" y2="115" class="s-ln" marker-end="url(#ah-d128)"/>
+      <line x1="335" y1="115" x2="373" y2="188" class="s-ln" marker-end="url(#ah-d128)"/>
+      <line x1="545" y1="42" x2="578" y2="110" class="s-ln" marker-end="url(#ah-d128)"/>
+      <line x1="545" y1="115" x2="578" y2="115" class="s-ln" marker-end="url(#ah-d128)"/>
+      <line x1="545" y1="188" x2="578" y2="120" class="s-ln-mod" marker-end="url(#ah-d128m)"/>
+    </svg>
+    <figcaption><b>Off-policy evaluation is a filter, not a verdict.</b> Logs from the deployed policy, with the propensities recorded at decision time, feed estimators that trade bias against variance. Their job is to decide which candidate policies deserve an online A/B test, not to replace it.</figcaption>
+  </figure>
+
+  <div class="box trap"><span class="tag">What breaks · off-policy evaluation</span>
+    <ul>
+      <li><b>Missing or wrong propensities.</b> Propensities reconstructed after the fact, or a deterministic logging policy, which gives \(\mu = 0\) for actions the new policy wants. No estimator can recover outcomes of actions that were never taken.</li>
+      <li><b>Unobserved confounding.</b> The logging decision depended on something that was not logged, such as a human override.</li>
+      <li><b>Huge weights.</b> A tiny effective sample size makes IPS useless. Clipping the weights trades variance for bias; report both the clipped estimate and the ESS.</li>
+      <li><b>Long horizons.</b> Product weights explode, and FQE inherits the deadly triad (Day 69).</li>
+      <li><b>Stale logs.</b> Last month's logs, next month's users.</li>
+    </ul>
+  </div>
+
+  <h3>The reproducibility crisis in deep RL</h3>
+  <p>Henderson et al. (2018) showed that random seeds, codebases, hyperparameters and environment versions can each reverse a published conclusion; Day 7 repeated their two-groups-of-five-seeds experiment. Engstrom et al. (2020) found that "code-level optimizations" absent from PPO's paper (value clipping, reward scaling, orthogonal initialization, learning-rate annealing and others) account for much of PPO's reported advantage over TRPO. Andrychowicz et al. (2021) trained about a quarter of a million agents to measure which of dozens of on-policy design choices actually matter. Machado et al. (2018) documented how Atari evaluation protocols differed silently between papers, and proposed sticky actions as a standard. Agarwal et al. (2021) showed that point estimates from a few runs mis-rank algorithms on the Atari 100k benchmark, and recommended interquartile means with stratified bootstrap confidence intervals, performance profiles and the probability of improvement. Add tuning-budget asymmetry, where the new method is tuned for weeks and the baseline is run at defaults, and much of the published progress in deep RL becomes hard to interpret.</p>
+
+  <h3>The evaluation checklist</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Item</th><th>Minimum standard</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>Seeds</td><td>at least 5 independent runs per configuration, 10 or more when effects are small; always state \(N\)</td><td>seed variance often exceeds method differences (<a href="m00.html#d7">Day 7</a>)</td></tr>
+      <tr><td class="num">2</td><td>Tuning vs reporting</td><td>tune on one set of seeds, report on fresh ones</td><td>otherwise you report the maximum of noise</td></tr>
+      <tr><td class="num">3</td><td>Tuned baselines</td><td>the same tuning budget for every method; reuse well-tuned reference implementations</td><td>default-hyperparameter baselines manufacture gains</td></tr>
+      <tr><td class="num">4</td><td>Standard protocols</td><td>the same environment versions, wrappers, step budgets, sticky actions, number of evaluation episodes, and deterministic or stochastic evaluation policy</td><td>protocols differ silently between papers</td></tr>
+      <tr><td class="num">5</td><td>Uncertainty</td><td>bootstrap confidence intervals and full learning curves; IQM across tasks</td><td>a mean without uncertainty cannot be compared</td></tr>
+      <tr><td class="num">6</td><td>The x-axis</td><td>environment steps (and frames, with the frame skip stated), plus wall-clock time and hardware</td><td>sample-efficiency claims depend on it</td></tr>
+      <tr><td class="num">7</td><td>Final, not best</td><td>the final policy, or the average of the last few evaluations, not the best checkpoint</td><td>a maximum over checkpoints is biased upwards</td></tr>
+      <tr><td class="num">8</td><td>Ablations</td><td>remove one component at a time, with the same seeds and budget</td><td>to know what actually caused the gain</td></tr>
+      <tr><td class="num">9</td><td>Code and configs</td><td>released, with pinned versions</td><td>the details you didn't write down are in the code</td></tr>
+      <tr><td class="num">10</td><td>Negative results</td><td>report the tasks where the method did not help</td><td>otherwise readers see a selected sample</td></tr>
+    </tbody>
+  </table></div>
+  <p>The capstone (Day 130) is held to this checklist.</p>
+
+  <div class="practice">
+    <h4>Practice · 75 min</h4>
+    <ol>
+      <li>Run the OPE snippet and plot a histogram of each estimator's error. Then make the target policy fully greedy, and separately make \(\hat r\) worse (more noise, then more bias). Which estimators degrade, and how does the ESS change?</li>
+      <li>Break coverage: make the logging policy never choose action 0 for half of the contexts, while the target policy often does. What happens to IPS, SNIPS and DR? Can any estimator detect the problem from the logs alone?</li>
+      <li>Re-analyse your Project 7 results (Day 96) against the checklist: compute IQMs with 95% stratified bootstrap intervals across tasks, and the probability of improvement between your two best algorithms. Which of your original conclusions survive?</li>
+      <li>Read the abstracts and conclusions of Mirhoseini et al. (2021), Cheng et al. (2023) and Goldie et al. (2024). For each, write down the claim, the baselines, the compute and the metric, and what evidence would settle the disagreement.</li>
+    </ol>
+  </div>
+  <p class="refs"><b>Read</b> Li et al. 2010, “A Contextual-Bandit Approach to Personalized News Article Recommendation” · Ie et al. 2019, “SlateQ: A Tractable Decomposition for Reinforcement Learning with Recommendation Sets” · Chen et al. 2019, “Top-K Off-Policy Correction for a REINFORCE Recommender System” · Dudík, Langford &amp; Li 2011, “Doubly Robust Policy Evaluation and Learning” · Swaminathan &amp; Joachims 2015, “The Self-Normalized Estimator for Counterfactual Learning” · Mirhoseini et al. 2021, “A Graph Placement Methodology for Fast Chip Design” · Cheng et al. 2023, “Assessment of Reinforcement Learning for Macro Placement” · Engstrom et al. 2020, “Implementation Matters in Deep Policy Gradients” · Agarwal et al. 2021, “Deep Reinforcement Learning at the Edge of the Statistical Precipice” · Machado et al. 2018, “Revisiting the Arcade Learning Environment”</p>
+</article>
+
+<!-- /lessons -->
+
+<nav class="modnav">
+  <a href="m13.html"><small>Previous · Days 113–121</small>◂ Module 13 — Hierarchy, Meta, Multi-Agent &amp; Scale</a>
+  <a class="next" href="m15.html"><small>Next · Days 129–130</small>Module 15 — Capstone ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>
