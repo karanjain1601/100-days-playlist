@@ -1,0 +1,2324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 4 — Retrieval-Augmented Generation · 100 Days of AI Engineering</title>
+<meta name="description" content="100 Days of AI Engineering, phase 4: Retrieval-Augmented Generation (lessons 38–49).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;family=Fira+Code:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m4" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of AI Engineering</a>
+  <span class="meta">Phase 4 · Retrieval-Augmented Generation · Days 27–35</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 4 · Retrieval-Augmented Generation</h4>
+  <nav>
+    <a href="#l38"><span class="n">L38</span>Why RAG: Grounding, Freshness and…</a>
+    <a href="#l39"><span class="n">L39</span>Naive RAG From Scratch in 100 Lin…</a>
+    <a href="#l40"><span class="n">L40</span>Ingestion I: Parsing HTML, PDFs…</a>
+    <a href="#l41"><span class="n">L41</span>Ingestion II: Chunking Strategies…</a>
+    <a href="#l42"><span class="n">L42</span>Contextual Retrieval and Chunk En…</a>
+    <a href="#l43"><span class="n">L43</span>Query Transformation: Rewriting…</a>
+    <a href="#l44"><span class="n">L44</span>Retrieval Tuning: k, Thresholds…</a>
+    <a href="#l45"><span class="n">L45</span>Prompting the Generator: Grounded…</a>
+    <a href="#l46"><span class="n">L46</span>Conversational RAG: Follow-Ups, H…</a>
+    <a href="#l47"><span class="n">L47</span>Access Control, Permissions and P…</a>
+    <a href="#l48"><span class="n">L48</span>Keeping the Index Fresh: Updates…</a>
+    <a href="#l49"><span class="n">L49</span>Project: DocPilot Answers Questio…</a>
+  </nav>
+  <h4>All 133 lessons</h4>
+  <div class="spine" data-spine data-module="4" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p03.html">◂ Phase 3</a><a href="p05.html">Phase 5 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 4 · Days 27–35 · Lessons 38–49</p>
+<h1>Retrieval-Augmented Generation</h1>
+<p class="dek">Phase 4 turns the Phase 3 search service into an assistant that answers questions from the Kubernetes docs with sources a reader can check. It goes stage by stage (parsing, chunking, enrichment, query transformation, retrieval tuning, grounded generation, conversation, permissions and freshness) and measures every change against the seed and retrieval eval sets. Phase 5 then measures retrieval and generation separately and adds advanced techniques only where those measurements point.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Trace a bad answer to the first pipeline stage that lost it (ingest, chunk, retrieve, assemble, generate or cite) and fix that stage before touching the prompt.</li>
+    <li>Parse HTML and PDFs into clean Markdown sections that keep tables, code blocks, heading paths, page numbers and source URLs, and spot-check the result by hand.</li>
+    <li>Choose a chunker and a chunk size by recall@5 on a span-labelled query set, never splitting code blocks or tables.</li>
+    <li>Enrich the index with heading paths and model-written chunk contexts using prompt caching, and report both the retrieval gain and the one-off cost.</li>
+    <li>Enable query rewriting, multi-query, HyDE and decomposition only where they measurably help, and tune k, score thresholds and MMR from a curve.</li>
+    <li>Generate grounded answers with checked inline citations, decline cleanly when the docs don't cover a question, and handle follow-up questions by condensing the conversation.</li>
+    <li>Enforce each user's permissions at retrieval time, keep the index fresh with incremental ingestion, and ship an <code>/ask</code> API with an eval report and per-answer cost and latency.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>12</b> lessons</li><li><b>9h 00m</b> video</li><li><b>11h 25m</b> practice</li><li>Days <b>27–35</b></li>
+</ul>
+
+<!-- ================================================================ L38 -->
+<article class="day" id="l38">
+  <header class="day-head">
+    <span class="day-no">L38 · DAY 27</span>
+    <h2>Why RAG: Grounding, Freshness and Private Knowledge</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">30m practice</span></p>
+  </header>
+
+  <p class="thesis">A model can only answer from what is in its weights or in its context window. Retrieval-augmented generation (RAG) puts the right few passages from your own corpus into the window at question time, so answers can be current, private and checkable. It is a pipeline of seven stages, and every stage can lose the answer.</p>
+
+  <h3>The problems RAG solves</h3>
+  <p>Phase 3 built a search service (<a href="p03.html#l37">L37</a>). This phase wires it to a generator. The reasons to do so are concrete:</p>
+  <ul>
+    <li><b>Knowledge cut-offs.</b> A model knows nothing written after its training data was collected. Kubernetes ships several minor releases a year and deprecates APIs; a model trained on last year's docs will describe a removed field. Retrieval answers from this morning's snapshot.</li>
+    <li><b>Private data.</b> DocPilot's ticket queue, internal runbooks and customer-specific configuration were never on the public web. No amount of scale puts them in the weights.</li>
+    <li><b>Citations.</b> When the answer is assembled from retrieved chunks, each claim can point at a source the user can open. A wrong citation is easier to catch than a fluent wrong answer (<a href="p01.html#l12">L12</a>).</li>
+    <li><b>Smaller models answering well.</b> Reading a passage and restating it is easier than recalling a fact from parametric memory. With good context, a small, fast model such as <code>SMALL</code> often answers documentation questions about as well as a large one does without it. Measure this on your own eval set rather than assuming it (<a href="p00.html#l5">L5</a>).</li>
+  </ul>
+
+  <h3>The original formulation and what we build today</h3>
+  <p>Lewis et al. (2020) coined the term. Their model joined a <em>retriever</em>, Dense Passage Retrieval (DPR, Karpukhin et al. 2020: a BERT query encoder and a BERT passage encoder over a Wikipedia index), to a <em>generator</em>, the seq2seq model BART. They called the weights the model's <em>parametric memory</em> and the index its <em>non-parametric memory</em>, and treated the retrieved passage \(z\) as a latent variable to marginalise over.</p>
+  <div class="box deriv"><span class="tag">The two RAG variants</span>
+    <p>With retriever \(p_\eta(z \mid x) \propto \exp\big(d(z)^\top q(x)\big)\) and generator \(p_\theta\), approximating the sum by the top-\(k\) passages:</p>
+    $$p_{\text{RAG-Sequence}}(y \mid x) \approx \sum_{z \in \text{top-}k} p_\eta(z \mid x) \prod_{i=1}^{N} p_\theta(y_i \mid x, z, y_{1:i-1})$$
+    $$p_{\text{RAG-Token}}(y \mid x) \approx \prod_{i=1}^{N} \sum_{z \in \text{top-}k} p_\eta(z \mid x)\, p_\theta(y_i \mid x, z, y_{1:i-1})$$
+    <p>RAG-Sequence uses one passage for the whole answer and mixes complete answers. RAG-Token may draw each output token from a different passage, which helps when an answer combines facts from several sources. The query encoder and generator were fine-tuned end to end on question–answer pairs; the passage encoder and its index were kept fixed, so the index never had to be rebuilt during training.</p>
+  </div>
+  <p>Production systems in 2026 keep the idea and drop the joint training. A general instruction-following model, used through an API and never fine-tuned, receives the top-\(k\) chunks <em>concatenated into the prompt</em>, and attention does the work the marginalisation did. Retrieval is usually hybrid (BM25 plus dense, <a href="p03.html#l34">L34</a>) with a reranker (<a href="p03.html#l35">L35</a>). Nothing trains the retriever to serve the generator any more; tuning that interface by measurement is most of this phase.</p>
+
+  <h3>The pipeline</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 250" role="img" aria-label="DocPilot RAG pipeline: index-time stages on top, query-time stages below, with a failure mode under each stage">
+      <defs><marker id="ah-l38" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="20" y="16" class="s-ink2 s-sm">Index time: offline, re-run when the docs change</text>
+      <rect x="20" y="26" width="112" height="44" rx="6" class="s-node"/>
+      <text x="76" y="45" class="s-ttl s-mid">Corpus</text><text x="76" y="61" class="s-ink2 s-sm s-mid">docs, PDFs</text>
+      <rect x="152" y="26" width="112" height="44" rx="6" class="s-node"/>
+      <text x="208" y="45" class="s-ttl s-mid">Parse</text><text x="208" y="61" class="s-ink2 s-sm s-mid">to Markdown</text>
+      <rect x="284" y="26" width="112" height="44" rx="6" class="s-node"/>
+      <text x="340" y="45" class="s-ttl s-mid">Chunk</text><text x="340" y="61" class="s-ink2 s-sm s-mid">+ heading path</text>
+      <rect x="416" y="26" width="112" height="44" rx="6" class="s-node"/>
+      <text x="472" y="45" class="s-ttl s-mid">Embed</text><text x="472" y="61" class="s-ink2 s-sm s-mid">dense vectors</text>
+      <rect x="548" y="26" width="112" height="44" rx="6" class="s-node-mod"/>
+      <text x="604" y="45" class="s-ttl s-mid">Index</text><text x="604" y="61" class="s-ink2 s-sm s-mid">vectors + BM25</text>
+      <path d="M132,48 L150,48" class="s-ln" marker-end="url(#ah-l38)"/>
+      <path d="M264,48 L282,48" class="s-ln" marker-end="url(#ah-l38)"/>
+      <path d="M396,48 L414,48" class="s-ln" marker-end="url(#ah-l38)"/>
+      <path d="M528,48 L546,48" class="s-ln" marker-end="url(#ah-l38)"/>
+      <g class="s-bad s-sm">
+        <text x="76" y="88" class="s-mid">answer not in</text><text x="76" y="102" class="s-mid">the corpus</text>
+        <text x="208" y="88" class="s-mid">tables lost,</text><text x="208" y="102" class="s-mid">boilerplate kept</text>
+        <text x="340" y="88" class="s-mid">split mid-table,</text><text x="340" y="102" class="s-mid">"this setting"</text>
+        <text x="472" y="88" class="s-mid">wrong model,</text><text x="472" y="102" class="s-mid">no metadata</text>
+        <text x="604" y="88" class="s-mid">stale after</text><text x="604" y="102" class="s-mid">doc updates</text>
+      </g>
+      <path d="M660,48 L672,48 L672,124 L208,124 L208,156" class="s-ln-mod s-dash" marker-end="url(#ah-l38)"/>
+      <text x="440" y="118" class="s-mod s-sm s-mid">search(query, k, filters)</text>
+      <text x="20" y="146" class="s-ink2 s-sm">Query time: every question</text>
+      <rect x="20" y="158" width="112" height="44" rx="6" class="s-node"/>
+      <text x="76" y="177" class="s-ttl s-mid">Question</text><text x="76" y="193" class="s-ink2 s-sm s-mid">user's words</text>
+      <rect x="152" y="158" width="112" height="44" rx="6" class="s-node-mod"/>
+      <text x="208" y="177" class="s-ttl s-mid">Retrieve</text><text x="208" y="193" class="s-ink2 s-sm s-mid">top-k hits</text>
+      <rect x="284" y="158" width="112" height="44" rx="6" class="s-node"/>
+      <text x="340" y="177" class="s-ttl s-mid">Assemble</text><text x="340" y="193" class="s-ink2 s-sm s-mid">prompt + ids</text>
+      <rect x="416" y="158" width="112" height="44" rx="6" class="s-node"/>
+      <text x="472" y="177" class="s-ttl s-mid">Generate</text><text x="472" y="193" class="s-ink2 s-sm s-mid">chat()</text>
+      <rect x="548" y="158" width="112" height="44" rx="6" class="s-node"/>
+      <text x="604" y="177" class="s-ttl s-mid">Cite</text><text x="604" y="193" class="s-ink2 s-sm s-mid">[chunk-id]</text>
+      <path d="M132,180 L150,180" class="s-ln" marker-end="url(#ah-l38)"/>
+      <path d="M264,180 L282,180" class="s-ln" marker-end="url(#ah-l38)"/>
+      <path d="M396,180 L414,180" class="s-ln" marker-end="url(#ah-l38)"/>
+      <path d="M528,180 L546,180" class="s-ln" marker-end="url(#ah-l38)"/>
+      <g class="s-bad s-sm">
+        <text x="76" y="220" class="s-mid">vague, follow-up,</text><text x="76" y="234" class="s-mid">user vocabulary</text>
+        <text x="208" y="220" class="s-mid">gold chunk not</text><text x="208" y="234" class="s-mid">in the top k</text>
+        <text x="340" y="220" class="s-mid">cut for budget,</text><text x="340" y="234" class="s-mid">duplicates</text>
+        <text x="472" y="220" class="s-mid">ignores context,</text><text x="472" y="234" class="s-mid">invents facts</text>
+        <text x="604" y="220" class="s-mid">cites a chunk</text><text x="604" y="234" class="s-mid">that disagrees</text>
+      </g>
+    </svg>
+    <figcaption><b>DocPilot's RAG pipeline and its failure surface.</b> The top row runs offline and produces the index; the bottom row runs per question. The red line under each stage is its most common way of losing the answer. Later stages cannot recover what an earlier stage lost: no prompt fixes a table the parser flattened.</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · Retrieve-then-prompt</span>
+    <ol>
+      <li><b>Ingest:</b> fetch documents and parse them to clean Markdown with source URL and heading path (<a href="#l40">L40</a>).</li>
+      <li><b>Chunk:</b> split into retrievable units that keep tables and code whole (<a href="#l41">L41</a>), optionally enriched with context (<a href="#l42">L42</a>).</li>
+      <li><b>Embed and index:</b> dense vectors plus a BM25 index, with metadata for filters and permissions (<a href="p03.html#l33">L33</a>, <a href="#l47">L47</a>).</li>
+      <li><b>Retrieve:</b> optionally transform the query (<a href="#l43">L43</a>), then hybrid search, rerank and tune k (<a href="#l44">L44</a>).</li>
+      <li><b>Assemble context:</b> order, deduplicate and label each chunk with an id that fits the token budget.</li>
+      <li><b>Generate:</b> answer from the context only, or say the docs do not cover it (<a href="#l45">L45</a>).</li>
+      <li><b>Cite:</b> attach chunk ids to claims and check that each cited chunk supports its sentence.</li>
+    </ol>
+  </div>
+
+  <h3>The alternatives, and when each wins</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Approach</th><th>Wins when</th><th>Loses when</th></tr></thead>
+    <tbody>
+      <tr><td><b>RAG</b></td><td>the corpus is large, changes often, is private, or answers need sources</td><td>questions need the whole corpus at once ("what are the main themes?", <a href="p05.html#l54">L54</a>)</td></tr>
+      <tr><td><b>Long context</b></td><td>the corpus fits in the window and is reused across many requests with caching (<a href="p05.html#l56">L56</a>)</td><td>the corpus is large; every request pays for the whole window; quality decays with length (<a href="p01.html#l13">L13</a>)</td></tr>
+      <tr><td><b>Fine-tuning for knowledge</b></td><td>you need a style, format or narrow skill, not facts (<a href="p11.html#l119">L119</a>)</td><td>facts change; you need citations; injected facts are recalled unreliably and still hallucinated around</td></tr>
+    </tbody>
+  </table></div>
+  <p>They combine: DocPilot uses RAG for facts and later fine-tunes a small model for ticket triage, a skill rather than a knowledge store (Phase 11).</p>
+
+  <h3>The failure surface, measured</h3>
+  <div class="box intuition"><span class="tag">Worked example · errors compound</span>
+    <p>Suppose (illustrative numbers) 97% of answers survive parsing, 95% are in a well-formed chunk, the gold chunk is in the top 5 for 85% of questions, and the generator answers faithfully 92% of the time when it has the chunk. If the stages fail independently, end-to-end accuracy is about \(0.97 \times 0.95 \times 0.85 \times 0.92 \approx 0.72\). A better prompt cannot raise the ceiling set by retrieval; raising recall@5 from 0.85 to 0.95 lifts the product to about 0.81. Evaluate each stage on its own (<a href="p05.html#l50">L50</a>, <a href="p05.html#l51">L51</a>) so you know which factor to work on.</p>
+  </div>
+  <p>The same order gives a debugging procedure: for a bad answer, find the first stage that lost the gold chunk. This is the seed of <a href="p05.html#l52">L52</a>'s playbook.</p>
+  <pre><code>from dataclasses import dataclass
+
+@dataclass
+class Trace:
+    question: str
+    gold: set[str]            # chunk ids a human marked as containing the answer
+    indexed: set[str]         # every chunk id currently in the index
+    retrieved: list[str]      # ranked ids returned by search()
+    in_prompt: list[str]      # ids that survived context assembly
+    cited: list[str]          # ids the answer cites
+    correct: bool             # graded against the reference answer
+
+def first_failure(t: Trace) -&gt; str:
+    """Walk the pipeline in order and blame the first stage that lost the answer."""
+    if not t.gold &amp; t.indexed:
+        return "ingest/chunk: answer is not in the index"
+    if not t.gold &amp; set(t.retrieved):
+        return "retrieve: gold chunk not in top-k"
+    if not t.gold &amp; set(t.in_prompt):
+        return "assemble: retrieved, then dropped from the prompt"
+    if not t.correct:
+        return "generate: right context, wrong answer"
+    if not t.gold &amp; set(t.cited):
+        return "cite: right answer, unsupported citation"
+    return "ok"</code></pre>
+  <pre><code class="plain">Default restartPolicy?     -&gt; ok
+What does HPA scale on?    -&gt; retrieve: gold chunk not in top-k
+Ingress TLS on 1.31?       -&gt; ingest/chunk: answer is not in the index
+Service types?             -&gt; cite: right answer, unsupported citation</code></pre>
+  <p class="code-cap">Four hand-built traces over a four-chunk index. Log the fields of <code>Trace</code> for every request from L39 onward and this function runs on real traffic.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Debugging the last stage first.</b> Teams rewrite the generation prompt for a week when the gold chunk was never retrieved.</li>
+      <li><b>Silent corpus gaps.</b> A crawler that skipped a section, or a PDF that parsed to empty text, produces confident "the docs don't cover this" answers. Count documents and chunks per section after every ingest (<a href="#l48">L48</a>).</li>
+      <li><b>The model answers anyway.</b> Given irrelevant chunks, the generator often falls back to parametric memory, which may describe an older Kubernetes version. Grounding and abstention (<a href="#l45">L45</a>) are part of the pipeline.</li>
+      <li><b>Retrieval as a data leak.</b> Anything in the index can end up in an answer. Permissions must be enforced at retrieval time (<a href="#l47">L47</a>), before the model sees anything.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 30 min</h4>
+    <ol>
+      <li>Redraw the figure for DocPilot. Under each of the seven stages write two failure modes specific to the Kubernetes docs (for example, flag tables, version-specific pages, YAML examples split across chunks).</li>
+      <li>For each failure, write the cheapest signal that would detect it: a log field, a count, a unit test or an eval metric.</li>
+      <li>Take five questions from your L6 seed set and predict which stage is most likely to fail for each. Keep the predictions; check them against L39's traces.</li>
+      <li>Add the <code>Trace</code> dataclass to <code>docpilot/</code> and decide where each field will be logged.</li>
+    </ol>
+    <p><b>Ship:</b> a one-page failure-mode map (stages, failure modes, detection signals) that you will use for debugging.</p>
+  </div>
+  <p class="refs"><b>Read</b> Lewis et al. 2020, “Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks” · Karpukhin et al. 2020, “Dense Passage Retrieval for Open-Domain Question Answering” · Chip Huyen, <i>AI Engineering</i>, ch. 6 · Alammar &amp; Grootendorst, <i>Hands-On Large Language Models</i>, ch. 8</p>
+</article>
+<!-- ================================================================ L39 -->
+<article class="day" id="l39">
+  <header class="day-head">
+    <span class="day-no">L39 · DAY 27</span>
+    <h2>Naive RAG From Scratch in 100 Lines</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">The whole RAG loop fits in about a hundred lines of plain Python: chunk, embed, keep the vectors in a matrix, take the top k by cosine, paste them into a prompt with ids, and ask the model. Build it once without a framework. After that, every improvement is a change to a function you already understand, and every failure has a line number.</p>
+
+  <h3>The minimal loop</h3>
+  <div class="box def"><span class="tag">Definition · naive RAG</span>
+    <p>Single-shot retrieval with no query transformation, reranking or filtering. Embed the question once, take the \(k\) chunks with the highest cosine similarity \(\cos(q, d_i) = q^\top d_i\) (for unit vectors), and condition one generation call on them. The rest of this phase fixes its failure modes one at a time.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 200" role="img" aria-label="Naive RAG data flow: question to embed to cosine scores to prompt to chat to answer, with the index built from chunked documents below">
+      <defs><marker id="ah-l39" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="7" y="18" class="s-ink2 s-sm">per question</text>
+      <rect x="7" y="28" width="96" height="50" rx="6" class="s-node"/>
+      <text x="55" y="50" class="s-mid">question</text><text x="55" y="67" class="s-ink2 s-sm s-mid">str</text>
+      <rect x="121" y="28" width="96" height="50" rx="6" class="s-node"/>
+      <text x="169" y="50" class="s-mid">embed()</text><text x="169" y="67" class="s-ink2 s-sm s-mid">1 × 1024 unit</text>
+      <rect x="235" y="28" width="96" height="50" rx="6" class="s-node-mod"/>
+      <text x="283" y="50" class="s-mid">vecs @ q</text><text x="283" y="67" class="s-ink2 s-sm s-mid">8 cosines</text>
+      <rect x="349" y="28" width="96" height="50" rx="6" class="s-node"/>
+      <text x="397" y="50" class="s-mid">build_prompt</text><text x="397" y="67" class="s-ink2 s-sm s-mid">top 3 + ids</text>
+      <rect x="463" y="28" width="96" height="50" rx="6" class="s-node-mod"/>
+      <text x="511" y="50" class="s-mid">chat()</text><text x="511" y="67" class="s-ink2 s-sm s-mid">Message</text>
+      <rect x="577" y="28" width="96" height="50" rx="6" class="s-node"/>
+      <text x="625" y="50" class="s-mid">answer()</text><text x="625" y="67" class="s-ink2 s-sm s-mid">text + sources</text>
+      <path d="M103,53 L119,53" class="s-ln" marker-end="url(#ah-l39)"/>
+      <path d="M217,53 L233,53" class="s-ln" marker-end="url(#ah-l39)"/>
+      <path d="M331,53 L347,53" class="s-ln" marker-end="url(#ah-l39)"/>
+      <path d="M445,53 L461,53" class="s-ln" marker-end="url(#ah-l39)"/>
+      <path d="M559,53 L575,53" class="s-ln" marker-end="url(#ah-l39)"/>
+      <text x="7" y="132" class="s-ink2 s-sm">once, at start-up</text>
+      <rect x="7" y="142" width="96" height="44" rx="6" class="s-node"/>
+      <text x="55" y="162" class="s-mid">4 docs</text><text x="55" y="178" class="s-ink2 s-sm s-mid">url → text</text>
+      <rect x="121" y="142" width="96" height="44" rx="6" class="s-node"/>
+      <text x="169" y="162" class="s-mid">chunk()</text><text x="169" y="178" class="s-ink2 s-sm s-mid">8 chunks</text>
+      <rect x="235" y="142" width="96" height="44" rx="6" class="s-node-mod"/>
+      <text x="283" y="162" class="s-mid">Store.vecs</text><text x="283" y="178" class="s-ink2 s-sm s-mid">8 × 1024</text>
+      <path d="M103,164 L119,164" class="s-ln" marker-end="url(#ah-l39)"/>
+      <path d="M217,164 L233,164" class="s-ln" marker-end="url(#ah-l39)"/>
+      <path d="M283,142 L283,80" class="s-ln-mod" marker-end="url(#ah-l39)"/>
+      <rect x="400" y="142" width="250" height="44" rx="6" class="s-node s-dash"/>
+      <text x="525" y="161" class="s-ink2 s-sm s-mid">offline: chat = fake_chat</text>
+      <text x="525" y="177" class="s-ink2 s-sm s-mid">real: chat = docpilot.llm.chat</text>
+      <path d="M511,142 L511,80" class="s-ln s-dash" marker-end="url(#ah-l39)"/>
+    </svg>
+    <figcaption><b>Shapes through the loop.</b> The index is an \(n \times d\) matrix of unit vectors, so retrieval is one matrix–vector product and an <code>argsort</code>. The generator is passed in as a function: a deterministic fake in tests, the real model in production.</figcaption>
+  </figure>
+
+  <h3>Chunk, embed, store</h3>
+  <p>The embedding below is a toy, a hashed bag of words, chosen because it is deterministic and needs no download. What matters is its <em>contract</em>: strings in, an \((n, d)\) array of unit vectors out. The model you chose in <a href="p03.html#l29">L29</a> has the same contract, so swapping it in changes one function. It uses <code>hashlib</code> because Python's <code>hash()</code> of a string changes from process to process.</p>
+  <pre><code>import hashlib
+import re
+from dataclasses import dataclass
+
+import numpy as np
+from anthropic.types import Message
+
+DIM = 1024
+STOP = set("a an and are be by can do does for how i in is it of on or the to what when which with".split())
+
+def tokens(text: str) -&gt; list[str]:
+    return [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in STOP]
+
+def embed(texts: list[str]) -&gt; np.ndarray:
+    """Toy model, real contract: n strings in, (n, DIM) unit vectors out."""
+    out = np.zeros((len(texts), DIM), dtype=np.float32)
+    for i, text in enumerate(texts):
+        for w in tokens(text):
+            h = int.from_bytes(hashlib.blake2b(w.encode(), digest_size=8).digest(), "little")
+            out[i, h % DIM] += 1.0 if h &gt;&gt; 63 else -1.0      # signed hashing
+    norms = np.linalg.norm(out, axis=1, keepdims=True)
+    return out / np.where(norms == 0, 1, norms)
+
+@dataclass
+class Chunk:
+    id: str
+    url: str
+    text: str
+
+def chunk(url: str, text: str, size: int = 40, overlap: int = 10) -&gt; list[Chunk]:
+    """Fixed-size word windows with overlap: the baseline L41 improves on."""
+    words, step = text.split(), size - overlap
+    starts = range(0, max(len(words) - overlap, 1), step)
+    return [Chunk(f"{url}#{i}", url, " ".join(words[s:s + size])) for i, s in enumerate(starts)]
+
+class Store:
+    """The whole 'vector database': a matrix in memory."""
+    def __init__(self, chunks: list[Chunk]):
+        self.chunks = chunks
+        self.vecs = embed([c.text for c in chunks])
+
+    def search(self, query: str, k: int = 3) -&gt; list[tuple[Chunk, float]]:
+        scores = self.vecs @ embed([query])[0]          # unit rows: cosine
+        top = np.argsort(-scores)[:k]
+        return [(self.chunks[i], float(scores[i])) for i in top]</code></pre>
+  <p class="code-cap">Brute-force search is exact, and over tens of thousands of chunks it takes milliseconds (<a href="p03.html#l31">L31</a>). Chunk ids are <code>url#position</code>, stable across runs, so citations and eval labels can refer to them.</p>
+
+  <h3>The prompt template and returning sources</h3>
+  <div class="box note"><span class="tag">Template choices that matter</span>
+    <ul>
+      <li><b>Sources first, question last.</b> Anthropic's long-context guidance puts long documents above the query.</li>
+      <li><b>Numbered sources, cited by number.</b> Code maps numbers back to chunk ids and URLs, so the model never has to copy a URL.</li>
+      <li><b>One exact refusal string.</b> A fixed sentence is easy to detect, count and evaluate; free-form refusals are not.</li>
+      <li><b>Tags around retrieved text.</b> They separate data from instructions, which matters once retrieved text is untrusted (Phase 9).</li>
+    </ul>
+  </div>
+  <pre><code>SYSTEM = ("You answer questions about Kubernetes using only the sources provided. "
+          "Cite every claim with its source number, like [2]. If the sources do not "
+          "contain the answer, reply exactly: The documentation I have doesn't cover this.")
+
+def build_prompt(question: str, hits: list[tuple[Chunk, float]]) -&gt; str:
+    sources = "\n".join(f'&lt;source id="{n}" url="{c.url}"&gt;\n{c.text}\n&lt;/source&gt;'
+                        for n, (c, _) in enumerate(hits, 1))
+    return f"&lt;sources&gt;\n{sources}\n&lt;/sources&gt;\n\nQuestion: {question}"
+
+def text_of(msg: Message) -&gt; str:
+    return "".join(b.text for b in msg.content if b.type == "text")
+
+def answer(question: str, store: Store, chat, k: int = 3) -&gt; dict:
+    hits = store.search(question, k)
+    msg = chat([{"role": "user", "content": build_prompt(question, hits)}], system=SYSTEM)
+    return {"answer": text_of(msg),
+            "sources": [{"n": n, "id": c.id, "url": c.url, "score": round(s, 3)}
+                        for n, (c, s) in enumerate(hits, 1)]}</code></pre>
+  <p>The answer carries the chunks the model was shown, with scores, even when it refuses: they are the first thing you check when debugging (<a href="#l38">L38</a>'s <code>Trace</code>).</p>
+
+  <h3>Running it offline, then for real</h3>
+  <p>For tests, <code>fake_chat</code> plays the reader: it returns the source sentence sharing the most words with the question, or refuses. It returns a genuine <code>anthropic.types.Message</code>, so <code>text_of</code> and everything downstream run unchanged.</p>
+  <pre><code>def fake_chat(messages, *, system=None, **kw) -&gt; Message:
+    """Offline stand-in for docpilot.llm.chat, with the same return type."""
+    prompt = messages[-1]["content"]
+    q = set(tokens(prompt.rsplit("Question:", 1)[-1]))
+    best, best_n, best_overlap = None, None, 1           # need at least 2 shared words
+    for n, body in re.findall(r'&lt;source id="(\d+)"[^&gt;]*&gt;\n(.*?)\n&lt;/source&gt;', prompt, re.S):
+        for sent in re.split(r"(?&lt;=[.!?])\s+", body):
+            overlap = len(q &amp; set(tokens(sent)))
+            if overlap &gt; best_overlap:
+                best, best_n, best_overlap = sent, n, overlap
+    text = f"{best} [{best_n}]" if best else "The documentation I have doesn't cover this."
+    return Message.model_validate({
+        "id": "msg_fake", "type": "message", "role": "assistant", "model": "fake",
+        "content": [{"type": "text", "text": text}], "stop_reason": "end_turn",
+        "usage": {"input_tokens": 0, "output_tokens": 0}})</code></pre>
+  <pre><code># DOCS: dict[url, text], four short pages paraphrasing the Kubernetes docs (Pods, Services, HPA, ConfigMaps)
+EVAL = [  # (question, string the answer must contain)
+    ("What is the default restartPolicy of a Pod?", "always"),
+    ("Which port range does a NodePort Service use?", "30000-32767"),
+    ("How often does the autoscaler controller check metrics?", "15 seconds"),
+    ("What is the maximum size of ConfigMap data?", "1 mib"),
+    ("Should I put database passwords in a ConfigMap?", "secret"),
+    ("What is the default Service type?", "clusterip"),
+    ("How do I rotate etcd encryption keys?", "doesn't cover"),
+]
+store = Store([c for url, text in DOCS.items() for c in chunk(url, text)])
+rag = base = 0
+for q, must in EVAL:
+    out = answer(q, store, fake_chat, k=3)
+    no_ctx = text_of(fake_chat([{"role": "user", "content": f"Question: {q}"}]))
+    ok = must in out["answer"].lower()
+    rag, base = rag + ok, base + (must in no_ctx.lower())
+    top = out["sources"][0]
+    print(f"{'PASS' if ok else 'FAIL'}  {''.join(top['id'].split('/')[-2:]):28} {top['score']:.2f}  {q}")
+print(f"{len(store.chunks)} chunks.  RAG {rag}/{len(EVAL)}   no-retrieval baseline {base}/{len(EVAL)}")</code></pre>
+  <pre><code class="plain">PASS  pod-lifecycle#0              0.51  What is the default restartPolicy of a Pod?
+PASS  service#1                    0.47  Which port range does a NodePort Service use?
+PASS  horizontal-pod-autoscale#1   0.38  How often does the autoscaler controller check metrics?
+FAIL  configmap#0                  0.41  What is the maximum size of ConfigMap data?
+FAIL  configmap#0                  0.14  Should I put database passwords in a ConfigMap?
+PASS  service#0                    0.64  What is the default Service type?
+PASS  configmap#1                  0.14  How do I rotate etcd encryption keys?
+8 chunks.  RAG 5/7   no-retrieval baseline 1/7</code></pre>
+  <p class="code-cap">Real output. The fake reader cannot answer from memory, so its baseline is low by construction; the real comparison uses <code>docpilot.llm.chat</code> on the L6 seed set.</p>
+  <p>Going live changes one argument. <code>docpilot.llm.chat</code> already has the signature <code>answer</code> expects and logs usage and cost (<a href="p00.html#l2">L2</a>):</p>
+  <pre><code>from functools import partial
+
+from docpilot.llm import SMALL, chat
+
+result = answer("What is the default Service type?", store, partial(chat, model=SMALL, max_tokens=400))</code></pre>
+
+  <h3>What breaks immediately</h3>
+  <p>Seven questions show all three classic failures:</p>
+  <ul>
+    <li><b>Answers that ignore the context.</b> For the ConfigMap size question the top chunk contains "cannot exceed 1 MiB", yet the reader answered "A ConfigMap is an API object used to store non-confidential data in key-value pairs. [1]". A real model fails the same way with answers that paraphrase the sources without answering, or that come from memory.</li>
+    <li><b>Weak matches from a vocabulary gap.</b> "Database passwords" never appears in the docs, which say "confidential" and "Secret". Retrieval found the ConfigMap page through one shared word, scoring 0.14, the same as the unanswerable etcd question, so no threshold separates them (<a href="#l44">L44</a>). Real embeddings narrow this gap; query rewriting narrows it further (<a href="#l43">L43</a>).</li>
+    <li><b>Bad chunks.</b> Forty-word windows ignore sentences and headings. Two of the eight chunks start mid-sentence: <code>pod-lifecycle#1</code> opens with "is Always. The restartPolicy applies…", cut off from its subject "The default value", and <code>configmap#1</code> opens with "encryption. If the data…" (<a href="#l41">L41</a>, <a href="#l42">L42</a>).</li>
+  </ul>
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Lenient grading hides failures.</b> The restartPolicy question "passed" with "…possible values Always, OnFailure and Never", which never says which is the default. Substring checks are a smoke test; correctness needs a reference-answer judge (<a href="p05.html#l51">L51</a>).</li>
+      <li><b>Mismatched embeddings.</b> Queries embedded with a different model or version from the index silently ruin retrieval. Store the model name with the vectors and check it.</li>
+      <li><b>Unbounded context.</b> Big chunks times a big k can blow the token budget (<a href="p00.html#l4">L4</a>). Cap the prompt in tokens, not in chunks.</li>
+      <li><b>No record of what the model saw.</b> Without the sources logged next to the answer, a bad answer cannot be traced to a stage.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Put the module in <code>docpilot/naive_rag.py</code> and load your L6 corpus snapshot as <code>DOCS</code>. Strip HTML tags crudely for now; L40 parses properly.</li>
+      <li>Replace <code>embed</code> with the L29 embedding model, keeping the contract, and store the model name with the vectors.</li>
+      <li>Run the 30-question seed eval twice with <code>docpilot.llm.chat</code>: with retrieval (k = 5) and with no sources (the L6 baseline). Grade both runs with the same grader.</li>
+      <li>Log a <code>Trace</code> (L38) per question, label failures with <code>first_failure</code>, and count them by stage.</li>
+    </ol>
+    <p><b>Ship:</b> your first measured RAG improvement: baseline vs naive RAG score on the 30 seed questions, with failures counted by stage.</p>
+  </div>
+  <p class="refs"><b>Read</b> Lewis et al. 2020, “Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks” · Anthropic docs, Long context prompting tips · Alammar &amp; Grootendorst, <i>Hands-On Large Language Models</i>, ch. 8 · Chip Huyen, <i>AI Engineering</i>, ch. 6</p>
+</article>
+<!-- ================================================================ L40 -->
+<article class="day" id="l40">
+  <header class="day-head">
+    <span class="day-no">L40 · DAY 28</span>
+    <h2>Ingestion I: Parsing HTML, PDFs, Office Files and Tables</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Retrieval can only find what the parser kept. Turn every source into clean Markdown with its headings, tables and code blocks intact, and record where each section came from: URL, heading path, page. Every later stage is built on that output.</p>
+
+  <h3>Parsing quality caps RAG quality</h3>
+  <p>In <a href="#l38">L38</a>'s failure chain, parsing is the first factor, and nothing downstream recovers what it loses. A flattened table can't be retrieved as a table, a lost heading no longer gives its chunks context, a nav bar repeated on every page matches every vague query, and a scanned PDF with no text layer contributes nothing.</p>
+  <div class="box def"><span class="tag">Definition · the target format</span>
+    <p><b>Markdown</b> is the interchange format between parsers and the rest of the pipeline: it keeps the structure retrieval and generation use (headings, lists, tables, fenced code) in few tokens, is easy to chunk on (<a href="#l41">L41</a>), and models read it fluently. Every parser emits <code>Section</code> records: heading path, Markdown body, source metadata.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 240" role="img" aria-label="Choosing a parser: HTML to main-content extraction; PDF to text-layer, layout-aware, or OCR and vision parsing; Office files to layout-aware conversion; all produce Markdown plus metadata">
+      <defs><marker id="ah-l40" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="100" width="90" height="44" rx="6" class="s-node"/>
+      <text x="55" y="119" class="s-mid">source</text><text x="55" y="135" class="s-mid">file</text>
+      <rect x="130" y="14" width="100" height="36" rx="6" class="s-node"/><text x="180" y="37" class="s-mid">HTML</text>
+      <rect x="130" y="104" width="100" height="36" rx="6" class="s-node"/><text x="180" y="127" class="s-mid">PDF</text>
+      <rect x="130" y="194" width="100" height="36" rx="6" class="s-node"/><text x="180" y="217" class="s-mid">DOCX, PPTX</text>
+      <path d="M100,112 L128,34" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M100,122 L128,122" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M100,132 L128,210" class="s-ln" marker-end="url(#ah-l40)"/>
+      <rect x="270" y="10" width="164" height="44" rx="6" class="s-node"/>
+      <text x="352" y="29" class="s-mid">main content only</text><text x="352" y="45" class="s-ink2 s-sm s-mid">drop nav, keep h1–h4</text>
+      <rect x="270" y="66" width="164" height="44" rx="6" class="s-node"/>
+      <text x="352" y="85" class="s-mid">text-layer extraction</text><text x="352" y="101" class="s-ink2 s-sm s-mid">pypdf: simple pages</text>
+      <rect x="270" y="122" width="164" height="44" rx="6" class="s-node-mod"/>
+      <text x="352" y="141" class="s-mid">layout-aware parsing</text><text x="352" y="157" class="s-ink2 s-sm s-mid">columns, tables</text>
+      <rect x="270" y="178" width="164" height="44" rx="6" class="s-node"/>
+      <text x="352" y="197" class="s-mid">OCR or vision model</text><text x="352" y="213" class="s-ink2 s-sm s-mid">scans, figures</text>
+      <path d="M230,32 L268,32" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M230,116 L268,90" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M230,122 L268,144" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M230,130 L268,196" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M230,206 L268,152" class="s-ln" marker-end="url(#ah-l40)"/>
+      <rect x="474" y="92" width="196" height="60" rx="8" class="s-node-mod"/>
+      <text x="572" y="117" class="s-ttl s-mid">Markdown + metadata</text>
+      <text x="572" y="137" class="s-ink2 s-sm s-mid">url · heading path · page</text>
+      <path d="M434,32 L472,104" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M434,88 L472,114" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M434,144 L472,128" class="s-ln" marker-end="url(#ah-l40)"/>
+      <path d="M434,200 L472,140" class="s-ln" marker-end="url(#ah-l40)"/>
+    </svg>
+    <figcaption><b>Choose the cheapest parser that preserves the structure.</b> Every route ends in the same record, so chunking and indexing never care where a section came from.</figcaption>
+  </figure>
+
+  <h3>HTML to clean Markdown</h3>
+  <p>Two jobs: drop boilerplate (navigation, footers, sidebars, scripts) and keep structure. Where a site lacks semantic tags, select its main-content container with a per-site rule or a content-extraction library such as trafilatura. If the source exists as Markdown, parse that instead: the Kubernetes docs are Markdown in the <code>kubernetes/website</code> repository, though their Hugo shortcodes need handling. The parser below uses only <code>html.parser</code> and emits one <code>Section</code> per heading.</p>
+  <pre><code>import re
+from dataclasses import dataclass, field
+from html.parser import HTMLParser
+
+SKIP = {"head", "nav", "header", "footer", "aside", "script", "style"}
+HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4}
+BLOCKS = {"p", "li", "pre", "table", "img", *HEADINGS}
+
+def squash(s: str) -&gt; str:
+    return re.sub(r"\s+", " ", s).strip()
+
+@dataclass
+class Section:
+    url: str
+    heading_path: str
+    blocks: list[str] = field(default_factory=list)
+    page: int | None = None                          # PDFs only
+
+    @property
+    def markdown(self) -&gt; str:
+        return "\n\n".join(self.blocks)
+
+class HtmlToSections(HTMLParser):
+    def __init__(self, url: str):
+        super().__init__(convert_charrefs=True)
+        self.url, self.skip, self.path, self.text = url, 0, [], ""
+        self.pre, self.lang, self.row, self.rows = False, "", [], []
+        self.sections = [Section(url, "")]
+
+    def emit(self, block: str, li: bool = False):
+        blocks = self.sections[-1].blocks
+        if li and blocks and blocks[-1].startswith("- "):
+            blocks[-1] += "\n" + block                  # keep list items together
+        elif block:
+            blocks.append(block)
+
+    def handle_starttag(self, tag, attrs):
+        self.skip += tag in SKIP
+        if self.skip:
+            return
+        if tag in BLOCKS:
+            self.emit(squash(self.text)); self.text = ""
+        a = dict(attrs)
+        if tag == "pre":
+            self.pre = True
+        elif tag == "code":
+            m = re.search(r"language-(\w+)", a.get("class") or "")
+            if self.pre: self.lang = m.group(1) if m else ""
+            else: self.text += "`"
+        elif tag == "img" and a.get("alt"):
+            self.emit(f"[Figure: {a['alt']}]")      # stand-in until a model captions it
+
+    def handle_endtag(self, tag):
+        if self.skip:
+            self.skip -= tag in SKIP
+            return
+        t, self.text = self.text, ""
+        if tag in HEADINGS:
+            level = HEADINGS[tag]
+            self.path = [p for p in self.path if p[0] &lt; level] + [(level, squash(t))]
+            self.sections.append(Section(self.url, " &gt; ".join(h for _, h in self.path)))
+            self.emit("#" * level + " " + squash(t))
+        elif tag == "pre":
+            self.emit(f"```{self.lang}\n{t.strip(chr(10))}\n```"); self.pre = False
+        elif tag in ("td", "th"):
+            self.row.append(squash(t).replace("|", r"\|"))
+        elif tag == "tr":
+            self.rows.append(self.row); self.row = []
+        elif tag == "table":
+            head, *body = self.rows; self.rows = []
+            self.emit("\n".join(["| " + " | ".join(head) + " |", "|" + " --- |" * len(head)]
+                                + ["| " + " | ".join(r) + " |" for r in body]))
+        elif tag in ("p", "li"):
+            self.emit(("- " if tag == "li" else "") + squash(t), li=tag == "li")
+        else:
+            self.text = t                            # inline tag: keep accumulating
+            if tag == "code" and not self.pre: self.text += "`"
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.text += data
+
+def parse_html(url: str, html: str) -&gt; list[Section]:
+    p = HtmlToSections(url)
+    p.feed(html); p.close()
+    return [s for s in p.sections if s.blocks]</code></pre>
+  <pre><code>PAGE = """&lt;html&gt;&lt;head&gt;&lt;title&gt;Pod Lifecycle | Kubernetes&lt;/title&gt;&lt;/head&gt;&lt;body&gt;
+&lt;nav&gt;&lt;a href="/docs/"&gt;Docs&lt;/a&gt; &lt;a href="/blog/"&gt;Blog&lt;/a&gt;&lt;/nav&gt;
+&lt;main&gt;&lt;h1&gt;Pod Lifecycle&lt;/h1&gt;
+&lt;h2&gt;Container restart policy&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;spec&lt;/code&gt; of a Pod has a &lt;code&gt;restartPolicy&lt;/code&gt; field:&lt;/p&gt;
+&lt;table&gt;&lt;tr&gt;&lt;th&gt;Value&lt;/th&gt;&lt;th&gt;Behaviour&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td&gt;Always&lt;/td&gt;&lt;td&gt;Restart after any exit (default)&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td&gt;OnFailure&lt;/td&gt;&lt;td&gt;Restart only after a non-zero exit&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;h3&gt;Example&lt;/h3&gt;
+&lt;pre&gt;&lt;code class="language-yaml"&gt;kind: Pod
+spec:
+  restartPolicy: OnFailure&lt;/code&gt;&lt;/pre&gt;
+&lt;img src="/images/pod-phases.svg" alt="Pod phases: Pending, Running, then Succeeded or Failed"&gt;
+&lt;/main&gt;&lt;footer&gt;CC BY 4.0&lt;/footer&gt;&lt;/body&gt;&lt;/html&gt;"""
+
+for s in parse_html("https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/", PAGE):
+    print(f"--- heading_path: {s.heading_path!r}")
+    print(s.markdown)</code></pre>
+  <pre><code class="plain">--- heading_path: 'Pod Lifecycle'
+# Pod Lifecycle
+--- heading_path: 'Pod Lifecycle &gt; Container restart policy'
+## Container restart policy
+
+The `spec` of a Pod has a `restartPolicy` field:
+
+| Value | Behaviour |
+| --- | --- |
+| Always | Restart after any exit (default) |
+| OnFailure | Restart only after a non-zero exit |
+--- heading_path: 'Pod Lifecycle &gt; Container restart policy &gt; Example'
+### Example
+
+```yaml
+kind: Pod
+spec:
+  restartPolicy: OnFailure
+```
+
+[Figure: Pod phases: Pending, Running, then Succeeded or Failed]</code></pre>
+  <p class="code-cap">Real output: title, nav and footer gone; table, fenced YAML and figure kept; full heading path on every section.</p>
+
+  <h3>PDFs: text layer, layout or OCR</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Approach</th><th>Tools</th><th>Good at</th><th>Fails on</th></tr></thead>
+    <tbody>
+      <tr><td><b>Text-layer extraction</b></td><td>pypdf</td><td>fast, cheap, single-column prose</td><td>multi-column order, tables, repeated headers, scans</td></tr>
+      <tr><td><b>Layout-aware parsing</b></td><td>pdfplumber (geometry, tables), Docling, Unstructured</td><td>headings, reading order, tables; Docling and Unstructured also convert DOCX and PPTX</td><td>slower; layout models misjudge unusual pages</td></tr>
+      <tr><td><b>OCR</b></td><td>Tesseract, OCR modes in the tools above</td><td>scanned pages with no text layer</td><td>small print, code, low-quality scans</td></tr>
+      <tr><td><b>Vision-model page parsing</b></td><td>a vision-capable LLM given each page image (<a href="p01.html#l14">L14</a>)</td><td>complex layouts, figures, handwriting</td><td>cost per page; may invent plausible table values</td></tr>
+    </tbody>
+  </table></div>
+  <pre><code># UNTESTED here: pypdf, pdfplumber and docling are not installed in this course's venv.
+# APIs as documented; check your installed versions.
+from docling.document_converter import DocumentConverter
+import pdfplumber
+from pypdf import PdfReader
+
+def pdf_text_layer(path: str) -&gt; list[tuple[int, str]]:
+    # fast and flat: one string per page, in the order the file stores text
+    return [(n, page.extract_text() or "") for n, page in enumerate(PdfReader(path).pages, 1)]
+
+def pdf_tables(path: str) -&gt; list[tuple[int, list[list[str | None]]]]:
+    with pdfplumber.open(path) as pdf:
+        return [(n, t) for n, page in enumerate(pdf.pages, 1) for t in page.extract_tables()]
+
+def pdf_to_markdown(path: str) -&gt; str:
+    # layout models recover headings, reading order and tables
+    return DocumentConverter().convert(path).document.export_to_markdown()</code></pre>
+  <p>Pick a route per file: a near-empty text layer means a scan (OCR or vision); otherwise start with the text layer and move to layout-aware parsing when columns interleave or tables break. Keep page numbers for citations. The Messages API also accepts PDFs directly as <code>document</code> blocks (<a href="p01.html#l14">L14</a>), a convenient way to run page-level vision parsing.</p>
+
+  <h3>Tables and figures</h3>
+  <p>Tables hold many answers in technical docs (flag defaults, version matrices). Three ways to keep them:</p>
+  <ul>
+    <li><b>Markdown tables</b>: compact and read well by models, but no merged cells. The default.</li>
+    <li><b>HTML tables</b>: keep <code>rowspan</code> and <code>colspan</code> for more tokens. Use them for true matrices, such as version compatibility.</li>
+    <li><b>A description</b> written by a model is a good <em>extra</em> index entry for retrieval; keep the raw table for generation, since a description loses exact values.</li>
+  </ul>
+  <p>Figures (architecture diagrams, state machines) carry meaning the text doesn't. At ingestion, caption each image with a vision model and put the caption into the Markdown so it can be retrieved; ask for components, arrows and labels, not "a diagram of a cluster". Keep the image URL for multimodal answers (<a href="p05.html#l58">L58</a>). Alt text, used above, is a free but often vague first approximation.</p>
+
+  <h3>Structure metadata and spot checks</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Field</th><th>Example</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td><code>url</code></td><td>kubernetes.io/docs/…/pod-lifecycle/</td><td>citations (<a href="#l45">L45</a>)</td></tr>
+      <tr><td><code>heading_path</code></td><td>Pod Lifecycle &gt; Container restart policy</td><td>chunking and enrichment (<a href="#l41">L41</a>, <a href="#l42">L42</a>)</td></tr>
+      <tr><td><code>page</code></td><td>12</td><td>PDF citations</td></tr>
+      <tr><td><code>doc_version</code>, <code>access</code></td><td>v1.31, public</td><td>filters and permissions (<a href="p03.html#l33">L33</a>, <a href="#l47">L47</a>)</td></tr>
+      <tr><td><code>content_hash</code></td><td>sha256 of the Markdown</td><td>incremental re-ingestion (<a href="#l48">L48</a>)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box algo"><span class="tag">Algorithm · Spot-checking a parsed corpus</span>
+    <ol>
+      <li>Automated checks on every document: near-empty output, lines found in more than ~30% of documents (leftover boilerplate), table row counts that differ from the source.</li>
+      <li>Open 20 documents, stratified by source type, beside their rendered originals.</li>
+      <li>Check headings (right level), tables (intact), code (fenced, indented), figures (captioned) and noise.</li>
+      <li>Record failures per source type; fix the worst route, re-parse, repeat.</li>
+    </ol>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Silent empties.</b> A scanned PDF or a JavaScript-rendered page parses to nothing without raising an error. Alert on documents with almost no text.</li>
+      <li><b>Boilerplate in every chunk.</b> Cookie banners and "Edit this page" links crowd real chunks out of the top k.</li>
+      <li><b>Hidden tabs.</b> Docs put Linux, macOS and Windows variants in tabs. Keep every tab, each labelled, or the instructions get lost or mixed.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run <code>parse_html</code> over the corpus snapshot from L6, after adding a main-content rule for the site's layout. Write one JSONL record per <code>Section</code>.</li>
+      <li>Pick five PDFs (runbooks, release notes or vendor guides). Parse each by the cheapest route that preserves its tables, and record the route used.</li>
+      <li>Add <code>doc_version</code>, <code>access</code> and <code>content_hash</code> to every record.</li>
+      <li>Run the automated checks, then spot-check 20 documents by hand and log failures by source type.</li>
+    </ol>
+    <p><b>Ship:</b> a parsed corpus of clean Markdown sections with heading paths, source URLs and page numbers, plus a spot-check log.</p>
+  </div>
+  <p class="refs"><b>Read</b> Python docs, <code>html.parser</code> · pypdf and pdfplumber documentation · Auer et al. 2024, “Docling Technical Report” · Unstructured docs, Partitioning · Anthropic docs, PDF support · Chip Huyen, <i>AI Engineering</i>, ch. 6</p>
+</article>
+<!-- ================================================================ L41 -->
+<article class="day" id="l41">
+  <header class="day-head">
+    <span class="day-no">L41 · DAY 29</span>
+    <h2>Ingestion II: Chunking Strategies and Their Trade-offs</h2>
+    <p class="day-meta"><span class="vid">55m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">A chunk is the unit you embed, retrieve and cite, so its boundaries decide what can be found. Good chunkers follow the document's own structure, never cut a code block or table in half, and record where each chunk came from. You find out which one is good by measuring retrieval, not by reading chunks and nodding.</p>
+
+  <h3>Why chunk at all</h3>
+  <p>Embedding models have an input limit, and many silently truncate past it. Even within the limit, one vector per page is a poor index: a page covers several topics, and a single vector cannot be close to all of them. Citations also need a unit smaller than a page. Chunking trades these off.</p>
+  <div class="box deriv"><span class="tag">Why big chunks dilute</span>
+    <p>Model a chunk covering \(m\) unrelated topics as the normalised sum of orthonormal topic directions, \(c = \tfrac{1}{\sqrt m}\sum_{i=1}^m t_i\). A query about topic 1, \(q = t_1\), scores</p>
+    $$\cos(q, c) = \frac{1}{\sqrt m},$$
+    <p>so a four-topic chunk scores 0.5 while a focused chunk scores 1.0, even though both contain the answer. Real embeddings are not exact averages, but the direction holds: larger chunks match less sharply. Smaller chunks match sharply but carry less context to the generator, and \(k\) of them may miss the sentence that qualifies the answer. That is the precision–context trade-off. Small-to-big retrieval (<a href="p05.html#l53">L53</a>) sidesteps it by retrieving small and generating with the parent.</p>
+  </div>
+
+  <h3>Fixed-size and recursive splitting</h3>
+  <p><b>Fixed-size</b> windows of \(s\) tokens with overlap \(o\) are trivial and structure-blind; overlap reduces the damage when a boundary lands mid-sentence, at the cost of an index \(s/(s-o)\) times larger (512 with 64 overlap: 1.14×). <b>Recursive</b> splitting tries the coarsest separator first (section headings, then blank lines, lines, sentences), recurses only into pieces that are still too big, and merges small neighbours back up to the size limit. Both measure size in <em>words</em> here as a stand-in; in production, count tokens with the embedding model's tokenizer.</p>
+  <pre><code>import re
+
+import numpy as np
+# tokens() and embed() are L39's toy model; a real embedding model replaces embed()
+
+def n_words(s: str) -&gt; int:                 # proxy for tokens
+    return len(s.split())
+
+def fixed(text: str, size: int = 50, overlap: int = 10) -&gt; list[str]:
+    words, step = text.split(), size - overlap
+    return [" ".join(words[i:i + size]) for i in range(0, max(len(words) - overlap, 1), step)]
+
+SEPS = [r"(?=\n## )", r"(?=\n### )", r"(?&lt;=\n\n)", r"(?&lt;=\n)", r"(?&lt;=\. )"]
+
+def recursive(text: str, size: int = 50, seps: list[str] = SEPS) -&gt; list[str]:
+    if n_words(text) &lt;= size or not seps:
+        return [text]
+    out = []
+    for piece in filter(str.strip, re.split(seps[0], text)):
+        for p in recursive(piece, size, seps[1:]):
+            if out and n_words(out[-1]) + n_words(p) &lt;= size:
+                out[-1] += p                       # separators were kept, so += restores the text
+            else:
+                out.append(p)
+    return [c.strip() for c in out]</code></pre>
+
+  <h3>Structure-aware chunking</h3>
+  <p>L40's parser already produced Markdown with headings, fenced code and tables, so the chunker can use them. Start a chunk at every heading, treat each fenced block and table as atomic, and when a section overflows, continue under the same heading path. Record the heading path and position as metadata (L42 prepends the path to the chunk text). An oversize table can still be split, by rows, with the header row repeated in each piece. An oversize code block can be split at blank lines, with the fence repeated.</p>
+  <pre><code>def md_blocks(md: str) -&gt; list[str]:
+    """Blank-line-separated blocks; a fenced code block stays one block even with blank lines."""
+    out, cur, fence = [], [], False
+    for line in md.split("\n"):
+        fence ^= line.startswith("```")
+        if line.strip() or fence:
+            cur.append(line)
+        elif cur:
+            out.append("\n".join(cur)); cur = []
+    return out + ["\n".join(cur)] * bool(cur)
+
+def by_heading(md: str, size: int = 50) -&gt; list[dict]:
+    path, chunks = [], []
+    for b in md_blocks(md):
+        if m := re.match(r"(#{1,4}) (.*)", b):
+            level = len(m.group(1))
+            path = [p for p in path if p[0] &lt; level] + [(level, m.group(2))]
+            chunks.append({"heading_path": " &gt; ".join(t for _, t in path), "text": b})
+        elif chunks and (n_words(chunks[-1]["text"]) + n_words(b) &lt;= size
+                         or re.fullmatch(r"#{1,4} .*", chunks[-1]["text"])):  # never leave a heading alone
+            chunks[-1]["text"] += "\n\n" + b
+        else:
+            chunks.append({"heading_path": chunks[-1]["heading_path"] if chunks else "", "text": b})
+    return [dict(c, position=i) for i, c in enumerate(chunks)]</code></pre>
+
+  <h3>Semantic chunking</h3>
+  <p>Semantic chunking splits where the topic changes. Embed each sentence, compute the cosine between neighbours, and cut where it falls into the lowest few percent. Size limits are essential: without a minimum, ties produce one-sentence chunks; without a maximum, a long uniform passage becomes one chunk. It costs one embedding per sentence at ingestion. It ignores the headings the author already provided, so on well-structured docs it often just rediscovers them.</p>
+  <pre><code>def semantic(text: str, pct: float = 30, min_words: int = 15, max_words: int = 50) -&gt; list[str]:
+    sents = [s for s in re.split(r"(?&lt;=[.!?])\s+|\n{2,}", text) if s.strip()]
+    v = embed(sents)
+    sims = (v[:-1] * v[1:]).sum(axis=1)             # cosine of each adjacent pair
+    cut = np.percentile(sims, pct)
+    out, cur = [], [sents[0]]
+    for s, sim in zip(sents[1:], sims):
+        size = n_words(" ".join(cur))
+        if (sim &lt;= cut and size &gt;= min_words) or size + n_words(s) &gt; max_words:
+            out.append(" ".join(cur)); cur = []
+        cur.append(s)
+    return out + [" ".join(cur)]</code></pre>
+  <p class="code-cap">With the toy bag-of-words embedding, many neighbouring sentences share no words and score exactly 0, so the cut uses <code>&lt;=</code>. A real embedding model gives smoother similarities.</p>
+
+  <h3>Judging chunkers by retrieval</h3>
+  <p>To compare chunkers, label each query with the <em>answer span</em> (or source section), not a chunk id: chunk ids change with the chunker, spans don't. A query is a hit if a retrieved chunk contains the whole span. The sample is a 225-word Markdown page paraphrasing the Kubernetes probes docs: an intro, a YAML example, a table of probe defaults and a readiness section.</p>
+  <pre><code>QUERIES = [  # (query, answer span that a useful chunk must contain)
+    ("How often does the kubelet run the liveness probe?", "perform a liveness probe every 5 seconds"),
+    ("What is the default failureThreshold?", "| failureThreshold | 3 | 1 |"),
+    ("What command does the liveness probe run?", "- cat - /tmp/healthy"),
+    ("When is a Pod removed from Service load balancers?", "When a Pod is not ready, it is removed"),
+    ("What problem does a liveness probe catch?", "A liveness probe catches a deadlock"),
+    ("What is the minimum periodSeconds value?", "| periodSeconds | 10 | 1 |"),
+]
+
+def squash(s: str) -&gt; str:
+    return " ".join(s.split())
+
+def recall_at_k(chunks: list[str], k: int = 1) -&gt; float:
+    vecs = embed(chunks)
+    hits = 0
+    for q, span in QUERIES:
+        top = np.argsort(-(vecs @ embed([q])[0]))[:k]
+        hits += any(squash(span) in squash(chunks[i]) for i in top)
+    return hits / len(QUERIES)
+
+runs = {"fixed": fixed(SAMPLE), "recursive": recursive(SAMPLE),
+        "heading": [c["text"] for c in by_heading(SAMPLE)], "semantic": semantic(SAMPLE)}
+for name, chunks in runs.items():
+    sizes = [n_words(c) for c in chunks]
+    broken = sum(c.count("```") % 2 == 1 for c in chunks)       # chunks holding half a code block
+    print(f"{name:9} {len(chunks):2} chunks  words {min(sizes):3}-{max(sizes):3}  "
+          f"half-fences {broken}  recall@1 {recall_at_k(chunks):.2f}  recall@3 {recall_at_k(chunks, 3):.2f}")</code></pre>
+  <pre><code class="plain">fixed      6 chunks  words  25- 50  half-fences 1  recall@1 0.50  recall@3 1.00
+recursive  5 chunks  words  39- 49  half-fences 0  recall@1 0.67  recall@3 1.00
+heading    5 chunks  words  39- 51  half-fences 0  recall@1 0.67  recall@3 1.00
+semantic   6 chunks  words  13- 47  half-fences 0  recall@1 0.67  recall@3 1.00</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 680 245" role="img" aria-label="Chunk boundaries of four chunkers over the same 225-word page, with the YAML block and table marked">
+      <g class="s-ink2 s-sm">
+        <text x="12" y="45">document</text><text x="12" y="92">fixed 50/10</text><text x="12" y="134">recursive</text><text x="12" y="170">heading</text><text x="12" y="206">semantic</text>
+      </g>
+      <path d="M326.4,24 L326.4,218 M357.6,24 L357.6,218 M436.8,24 L436.8,218 M537.6,24 L537.6,218" class="s-grid s-dash"/>
+      <rect x="120" y="28" width="112.8" height="26" class="s-node"/><text x="176.4" y="45" class="s-sm s-mid">intro</text>
+      <rect x="232.8" y="28" width="93.6" height="26" class="s-node"/><text x="279.6" y="45" class="s-sm s-mid">liveness</text>
+      <rect x="326.4" y="28" width="31.2" height="26" class="s-node-mod"/><text x="342" y="45" class="s-sm s-mid">YAML</text>
+      <rect x="357.6" y="28" width="79.2" height="26" class="s-node"/><text x="397.2" y="45" class="s-sm s-mid">note</text>
+      <rect x="436.8" y="28" width="100.8" height="26" class="s-node-mod"/><text x="487.2" y="45" class="s-sm s-mid">table</text>
+      <rect x="537.6" y="28" width="122.4" height="26" class="s-node"/><text x="598.8" y="45" class="s-sm s-mid">readiness</text>
+      <g class="s-sm s-mid">
+        <rect x="120" y="66" width="120" height="17" class="s-node"/><text x="180" y="79">50</text>
+        <rect x="216" y="87" width="120" height="17" class="s-node"/><text x="276" y="100">50</text>
+        <rect x="312" y="66" width="120" height="17" class="s-node"/><text x="372" y="79">50</text>
+        <rect x="408" y="87" width="120" height="17" class="s-node"/><text x="468" y="100">50</text>
+        <rect x="504" y="66" width="120" height="17" class="s-node"/><text x="564" y="79">50</text>
+        <rect x="600" y="87" width="60" height="17" class="s-node"/><text x="630" y="100">25</text>
+        <rect x="120" y="122" width="112.8" height="22" class="s-node"/><text x="176.4" y="137">47</text>
+        <rect x="232.8" y="122" width="93.6" height="22" class="s-node"/><text x="279.6" y="137">39</text>
+        <rect x="326.4" y="122" width="103.2" height="22" class="s-node"/><text x="378" y="137">43</text>
+        <rect x="429.6" y="122" width="117.6" height="22" class="s-node"/><text x="488.4" y="137">49</text>
+        <rect x="547.2" y="122" width="112.8" height="22" class="s-node"/><text x="603.6" y="137">47</text>
+        <rect x="120" y="158" width="112.8" height="22" class="s-node-mod"/><text x="176.4" y="173">47</text>
+        <rect x="232.8" y="158" width="93.6" height="22" class="s-node-mod"/><text x="279.6" y="173">39</text>
+        <rect x="326.4" y="158" width="103.2" height="22" class="s-node-mod"/><text x="378" y="173">43</text>
+        <rect x="429.6" y="158" width="108" height="22" class="s-node-mod"/><text x="483.6" y="173">45</text>
+        <rect x="537.6" y="158" width="122.4" height="22" class="s-node-mod"/><text x="598.8" y="173">51</text>
+        <rect x="120" y="194" width="112.8" height="22" class="s-node"/><text x="176.4" y="209">47</text>
+        <rect x="232.8" y="194" width="93.6" height="22" class="s-node"/><text x="279.6" y="209">39</text>
+        <rect x="326.4" y="194" width="103.2" height="22" class="s-node"/><text x="378" y="209">43</text>
+        <rect x="429.6" y="194" width="108" height="22" class="s-node"/><text x="483.6" y="209">45</text>
+        <rect x="537.6" y="194" width="91.2" height="22" class="s-node"/><text x="583.2" y="209">38</text>
+        <rect x="628.8" y="194" width="31.2" height="22" class="s-node"/><text x="644.4" y="209">13</text>
+      </g>
+      <path d="M336,62 L336,108 M504,62 L504,108 M528,62 L528,108" class="s-ln-bad"/>
+      <path d="M547.2,118 L547.2,148" class="s-ln-bad"/>
+      <g class="s-ink3 s-sm s-mid">
+        <text x="120" y="234">0</text><text x="240" y="234">50</text><text x="360" y="234">100</text><text x="480" y="234">150</text><text x="600" y="234">200 words</text>
+      </g>
+    </svg>
+    <figcaption><b>Where each chunker cut the same page</b> (real boundaries from the run above; numbers are words per chunk; dashed lines bound the YAML block and the table). Red marks bad cuts. Fixed windows end inside the YAML (word 90) and twice inside the table (160, 170). Recursive splitting attached the next section's heading to the end of the table chunk (178). The heading chunker cuts only at structure. Semantic chunking rediscovers the same boundaries, then splits the last section on a similarity dip.</figcaption>
+  </figure>
+  <p>Read the output with care. The structural failures are certain: fixed windows broke the YAML block and the table, which no retrieval metric on six questions would show. The recall differences are not: one query is 0.17, so six queries cannot rank these chunkers. All four miss "What command does the liveness probe run?" at rank 1. For the heading chunker, the YAML chunk scores 0.26 against 0.30 for the intro: it contains <code>command:</code> and <code>cat /tmp/healthy</code>, but not the heading "Define a liveness command" that ties it to the question. <a href="#l42">L42</a> fixes exactly this. The real comparison needs your 50-query set over the whole corpus, with confidence intervals (<a href="p05.html#l50">L50</a>).</p>
+  <div class="box note"><span class="tag">Choosing a size</span>
+    <p>Common defaults are a few hundred tokens with 10–20% overlap; treat them as the centre of a grid, not the answer. Sweep size (for example 128, 256, 512, 1024 tokens) per chunker, measure recall@5 and the tokens sent to the generator, and pick the smallest size that keeps recall. Store <code>chunker</code> and <code>chunker_version</code> with every chunk so you can re-chunk and compare later (<a href="#l48">L48</a>).</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Split code and tables.</b> Half a YAML manifest or a table without its header row retrieves well and answers badly. Assert in tests that no chunk contains an odd number of fences.</li>
+      <li><b>Silent truncation.</b> A chunk longer than the embedding model's input limit is embedded from its first part only, so the rest can never be retrieved.</li>
+      <li><b>Orphaned context.</b> "Set it to <code>true</code> to enable this" means nothing without the heading. Keep the heading path, then use it (<a href="#l42">L42</a>).</li>
+      <li><b>Evaluating with chunk-id labels.</b> Gold labels tied to one chunker's ids make every other chunker look broken. Label spans or sections.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Port the four chunkers to token counts using your embedding model's tokenizer, and run each over L40's parsed corpus.</li>
+      <li>Re-label your 50-query set with answer spans (or section URLs plus heading paths) so labels are chunker-independent.</li>
+      <li>Index each chunker's output separately and measure recall@5, plus the half-fence and split-table counts.</li>
+      <li>For the best two, sweep chunk size and pick by recall@5 and tokens per answer.</li>
+    </ol>
+    <p><b>Ship:</b> a chunking strategy chosen by measurement, with the recall@5 table for all four chunkers.</p>
+  </div>
+  <p class="refs"><b>Read</b> Chip Huyen, <i>AI Engineering</i>, ch. 6 · LangChain docs, Text splitters (recursive character splitting) · Chroma Research 2024, “Evaluating Chunking Strategies for Retrieval” · Anthropic 2024, “Introducing Contextual Retrieval”</p>
+</article>
+<!-- ================================================================ L42 -->
+<article class="day" id="l42">
+  <header class="day-head">
+    <span class="day-no">L42 · DAY 30</span>
+    <h2>Contextual Retrieval and Chunk Enrichment</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">A chunk cut from a page loses what the page around it said: which feature, which resource, which version. Put that context back into the text you index (the heading path for free, a short model-written summary for a one-off cost) and keep the original text for the generator.</p>
+
+  <h3>The lost-context problem</h3>
+  <p>Docs are written to be read in order. Sentences like "Set this field to <code>true</code> to enable it", "The default is 3" or a bare YAML block rely on the heading and the previous paragraph. Once that sentence is a chunk, neither its embedding nor its BM25 terms say what "this field" or "it" refers to, and the right chunk loses to one that merely mentions the query's nouns. <a href="#l41">L41</a> ended on exactly this: the YAML chunk for "What command does the liveness probe run?" ranked second because the words "liveness command" were only in the heading.</p>
+  <div class="box def"><span class="tag">Definition · index text vs display text</span>
+    <p>Store two strings per chunk. The <b>index text</b> is what you embed and put into BM25: the chunk plus whatever context helps it match queries. The <b>display text</b> is the chunk as written, which is what the generator quotes and the user sees in a citation. Enrichment changes only the index text, so it can't put words in the docs' mouth.</p>
+  </div>
+
+  <h3>Prepending heading paths and titles</h3>
+  <p>The cheapest enrichment is structural: prefix every chunk's index text with the document title and heading path L40 recorded. It costs no model calls and a few tokens per chunk. On L41's sample page:</p>
+  <pre><code>chunks = by_heading(SAMPLE)
+display = [c["text"] for c in chunks]
+for name, index_text in [("chunk text only", display),
+                         ("heading path + text", [f"{c['heading_path']}\n\n{c['text']}" for c in chunks])]:
+    vecs = embed(index_text)
+    hits = 0
+    for q, span in QUERIES:
+        top = int(np.argmax(vecs @ embed([q])[0]))
+        hits += squash(span) in squash(display[top])      # judged on what the generator would see
+    print(f"{name:20} recall@1 {hits / len(QUERIES):.2f}")</code></pre>
+  <pre><code class="plain">chunk text only      recall@1 0.67
+heading path + text  recall@1 0.83</code></pre>
+  <p class="code-cap">Real output, toy embedding: the liveness-command query now retrieves the YAML chunk first (cosine 0.41 against 0.32). Six queries are an illustration; measure on the 50-query set.</p>
+  <p>Heading paths fix references to the section. They don't fix references that cross sections ("as described above"), and they add nothing when headings are generic ("Overview", "Example"). That is where a model helps.</p>
+
+  <h3>Contextual retrieval</h3>
+  <p>Anthropic's "Introducing Contextual Retrieval" (September 2024) gives the model the whole document and one chunk, and asks for a short context that situates the chunk within the document, typically a sentence or two. That context is prepended to the chunk before <em>both</em> embedding ("contextual embeddings") and BM25 indexing ("contextual BM25"). On the post's own datasets, it reports the top-20 retrieval failure rate falling by roughly 35% with contextual embeddings, roughly 49% with contextual BM25 added, and roughly 67% with reranking on top. Those are that post's results on its data; your corpus may gain more or less, which is why the practice measures it.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 240" role="img" aria-label="Enrichment flow: cached document and one chunk go to the small model, which writes a context; context, heading path and chunk form the index text for dense and BM25 indexes; questions and summaries are optional extra entries">
+      <defs><marker id="ah-l42" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="20" width="150" height="66" rx="6" class="s-node-mod"/>
+      <text x="85" y="46" class="s-mid">whole document</text><text x="85" y="66" class="s-ink2 s-sm s-mid">cached prefix</text>
+      <rect x="10" y="104" width="150" height="44" rx="6" class="s-node"/>
+      <text x="85" y="123" class="s-mid">chunk i</text><text x="85" y="139" class="s-ink2 s-sm s-mid">new each call</text>
+      <rect x="200" y="52" width="120" height="56" rx="6" class="s-node-mod"/>
+      <text x="260" y="76" class="s-mid">SMALL model</text><text x="260" y="94" class="s-ink2 s-sm s-mid">one call per chunk</text>
+      <path d="M160,53 L198,70" class="s-ln" marker-end="url(#ah-l42)"/>
+      <path d="M160,126 L198,92" class="s-ln" marker-end="url(#ah-l42)"/>
+      <rect x="360" y="30" width="160" height="80" rx="6" class="s-node"/>
+      <text x="440" y="52" class="s-ttl s-mid">index text</text>
+      <text x="440" y="72" class="s-ink2 s-sm s-mid">context</text>
+      <text x="440" y="88" class="s-ink2 s-sm s-mid">+ heading path</text>
+      <text x="440" y="104" class="s-ink2 s-sm s-mid">+ chunk text</text>
+      <path d="M320,80 L358,70" class="s-ln" marker-end="url(#ah-l42)"/>
+      <rect x="560" y="40" width="110" height="60" rx="6" class="s-node-mod"/>
+      <text x="615" y="65" class="s-mid">dense +</text><text x="615" y="83" class="s-mid">BM25 index</text>
+      <path d="M520,70 L558,70" class="s-ln" marker-end="url(#ah-l42)"/>
+      <rect x="360" y="140" width="160" height="34" rx="6" class="s-node s-dash"/>
+      <text x="440" y="161" class="s-sm s-mid">hypothetical questions</text>
+      <rect x="360" y="186" width="160" height="34" rx="6" class="s-node s-dash"/>
+      <text x="440" y="207" class="s-sm s-mid">section summary</text>
+      <path d="M268,108 L358,157" class="s-ln s-dash" marker-end="url(#ah-l42)"/>
+      <path d="M252,108 L358,203" class="s-ln s-dash" marker-end="url(#ah-l42)"/>
+      <path d="M520,157 L590,102" class="s-ln s-dash" marker-end="url(#ah-l42)"/>
+      <path d="M520,203 L630,102" class="s-ln s-dash" marker-end="url(#ah-l42)"/>
+      <text x="670" y="232" class="s-ink3 s-sm s-end">dashed: extra entries → same chunk id</text>
+    </svg>
+    <figcaption><b>Enrichment writes index text, never display text.</b> Every call for one document shares the same cached prefix, so only the chunk and the instruction are billed at the full input rate. Questions and summaries are optional extra index entries that resolve to the same chunk.</figcaption>
+  </figure>
+  <pre><code>CONTEXT_PROMPT = """Here is the chunk we want to situate within the whole document
+&lt;chunk&gt;
+{chunk}
+&lt;/chunk&gt;
+Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else."""
+
+def contextualize(doc_md: str, chunks: list[dict], chat, model: str = SMALL) -&gt; tuple[list[dict], dict]:
+    """One call per chunk. The whole document is a cached system block shared by every call."""
+    system = [{"type": "text", "text": f"&lt;document&gt;\n{doc_md}\n&lt;/document&gt;",
+               "cache_control": {"type": "ephemeral"}}]
+    usage = dict.fromkeys(["input_tokens", "output_tokens",
+                           "cache_creation_input_tokens", "cache_read_input_tokens"], 0)
+    out = []
+    for c in chunks:
+        msg = chat([{"role": "user", "content": CONTEXT_PROMPT.format(chunk=c["text"])}],
+                   system=system, model=model, max_tokens=200)
+        for key in usage:
+            usage[key] += getattr(msg.usage, key) or 0
+        ctx = text_of(msg).strip()
+        out.append(dict(c, context=ctx, index_text=f"{ctx}\n{c['heading_path']}\n\n{c['text']}"))
+    return out, usage</code></pre>
+  <p class="code-cap">The prompt follows the one in Anthropic's post. Pass <code>docpilot.llm.chat</code> as <code>chat</code>. The function was tested offline with a fake <code>chat</code> that checks the cached system block and returns cache usage. The returned <code>usage</code> totals give you the real one-off cost.</p>
+
+  <h3>Keeping the cost down with prompt caching</h3>
+  <p>Without caching, every chunk pays for the whole document again. With the document as a cached prefix (<a href="p02.html#l24">L24</a>), the first call writes the cache at a premium and every later call reads it at a fraction of the input price. Let \(D\) be the document's tokens, \(n\) its chunks, \(u\) the uncached tokens per call (chunk plus instruction) and \(y\) the output tokens. With write multiplier \(w\), read multiplier \(r\) and output-to-input price ratio \(\rho\), in units of one uncached input token:</p>
+  $$C_{\text{plain}} = n\,(D + u + \rho y), \qquad C_{\text{cached}} = wD + (n-1)\,rD + n\,(u + \rho y).$$
+  <pre><code>def enrichment_cost(doc: int, n: int, chunk: int, prompt: int = 60, out: int = 80,
+                    write: float = 1.25, read: float = 0.1, out_ratio: float = 5.0) -&gt; tuple[float, float]:
+    """Input-token equivalents for one document, without and with the document cached.
+    The multipliers are illustrative: take real ones from the current pricing page."""
+    per_call = chunk + prompt + out * out_ratio
+    return n * (doc + per_call), doc * write + (n - 1) * doc * read + n * per_call
+
+for doc, n in [(2_000, 5), (8_000, 20), (30_000, 75)]:
+    a, b = enrichment_cost(doc, n, chunk=400)
+    print(f"doc {doc:6,} tokens, {n:3} chunks: {a:12,.0f} vs {b:10,.0f} cached  ({a / b:.1f}x cheaper)")</code></pre>
+  <pre><code class="plain">doc  2,000 tokens,   5 chunks:       14,300 vs      7,600 cached  (1.9x cheaper)
+doc  8,000 tokens,  20 chunks:      177,200 vs     42,400 cached  (4.2x cheaper)
+doc 30,000 tokens,  75 chunks:    2,314,500 vs    324,000 cached  (7.1x cheaper)</code></pre>
+  <div class="box note"><span class="tag">Running it cheaply</span>
+    <ul>
+      <li>Process one document's chunks back to back, within the cache TTL. Send the first call alone so the cache is written, then the rest in parallel; several first calls at once may each pay the write.</li>
+      <li>Documents shorter than the model's minimum cacheable length aren't cached at all; check the limit in the prompt-caching docs. For those, the uncached cost is small anyway.</li>
+      <li>This is a one-off backfill plus incremental updates, so Message Batches (<a href="p10.html#l109">L109</a>) can cut the cost further if you can wait.</li>
+      <li>When one section of a document changes, its context, and every other chunk's context, may change too. Re-enrich the whole document (<a href="#l48">L48</a>).</li>
+    </ul>
+  </div>
+
+  <h3>Hypothetical questions and summaries</h3>
+  <p><b>Hypothetical questions</b>: ask the model for three to five questions each chunk answers, and index each question as its own entry pointing to the chunk's id. Users ask questions, so question-to-question similarity often matches better than question-to-passage. This is document expansion in the spirit of doc2query (Nogueira et al. 2019) and the mirror image of HyDE (<a href="#l43">L43</a>). <b>Summaries as extra entries</b>: embed a short summary per section or document. Broad questions ("what are probes for?") match summaries better than any single chunk; a hit on a summary returns the section's chunks or the whole section. Both are multi-vector indexing, which <a href="p05.html#l53">L53</a> develops. RAPTOR (Sarthi et al. 2024) takes summaries further, into a tree.</p>
+  <div class="box intuition"><span class="tag">Worked example · what goes into each index</span>
+    <p>Chunk 2 of the probes page, after enrichment: <b>display text</b> is the YAML block and its note, unchanged. <b>Index text</b> is a model-written context such as "From the liveness-probe exercise; the busybox Pod's exec probe runs cat /tmp/healthy every 5 seconds", then the heading path, then the chunk. <b>Extra entries</b>: "How do I define a liveness command?", "What does periodSeconds do?", each pointing to chunk 2. A hit on any of the three returns chunk 2's display text to the generator.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Hallucinated context.</b> The model may assert a version or feature the chunk doesn't mention. Since context is index-only, the damage is a wrong match, not a wrong answer, but spot-check 30 contexts before indexing millions.</li>
+      <li><b>Generic context.</b> "This chunk is from the Kubernetes documentation" on every chunk adds nothing. Ask for the specific entity, task and section.</li>
+      <li><b>Enriching one index only.</b> Contexts added to the vectors but not to BM25 (or the reverse) give up part of the gain the post measured.</li>
+      <li><b>Leaking context into answers.</b> If the generator is shown index text, model-written context can be cited as if it were documentation. Show display text.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Prepend title and heading path to every chunk's index text, rebuild dense and BM25 indexes, and record recall@5 on the 50-query set. This is the free baseline.</li>
+      <li>Run <code>contextualize</code> with <code>SMALL</code> over the corpus, one document at a time with the document cached; log the summed <code>usage</code> per document.</li>
+      <li>Rebuild both indexes on the contextual index text and measure recall@5 against step 1, with bootstrap intervals (L50).</li>
+      <li>Price the run from the logged usage and the current pricing page, and compare it with <code>enrichment_cost</code>'s estimate.</li>
+    </ol>
+    <p><b>Ship:</b> a measured retrieval gain from enrichment and its one-off cost, from real usage.</p>
+  </div>
+  <p class="refs"><b>Read</b> Anthropic 2024, “Introducing Contextual Retrieval” · Anthropic docs, Prompt caching · Nogueira et al. 2019, “Document Expansion by Query Prediction” · Sarthi et al. 2024, “RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval”</p>
+</article>
+<!-- ================================================================ L43 -->
+<article class="day" id="l43">
+  <header class="day-head">
+    <span class="day-no">L43 · DAY 30</span>
+    <h2>Query Transformation: Rewriting, Multi-Query, HyDE and Decomposition</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Users describe symptoms in their own words; documentation names things in its own. A query-transformation stage rewrites, multiplies, imagines or splits the question before retrieval so it meets the docs halfway. Each transformation costs a model call and latency and can make easy queries worse, so it should run only where measurement says it helps.</p>
+
+  <h3>The vocabulary gap</h3>
+  <p>"How do I make my app grow when traffic goes up?" shares no content word with the page that answers it, which talks about a HorizontalPodAutoscaler scaling replicas to match demand. Dense embeddings bridge some of this gap (<a href="p03.html#l28">L28</a>), BM25 none of it, and short, chatty or symptom-first questions are where both fail. <a href="#l42">L42</a> attacked the gap from the document side. This lesson attacks it from the query side.</p>
+  <pre><code>def rrf(rankings: list[list[str]], k: int = 60) -&gt; list[tuple[str, float]]:
+    """Reciprocal Rank Fusion (L34): sum 1/(k + rank) over every ranking a document appears in."""
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, doc_id in enumerate(ranking, 1):
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
+    return sorted(scores.items(), key=lambda kv: -kv[1])
+
+def search(query: str, k: int = 5):           # stand-in for docpilot.search over L39's toy store
+    return [c for c, _ in store.search(query, k)]
+
+question = "how do I make my app grow when traffic goes up?"
+rewrite = "How do I automatically scale the number of replicas of a Deployment to match demand?"
+variants = {   # hand-written here to show the mechanics; in production SMALL writes them
+    "original": [question],
+    "rewrite": [rewrite],
+    "multi-query": [question, rewrite, "How do I autoscale a Deployment when load increases?"],
+    "HyDE": ["A HorizontalPodAutoscaler automatically scales the number of replicas of a "
+             "Deployment based on observed CPU utilization to match demand."],
+}
+for name, queries in variants.items():
+    fused = [doc_id for doc_id, _ in rrf([[h.id for h in search(x, k=3)] for x in queries])]
+    rank = next((i for i, d in enumerate(fused, 1) if "horizontal-pod-autoscale" in d), None)
+    print(f"{name:12} {len(queries)} search(es)  rank of the HPA page: {rank}")</code></pre>
+  <pre><code class="plain">original     1 search(es)  rank of the HPA page: None
+rewrite      1 search(es)  rank of the HPA page: 1
+multi-query  3 search(es)  rank of the HPA page: 1
+HyDE         1 search(es)  rank of the HPA page: 1</code></pre>
+  <p class="code-cap">Real output on L39's four-page toy index. The original question scores 0.0 against every chunk (no shared words), so its top 3 is arbitrary; every transformation puts the autoscaling page first.</p>
+
+  <h3>Rewriting, expansion and multi-query</h3>
+  <p><b>Rewriting</b> restates the question in the corpus's vocabulary: resource kinds, field names, the docs' terms for symptoms. <b>Expansion</b> appends synonyms and related terms instead of replacing words, which suits BM25. <b>Multi-query</b> generates several paraphrases, searches with each plus the original, and fuses the rankings with RRF. A document that several phrasings retrieve rises; one that only a bad paraphrase retrieves stays low. Keeping the original query in the set is cheap insurance against a rewrite that drifts.</p>
+
+  <h3>HyDE: search with a hypothetical answer</h3>
+  <div class="box def"><span class="tag">Definition · HyDE</span>
+    <p>Hypothetical Document Embeddings (Gao et al. 2022, "Precise Zero-Shot Dense Retrieval without Relevance Labels") asks an instruction-following model to <em>write a passage that answers the question</em>, then searches with that passage's embedding. A passage looks like the documents in the index (same length, register and vocabulary), so it lands nearer the real answer than the short question does. The paper samples several passages and averages their embeddings together with the query's:</p>
+    $$\hat v_q = \frac{1}{N+1}\Big(\sum_{j=1}^{N} f(\hat d_j) + f(q)\Big)$$
+    <p>Here \(f\) is the document encoder; the paper used an unsupervised contrastive encoder (Contriever) and needed no relevance labels. The hypothetical passage may contain wrong details; the bet is that the encoder keeps the topic and discards the specifics.</p>
+  </div>
+  <p>HyDE costs an output-heavy call (a passage, not a few words), so it adds the most latency of the transformations here. The bet fails on identifier queries: a hallucinated flag name or a wrong error code pulls in exactly the wrong chunk. Use it for conceptual and "how do I" questions, not for "what does <code>--dry-run=server</code> do".</p>
+
+  <h3>Decomposition, step-back and routing</h3>
+  <ul>
+    <li><b>Decomposition</b> splits multi-part questions ("expose my Deployment on port 80 and autoscale it on CPU") into sub-questions, retrieves for each, and merges, ideally with a per-sub-question quota so one part can't crowd out the other.</li>
+    <li><b>Step-back prompting</b> (Zheng et al. 2023, "Take a Step Back: Evoking Reasoning via Abstraction in Large Language Models") first asks the more general question behind a specific one, then reasons with both. For retrieval, "Why does my Pod restart every five minutes?" steps back to "How does the kubelet restart failed containers, and what is the back-off?", which retrieves the background chunk the specific question misses.</li>
+    <li><b>Routing</b> sends the query to the right index (docs, past tickets, release notes), sets filters such as version (<a href="p03.html#l33">L33</a>), or skips retrieval for small talk. Routing errors are silent, so measure routing accuracy on a labelled set of its own.</li>
+  </ul>
+  <p>One small-model call can produce all of these at once with a structured output (<a href="p02.html#l20">L20</a>). Downstream code then decides which to use.</p>
+  <pre><code>import json
+
+from docpilot.llm import SMALL, chat, text_of
+
+PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "route": {"type": "string", "enum": ["docs", "tickets", "none"]},
+        "rewrite": {"type": "string"},
+        "paraphrases": {"type": "array", "items": {"type": "string"}},
+        "sub_questions": {"type": "array", "items": {"type": "string"}},
+        "step_back": {"type": "string"},
+    },
+    "required": ["route", "rewrite", "paraphrases", "sub_questions", "step_back"],
+    "additionalProperties": False,
+}
+PLANNER = """You prepare search queries for a Kubernetes documentation assistant.
+route: "docs" for how-to and reference questions, "tickets" for past incidents, "none" for small talk.
+rewrite: the question in the vocabulary the Kubernetes docs use. Keep identifiers, flags and error text exactly.
+paraphrases: two differently worded versions of the rewrite.
+sub_questions: one question per independent part if there are several parts, otherwise [].
+step_back: the more general concept question behind it, or "" if there is none."""
+
+def plan_query(question: str) -&gt; dict:
+    msg = chat([{"role": "user", "content": question}], system=PLANNER, model=SMALL, max_tokens=500,
+               output_config={"format": {"type": "json_schema", "schema": PLAN_SCHEMA}})
+    return json.loads(text_of(msg))</code></pre>
+  <pre><code>import re
+
+EXACT = re.compile(r"--[\w-]+|\"[^\"]+\"|\b[a-z]+[A-Z]\w*|\b[A-Z]\w*[A-Z]\w*\b|\b\d{3,}\b")
+
+def transformed_search(question: str, k: int = 5,
+                       use: tuple[str, ...] = ("rewrite", "paraphrases", "sub_questions")) -&gt; list[str]:
+    """Plan once, search the original plus the enabled variants, fuse with RRF."""
+    plan = plan_query(question)
+    if plan["route"] == "none":
+        return []
+    exact = set(EXACT.findall(question))          # flags, camelCase fields, CamelCase kinds, codes
+    queries = [question]
+    for field in use:
+        for q in plan[field] if isinstance(plan[field], list) else [plan[field]]:
+            if q and exact &lt;= set(EXACT.findall(q)):   # drop variants that lost an identifier
+                queries.append(q)
+    rankings = [[h.id for h in search(q, k=k)] for q in dict.fromkeys(queries)]
+    return [doc_id for doc_id, _ in rrf(rankings)[:k]]</code></pre>
+  <p class="code-cap">Tested offline against a fake <code>chat</code> that checks the request (small model, JSON-schema <code>output_config</code>) and returns canned plans. A rewrite that turned <code>restartPolicy</code> into "restart policy" was dropped, its sub-questions were kept, and a small-talk route ran no search.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 236" role="img" aria-label="Query transformation fan-out: the question goes to a planner that emits rewrite, paraphrases, HyDE passage, sub-questions and step-back query; each is searched in parallel and fused with RRF">
+      <defs><marker id="ah-l43" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="96" width="100" height="40" rx="6" class="s-node"/><text x="60" y="120" class="s-mid">question</text>
+      <rect x="140" y="96" width="110" height="40" rx="6" class="s-node-mod"/>
+      <text x="195" y="113" class="s-mid">planner</text><text x="195" y="128" class="s-ink2 s-sm s-mid">SMALL, 1 call</text>
+      <path d="M110,116 L138,116" class="s-ln" marker-end="url(#ah-l43)"/>
+      <path d="M60,96 L60,41 L368,41" class="s-ln" marker-end="url(#ah-l43)"/>
+      <text x="214" y="34" class="s-ink3 s-sm s-mid">always searched, in parallel with the planner</text>
+      <g class="s-sm s-mid">
+        <rect x="370" y="28" width="140" height="26" rx="5" class="s-node"/><text x="440" y="45">original</text>
+        <rect x="370" y="62" width="140" height="26" rx="5" class="s-node"/><text x="440" y="79">rewrite</text>
+        <rect x="370" y="96" width="140" height="26" rx="5" class="s-node"/><text x="440" y="113">paraphrases × 2</text>
+        <rect x="370" y="130" width="140" height="26" rx="5" class="s-node s-dash"/><text x="440" y="147">HyDE passage</text>
+        <rect x="370" y="164" width="140" height="26" rx="5" class="s-node"/><text x="440" y="181">sub-questions</text>
+        <rect x="370" y="198" width="140" height="26" rx="5" class="s-node s-dash"/><text x="440" y="215">step-back</text>
+      </g>
+      <path d="M250,110 L368,75" class="s-ln" marker-end="url(#ah-l43)"/>
+      <path d="M250,114 L368,109" class="s-ln" marker-end="url(#ah-l43)"/>
+      <path d="M250,118 L368,143" class="s-ln s-dash" marker-end="url(#ah-l43)"/>
+      <path d="M250,122 L368,177" class="s-ln" marker-end="url(#ah-l43)"/>
+      <path d="M250,126 L368,211" class="s-ln s-dash" marker-end="url(#ah-l43)"/>
+      <rect x="560" y="96" width="110" height="40" rx="6" class="s-node-mod"/>
+      <text x="615" y="113" class="s-mid">search × n</text><text x="615" y="128" class="s-ink2 s-sm s-mid">RRF → top k</text>
+      <g class="s-ln">
+        <path d="M510,41 L558,104" marker-end="url(#ah-l43)"/><path d="M510,75 L558,108" marker-end="url(#ah-l43)"/>
+        <path d="M510,109 L558,114" marker-end="url(#ah-l43)"/><path d="M510,143 L558,120" marker-end="url(#ah-l43)"/>
+        <path d="M510,177 L558,125" marker-end="url(#ah-l43)"/><path d="M510,211 L558,130" marker-end="url(#ah-l43)"/>
+      </g>
+    </svg>
+    <figcaption><b>One planner call, many searches.</b> The original query is searched immediately, while the planner runs, so the planner's latency overlaps with retrieval. Dashed variants (HyDE, step-back) are enabled per query category only where they measured better.</figcaption>
+  </figure>
+
+  <h3>Cost, latency and when to run it</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Technique</th><th>Extra calls</th><th>Extra searches</th><th>Helps most on</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr><td>Rewrite / expansion</td><td>1 small (shared)</td><td>1</td><td>chatty, symptom-first queries</td><td>drift, mangled identifiers</td></tr>
+      <tr><td>Multi-query</td><td>1 small (shared)</td><td>n, in parallel</td><td>ambiguous queries; recall</td><td>n× search cost, noisier top k</td></tr>
+      <tr><td>HyDE</td><td>1, output-heavy</td><td>1</td><td>short conceptual questions</td><td>hallucinated specifics</td></tr>
+      <tr><td>Decomposition</td><td>1 small (shared)</td><td>one per part</td><td>multi-part questions</td><td>over-splitting simple ones</td></tr>
+      <tr><td>Step-back</td><td>1 small (shared)</td><td>1</td><td>troubleshooting needing background</td><td>generic chunks crowd out specific</td></tr>
+      <tr><td>Routing</td><td>1 small or a rule</td><td>fewer</td><td>several corpora, small talk</td><td>silent misroutes</td></tr>
+    </tbody>
+  </table></div>
+  <p>"Runs only when it helps" means three things. Measure each variant separately on the 20 hardest queries <em>and</em> on the rest, because transformations can lower recall on queries that already worked. Enable a variant only for the query categories where it wins, which is what <code>use</code> is for. Guard identifiers, as <code>EXACT</code> does. Latency adds up: a planner call plus n searches plus a reranker can double time to first token, so overlap the original search with the planner and set a budget (<a href="p10.html#l110">L110</a>).</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Identifier mangling.</b> A helpful rewrite turns <code>CrashLoopBackOff</code> into "crash loop" and <code>--dry-run=client</code> into "dry run mode", and BM25 loses its best signal. Check variants for identifiers before searching.</li>
+      <li><b>Confident hypotheticals.</b> HyDE passages invent field names that then match the wrong chunks. Keep the original query in the fusion.</li>
+      <li><b>Evaluating only on hard queries.</b> A transformation that lifts the hard 20 can sink the easy 30. Report both, per category.</li>
+      <li><b>Unbounded fan-out.</b> Five paraphrases times three sub-questions is fifteen searches and a reranker on hundreds of candidates. Cap the number of queries.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Select the 20 hardest queries from your 50-query set: lowest recall@5 after L42.</li>
+      <li>Implement <code>plan_query</code> with <code>SMALL</code> and a HyDE variant (one passage, then embed it). Run rewrite, multi-query and HyDE separately.</li>
+      <li>Measure recall@5 on the hard 20 and on the other 30 for each variant, plus the p50 added latency and cost per query from <code>llm.py</code>'s log.</li>
+      <li>Set <code>use</code> (and any per-category rules) so that only the variants that help are enabled, and re-run the full 50 to confirm nothing regressed.</li>
+    </ol>
+    <p><b>Ship:</b> a query-transformation stage that runs only when it helps, with the per-variant recall, latency and cost table that justifies it.</p>
+  </div>
+  <p class="refs"><b>Read</b> Gao et al. 2022, “Precise Zero-Shot Dense Retrieval without Relevance Labels” · Zheng et al. 2023, “Take a Step Back: Evoking Reasoning via Abstraction in Large Language Models” · Ma et al. 2023, “Query Rewriting for Retrieval-Augmented Large Language Models” · Anthropic docs, Structured outputs · Cormack, Clarke &amp; Büttcher 2009, “Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods”</p>
+</article>
+<!-- ================================================================ L44 -->
+<article class="day" id="l44">
+  <header class="day-head">
+    <span class="day-no">L44 · DAY 31</span>
+    <h2>Retrieval Tuning: k, Thresholds, MMR and Diversity</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Retrieval hands you a ranked list; tuning decides how much of it reaches the prompt and what that space is spent on. Pick k and the context budget from a measured curve, prefer rank cut-offs to raw-score thresholds, and fill the slots with distinct evidence: drop duplicates, diversify with MMR, merge neighbouring chunks.</p>
+
+  <h3>Choosing k</h3>
+  <p>There are two k's. <b>k<sub>retrieve</sub></b> is how many candidates the first stage hands the reranker (typically tens, <a href="p03.html#l35">L35</a>). <b>k<sub>context</sub></b> is how many passages go into the prompt. Raising k<sub>context</sub> buys recall: the chance that the passage you need is present. It also costs input tokens, latency, and attention. Models use a long context unevenly, and irrelevant passages can pull an answer off course (<a href="p01.html#l13">L13</a>).</p>
+  <p>Recall@k rises quickly and then flattens. Precision@k falls. Tune k<sub>context</sub> on the eval set: take the smallest k whose recall is within a point or two of the plateau, then check that answer quality agrees (generation metrics arrive in <a href="p05.html#l51">L51</a>). The right k depends on chunk size (<a href="#l41">L41</a>): 3 large chunks and 10 small ones can hold the same evidence.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 190" role="img" aria-label="Post-retrieval pipeline: retrieve 50, rerank, dedup, MMR, merge adjacent chunks, pack to a token budget">
+      <defs><marker id="ah-l44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="50" width="100" height="62" rx="8" class="s-node"/>
+      <text x="60" y="76" class="s-ttl s-mid">retrieve</text>
+      <text x="60" y="96" class="s-ink2 s-mid s-sm">BM25 + dense</text>
+      <rect x="122" y="50" width="100" height="62" rx="8" class="s-node"/>
+      <text x="172" y="76" class="s-ttl s-mid">rerank</text>
+      <text x="172" y="96" class="s-ink2 s-mid s-sm">cross-encoder</text>
+      <rect x="234" y="50" width="100" height="62" rx="8" class="s-node-mod"/>
+      <text x="284" y="76" class="s-ttl s-mid">dedup</text>
+      <text x="284" y="96" class="s-ink2 s-mid s-sm">cos ≥ τ</text>
+      <rect x="346" y="50" width="100" height="62" rx="8" class="s-node-mod"/>
+      <text x="396" y="76" class="s-ttl s-mid">MMR</text>
+      <text x="396" y="96" class="s-ink2 s-mid s-sm">λ = 0.7</text>
+      <rect x="458" y="50" width="100" height="62" rx="8" class="s-node-mod"/>
+      <text x="508" y="76" class="s-ttl s-mid">merge</text>
+      <text x="508" y="96" class="s-ink2 s-mid s-sm">adjacent</text>
+      <rect x="570" y="50" width="100" height="62" rx="8" class="s-node-mod"/>
+      <text x="620" y="76" class="s-ttl s-mid">pack</text>
+      <text x="620" y="96" class="s-ink2 s-mid s-sm">≤ B tokens</text>
+      <line x1="110" y1="81" x2="121" y2="81" class="s-ln" marker-end="url(#ah-l44)"/>
+      <line x1="222" y1="81" x2="233" y2="81" class="s-ln" marker-end="url(#ah-l44)"/>
+      <line x1="334" y1="81" x2="345" y2="81" class="s-ln" marker-end="url(#ah-l44)"/>
+      <line x1="446" y1="81" x2="457" y2="81" class="s-ln" marker-end="url(#ah-l44)"/>
+      <line x1="558" y1="81" x2="569" y2="81" class="s-ln" marker-end="url(#ah-l44)"/>
+      <text x="60" y="138" class="s-ink3 s-mid s-sm">50 hits</text>
+      <text x="172" y="138" class="s-ink3 s-mid s-sm">top 20</text>
+      <text x="284" y="138" class="s-ink3 s-mid s-sm">16 left</text>
+      <text x="396" y="138" class="s-ink3 s-mid s-sm">6 picked</text>
+      <text x="508" y="138" class="s-ink3 s-mid s-sm">5 passages</text>
+      <text x="620" y="138" class="s-ink3 s-mid s-sm">fits budget</text>
+      <text x="172" y="30" class="s-ink2 s-mid s-sm">Phase 3 (L37)</text>
+      <text x="452" y="30" class="s-mod s-mid s-sm">this lesson</text>
+      <line x1="234" y1="38" x2="670" y2="38" class="s-ln-mod s-dash"/>
+    </svg>
+    <figcaption><b>After the search service.</b> The four stages on the right run on a few dozen candidates, so their cost is negligible next to the model call. The counts are illustrative; yours come from the sweep in the practice block.</figcaption>
+  </figure>
+
+  <h3>Thresholds, and why raw scores make poor ones</h3>
+  <p>A cut-off like "keep hits with cosine ≥ 0.80" looks natural and rarely works. Cosine scores are not calibrated probabilities (<a href="p03.html#l28">L28</a>). Their range depends on the embedding model, the query length and the corpus. One model puts every passage between 0.70 and 0.90; another spreads unrelated text across 0.1–0.4. The same 0.80 can be the best hit for a vague question and a weak hit for a precise one. BM25 scores aren't bounded at all, and fused RRF scores (<a href="p03.html#l34">L34</a>) only encode rank.</p>
+  <div class="box note"><span class="tag">Better cut-offs</span>
+    <ul>
+      <li><b>Rank cut-off</b> after reranking: a fixed k<sub>context</sub>. Simple and predictable for token cost.</li>
+      <li><b>Relative threshold:</b> keep hits whose score is within δ of the top hit's score. This adapts to each query's score scale.</li>
+      <li><b>Reranker threshold, calibrated:</b> cross-encoder scores compare better across queries than bi-encoder cosines. Fit the cut-off on labelled pairs from your eval set, and refit it whenever the model changes.</li>
+      <li>Use an absolute threshold mainly to detect <b>"nothing relevant came back"</b>, which triggers the refusal path in <a href="#l45">L45</a>, not to trim the list.</li>
+    </ul>
+  </div>
+
+  <h3>Maximal marginal relevance</h3>
+  <p>Top-k by similarity often returns the same fact several times: the same page from two doc versions, a mirrored blog post, overlapping chunks. Each copy uses a slot that a different aspect of the answer could have used. MMR (Carbonell &amp; Goldstein, 1998) picks greedily, trading relevance against redundancy with what is already selected:</p>
+  $$d^{*} = \argmax_{d_i \in R \setminus S} \Big[\, \lambda\, \mathrm{sim}(d_i, q) \;-\; (1-\lambda) \max_{d_j \in S} \mathrm{sim}(d_i, d_j) \Big]$$
+  <div class="box algo"><span class="tag">Algorithm · MMR selection</span>
+    <ol>
+      <li>\(R\) = the candidate list (after reranking), \(S = \varnothing\).</li>
+      <li>Add the candidate with the best score to \(S\). While \(S\) is empty the redundancy term is zero, so the first pick is the most relevant hit.</li>
+      <li>Repeat until \(|S| = k\). \(\lambda = 1\) is plain top-k; \(\lambda = 0\) ignores the query after the first pick.</li>
+    </ol>
+    <p>Cost is \(O(kn)\) similarity look-ups for \(n\) candidates. Run it on the top 20–50 candidates, never the whole index. Relevance can be reranker scores rescaled to [0, 1]; redundancy needs chunk embeddings, so keep vectors for BM25-only hits too.</p>
+  </div>
+
+  <pre><code>import numpy as np
+
+def mmr(q, docs, k=3, lam=0.7):
+    """Greedy MMR. q: (d,) and docs: (n, d), both unit-normalised. Returns row indices."""
+    rel = docs @ q                                   # sim(q, d_i)
+    sim = docs @ docs.T                              # sim(d_i, d_j)
+    chosen, pool = [], list(range(len(docs)))
+    while pool and len(chosen) &lt; k:
+        red = sim[np.ix_(pool, chosen)].max(axis=1) if chosen else np.zeros(len(pool))
+        best = pool[int(np.argmax(lam * rel[pool] - (1 - lam) * red))]
+        chosen.append(best)
+        pool.remove(best)
+    return chosen
+
+def dedup(order, docs, threshold=0.98):
+    """Walk hits best-first; drop any whose cosine to a kept hit is &gt;= threshold."""
+    kept = []
+    for i in order:
+        if all(docs[i] @ docs[j] &lt; threshold for j in kept):
+            kept.append(i)
+    return kept</code></pre>
+  <p class="code-cap">Run on six toy 3-D vectors: three copies of the <code>restartPolicy</code> passage, then CrashLoopBackOff, liveness probes and an unrelated Ingress TLS page, for the query "why does my pod keep restarting?". (Script: <code>l44_mmr.py</code> in the practice.)</p>
+  <pre><code class="plain">relevance: blog copy=0.979  v1.30 copy=0.970  restartPolicy=0.967  liveness=0.895  CrashLoopBackOff=0.879  Ingress TLS=0.445
+top-3 by similarity : blog copy, v1.30 copy, restartPolicy
+MMR lam=0.7         : blog copy, CrashLoopBackOff, v1.30 copy
+MMR lam=0.5         : blog copy, Ingress TLS, CrashLoopBackOff
+dedup(0.98)         : blog copy, liveness, CrashLoopBackOff, Ingress TLS
+dedup, then MMR 0.7 : blog copy, CrashLoopBackOff, liveness</code></pre>
+  <p>Three lessons from six vectors. Plain top-3 is one fact three times. MMR at λ = 0.7 is a soft penalty, and a near-copy with relevance 0.97 still beats everything else for the third slot. At λ = 0.5 the redundancy term dominates and drags in the Ingress page, whose relevance is 0.45: <b>low λ trades duplicates for off-topic text.</b> Remove duplicates first as a hard filter, then let MMR diversify what is left.</p>
+
+  <h3>Near-duplicates and adjacent chunks</h3>
+  <p>Duplicates come from mirrored pages, translated or versioned copies, boilerplate (navigation, licence footers) and the overlap between fixed-size chunks (<a href="#l41">L41</a>). Remove exact copies at ingestion by hashing normalised text. Near-copies need a similarity test: cosine above a high threshold on embeddings, or Jaccard similarity of word shingles estimated with MinHash (Broder, 1997). MinHash catches copy-paste with small edits at corpus scale, without any embeddings. Choose the threshold by reading pairs just above and below it, not by guessing.</p>
+  <p>Adjacent chunks are the opposite case. Hits for positions 7 and 8 of the same page are not redundant: they are one passage that chunking split in two. Merge them into one block with one heading and one citation. That restores a sentence or code block cut at the boundary, and drops the overlapping text. Sort by (document, position), merge consecutive runs, and keep the best score of each run. <a href="p05.html#l53">L53</a> takes the idea further, retrieving small chunks and returning their parents.</p>
+
+  <h3>Recency boosts and the context budget</h3>
+  <p>For time-sensitive sources such as tickets, release notes and incident reports, blend relevance with an age decay of half-life \(h\). Use relevance that is already normalised, because raw scores are not on a fixed scale:</p>
+  $$s'_i = (1-\beta)\,\hat s_i + \beta \cdot 2^{-a_i / h}, \qquad \hat s_i \in [0, 1],\ a_i = \text{age in days}$$
+  <p>Alternatively, add a "newest first" list as one more input to RRF. For versioned documentation, a version <em>filter</em> (<a href="p03.html#l33">L33</a>) is better than a boost: the newest page is not the right one for a user on an older release.</p>
+  <p>The <b>context budget</b> \(B\) is the number of tokens you allow for retrieved text. Start from the window, subtract the system prompt, the history and room for the answer, and then set \(B\) far lower, from measurements. Pack passages best-first while \(\sum_{i \in S} t_i \le B\), and skip any passage that doesn't fit rather than truncating it mid-sentence.</p>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>DocPilot's chunks average about 350 tokens. With \(B = 3{,}000\), at most 8 full chunks fit. If MMR picks 6 and two of them are positions 7 and 8 of the same page, merging gives 5 passages. The 60-token overlap counted twice is gone, so the packed context is about \(6 \times 350 - 60 = 2{,}040\) tokens. You get the same evidence and 5 citations instead of 6, with room left for one more passage if the sweep says it helps.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Thresholds outlive their model.</b> A cosine cut-off tuned on one embedding model is meaningless after a model swap (<a href="#l48">L48</a>). Store thresholds next to the embedding version and re-tune them together.</li>
+      <li><b>Dedup erases real differences.</b> "Beta in v1.29" and "GA in v1.31" can be 0.99 similar. Those are different facts. Dedup within one version or source, never across versions.</li>
+      <li><b>Dedup before permissions.</b> If the copy you keep is one the user cannot see, the visible copy has already been dropped. Filter by access first (<a href="#l47">L47</a>), then dedup.</li>
+      <li><b>MMR with a thin pool.</b> When few candidates are relevant, MMR fills the slots with off-topic text, as the λ = 0.5 run shows. Apply a relative threshold before MMR.</li>
+      <li><b>Unbounded merging.</b> Merging a run of ten adjacent chunks can use the whole budget on one page. Cap the size of a merged block.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4>
+    <ol>
+      <li>Add <code>dedup</code>, <code>mmr</code>, <code>merge_adjacent</code> and <code>pack</code> as post-processing in <code>docpilot/search.py</code>, after the reranker (<a href="p03.html#l37">L37</a>), in the order of the figure. Reproduce the toy output above first.</li>
+      <li>Sweep k<sub>context</sub> ∈ {3, 5, 8, 12} × λ ∈ {1.0, 0.85, 0.7, 0.5} on the 50-query set. Record recall@k and the mean packed tokens for each cell.</li>
+      <li>Plot recall@k against k, one line per λ, with tokens on a second axis. Pick the knee, and read ten queries where MMR changed the selected set.</li>
+      <li>Print the 20 most similar chunk pairs above and below your dedup threshold, and move the threshold until no pair on the "drop" side holds a different fact.</li>
+    </ol>
+    <p><b>Ship:</b> tuned k, λ, dedup threshold and budget committed to config, with the recall-and-tokens curve that justifies them.</p>
+  </div>
+  <p class="refs"><b>Read</b> Carbonell &amp; Goldstein 1998, “The Use of MMR, Diversity-Based Reranking for Reordering Documents and Producing Summaries” · Broder 1997, “On the Resemblance and Containment of Documents” · Manning, Raghavan &amp; Schütze, <i>Introduction to Information Retrieval</i>, ch. 19 (near-duplicates and shingling) · Liu et al. 2024, “Lost in the Middle: How Language Models Use Long Contexts”</p>
+</article>
+<!-- ================================================================ L45 -->
+<article class="day" id="l45">
+  <header class="day-head">
+    <span class="day-no">L45 · DAY 32</span>
+    <h2>Prompting the Generator: Grounded Answers, Refusals and Citations</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Good retrieval only helps if the generator uses it. Lay the prompt out so the model can find and cite its sources, make "the documentation doesn't cover this" an explicit, well-formed answer, and never trust a citation you haven't checked by code.</p>
+
+  <h3>Answer-only-from-context, and its limits</h3>
+  <p>The core instruction is short: use only the sources, cite them, and say so when they don't answer. It lowers the rate of unsupported claims but does not stop them. Pretrained knowledge still leaks in, most often when the context is partial, when the docs contradict what the model learned (renamed flags, deprecated APIs), or when the question invites general advice. The instruction is a request. Enforcement comes from checking the output (below, and in <a href="p05.html#l51">L51</a>). Retrieved text is also untrusted input: a page that says "ignore your instructions" is an indirect prompt injection (<a href="p09.html#l97">L97</a>).</p>
+
+  <h3>Layout: sources first, question last, quotes before answers</h3>
+  <ul>
+    <li><b>Placement.</b> Anthropic's long-context guidance puts long documents at the top and the question at the end, and reports better answers that way. Rules go in the system prompt.</li>
+    <li><b>Structure.</b> Wrap each source in a tag with an id, title and URL, so the answer can cite <code>[S2]</code> and code can map the id back to a chunk.</li>
+    <li><b>Order.</b> Strongest hits first. Models use the start and end of a long context more reliably than the middle (Liu et al., 2024), so a smaller k beats burying the best passage at position 9 (<a href="#l44">L44</a>).</li>
+    <li><b>Quotes first.</b> Asking for supporting quotes before the answer commits the model to evidence and gives you spans you can verify exactly. It costs output tokens. Strip the quotes before display, or show them as expandable evidence.</li>
+  </ul>
+  <pre><code>import html
+from docpilot.search import Hit
+
+SYSTEM = """You answer questions about Kubernetes using only the sources provided.
+- After every sentence that states a fact, cite its source id, like [S2].
+- If the sources do not answer the question, reply "The documentation I have doesn't cover this."
+  Then name the closest topic they do cover.
+- Do not add facts from memory, even if you are confident."""
+
+def build_prompt(question: str, hits: list[Hit]) -&gt; str:
+    """Sources first, question last; each source tagged with an id the answer can cite."""
+    blocks = "\n".join(
+        f'&lt;source id="S{i}" title="{html.escape(h.heading_path)}" url="{html.escape(h.url)}"&gt;\n'
+        f"{h.text}\n&lt;/source&gt;" for i, h in enumerate(hits, 1))
+    return (f"&lt;sources&gt;\n{blocks}\n&lt;/sources&gt;\n\n"
+            "First copy the sentences you rely on into &lt;quotes&gt;, one per line as [S#] \"text\". "
+            "Then write the answer for the user inside &lt;answer&gt;.\n\n"
+            f"Question: {question}")</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 700 230" role="img" aria-label="Prompt with system rules, tagged sources and the question last goes to the model; the answer with source ids is checked against the sources">
+      <defs><marker id="ah-l45" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="48" width="200" height="34" rx="6" class="s-node"/>
+      <text x="120" y="70" class="s-mid">system: rules</text>
+      <rect x="20" y="88" width="200" height="78" rx="6" class="s-node-mod"/>
+      <text x="120" y="114" class="s-ttl s-mid">&lt;sources&gt;</text>
+      <text x="120" y="136" class="s-ink2 s-mid s-sm">S1 · S2 · S3 · S4 · S5</text>
+      <text x="120" y="154" class="s-ink3 s-mid s-sm">best hit first</text>
+      <rect x="20" y="172" width="200" height="34" rx="6" class="s-node"/>
+      <text x="120" y="194" class="s-mid">question (last)</text>
+      <rect x="270" y="102" width="100" height="50" rx="8" class="s-node"/>
+      <text x="320" y="132" class="s-ttl s-mid">model</text>
+      <rect x="420" y="92" width="120" height="70" rx="8" class="s-node"/>
+      <text x="480" y="118" class="s-ink2 s-mid s-sm">&lt;quotes&gt; …</text>
+      <text x="480" y="140" class="s-ink2 s-mid s-sm">&lt;answer&gt; … [S2]</text>
+      <rect x="580" y="102" width="100" height="50" rx="8" class="s-node-mod"/>
+      <text x="630" y="132" class="s-ttl s-mid">checker</text>
+      <line x1="220" y1="127" x2="268" y2="127" class="s-ln" marker-end="url(#ah-l45)"/>
+      <line x1="370" y1="127" x2="418" y2="127" class="s-ln" marker-end="url(#ah-l45)"/>
+      <line x1="540" y1="127" x2="578" y2="127" class="s-ln" marker-end="url(#ah-l45)"/>
+      <path d="M630,102 L630,30 L180,30 L180,86" class="s-ln-mod s-dash" marker-end="url(#ah-l45)"/>
+      <text x="405" y="22" class="s-mod s-mid s-sm">checks each sentence against the S# it cites</text>
+      <text x="630" y="176" class="s-acc s-mid s-sm">ok → show</text>
+      <text x="630" y="194" class="s-warn s-mid s-sm">unsupported → flag</text>
+      <text x="630" y="212" class="s-bad s-mid s-sm">uncited, bad id → flag</text>
+    </svg>
+    <figcaption><b>Ids make answers checkable.</b> The same ids that let the model cite let code look up the cited chunk and test the sentence against it.</figcaption>
+  </figure>
+
+  <h3>Checking citations programmatically</h3>
+  <p>For each sentence, read its <code>[S#]</code> markers and ask: does the cited chunk support it? The cheapest local test is lexical support, the share of the sentence's content words found in the cited chunk, against a threshold. An embedding cosine is the other cheap option. Neither needs a model.</p>
+  <pre><code>import re
+
+STOP = set("a an and are as at be by can for from how if in is it its of on or that the this "
+           "to was when with you your".split())
+SENT = re.compile(r"(?&lt;=[.!?])\s+")
+CITE = re.compile(r"\[(S\d+)\]")
+
+def words(text: str) -&gt; set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+(?:[._/-][a-z0-9]+)*", text.lower()) if w not in STOP}
+
+def check_citations(answer: str, sources: dict[str, str], threshold: float = 0.6):
+    """Per sentence: (status, cited id, support). Support = share of the sentence's
+    content words found in the cited source; the best of several cited sources counts."""
+    rows = []
+    for sent in SENT.split(answer.strip()):
+        ids, claim = CITE.findall(sent), words(CITE.sub("", sent))
+        if not ids:
+            rows.append(("uncited", None, 0.0, sent)); continue
+        sid, sup = max(((i, len(claim &amp; words(sources.get(i, ""))) / max(len(claim), 1))
+                        for i in ids), key=lambda t: t[1])
+        status = "bad id" if sid not in sources else "ok" if sup &gt;= threshold else "unsupported"
+        rows.append((status, sid, round(sup, 2), sent))
+    return rows</code></pre>
+  <p class="code-cap">S1 and S2 are the Pod Lifecycle passages on <code>restartPolicy</code> and the restart back-off. The <code>--max-backoff</code> flag in sentence 3 is invented: it plays the hallucination.</p>
+  <pre><code class="plain">ok          S1    1.0   The default restartPolicy is Always [S1].
+ok          S2    0.89  The kubelet restarts exited containers with an exponential back-off capped at 300 seconds [S2].
+unsupported S2    0.33  You can raise the back-off cap with the --max-backoff kubelet flag [S2].
+uncited     None  0.0   Jobs usually set OnFailure.
+bad id      S4    0.0   Never disables restarts entirely [S4].
+citation accuracy: 2 / 4
+
+negation:   ('ok', 'S1', 0.75)           "The default restartPolicy is not Always [S1]."
+paraphrase: ('unsupported', 'S1', 0.09)  "Unless you say otherwise, pods restart their containers no matter how they exited [S1]."</code></pre>
+  <div class="box def"><span class="tag">Definition · citation metrics</span>
+    $$\text{citation accuracy} = \frac{\#\{\text{cited sentences their citation supports}\}}{\#\{\text{cited sentences}\}}$$
+    $$\text{coverage} = \frac{\#\{\text{factual sentences with a citation}\}}{\#\{\text{factual sentences}\}}$$
+    <p>Report both. A model that cites nothing scores perfect accuracy on zero sentences.</p>
+  </div>
+  <p>The last two rows show the limits: overlap passes a <b>negated</b> claim (0.75) and fails a correct <b>paraphrase</b> (0.09). Use it as a cheap first filter for invented flags, wrong ids and missing citations, with the threshold tuned on hand-labelled sentences. A model-based verifier is stronger: an entailment model or an LLM judge checking one claim against one passage. <a href="p05.html#l51">L51</a> builds it as the faithfulness metric. Quotes allow an exact test: each must be a verbatim substring of its source, up to whitespace and case.</p>
+
+  <h3>Saying "the documentation doesn't cover this" well</h3>
+  <p>A refusal is an answer, and it has three cases. (1) <b>Nothing relevant retrieved:</b> the top reranker score is under the calibrated floor (<a href="#l44">L44</a>), so skip the model and return a fixed message. (2) <b>Retrieved but not answering:</b> say so, name the nearest covered topic, and offer a next step such as opening a ticket. (3) <b>Partly covered:</b> answer that part with citations and state the gap without filling it. Keep unanswerable questions in the eval and count both errors: false answers and false refusals (<a href="p01.html#l12">L12</a>).</p>
+
+  <h3>Native citations in the Anthropic API</h3>
+  <p>Instead of asking for <code>[S#]</code> markers, pass each chunk as a <code>document</code> block with <code>"citations": {"enabled": True}</code> (<code>CitationsConfigParam</code>). The response comes back as several <code>text</code> blocks. A block that makes a claim carries a <code>citations</code> list of <code>TextCitation</code> objects. For plain-text sources each is a <code>CitationCharLocation</code>: <code>type="char_location"</code>, <code>cited_text</code>, <code>document_index</code>, <code>document_title</code>, <code>start_char_index</code>, <code>end_char_index</code>. PDFs give <code>page_location</code>. Custom-content documents give <code>content_block_location</code>, so you choose the citable units. <code>search_result</code> blocks give <code>search_result_location</code> and suit RAG results, including tool results. Shapes checked against <code>anthropic</code> 1.13.</p>
+  <pre><code>from docpilot.llm import chat
+
+def as_documents(hits: list[Hit]) -&gt; list[dict]:
+    return [{"type": "document",
+             "source": {"type": "text", "media_type": "text/plain", "data": h.text},
+             "title": h.heading_path,
+             "context": f"URL: {h.url}",          # shown to the model, never cited
+             "citations": {"enabled": True}} for h in hits]
+
+def render_native(msg, hits: list[Hit]) -&gt; tuple[str, list[str]]:
+    parts, sources = [], []
+    for block in msg.content:
+        if block.type != "text":
+            continue
+        parts.append(block.text)
+        for c in block.citations or []:
+            if c.type != "char_location":
+                continue
+            h = hits[c.document_index]
+            label = f"{h.heading_path} &lt;{h.url}&gt;"
+            if label not in sources:
+                sources.append(label)
+            parts.append(f"[{sources.index(label) + 1}]")
+    return "".join(parts), sources
+
+question = "What restart policy does a pod get by default?"
+msg = chat([{"role": "user", "content": [*as_documents(hits), {"type": "text", "text": question}]}],
+           system="Answer from the documents only. If they don't cover the question, say so.")
+answer, sources = render_native(msg, hits)</code></pre>
+  <p>On a hand-built <code>Message</code> whose middle block <code>"Always"</code> cites characters 102–130 of document 0, <code>render_native</code> returns <code>If you set nothing, the policy is Always[1].</code> plus one source line. Check locally that <code>cited_text == source[start:end]</code>. Native citations guarantee that the quoted span exists, not that it supports the claim, so keep the support check. The Citations docs have stated that citations can't be combined with structured JSON outputs (<code>output_config.format</code>); check the current page.</p>
+
+  <div class="box note"><span class="tag">Formatting answers for readers</span>
+    <ul>
+      <li>Lead with the direct answer, then steps. Use numbered lists for procedures and code fences for YAML and commands. Name the version the answer applies to (<a href="p03.html#l33">L33</a>).</li>
+      <li>Render <code>[S2]</code> as a numbered footnote with heading path and URL. Never show raw chunk ids.</li>
+      <li>Make "the docs don't cover this" look different from a normal answer, so users don't skim past it.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Citation theatre.</b> Every sentence ends in <code>[S1]</code> because the prompt demanded citations, whether or not S1 says it. Coverage looks perfect. Only the support check exposes it.</li>
+      <li><b>Ids drift.</b> The answer cites S3, but the UI re-sorts the sources, so footnote 3 points at a different chunk. Keep one id-to-chunk map per request and log it with the answer.</li>
+      <li><b>Over-refusal after tightening the prompt.</b> Stricter grounding rules raise false refusals on answerable questions. Measure both directions after every prompt change (<a href="p08.html#l93">L93</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4>
+    <ol>
+      <li>Switch DocPilot's generator to <code>SYSTEM</code> + <code>build_prompt</code>. Parse <code>&lt;quotes&gt;</code> and <code>&lt;answer&gt;</code>, and verify every quote verbatim against its source.</li>
+      <li>Add <code>check_citations</code> to the answer path. Hand-label 50 sentences from real answers as supported or not, and pick the threshold that best separates them.</li>
+      <li>Add five unanswerable questions to the seed eval. Count false answers and false refusals.</li>
+      <li>Run the same 30 questions with native citations (<code>as_documents</code>). Compare citation accuracy, coverage and output tokens with the <code>[S#]</code> version.</li>
+    </ol>
+    <p><b>Ship:</b> answers with checked citations, and a measured citation accuracy and coverage on the seed eval.</p>
+  </div>
+  <p class="refs"><b>Read</b> Anthropic docs, Citations · Anthropic docs, Long context prompting tips · Anthropic docs, Reduce hallucinations · Gao et al. 2023, “Enabling Large Language Models to Generate Text with Citations” · Liu, Zhang &amp; Liang 2023, “Evaluating Verifiability in Generative Search Engines”</p>
+</article>
+<!-- ================================================================ L46 -->
+<article class="day" id="l46">
+  <header class="day-head">
+    <span class="day-no">L46 · DAY 32</span>
+    <h2>Conversational RAG: Follow-Ups, History and Query Condensation</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">In a conversation, the retriever and the generator need different things. The retriever needs one standalone query, so rewrite every follow-up into one before searching. The generator needs a short slice of recent history plus fresh sources. Then measure whether follow-ups retrieve as well as first questions.</p>
+
+  <h3>Follow-ups that don't stand alone</h3>
+  <p>"And on Windows nodes?", "Does that work for StatefulSets?" and "Why?" mean something only with the previous turns. Embedded alone, "and on Windows nodes?" retrieves generic Windows pages. A pipeline that scores well on single questions can fail on every follow-up, and a single-turn eval never shows it.</p>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p><b>Turn 1:</b> "How do I set CPU limits on a pod?" retrieves <i>Resource Management for Pods and Containers</i>.<br>
+    <b>Turn 2:</b> "and on Windows nodes?"</p>
+    <ul>
+      <li><b>Raw follow-up:</b> Windows overview pages, no resource management.</li>
+      <li><b>Previous question + follow-up:</b> better, but now two topics weighted equally.</li>
+      <li><b>Condensed</b> "set CPU limits for pods on Windows nodes": <i>Resource Management for Windows nodes</i>, the page that answers it.</li>
+    </ul>
+  </div>
+
+  <h3>Query condensation</h3>
+  <p>A small, fast model rewrites the latest message into one standalone query before retrieval. This is query rewriting (<a href="#l43">L43</a>) with the conversation as extra input.</p>
+  <div class="box algo"><span class="tag">Algorithm · One conversational turn</span>
+    <ol>
+      <li>First turn: the message is the query. Skip the model call.</li>
+      <li>Otherwise condense the recent turns and the new message into JSON <code>{query, retrieve}</code>, using a schema in <code>output_config</code> (<a href="p02.html#l20">L20</a>). Resolve pronouns and ellipsis, copy identifiers exactly, and drop the old topic when the user switches.</li>
+      <li>If <code>retrieve</code> is true, or there are no previous hits, search with the query and the profile's filters. Otherwise reuse the last hits.</li>
+      <li>Generate from the last two exchanges plus this turn's sources. Store the answer with its citation markers stripped.</li>
+    </ol>
+  </div>
+  <pre><code>import json
+from dataclasses import dataclass, field
+
+from docpilot.llm import SMALL, chat, text_of
+from docpilot.search import Hit
+
+CONDENSE = """Rewrite the user's latest message as one standalone search query for the Kubernetes docs.
+Resolve pronouns and ellipsis ("it", "that one", "and on Windows?") from the conversation.
+Copy product names, versions, flags and error messages exactly.
+If the latest message starts a new topic, ignore the earlier turns.
+Set retrieve to false only when the message asks to rephrase or expand the previous answer."""
+SCHEMA = {"type": "object", "additionalProperties": False, "required": ["query", "retrieve"],
+          "properties": {"query": {"type": "string"}, "retrieve": {"type": "boolean"}}}
+
+@dataclass
+class Conversation:
+    turns: list[dict] = field(default_factory=list)   # user/assistant pairs, citations stripped
+    profile: dict = field(default_factory=dict)       # remembered facts, e.g. {"version": "1.31"}
+    last_hits: list[Hit] = field(default_factory=list)
+
+def condense(conv: Conversation, message: str, *, llm=chat, keep: int = 6) -&gt; tuple[str, bool]:
+    if not conv.turns:                                # first turn: nothing to resolve, no model call
+        return message, True
+    history = "\n".join(f"{t['role']}: {t['content'][:600]}" for t in conv.turns[-keep:])
+    prompt = f"&lt;conversation&gt;\n{history}\n&lt;/conversation&gt;\n&lt;latest&gt;{message}&lt;/latest&gt;"
+    fmt = {"format": {"type": "json_schema", "schema": SCHEMA}}
+    try:
+        out = json.loads(text_of(llm([{"role": "user", "content": prompt}], system=CONDENSE,
+                                     model=SMALL, max_tokens=200, output_config=fmt)))
+        return out["query"].strip() or message, bool(out["retrieve"])
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+        last_user = next(t["content"] for t in reversed(conv.turns) if t["role"] == "user")
+        return f"{last_user} {message}", True         # crude, but retrieval still sees the topic</code></pre>
+  <p>A refusal, a <code>max_tokens</code> stop or a condenser outage should give a worse query, not a failed turn. Condensing also adds a small-model round trip before retrieval can start, so put it on the latency waterfall (<a href="p05.html#l59">L59</a>).</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 230" role="img" aria-label="Conversation history feeds a condenser that writes a standalone query; search uses the query; the generator sees recent turns and new sources">
+      <defs><marker id="ah-l46" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="20" width="230" height="32" rx="6" class="s-node"/>
+      <text x="32" y="41" class="s-sm">user: CPU limits on a pod?</text>
+      <rect x="20" y="60" width="230" height="32" rx="6" class="s-node"/>
+      <text x="32" y="81" class="s-ink2 s-sm">bot: resources.limits [S1]</text>
+      <rect x="20" y="100" width="230" height="32" rx="6" class="s-node-mod"/>
+      <text x="32" y="121" class="s-sm">user: and on Windows nodes?</text>
+      <rect x="300" y="55" width="130" height="50" rx="8" class="s-node-mod"/>
+      <text x="365" y="76" class="s-ttl s-mid">condense</text>
+      <text x="365" y="95" class="s-ink2 s-mid s-sm">small model, JSON</text>
+      <text x="565" y="47" class="s-mod s-mid s-sm">standalone query</text>
+      <rect x="470" y="55" width="190" height="50" rx="8" class="s-node"/>
+      <text x="565" y="76" class="s-mid s-sm">CPU limits for pods</text>
+      <text x="565" y="95" class="s-mid s-sm">on Windows nodes</text>
+      <rect x="470" y="150" width="190" height="40" rx="8" class="s-node"/>
+      <text x="565" y="175" class="s-mid s-sm">search(k=5, version)</text>
+      <rect x="300" y="150" width="130" height="40" rx="8" class="s-node"/>
+      <text x="365" y="175" class="s-ttl s-mid">generate</text>
+      <line x1="250" y1="80" x2="298" y2="80" class="s-ln" marker-end="url(#ah-l46)"/>
+      <line x1="430" y1="80" x2="468" y2="80" class="s-ln" marker-end="url(#ah-l46)"/>
+      <line x1="565" y1="105" x2="565" y2="148" class="s-ln" marker-end="url(#ah-l46)"/>
+      <line x1="470" y1="170" x2="432" y2="170" class="s-ln" marker-end="url(#ah-l46)"/>
+      <path d="M135,132 L135,170 L298,170" class="s-ln-mod s-dash" marker-end="url(#ah-l46)"/>
+      <text x="216" y="162" class="s-mod s-mid s-sm">last 2 exchanges</text>
+      <text x="365" y="212" class="s-ink3 s-mid s-sm">answer, fresh [S#] ids</text>
+      <text x="565" y="212" class="s-ink3 s-mid s-sm">retrieve=false → reuse hits</text>
+    </svg>
+    <figcaption><b>Two views of one conversation.</b> Search sees only the condensed query. The generator sees the recent turns, so "in two lines, please" still works, plus this turn's sources.</figcaption>
+  </figure>
+
+  <h3>Which history goes where</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Component</th><th>Gets</th><th>Leaves out</th></tr></thead>
+    <tbody>
+      <tr><td>Condenser</td><td>last 3 exchanges, each truncated; the new message</td><td>sources, system prompt</td></tr>
+      <tr><td>Retriever</td><td>the standalone query; filters from the profile</td><td>everything conversational</td></tr>
+      <tr><td>Generator</td><td>last 2 exchanges verbatim, older turns as a summary; this turn's sources</td><td>earlier turns' chunks and their citation ids</td></tr>
+    </tbody>
+  </table></div>
+  <p>Old chunks should not travel forward. They cost tokens on every turn, and their <code>[S#]</code> ids clash with this turn's: "S1" in turn 2 and "S1" in turn 4 are different chunks. Once the history outgrows its budget, replace the oldest turns with a running summary (<a href="p07.html#l75">L75</a>). Prompt caching (<a href="p02.html#l24">L24</a>) still pays off for the stable prefix, because each turn only appends.</p>
+
+  <h3>Retrieve every turn, or reuse?</h3>
+  <p>Retrieving on every turn is the safe default. Reuse saves a search only when the user asks about the answer itself: "shorter", "explain step 2", "as YAML". "And on Windows?" looks like a small change but needs a different page. Let the condenser decide, and retrieve when unsure. A middle path is to retrieve fresh and keep the previous turn's top one or two hits in the reranker's pool.</p>
+  <pre><code>from docpilot.grounded import CITE, SYSTEM, build_prompt     # L45
+from docpilot.search import search
+
+def ask(conv: Conversation, message: str, *, llm=chat, retrieve=search) -&gt; str:
+    query, fresh = condense(conv, message, llm=llm)
+    if fresh or not conv.last_hits:
+        filters = {"version": conv.profile["version"]} if "version" in conv.profile else None
+        conv.last_hits = retrieve(query, k=5, filters=filters)
+    recent = conv.turns[-4:]                          # last two exchanges verbatim; older ones summarised (L75)
+    msg = llm([*recent, {"role": "user", "content": build_prompt(query, conv.last_hits)}], system=SYSTEM)
+    reply = text_of(msg)
+    conv.turns += [{"role": "user", "content": message},
+                   {"role": "assistant", "content": CITE.sub("", reply)}]
+    return reply</code></pre>
+
+  <h3>Remembering user context</h3>
+  <p>Some facts outlive a turn: the Kubernetes version, the node OS, the cloud provider, the user's role. Keep them in an explicit <code>profile</code>. Fill it when the user states a fact, or ask once when it matters. Use it for retrieval filters (<a href="p03.html#l33">L33</a>) and as one line in the prompt. Keep it session-scoped. Cross-session memory needs consent, a way to see and clear it, and its own design (<a href="p07.html#l76">L76</a>). Don't infer sensitive attributes.</p>
+
+  <h3>Evaluating multi-turn conversations</h3>
+  <p>Script conversations in which every follow-up has a gold standalone query and gold chunks. The headline number is the follow-up gap:</p>
+  $$\Delta = \text{recall@5}(\text{first turns}) - \text{recall@5}(\text{follow-ups})$$
+  <p>Compare raw, concatenated and condensed queries. Then test the condenser itself: identifiers survive, topic switches drop the old topic, and rephrase requests set <code>retrieve=false</code>. Test the plumbing with a fake <code>chat()</code> that returns scripted <code>Message</code> objects and records every call:</p>
+  <pre><code># tests/fakes.py, reused by later lessons
+import json
+from anthropic.types import Message
+
+def reply(text, i=1200, o=80):
+    return Message.model_validate({"id": "m", "type": "message", "role": "assistant", "model": "x",
+        "content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "stop_sequence": None,
+        "usage": {"input_tokens": i, "output_tokens": o}})
+
+class FakeLLM:
+    def __init__(self, *texts):
+        self.texts, self.calls = list(texts), []
+    def __call__(self, messages, **kw):
+        self.calls.append({"messages": messages, **kw})
+        return reply(self.texts.pop(0))
+
+def fake_search(log):
+    def search(query, *, k=5, filters=None):
+        log.append((query, filters))
+        return [Hit("c1", "chunk text", 1.0, "https://kubernetes.io/x", "A &gt; B")]
+    return search
+
+# tests/test_conversation.py (imports from fakes and docpilot.conversation omitted)
+def test_follow_up_is_condensed_with_history_and_the_small_model():
+    conv, log = Conversation(profile={"version": "1.31"}), []
+    llm = FakeLLM("Set resources.limits.cpu [S1].",
+                  json.dumps({"query": "set CPU limits on pods on Windows nodes", "retrieve": True}),
+                  "On Windows nodes ... [S1].")
+    ask(conv, "How do I set CPU limits on a pod?", llm=llm, retrieve=fake_search(log))
+    ask(conv, "and on Windows nodes?", llm=llm, retrieve=fake_search(log))
+    cond = llm.calls[1]
+    assert cond["model"] == "claude-haiku-5-5" and "CPU limits on a pod" in cond["messages"][0]["content"]
+    assert log[1] == ("set CPU limits on pods on Windows nodes", {"version": "1.31"})
+    assert "[S1]" not in conv.turns[1]["content"]      # stale citation ids stripped from history
+    assert [m["role"] for m in llm.calls[2]["messages"]] == ["user", "assistant", "user"]</code></pre>
+  <pre><code class="plain">$ pytest -q test_conversation.py      # also: first turn skips the condenser, rephrase reuses hits,
+....                                  #       non-JSON condenser output falls back to concatenation
+4 passed</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Topic stickiness.</b> The user moves from CPU limits to Ingress, and the condenser writes "Ingress CPU limits". Script topic switches into the eval.</li>
+      <li><b>Identifier mangling.</b> The condenser "tidies" <code>--max-pods</code> into "maximum pods", and BM25 loses the exact match. Check that identifiers survive.</li>
+      <li><b>Over-reuse.</b> <code>retrieve=false</code> on a follow-up that needed new facts. The answer is fluent, cited and wrong. When unsure, retrieve.</li>
+
+      <li><b>Profile drift.</b> The user upgraded from 1.29 to 1.31 mid-session, and the old version filter still applies. Show the active profile and let the user correct it.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4>
+    <ol>
+      <li>Add <code>docpilot/conversation.py</code> and its fake-<code>chat()</code> tests: first turn, follow-up, reuse and fallback.</li>
+      <li>Script 15 conversations of 3–4 turns: 5 ellipsis follow-ups, 4 pronoun follow-ups, 3 topic switches and 3 rephrase requests. Give each follow-up a gold standalone query and gold chunk ids.</li>
+      <li>Measure recall@5 on follow-ups for raw, concatenated and condensed queries, and compute \(\Delta\) against first-turn recall.</li>
+      <li>Add string checks for identifier survival, and read every condensation that failed one.</li>
+    </ol>
+    <p><b>Ship:</b> follow-up questions retrieve as well as first questions, with \(\Delta\) close to zero on the 15 conversations and the per-strategy table to prove it.</p>
+  </div>
+  <p class="refs"><b>Read</b> Elgohary, Peskov &amp; Boyd-Graber 2019, “Can You Unpack That? Learning to Rewrite Questions-in-Context” · Anantha et al. 2021, “Open-Domain Question Answering Goes Conversational via Question Rewriting” · Qu et al. 2020, “Open-Retrieval Conversational Question Answering” · Anthropic docs, Structured outputs</p>
+</article>
+<!-- ================================================================ L47 -->
+<article class="day" id="l47">
+  <header class="day-head">
+    <span class="day-no">L47 · DAY 33</span>
+    <h2>Access Control, Permissions and PII in RAG</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">Anything that reaches the prompt can reach the answer. Permissions must therefore be enforced where chunks are selected, in the retrieval layer, for the authenticated user, and failing closed. The same holds for everything derived from those chunks: summaries, caches, logs and deletions.</p>
+
+  <h3>Enforce permissions in retrieval, not in the prompt</h3>
+  <p>"Don't reveal documents the user can't see" is not a control. The model doesn't know who is asking, and a restricted chunk in its context can be quoted or summarised by the next follow-up. The control is structural. Each chunk carries its source document's access list, copied at ingestion. <code>search</code> requires a <code>Principal</code> built from the authenticated session. The filter runs before ranking. An unlabelled chunk is visible to nobody.</p>
+  <div class="box def"><span class="tag">Definition · Early and late binding</span>
+    <p><b>Early binding</b> copies ACLs into the index and filters on them: fast, but only as fresh as the last ACL sync. <b>Late binding</b> asks the source system (wiki, ticket tool, Git host) about each returned document: always current, but one more call per request, and it fails when the source is down. Many systems filter early and late-check only the few sensitive documents that reach the prompt.</p>
+  </div>
+  <pre><code>import logging
+import re
+from dataclasses import dataclass
+
+from docpilot.search import Hit
+
+log = logging.getLogger("docpilot.acl")
+
+@dataclass(frozen=True)
+class Principal:                    # built from the authenticated session, never from the request body
+    user: str
+    tenant: str
+    groups: frozenset[str]
+
+def allowed(p: Principal, meta: dict) -&gt; bool:
+    """Fail closed: a chunk with no ACL is visible to nobody."""
+    acl = meta.get("acl")
+    if not acl or acl.get("tenant") != p.tenant:
+        return False
+    allow = set(acl.get("allow", ()))
+    return "*" in allow or p.user in allow or bool(allow &amp; p.groups)
+
+class SecureIndex:
+    def __init__(self, chunks: list[Hit]):
+        self.chunks = chunks
+
+    def search(self, query: str, *, principal: Principal, k: int = 5) -&gt; list[Hit]:
+        terms = set(re.findall(r"\w+", query.lower()))
+        pool = [c for c in self.chunks if allowed(principal, c.meta)]     # pre-filter, before ranking
+        scored = [(len(terms &amp; set(re.findall(r"\w+", c.text.lower()))), c) for c in pool]
+        hits = [c for s, c in sorted(scored, key=lambda t: -t[0]) if s &gt; 0][:k]
+        leaked = [h.id for h in hits if not allowed(principal, h.meta)]  # defence in depth
+        if leaked:
+            log.error("ACL post-check dropped %s for %s", leaked, principal.user)
+        return [h for h in hits if h.id not in leaked]</code></pre>
+  <p class="code-cap">Toy term-overlap ranking so the tests run anywhere. In DocPilot the pre-filter becomes a metadata filter on both the BM25 and vector queries (<a href="p03.html#l33">L33</a>); the post-check stays.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 240" role="img" aria-label="Authenticated principal flows into the retrieval layer, which filters the index by tenant and group before ranking; a summary built from public and restricted chunks inherits the restricted ACL">
+      <defs><marker id="ah-l47" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="40" width="150" height="50" rx="8" class="s-node"/>
+      <text x="95" y="61" class="s-ttl s-mid">auth session</text>
+      <text x="95" y="80" class="s-ink2 s-mid s-sm">alice · {dev}</text>
+      <rect x="220" y="40" width="200" height="50" rx="8" class="s-node-mod"/>
+      <text x="320" y="61" class="s-ttl s-mid">retrieval layer</text>
+      <text x="320" y="80" class="s-ink2 s-mid s-sm">tenant + group filter</text>
+      <rect x="470" y="40" width="190" height="50" rx="8" class="s-node"/>
+      <text x="565" y="61" class="s-ttl s-mid">prompt context</text>
+      <text x="565" y="80" class="s-ink2 s-mid s-sm">only allowed chunks</text>
+      <line x1="170" y1="65" x2="218" y2="65" class="s-ln" marker-end="url(#ah-l47)"/>
+      <line x1="420" y1="65" x2="468" y2="65" class="s-ln" marker-end="url(#ah-l47)"/>
+      <rect x="220" y="140" width="200" height="80" rx="8" class="s-node"/>
+      <text x="320" y="160" class="s-ttl s-mid">index</text>
+      <rect x="230" y="176" width="58" height="26" rx="4" class="s-node"/>
+      <text x="259" y="193" class="s-acc s-mid s-sm">public</text>
+      <rect x="294" y="176" width="58" height="26" rx="4" class="s-node"/>
+      <text x="323" y="193" class="s-warn s-mid s-sm">sre</text>
+      <rect x="358" y="176" width="54" height="26" rx="4" class="s-node"/>
+      <text x="385" y="193" class="s-bad s-mid s-sm">globex</text>
+      <line x1="320" y1="140" x2="320" y2="92" class="s-ln" marker-end="url(#ah-l47)"/>
+      <text x="328" y="122" class="s-ink3 s-sm">public only</text>
+      <rect x="470" y="140" width="190" height="80" rx="8" class="s-node-mod"/>
+      <text x="565" y="162" class="s-ttl s-mid">derived summary</text>
+      <text x="565" y="184" class="s-ink2 s-mid s-sm">from public + sre</text>
+      <text x="565" y="204" class="s-warn s-mid s-sm">ACL = {sre} only</text>
+      <path d="M323,202 L323,212 L468,212" class="s-ln-warn s-dash" marker-end="url(#ah-l47)"/>
+    </svg>
+    <figcaption><b>Filter before ranking, and label what you derive.</b> For Alice (group dev) only the public chunk can become a candidate. A summary of public + SRE chunks carries the stricter label.</figcaption>
+  </figure>
+
+  <h3>Query-time filters or separate indexes</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Filter at query time</th><th>Separate index per boundary</th></tr></thead>
+    <tbody>
+      <tr><td><b>Isolation</b></td><td>logical: one missing filter leaks</td><td>physical: a wrong index is the only failure</td></tr>
+      <tr><td><b>ACL change</b></td><td>update metadata, no re-embedding</td><td>move or copy chunks between indexes</td></tr>
+      <tr><td><b>Shared docs</b></td><td>stored once</td><td>duplicated in every index</td></tr>
+      <tr><td><b>Recall</b></td><td>selective filters hurt ANN recall (<a href="p03.html#l31">L31</a>)</td><td>unaffected</td></tr>
+      <tr><td><b>Deletion</b></td><td>by document id</td><td>drop the whole index for a tenant</td></tr>
+    </tbody>
+  </table></div>
+  <p>The usual answer is both: one collection or namespace per tenant, the boundary that must never fail, and metadata filters for groups within a tenant.</p>
+
+  <h3>Tests that try to break it</h3>
+  <p>Write tests as attacks, each asserting that a specific id is absent:</p>
+  <pre><code>import pytest
+
+def chunk(id, text, tenant="acme", allow=("*",)):
+    return Hit(id, text, 0.0, f"https://docs.example/{id}", id, {"acl": {"tenant": tenant, "allow": list(allow)}})
+
+INDEX = SecureIndex([
+    chunk("pub-drain", "Use kubectl drain to evict pods before node maintenance."),
+    chunk("sre-runbook", "Prod drain runbook: page the on-call, then kubectl drain node-17.", allow=["sre"]),
+    chunk("other-tenant", "Globex kubectl drain notes and maintenance window.", tenant="globex"),
+    Hit("unlabelled", "kubectl drain cheat sheet", 0.0, "https://docs.example/u", "u", {}),
+])
+dev = Principal("alice", "acme", frozenset({"dev"}))
+sre = Principal("bob", "acme", frozenset({"sre"}))
+def ids(hits): return {h.id for h in hits}
+
+def test_restricted_chunk_absent_even_for_a_verbatim_query():
+    assert "sre-runbook" not in ids(INDEX.search("Prod drain runbook: page the on-call", principal=dev, k=10))
+
+def test_group_member_sees_it():
+    assert "sre-runbook" in ids(INDEX.search("prod drain runbook", principal=sre))
+
+def test_no_cross_tenant_results():
+    assert "other-tenant" not in ids(INDEX.search("globex drain maintenance", principal=sre, k=10))
+
+def test_unlabelled_chunks_fail_closed():
+    assert "unlabelled" not in ids(INDEX.search("kubectl drain cheat sheet", principal=sre, k=10))
+
+def test_principal_is_required():
+    with pytest.raises(TypeError):
+        INDEX.search("drain")</code></pre>
+  <pre><code class="plain">$ pytest -q test_acl.py          # the five above + the two derive_acl tests below
+.......
+7 passed</code></pre>
+
+  <h3>Summaries that cross permission boundaries</h3>
+  <p>Enrichment creates new text from old: chunk contexts and summaries (<a href="#l42">L42</a>), parents (<a href="p05.html#l53">L53</a>), graph summaries (<a href="p05.html#l54">L54</a>), memories, cached answers. A summary of a public page and an SRE runbook, labelled public, leaks the runbook to everyone. Each derived artefact records its source ids and admits only principals who could read <em>every</em> source. Cross-tenant derivation is refused.</p>
+  <pre><code>def derive_acl(metas: list[dict]) -&gt; dict:
+    """ACL for a summary built from several chunks: only who could read every source."""
+    tenants = {m["acl"]["tenant"] for m in metas}
+    if len(tenants) != 1:
+        raise ValueError("refusing to derive an artefact across tenants")
+    allows = [set(m["acl"]["allow"]) for m in metas]
+    specific = [a for a in allows if "*" not in a]
+    allow = set.intersection(*specific) if specific else {"*"}
+    return {"tenant": tenants.pop(), "allow": sorted(allow)}</code></pre>
+  <p>Intersection is conservative: sources labelled <code>{sre}</code> and <code>{dev}</code> give an empty label even though some users are in both groups. That is the right direction to fail. Answers are derived artefacts too, so an answer cache must be keyed by the permission set as well as the query (<a href="p10.html#l111">L111</a>).</p>
+
+  <h3>PII: redact at ingestion or at answer time</h3>
+  <p><b>Ingestion-time</b> redaction keeps PII out of the index, embeddings, prompts and logs. It is the data-minimisation default, but it hides values from users entitled to see them. <b>Answer-time</b> redaction masks output per user, but PII then reaches the model provider and your traces. A common design redacts at ingestion with stable placeholders, and keeps the value map in the source system behind its own ACL.</p>
+  <pre><code>import re
+
+PATTERNS = {                                     # most specific first
+    "EMAIL": re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b"),
+    "IPV4": re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"),
+    "PHONE": re.compile(r"(?&lt;![\w.])\+?\d{1,3}[ -]?\(?\d{2,4}\)?[ -]?\d{3,4}[ -]?\d{3,4}\b"),
+}
+
+def redact(text: str) -&gt; tuple[str, dict[str, str]]:
+    """Replace matches with stable typed placeholders; return the text and the value map."""
+    mapping: dict[str, str] = {}
+    for kind, rx in PATTERNS.items():
+        def repl(m, kind=kind):
+            n = sum(v.startswith(f"[{kind}_") for v in mapping.values())
+            return mapping.setdefault(m.group(0), f"[{kind}_{n + 1}]")
+        text = rx.sub(repl, text)
+    return text, mapping</code></pre>
+  <pre><code class="plain">in : From jane.doe@globex.com: since 09:40 node 10.0.3.17 can't reach the API server. Call me on
+     +44 20 7946 0958. Upgraded to v1.31.2, ran kubectl cordon 10.0.3.17, cc ops@globex.com.
+     My colleague Priya Shah saw it too.
+out: From [EMAIL_1]: since 09:40 node [IPV4_1] can't reach the API server. Call me on
+     [PHONE_1]. Upgraded to v1.31.2, ran kubectl cordon [IPV4_1], cc [EMAIL_2].
+     My colleague Priya Shah saw it too.</code></pre>
+  <p>The repeated IP keeps one placeholder, and the version and time survive. The name is missed, because regexes only catch formats. Production systems use dedicated detectors such as Microsoft Presidio (pattern recognisers plus named-entity models and context words) or a cloud DLP service. Their accuracy varies by entity type, language and domain, so measure recall on a labelled sample of your own tickets first. <a href="p09.html#l101">L101</a> covers logs and retention.</p>
+
+  <h3>Audit logs and deletion requests</h3>
+  <p>Log every retrieval as one append-only record: who asked, the filter applied, the chunk ids returned, and the prompt version and model. Log the redacted query. Then "could Alice have seen the runbook?" has an answer.</p>
+  <pre><code class="plain">{"ts": "2026-10-11T09:41:07Z", "request_id": "r-81f2", "user": "alice", "tenant": "acme", "groups": ["dev"],
+ "query": "node [IPV4_1] can't reach the API server", "acl_filter": {"tenant": "acme", "any_of": ["*", "alice", "dev"]},
+ "returned": ["pub-net#9", "pub-drain#3"], "model": "claude-sonnet-5-5", "prompt_version": "answer-v7"}</code></pre>
+  <p>A deletion request (a departing customer, or a right to erasure such as GDPR Art. 17) must reach every copy: source snapshot, parsed Markdown, chunks, every vector index version (<a href="#l48">L48</a>), BM25, derived artefacts (found through their source ids), response caches, eval sets and traces. Provider prompt caches expire on their TTL. The deletion is done when a test proves it: a verbatim search finds nothing for any principal, and no cache entry references the id.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Stale ACLs.</b> Access is revoked in the wiki and the index syncs nightly. Push ACL changes as events, or late-bind sensitive documents.</li>
+      <li><b>Principal from the client.</b> A <code>tenant</code> in the JSON body, or a tool argument an agent fills in (<a href="p06.html#l62">L62</a>), lets callers choose their own permissions. Inject it server-side.</li>
+      <li><b>Cache keys without permissions.</b> A semantic cache serves Bob's runbook answer to Alice.</li>
+      <li><b>Vectors treated as harmless.</b> Embeddings can be partly inverted to text (Morris et al., 2023). Give vectors the same ACLs and deletion rules.</li>
+      <li><b>PII in traces.</b> The index is redacted, but the traces log full prompts.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 40 min</h4>
+    <ol>
+      <li>Label 20 DocPilot documents: synthetic tickets per customer tenant plus SRE-only runbooks. Copy the labels into every chunk, and make <code>principal</code> required in <code>search</code>.</li>
+      <li>Port the seven tests to the real index. Add a follow-up through the L46 conversation path and an enrichment summary.</li>
+      <li>Run <code>redact</code> over the tickets before indexing. Hand-check 30 and list what it missed.</li>
+      <li>Add the audit record. Script a deletion of one tenant and assert that nothing of it is retrievable or cached.</li>
+    </ol>
+    <p><b>Ship:</b> a passing permissions test suite that runs in CI, plus a short list of PII the regex misses.</p>
+  </div>
+  <p class="refs"><b>Read</b> OWASP Top 10 for LLM Applications 2025: Sensitive Information Disclosure; Vector and Embedding Weaknesses · Microsoft Presidio documentation · Morris et al. 2023, “Text Embeddings Reveal (Almost) As Much As Text” · Regulation (EU) 2016/679 (GDPR), Art. 17</p>
+</article>
+<!-- ================================================================ L48 -->
+<article class="day" id="l48">
+  <header class="day-head">
+    <span class="day-no">L48 · DAY 34</span>
+    <h2>Keeping the Index Fresh: Updates, Deletes and Re-Embedding</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">An index is a cache of your documents, and every cache goes stale. Make ingestion incremental and idempotent: key chunks by content hash, so an edit re-embeds only what changed and a rerun does nothing. Treat a change of embedding model as a new index, built beside the old one and swapped in only after it passes the eval.</p>
+
+  <h3>Detecting changes</h3>
+  <p>There are three signals, from cheapest to most reliable. <b>Webhooks</b> and change feeds (a push to the docs repository, a wiki edit event) tell you what changed as it happens, but events get lost. <b>Timestamps</b>, ETag or Last-Modified headers on a conditional fetch, are cheap to check but lie: a <code>git checkout</code> resets mtimes, and a re-save changes the date without changing the content. <b>Content hashes</b> are the truth, and the only signal that also catches changes in your own pipeline. Use events and timestamps to decide what to fetch, and hashes to decide what to re-embed.</p>
+  <div class="box def"><span class="tag">Definition · Content-addressed chunk key</span>
+    $$\text{key}(c) = H\big(v \,\|\, d \,\|\, \text{input}(c)\big)$$
+    <p>Here \(H\) is a hash such as SHA-256, \(v\) is the pipeline version (embedding model plus chunker and enrichment versions), \(d\) is the document id, and \(\text{input}(c)\) is exactly the text that gets embedded, including any prepended heading path or context (<a href="#l42">L42</a>). Equal keys mean equal vectors, so a key that already exists never needs re-embedding. Position-based ids such as <code>jobs#2</code> do not have this property: inserting one paragraph at the top shifts every later id.</p>
+  </div>
+
+  <h3>Incremental upserts, deletes and tombstones</h3>
+  <div class="box algo"><span class="tag">Algorithm · Incremental sync</span>
+    <ol>
+      <li>Diff the source listing against the manifest. If an implausible share of documents vanished, stop: that is a broken crawl, not a mass deletion.</li>
+      <li>Skip documents whose whole-document hash is unchanged.</li>
+      <li>For a changed document, chunk it and key each chunk. Embed and upsert only the new keys, then delete the keys that disappeared. Upserting first means search never sees the document missing.</li>
+      <li>For a deleted document, delete its chunks and write a <b>tombstone</b> (id plus time), so caches, replicas and the BM25 index learn about the deletion instead of inferring it from an absence.</li>
+    </ol>
+  </div>
+  <pre><code>import hashlib
+import time
+from dataclasses import dataclass, field
+
+EMBED_VERSION = "embed-v1+chunker-v3"     # bump either part and every key changes
+
+def sha(*parts: str) -&gt; str:
+    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
+
+def chunks_of(text: str) -&gt; list[str]:     # stand-in for the L41 chunker
+    return [p.strip() for p in text.split("\n\n") if p.strip()]
+
+@dataclass
+class Manifest:
+    docs: dict[str, str] = field(default_factory=dict)          # doc_id -&gt; hash of the whole doc
+    chunks: dict[str, set[str]] = field(default_factory=dict)   # doc_id -&gt; chunk keys in the index
+    tombstones: dict[str, float] = field(default_factory=dict)  # doc_id -&gt; deletion time
+
+def sync(source: dict[str, str], m: Manifest, index, embed, *, max_delete_frac: float = 0.2) -&gt; dict:
+    gone = set(m.docs) - set(source)
+    if m.docs and len(gone) &gt; max_delete_frac * len(m.docs):
+        raise RuntimeError(f"{len(gone)} of {len(m.docs)} docs vanished; partial crawl? not deleting")
+    stats = {"unchanged_docs": 0, "embedded": 0, "deleted": 0, "tombstoned": len(gone)}
+    for doc_id, text in source.items():
+        doc_hash = sha(EMBED_VERSION, text)
+        if m.docs.get(doc_id) == doc_hash:
+            stats["unchanged_docs"] += 1
+            continue
+        new = {sha(EMBED_VERSION, doc_id, c): c for c in chunks_of(text)}   # content-addressed keys
+        old = m.chunks.get(doc_id, set())
+        add, drop = [k for k in new if k not in old], sorted(old - new.keys())
+        if add:                                                   # upsert first, then delete
+            vecs = embed([new[k] for k in add])
+            index.upsert([(k, v, {"doc_id": doc_id, "embed_version": EMBED_VERSION}) for k, v in zip(add, vecs)])
+        index.delete(drop)
+        stats["embedded"] += len(add); stats["deleted"] += len(drop)
+        m.docs[doc_id], m.chunks[doc_id] = doc_hash, set(new)
+    for doc_id in gone:
+        drop = sorted(m.chunks.pop(doc_id))
+        index.delete(drop)
+        stats["deleted"] += len(drop)
+        del m.docs[doc_id]
+        m.tombstones[doc_id] = time.time()                        # caches and replicas read these
+    return stats</code></pre>
+  <p>The simulation uses five small pages (11 paragraphs), a dictionary as the index, and an embedder that records every text it is given. The update edits one paragraph of <code>pods</code>, inserts a paragraph at the top of <code>jobs</code>, and deletes <code>ingress</code>:</p>
+  <pre><code class="plain">run 1: {'unchanged_docs': 0, 'embedded': 11, 'deleted': 0, 'tombstoned': 0}
+run 2: {'unchanged_docs': 2, 'embedded': 2, 'deleted': 3, 'tombstoned': 1}
+re-embedded: ['restartPolicy defaults to Always; Jobs use OnFailure or Never.', 'Jobs are for batch work.']
+run 3: {'unchanged_docs': 4, 'embedded': 0, 'deleted': 0, 'tombstoned': 0}
+health: {'docs': 4, 'chunks': 10, 'orphaned': 0, 'missing': 0, 'embed_versions': ['embed-v1+chunker-v3']}
+guard (crawl returned 2 of 4 docs): 2 of 4 docs vanished; partial crawl? not deleting</code></pre>
+  <p>Exactly the two changed paragraphs were embedded. The insertion at the top of <code>jobs</code> cost one embedding, not three. The deleted count of 3 is the old <code>pods</code> paragraph plus the two <code>ingress</code> chunks. Run 3 is the idempotence check: same input, zero work. Keep the manifest in a transaction with the index writes (in Postgres with pgvector this can be the same transaction), or a crash between them leaves the two disagreeing. That is what the health check catches.</p>
+
+  <h3>Re-embedding after a model change: blue/green</h3>
+  <p>Vectors from two embedding models live in different spaces and cannot share an index (<a href="p03.html#l29">L29</a>). A model upgrade, a new chunker or a Matryoshka truncation therefore means building a new index. Re-embedding cost is roughly the corpus's total tokens times the embedding price, plus the time to push every chunk through the rate limit, so estimate both before you start.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 220" role="img" aria-label="Ingest job writes to both blue (v1, live) and green (v2, backfilling) indexes; the search alias points at blue until green passes the eval gate">
+      <defs><marker id="ah-l48" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="85" width="150" height="50" rx="8" class="s-node"/>
+      <text x="95" y="106" class="s-ttl s-mid">ingest job</text>
+      <text x="95" y="125" class="s-ink2 s-mid s-sm">dual-write</text>
+      <rect x="250" y="30" width="180" height="50" rx="8" class="s-node"/>
+      <text x="340" y="51" class="s-ttl s-mid s-info">blue index</text>
+      <text x="340" y="70" class="s-ink2 s-mid s-sm">embed v1 · live</text>
+      <rect x="250" y="140" width="180" height="50" rx="8" class="s-node-mod"/>
+      <text x="340" y="161" class="s-ttl s-mid s-acc">green index</text>
+      <text x="340" y="180" class="s-ink2 s-mid s-sm">embed v2 · backfill</text>
+      <rect x="510" y="85" width="150" height="50" rx="8" class="s-node"/>
+      <text x="585" y="106" class="s-ttl s-mid">alias docs-live</text>
+      <text x="585" y="125" class="s-ink2 s-mid s-sm">search reads here</text>
+      <line x1="170" y1="100" x2="248" y2="60" class="s-ln" marker-end="url(#ah-l48)"/>
+      <line x1="170" y1="120" x2="248" y2="162" class="s-ln" marker-end="url(#ah-l48)"/>
+      <line x1="510" y1="100" x2="432" y2="60" class="s-ln-info" marker-end="url(#ah-l48)"/>
+      <text x="492" y="64" class="s-info s-mid s-sm">today</text>
+      <line x1="510" y1="120" x2="432" y2="162" class="s-ln-acc s-dash" marker-end="url(#ah-l48)"/>
+      <text x="572" y="162" class="s-acc s-mid s-sm">after eval gate</text>
+      <text x="340" y="212" class="s-ink3 s-mid s-sm">swap = one atomic alias change; blue kept for rollback</text>
+    </svg>
+    <figcaption><b>Never re-embed in place.</b> Green is backfilled from the manifest while new changes go to both indexes. Search moves only when green matches or beats blue on the retrieval eval (<a href="p05.html#l50">L50</a>).</figcaption>
+  </figure>
+  <p>The steps: create green with the new <code>EMBED_VERSION</code>; backfill it from the parsed corpus; dual-write incremental changes to both indexes until the backfill catches up; run the retrieval eval against green; flip the alias in one operation (Elasticsearch, OpenSearch and Qdrant all support aliases; with pgvector, swap a view or a table name inside a transaction); keep blue until you are sure; then delete it. Thresholds and MMR settings tuned on blue need re-tuning on green (<a href="#l44">L44</a>).</p>
+
+  <h3>Stale answers from caches</h3>
+  <p>A fresh index doesn't help while a response cache keeps serving last week's answer. There are three remedies, which combine. <b>Lineage invalidation:</b> store the cited chunk keys with each cached answer, and evict every answer whose keys were deleted or replaced. The sync's <code>drop</code> lists and tombstones are exactly the events you need. <b>Epoch keys:</b> put the index version in the cache key, so a swap flushes everything. It is simple, and heavy-handed. <b>TTLs</b> are the backstop when an event is missed. Semantic caches get the full treatment in <a href="p10.html#l111">L111</a>.</p>
+
+  <h3>Scheduling and monitoring</h3>
+  <p>For DocPilot: event-driven sync on pushes to the docs repository (re-ingest the changed files), a nightly conditional crawl for anything without events, and a weekly full reconciliation that re-hashes everything to catch missed events and pipeline bugs. Run ingestion as a queue worker with retries (<a href="p10.html#l112">L112</a>), never inside the request path. Track index health on a dashboard and alert on it:</p>
+  <ul>
+    <li><b>Counts:</b> documents in the source, the manifest and the index. Chunks per document, with a sudden drop flagged.</li>
+    <li><b>Orphaned chunks</b> (in the index, not in the manifest) and <b>missing chunks</b> (the reverse). Both should be zero.</li>
+    <li><b>Embedding versions present:</b> exactly one per index. Two means a half-finished migration or a writer on the old config.</li>
+    <li><b>Freshness lag:</b> the time from a source change to its being searchable, and the age of the last successful sync.</li>
+  </ul>
+  <pre><code>def health(m: Manifest, index) -&gt; dict:
+    expected, stored = set().union(*m.chunks.values()), set(index.rows)
+    return {"docs": len(m.docs), "chunks": len(stored), "orphaned": len(stored - expected),
+            "missing": len(expected - stored),
+            "embed_versions": sorted({meta["embed_version"] for meta in index.rows.values()})}</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A partial crawl deletes half the index.</b> A timeout returns 40% of the pages, and sync dutifully deletes the rest. The vanish guard exists for this. Alert when it trips; don't raise the limit.</li>
+      <li><b>A hash that misses an input.</b> Prompt changes in contextual enrichment, or a new chunker, alter the embedded text but not the key. Every input to the embedded string belongs in \(v\).</li>
+      <li><b>Deletes that only reach the vector store.</b> BM25, the enrichment store, caches and the eval set still hold the page. Fan tombstones out to every consumer (<a href="#l47">L47</a>).</li>
+      <li><b>Re-embedding in place.</b> For hours the index mixes two models, and search quality collapses without an error.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4>
+    <ol>
+      <li>Persist the manifest (SQLite or a Postgres table), and route DocPilot's ingestion through <code>sync</code> with your real chunker and embedder.</li>
+      <li>Simulate a docs release: check out the docs repository at two commits, sync the first, then the second. Assert that the number of embedded chunks equals the number of new chunk keys.</li>
+      <li>Run the sync a second time and assert zero embeddings and zero writes. Then truncate the source listing to 50% and assert that the guard trips.</li>
+      <li>Add <code>health</code> to the service and a test asserting zero orphaned and zero missing chunks. Write a one-page runbook for a blue/green model swap.</li>
+    </ol>
+    <p><b>Ship:</b> an idempotent, incremental ingestion job, with a test showing that only changed chunks are re-embedded.</p>
+  </div>
+  <p class="refs"><b>Read</b> Kleppmann, <i>Designing Data-Intensive Applications</i>, ch. 11 (change data capture, log compaction and tombstones) · Martin Fowler, “BlueGreenDeployment” · Elasticsearch docs, Aliases · Qdrant docs, Collections (aliases) · Chip Huyen, <i>AI Engineering</i>, ch. 6</p>
+</article>
+<!-- ================================================================ L49 -->
+<article class="day project" id="l49">
+  <header class="day-head">
+    <span class="day-no">L49 · DAY 35</span>
+    <h2>Project: DocPilot Answers Questions With Citations</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">150m practice</span><span class="tagx">project day</span></p>
+  </header>
+
+  <p class="thesis">Phase 4 ends in one endpoint. <code>/ask</code> takes an authenticated question, condenses it, retrieves only what this user may see, answers with checked citations, and reports cost and latency. A contract test with a fake model proves the plumbing; an eval run with the real model measures quality.</p>
+
+  <h3>What you are assembling</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 700 240" role="img" aria-label="Query path: auth, condense, search with ACL, rerank and MMR, generate, check citations; ingestion path: parse, chunk, enrich, incremental sync into the index">
+      <defs><marker id="ah-l49" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="10" y="28" class="s-mod s-sm">query path (per request)</text>
+      <rect x="10" y="40" width="100" height="46" rx="8" class="s-node"/>
+      <text x="60" y="60" class="s-ttl s-mid">auth</text>
+      <text x="60" y="77" class="s-ink2 s-mid s-sm">principal</text>
+      <rect x="126" y="40" width="100" height="46" rx="8" class="s-node"/>
+      <text x="176" y="60" class="s-ttl s-mid">condense</text>
+      <text x="176" y="77" class="s-ink2 s-mid s-sm">L46</text>
+      <rect x="242" y="40" width="100" height="46" rx="8" class="s-node-mod"/>
+      <text x="292" y="60" class="s-ttl s-mid">search</text>
+      <text x="292" y="77" class="s-ink2 s-mid s-sm">hybrid + ACL</text>
+      <rect x="358" y="40" width="100" height="46" rx="8" class="s-node"/>
+      <text x="408" y="60" class="s-ttl s-mid">rerank</text>
+      <text x="408" y="77" class="s-ink2 s-mid s-sm">dedup · MMR</text>
+      <rect x="474" y="40" width="100" height="46" rx="8" class="s-node"/>
+      <text x="524" y="60" class="s-ttl s-mid">generate</text>
+      <text x="524" y="77" class="s-ink2 s-mid s-sm">grounded</text>
+      <rect x="590" y="40" width="100" height="46" rx="8" class="s-node-mod"/>
+      <text x="640" y="60" class="s-ttl s-mid">check</text>
+      <text x="640" y="77" class="s-ink2 s-mid s-sm">citations</text>
+      <line x1="110" y1="63" x2="124" y2="63" class="s-ln" marker-end="url(#ah-l49)"/>
+      <line x1="226" y1="63" x2="240" y2="63" class="s-ln" marker-end="url(#ah-l49)"/>
+      <line x1="342" y1="63" x2="356" y2="63" class="s-ln" marker-end="url(#ah-l49)"/>
+      <line x1="458" y1="63" x2="472" y2="63" class="s-ln" marker-end="url(#ah-l49)"/>
+      <line x1="574" y1="63" x2="588" y2="63" class="s-ln" marker-end="url(#ah-l49)"/>
+      <text x="640" y="106" class="s-acc s-mid s-sm">answer · cost · ms</text>
+      <text x="10" y="160" class="s-mod s-sm">ingestion (background job)</text>
+      <rect x="10" y="172" width="130" height="46" rx="8" class="s-node"/>
+      <text x="75" y="192" class="s-ttl s-mid">parse</text>
+      <text x="75" y="209" class="s-ink2 s-mid s-sm">L40</text>
+      <rect x="180" y="172" width="130" height="46" rx="8" class="s-node"/>
+      <text x="245" y="192" class="s-ttl s-mid">chunk</text>
+      <text x="245" y="209" class="s-ink2 s-mid s-sm">L41</text>
+      <rect x="350" y="172" width="130" height="46" rx="8" class="s-node"/>
+      <text x="415" y="192" class="s-ttl s-mid">enrich · ACL</text>
+      <text x="415" y="209" class="s-ink2 s-mid s-sm">L42 · L47</text>
+      <rect x="520" y="172" width="130" height="46" rx="8" class="s-node-mod"/>
+      <text x="585" y="192" class="s-ttl s-mid">sync</text>
+      <text x="585" y="209" class="s-ink2 s-mid s-sm">hashes · L48</text>
+      <line x1="140" y1="195" x2="178" y2="195" class="s-ln" marker-end="url(#ah-l49)"/>
+      <line x1="310" y1="195" x2="348" y2="195" class="s-ln" marker-end="url(#ah-l49)"/>
+      <line x1="480" y1="195" x2="518" y2="195" class="s-ln" marker-end="url(#ah-l49)"/>
+      <path d="M585,172 L585,132 L292,132 L292,88" class="s-ln-mod s-dash" marker-end="url(#ah-l49)"/>
+      <text x="440" y="122" class="s-mod s-mid s-sm">index (BM25 + vectors)</text>
+    </svg>
+    <figcaption><b>Every box is a lesson you have built.</b> Today is wiring, a contract test and a measured run.</figcaption>
+  </figure>
+
+  <h3>The answer pipeline</h3>
+  <p>One function owns the order of operations, with <code>llm</code> and <code>retrieve</code> injected so tests can replace them. It returns everything the report needs.</p>
+  <pre><code>import re
+import time
+
+from docpilot.acl import Principal
+from docpilot.conversation import Conversation, condense
+from docpilot.grounded import CITE, SYSTEM, build_prompt, check_citations
+from docpilot.llm import MODEL, text_of
+
+NO_ANSWER = "The documentation I have doesn't cover this."
+
+def est_cost(u, prices: dict) -&gt; float:
+    return (u.input_tokens * prices["input"] + (u.cache_creation_input_tokens or 0) * prices["cache_write"]
+            + (u.cache_read_input_tokens or 0) * prices["cache_read"] + u.output_tokens * prices["output"]) / 1e6
+
+def answer(question: str, conv: Conversation, p: Principal, *, llm, retrieve, prices: dict) -&gt; dict:
+    t0 = time.perf_counter()
+    query, fresh = condense(conv, question, llm=llm)                        # L46
+    hits = retrieve(query, principal=p, k=5) if fresh or not conv.last_hits else conv.last_hits  # L47
+    conv.last_hits, t1 = hits, time.perf_counter()
+    if not hits:                                                            # L45: refuse, no model call
+        return {"answer": NO_ANSWER, "citations": [], "unsupported": [], "cost": 0.0,
+                "latency_ms": {"retrieve": round((t1 - t0) * 1000), "generate": 0}}
+    msg = llm([*conv.turns[-4:], {"role": "user", "content": build_prompt(query, hits)}],
+              system=SYSTEM, model=MODEL)
+    t2, raw = time.perf_counter(), text_of(msg)
+    m = re.search(r"&lt;answer&gt;(.*?)&lt;/answer&gt;", raw, re.S)
+    text = (m.group(1) if m else raw).strip()
+    src = {f"S{i}": h for i, h in enumerate(hits, 1)}
+    rows = check_citations(text, {sid: h.text for sid, h in src.items()})   # L45
+    used = sorted({s for s in CITE.findall(text) if s in src}, key=lambda s: int(s[1:]))
+    conv.turns += [{"role": "user", "content": question}, {"role": "assistant", "content": CITE.sub("", text)}]
+    u = msg.usage
+    return {"answer": text,
+            "citations": [{"id": s, "title": src[s].heading_path, "url": src[s].url} for s in used],
+            "unsupported": [r[3] for r in rows if r[0] != "ok"],
+            "usage": {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens},
+            "cost": est_cost(u, prices),
+            "latency_ms": {"retrieve": round((t1 - t0) * 1000), "generate": round((t2 - t1) * 1000)}}</code></pre>
+  <div class="box def"><span class="tag">Definition · Per-answer cost</span>
+    $$\text{cost} = \frac{t_{\text{in}}\,p_{\text{in}} + t_{\text{cw}}\,p_{\text{cw}} + t_{\text{cr}}\,p_{\text{cr}} + t_{\text{out}}\,p_{\text{out}}}{10^{6}}$$
+    <p>The \(t\) come from <code>usage</code>; with prompt caching (<a href="p02.html#l24">L24</a>), <code>input_tokens</code> excludes cache writes (cw) and reads (cr). Each \(p\) is a per-million-token price from config, taken from the current price page. Sum every call in the request: <code>chat()</code> (<a href="p00.html#l2">L2</a>) logs the condenser call under the same request id.</p>
+  </div>
+
+  <h3>The /ask API and a minimal web UI</h3>
+  <pre><code>from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+
+from docpilot.acl import Principal
+from docpilot.answer import answer
+from docpilot.conversation import Conversation
+
+class AskIn(BaseModel):
+    question: str
+    conversation_id: str = ""
+
+def create_app(*, llm, retrieve, tokens: dict[str, Principal], prices: dict) -&gt; FastAPI:
+    app, conversations = FastAPI(title="DocPilot"), {}
+
+    def principal(authorization: str = Header(default="")) -&gt; Principal:
+        p = tokens.get(authorization.removeprefix("Bearer "))     # stand-in for real session checks
+        if p is None:
+            raise HTTPException(status_code=401, detail="unauthenticated")
+        return p
+
+    @app.post("/ask")
+    def ask(body: AskIn, p: Principal = Depends(principal)) -&gt; dict:
+        conv = conversations.setdefault((p.user, body.conversation_id), Conversation())  # per user
+        return answer(body.question, conv, p, llm=llm, retrieve=retrieve, prices=prices)
+
+    @app.get("/", response_class=HTMLResponse)
+    def ui() -&gt; str:
+        return PAGE
+
+    return app</code></pre>
+  <p>The principal comes from the <code>Authorization</code> header, never the body (the token table stands in for real session checks). Conversations are keyed by <code>(user, conversation_id)</code>, so a guessed id yields an empty conversation. Dependencies are arguments: production passes the real <code>chat</code> and search, tests pass fakes.</p>
+  <pre><code>PAGE = """&lt;!doctype html&gt;&lt;meta charset="utf-8"&gt;&lt;title&gt;DocPilot&lt;/title&gt;
+&lt;form id="f"&gt;&lt;input id="q" size="80" placeholder="Ask about Kubernetes"&gt; &lt;button&gt;Ask&lt;/button&gt;&lt;/form&gt;
+&lt;p id="a"&gt;&lt;/p&gt;&lt;ol id="s"&gt;&lt;/ol&gt;
+&lt;script&gt;
+const cid = crypto.randomUUID();
+f.onsubmit = async (e) =&gt; {
+  e.preventDefault();
+  const r = await fetch("/ask", {method: "POST", headers: {"Content-Type": "application/json",
+    "Authorization": "Bearer " + localStorage.token}, body: JSON.stringify({question: q.value, conversation_id: cid})});
+  const j = await r.json();
+  a.textContent = j.answer;                       // text, never HTML: model output is untrusted
+  s.replaceChildren(...j.citations.map((c) =&gt; {
+    const li = document.createElement("li"), link = document.createElement("a");
+    link.href = c.url; link.textContent = c.title; li.append(link); return li; }));
+};
+&lt;/script&gt;"""</code></pre>
+  <p class="code-cap">Answers go in through <code>textContent</code>: model output can carry text injected via a document (<a href="p09.html#l97">L97</a>), so never render it as raw HTML. Streaming comes in <a href="p10.html#l105">L105</a>.</p>
+
+  <h3>Acceptance test</h3>
+  <p>The contract test runs in CI with no network and no key: <code>TestClient</code>, the L47 index with one public and one SRE-only chunk, and a fake model that records every prompt.</p>
+  <pre><code>import json
+from fastapi.testclient import TestClient
+
+from fakes import FakeLLM                       # L46
+
+from docpilot.acl import Principal, SecureIndex
+from docpilot.answer import NO_ANSWER
+from docpilot.api import create_app
+from docpilot.search import Hit
+
+def chunk(id, text, allow=("*",)):
+    return Hit(id, text, 0.0, f"https://docs.example/{id}", f"Tasks &gt; {id}",
+               {"acl": {"tenant": "acme", "allow": list(allow)}})
+
+INDEX = SecureIndex([chunk("drain", "Use kubectl drain to evict pods before node maintenance."),
+                     chunk("runbook", "Prod drain runbook: page the on-call, then drain node-17.", allow=["sre"])])
+PRICES = {"input": 1.0, "cache_write": 1.25, "cache_read": 0.1, "output": 2.0}
+TOKENS = {"t-dev": Principal("alice", "acme", frozenset({"dev"})),
+          "t-sre": Principal("bob", "acme", frozenset({"sre"}))}
+
+def client(llm):
+    return TestClient(create_app(llm=llm, retrieve=INDEX.search, tokens=TOKENS, prices=PRICES))
+
+def ask(c, q, token="t-dev", cid="c1"):
+    return c.post("/ask", json={"question": q, "conversation_id": cid}, headers={"Authorization": f"Bearer {token}"})</code></pre>
+  <pre><code>def test_requires_authentication():
+    assert client(FakeLLM()).post("/ask", json={"question": "drain"}).status_code == 401
+
+def test_answer_has_checked_citations_cost_and_latency():
+    llm = FakeLLM("&lt;answer&gt;Run kubectl drain to evict pods before node maintenance [S1].&lt;/answer&gt;")
+    j = ask(client(llm), "How do I evict pods before node maintenance?").json()
+    assert j["citations"] == [{"id": "S1", "title": "Tasks &gt; drain", "url": "https://docs.example/drain"}]
+    assert j["unsupported"] == [] and j["cost"] == (1200 * 1.0 + 80 * 2.0) / 1e6
+    assert set(j["latency_ms"]) == {"retrieve", "generate"}
+
+def test_restricted_text_never_reaches_the_model():
+    llm = FakeLLM("&lt;answer&gt;Use kubectl drain [S1].&lt;/answer&gt;")
+    j = ask(client(llm), "prod drain runbook for the on-call").json()
+    assert "node-17" not in json.dumps(llm.calls[-1]["messages"])     # text only the runbook contains
+    assert all("runbook" not in c["url"] for c in j["citations"])
+
+def test_no_hits_refuses_without_a_model_call():
+    llm = FakeLLM()
+    assert ask(client(llm), "zzz qqq").json()["answer"] == NO_ANSWER and llm.calls == []
+
+def test_follow_up_is_condensed_and_conversations_are_per_user():
+    llm = FakeLLM("&lt;answer&gt;Use kubectl drain [S1].&lt;/answer&gt;",
+                  json.dumps({"query": "kubectl drain evict pods maintenance", "retrieve": True}),
+                  "&lt;answer&gt;Yes [S1].&lt;/answer&gt;", "&lt;answer&gt;Runbook [S1].&lt;/answer&gt;")
+    c = client(llm)
+    ask(c, "how do I drain a node?")
+    ask(c, "and evict pods first?")
+    assert llm.calls[1]["model"] == "claude-haiku-5-5"
+    ask(c, "prod drain runbook", token="t-sre")                  # same conversation id, other user
+    assert len(llm.calls) == 4 and llm.calls[3]["model"] != "claude-haiku-5-5"</code></pre>
+  <pre><code class="plain">$ pytest -q test_api.py
+.....
+5 passed</code></pre>
+  <p>Accept when the contract test passes and the real-model run meets gates set in advance: seed correctness at least the best previous configuration; citation accuracy and coverage at the <a href="#l45">L45</a> thresholds; zero leaks on the L47 suite through the API; follow-up gap \(\Delta\) (<a href="#l46">L46</a>) within two points; unanswerables refused, false refusals reported.</p>
+
+  <h3>The eval report</h3>
+  <p>Run the 30-question seed set and a 100-question extended set (single-turn, version-specific, unanswerable, follow-up and restricted). Per category, report \(n\), correctness, citation accuracy, coverage, false refusals, leaks, p50/p95 latency and mean cost. On 30 questions one answer is 3.3 points; <a href="p05.html#l50">L50</a> adds confidence intervals.</p>
+
+  <ul class="deliverables">
+    <li><code>docpilot/answer.py</code>, <code>docpilot/api.py</code> and an entry point wiring in the real <code>chat</code> and search.</li>
+    <li>The full corpus ingested with ACLs and incremental sync; <code>health()</code> clean.</li>
+    <li><code>POST /ask</code> and the page at <code>GET /</code>, working in a browser.</li>
+    <li><code>test_api.py</code> and the L46 and L47 suites passing in CI.</li>
+    <li><code>reports/phase4.md</code> for all 130 questions with each gate marked pass or fail, plus the five worst failures and their stage (input to L52).</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Stages tested, composition not.</b> The generator gets the raw follow-up instead of the condensed query, or the reuse path skips the ACL filter. Only tests through the API catch this.</li>
+      <li><b>Serial latency.</b> Condense, retrieve, rerank and generate add up, and users feel p95. Record per-stage timings from day one (<a href="p10.html#l110">L110</a>).</li>
+      <li><b>Conversations in process memory.</b> With two workers, a follow-up lands where turn one never happened. Use a shared store before scaling out.</li>
+      
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 150 min</h4>
+    <ol>
+      <li>(30 min) Ingest the full corpus with ACL labels and ticket redaction; check <code>health()</code>.</li>
+      <li>(30 min) Wire <code>answer.py</code> and <code>api.py</code> to the real <code>chat</code> and search; try five questions in the browser.</li>
+      <li>(20 min) Make <code>test_api.py</code> pass; add a restricted probe sent as a follow-up.</li>
+      <li>(50 min) Write the 100-question set, run both sets, generate the report from the logs.</li>
+      <li>(20 min) Mark the stage at fault in the ten worst answers.</li>
+    </ol>
+    <p><b>Ship:</b> a working RAG assistant behind <code>/ask</code> with a web UI, an eval report on 130 questions, and cost and latency for every answer.</p>
+  </div>
+  <p class="refs"><b>Read</b> FastAPI docs, Testing and Dependencies · Anthropic docs, Citations · Chip Huyen, <i>AI Engineering</i>, ch. 6 (RAG) · Lewis et al. 2020, “Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks”</p>
+</article>
+
+<nav class="modnav">
+  <a href="p03.html"><small>Previous · Days 20–26</small>◂ Phase 3 — Embeddings and Search</a>
+  <a class="next" href="p05.html"><small>Next · Days 36–43</small>Phase 5 — Advanced RAG and RAG Evaluation ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

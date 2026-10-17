@@ -71,7 +71,7 @@ You set up a workbench that logs every model call, learn the shape of the API an
 
 **L3 · Day 2 · The First API Call: Messages, Roles, Parameters and Streaming · 🎥 45 m · 💻 50 m**
 
-- **COVERS:** the Messages API request — `model`, `max_tokens`, `system`, `messages` with alternating `user` and `assistant` turns, content blocks; the response — `content`, `stop_reason`, `usage`; stop reasons (`end_turn`, `max_tokens`, `stop_sequence`, `tool_use`); `temperature` and `stop_sequences`; `max_tokens` as a hard cap; statelessness — a conversation is history you resend; streaming with server-sent events and the SDK's stream helpers; error classes (400, 401, 429, 5xx and overloaded errors) and which ones to retry.
+- **COVERS:** the Messages API request — `model`, `max_tokens`, `system`, `messages` with alternating `user` and `assistant` turns, content blocks; the response — `content`, `stop_reason`, `usage`; stop reasons (`end_turn`, `max_tokens`, `stop_sequence`, `tool_use`, `refusal`, `pause_turn`); `stop_sequences`; `max_tokens` as a hard cap; effort and thinking settings as the main quality and cost dials on current Claude models, which do not expose sampling parameters such as temperature (L9 covers those on open models); statelessness — a conversation is history you resend; streaming with server-sent events and the SDK's stream helpers; error classes (400, 401, 429, 5xx and overloaded errors) and which ones to retry.
 - **BUILD:** a command-line chat client with streaming output, conversation history and a running token count.
 - **SHIP:** you can read any API response and say why it stopped and what it cost.
 
@@ -126,8 +126,8 @@ Enough of the internals to make good engineering decisions: why long prompts are
 
 **L9 · Day 6 · Sampling: Temperature, Top-p, Top-k and Logprobs · 🎥 40 m · 💻 45 m**
 
-- **COVERS:** from logits to a probability distribution (softmax with temperature); greedy decoding, temperature, top-k, nucleus (top-p) and min-p sampling; why temperature 0 is still not perfectly deterministic in practice (batching, floating point, routing in mixture-of-experts models); logprobs as a confidence signal and where providers expose them; repetition and frequency penalties; choosing settings per task (extraction vs brainstorming).
-- **BUILD:** implement temperature, top-k and top-p sampling over a toy logit vector in NumPy; measure output diversity on a real model at three temperatures.
+- **COVERS:** from logits to a probability distribution (softmax with temperature); greedy decoding, temperature, top-k, nucleus (top-p) and min-p sampling; why temperature 0 is still not perfectly deterministic in practice (batching, floating point, routing in mixture-of-experts models); logprobs as a confidence signal; which APIs expose which controls (OpenAI-compatible servers for open models expose temperature, top-p, logprobs and seeds; current Claude models expose effort and thinking controls instead of sampling parameters); repetition and frequency penalties; choosing settings per task (extraction vs brainstorming).
+- **BUILD:** implement temperature, top-k and top-p sampling over a toy logit vector in NumPy; measure output diversity at three temperatures on an open model served through an OpenAI-compatible API.
 - **SHIP:** a per-task sampling-settings table for DocPilot.
 
 ---
@@ -253,7 +253,7 @@ Prompts become engineered artefacts: structured, versioned, tested, cached and c
 
 **L24 · Day 17 · Prompt Caching: Mechanics, Breakpoints and Savings · 🎥 45 m · 💻 45 m**
 
-- **COVERS:** prefix caching — what is cached (the processed prefix) and why the prefix must match exactly; explicit cache breakpoints (`cache_control`) vs automatic caching on other providers; cache lifetimes; structuring prompts for hits (static content first, dynamic content last); reading the cache fields in `usage`; cost and TTFT savings; cache-busting mistakes (timestamps in system prompts, reordered tool lists).
+- **COVERS:** prefix caching — what is cached (the processed prefix) and why the prefix must match exactly; explicit per-block cache breakpoints and top-level automatic caching (`cache_control`), and how other providers cache automatically; cache lifetimes (5-minute and 1-hour); structuring prompts for hits (static content first, dynamic content last); reading the cache fields in `usage`; cost and TTFT savings; cache-busting mistakes (timestamps in system prompts, reordered tool lists).
 - **BUILD:** cache DocPilot's system prompt and tool definitions; measure hit rate, cost and TTFT before and after over 50 calls.
 - **SHIP:** a measured caching saving from your own logs.
 

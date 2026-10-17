@@ -1,0 +1,2010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 10 — Production LLMOps · 100 Days of AI Engineering</title>
+<meta name="description" content="100 Days of AI Engineering, phase 10: Production LLMOps (lessons 104–114).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;family=Fira+Code:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m10" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of AI Engineering</a>
+  <span class="meta">Phase 10 · Production LLMOps · Days 76–84</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 10 · Production LLMOps</h4>
+  <nav>
+    <a href="#l104"><span class="n">L104</span>Architecture of an LLM Applicatio…</a>
+    <a href="#l105"><span class="n">L105</span>Streaming to Users: SSE, WebSocke…</a>
+    <a href="#l106"><span class="n">L106</span>Observability: Traces, Spans and…</a>
+    <a href="#l107"><span class="n">L107</span>Reliability: Rate Limits, Retries…</a>
+    <a href="#l108"><span class="n">L108</span>LLM Gateways and Multi-Provider R…</a>
+    <a href="#l109"><span class="n">L109</span>Cost Engineering: Budgets, Routin…</a>
+    <a href="#l110"><span class="n">L110</span>Latency Engineering: Time to Firs…</a>
+    <a href="#l111"><span class="n">L111</span>Caching Beyond Prompts: Exact, Se…</a>
+    <a href="#l112"><span class="n">L112</span>Deploying: Containers, Serverless…</a>
+    <a href="#l113"><span class="n">L113</span>Product Patterns: UX for Uncertai…</a>
+    <a href="#l114"><span class="n">L114</span>Project: Shipping DocPilot</a>
+  </nav>
+  <h4>All 133 lessons</h4>
+  <div class="spine" data-spine data-module="10" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p09.html">◂ Phase 9</a><a href="p11.html">Phase 11 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 10 · Days 76–84 · Lessons 104–114</p>
+<h1>Production LLMOps</h1>
+<p class="dek">Running the system for real users: architecture, streaming, tracing, resilience, gateways, cost and latency engineering, caching, deployment and the product patterns that earn trust.</p>
+<ul class="chips">
+  <li><b>11</b> lessons</li><li><b>8h 10m</b> video</li><li><b>10h 15m</b> practice</li><li>Days <b>76–84</b></li>
+</ul>
+
+<!-- ================================================================ L104 -->
+<article class="day" id="l104">
+  <header class="day-head">
+    <span class="day-no">L104 · DAY 76</span>
+    <h2>Architecture of an LLM Application in Production</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">In production the model call is one box among many. A reliable LLM application is a set of stateless services around that call: state lives in stores, behaviour lives in versioned configuration, and slow work moves off the request path into queues.</p>
+
+  <h3>The reference architecture</h3>
+  <p>Every serious LLM product converges on roughly the same parts. Naming them early tells you where each concern from Phases 2–9 lives, and stops it leaking into the wrong place. For example, retry logic belongs in the gateway, not in your prompt code.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 320" role="img" aria-label="Reference architecture: client, API layer, orchestrator, model gateway, search, tools, queue, workers, stores and observability">
+      <defs>
+        <marker id="ah-l104" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="140" y="12" width="410" height="28" rx="6" class="s-node"/>
+      <text x="345" y="31" class="s-info s-mid s-sm">observability: traces, metrics, logs (L106)</text>
+      <line x1="196" y1="40" x2="196" y2="128" class="s-ln s-dash"/>
+      <line x1="340" y1="40" x2="340" y2="128" class="s-ln s-dash"/>
+      <line x1="490" y1="40" x2="490" y2="60" class="s-ln s-dash"/>
+
+      <rect x="16" y="128" width="96" height="52" rx="8" class="s-node"/>
+      <text x="64" y="150" class="s-ttl s-mid">Client</text>
+      <text x="64" y="168" class="s-ink2 s-mid s-sm">web UI</text>
+      <rect x="140" y="128" width="112" height="52" rx="8" class="s-node"/>
+      <text x="196" y="150" class="s-ttl s-mid">API layer</text>
+      <text x="196" y="168" class="s-ink2 s-mid s-sm">auth · SSE</text>
+      <rect x="280" y="128" width="120" height="52" rx="8" class="s-node-mod"/>
+      <text x="340" y="150" class="s-ttl s-mid">Orchestrator</text>
+      <text x="340" y="168" class="s-ink2 s-mid s-sm">RAG · agent loop</text>
+
+      <rect x="430" y="60" width="120" height="46" rx="8" class="s-node"/>
+      <text x="490" y="80" class="s-ttl s-mid">Gateway</text>
+      <text x="490" y="97" class="s-ink2 s-mid s-sm">keys · budgets</text>
+      <rect x="430" y="118" width="120" height="46" rx="8" class="s-node"/>
+      <text x="490" y="138" class="s-ttl s-mid">Search</text>
+      <text x="490" y="155" class="s-ink2 s-mid s-sm">hybrid · rerank</text>
+      <rect x="430" y="176" width="120" height="46" rx="8" class="s-node"/>
+      <text x="490" y="196" class="s-ttl s-mid">Tools</text>
+      <text x="490" y="213" class="s-ink2 s-mid s-sm">MCP · sandbox</text>
+      <rect x="578" y="60" width="88" height="46" rx="8" class="s-node"/>
+      <text x="622" y="80" class="s-ttl s-mid">Models</text>
+      <text x="622" y="97" class="s-ink2 s-mid s-sm">providers</text>
+
+      <rect x="280" y="236" width="120" height="40" rx="8" class="s-node"/>
+      <text x="340" y="261" class="s-ttl s-mid">Queue</text>
+      <rect x="430" y="236" width="120" height="40" rx="8" class="s-node"/>
+      <text x="490" y="253" class="s-ttl s-mid">Workers</text>
+      <text x="490" y="269" class="s-ink2 s-mid s-sm">ingest · agents</text>
+
+      <rect x="578" y="140" width="88" height="136" rx="8" class="s-node"/>
+      <text x="622" y="162" class="s-ttl s-mid">Stores</text>
+      <text x="622" y="186" class="s-ink2 s-mid s-sm">Postgres</text>
+      <text x="622" y="206" class="s-ink2 s-mid s-sm">vector DB</text>
+      <text x="622" y="226" class="s-ink2 s-mid s-sm">Redis</text>
+      <text x="622" y="246" class="s-ink2 s-mid s-sm">objects</text>
+
+      <line x1="112" y1="154" x2="138" y2="154" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="252" y1="154" x2="278" y2="154" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="400" y1="140" x2="428" y2="86" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="400" y1="150" x2="428" y2="141" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="400" y1="166" x2="428" y2="198" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="550" y1="83" x2="576" y2="83" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="550" y1="141" x2="576" y2="160" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="550" y1="199" x2="576" y2="205" class="s-ln" marker-end="url(#ah-l104)"/>
+      <line x1="550" y1="256" x2="576" y2="256" class="s-ln" marker-end="url(#ah-l104)"/>
+      <path d="M196,180 L196,256 L278,256" class="s-ln-warn s-dash" fill="none" marker-end="url(#ah-l104)"/>
+      <line x1="400" y1="256" x2="428" y2="256" class="s-ln-warn s-dash" marker-end="url(#ah-l104)"/>
+      <text x="204" y="226" class="s-warn s-sm">async</text>
+      <text x="16" y="306" class="s-ink2 s-sm">solid: synchronous request path · dashed: background jobs</text>
+    </svg>
+    <figcaption><b>DocPilot in production.</b> The client talks only to the API layer. The orchestrator runs the RAG pipeline or agent loop and reaches models only through the gateway. Long jobs go through the queue to workers. Every service is stateless; the stores on the right hold everything that must survive a restart.</figcaption>
+  </figure>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Component</th><th>Owns</th><th>Built in</th></tr></thead>
+    <tbody>
+      <tr><td>API layer</td><td>authentication, tenant and permission context, rate limits per user, streaming to the client</td><td><a href="#l105">L105</a></td></tr>
+      <tr><td>Orchestrator</td><td>the request's logic: query rewriting, retrieval, generation, tool loop, guardrails</td><td><a href="p04.html#l49">L49</a>, <a href="p07.html#l85">L85</a>, <a href="p09.html#l100">L100</a></td></tr>
+      <tr><td>Model gateway</td><td>provider keys, retries, fallbacks, budgets, usage logging</td><td><a href="#l107">L107</a>, <a href="#l108">L108</a></td></tr>
+      <tr><td>Search service</td><td>hybrid retrieval, reranking, metadata and permission filters</td><td><a href="p03.html#l37">L37</a>, <a href="p04.html#l47">L47</a></td></tr>
+      <tr><td>Tool services</td><td>tool execution, sandboxes, the MCP server</td><td><a href="p06.html#l64">L64</a>, <a href="p06.html#l67">L67</a></td></tr>
+      <tr><td>Queue and workers</td><td>ingestion, re-embedding, batch enrichment, long agent runs</td><td><a href="#l112">L112</a></td></tr>
+      <tr><td>Stores</td><td>conversations, checkpoints, the vector index, caches, raw documents</td><td><a href="p07.html#l74">L74</a>, <a href="#l111">L111</a></td></tr>
+      <tr><td>Observability</td><td>one trace per request across all of the above</td><td><a href="#l106">L106</a></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Synchronous and asynchronous paths</h3>
+  <p>A <b>synchronous</b> request holds a connection open until the answer is complete: the user asks, DocPilot retrieves, generates and streams. It needs a latency budget (<a href="#l110">L110</a>) and must fail fast. An <b>asynchronous</b> request returns a job ID at once. A worker does the work, and the client polls, subscribes to progress events, or gets a webhook.</p>
+  <div class="box note"><span class="tag">Choosing the path</span>
+    <ul>
+      <li>Use the sync path for interactive answers that normally finish within tens of seconds and are cheap to redo if the connection drops.</li>
+      <li>Use the async path for anything that can outlive a connection or a deploy: ingesting a new docs release (<a href="p04.html#l48">L48</a>), batch enrichment (<a href="#l109">L109</a>), a research agent that runs for minutes, or any job that needs retries spread over hours.</li>
+      <li>Serverless platforms and load balancers enforce request time limits. A job that might hit one belongs on the async path.</li>
+    </ul>
+  </div>
+
+  <h3>Stateless services, state in stores</h3>
+  <p>Any replica must be able to serve any request, because autoscaling, deploys and crashes will move traffic between replicas mid-conversation. So nothing a later request depends on may live in process memory. Conversation history goes in Postgres. Agent checkpoints go in a durable store (<a href="p07.html#l74">L74</a>), caches in Redis, and uploaded files in object storage. The request carries only IDs: <code>conversation_id</code>, <code>tenant_id</code>, an idempotency key for anything with side effects (<a href="#l107">L107</a>).</p>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A service is <b>stateless</b> when its response depends only on the request and on external stores, never on earlier requests it happened to handle. You can then kill it, restart it, or run fifty copies without changing behaviour. In-process caches are allowed only if losing them costs time, not correctness.</p>
+  </div>
+
+  <h3>Configuration and feature flags for prompts and models</h3>
+  <p>Prompt text, prompt version, model ID, retrieval <code>k</code> and the reranker threshold are configuration, not code. Keep them in the prompt registry from <a href="p02.html#l21">L21</a> and choose among them with feature flags. You can then roll a new prompt out to 10% of users, compare it with the online evaluation from <a href="p08.html#l94">L94</a>, and roll it back without a deploy (<a href="#l112">L112</a>). Bucketing must be deterministic per user, so a person does not switch between prompt versions mid-conversation.</p>
+  <pre><code>import hashlib
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Flag:
+    name: str
+    default: str                     # value outside the rollout
+    variant: str                     # value under test
+    percent: int = 0                 # share of users (0-100) who get the variant
+    allow: frozenset = frozenset()   # IDs that always get the variant (staff, test tenants)
+
+def bucket(flag: str, user_id: str) -> int:
+    """Stable bucket in 0..99; independent across flags because the flag name is hashed too."""
+    digest = hashlib.sha256(f"{flag}:{user_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
+
+def resolve(flag: Flag, user_id: str) -> str:
+    if user_id in flag.allow or bucket(flag.name, user_id) &lt; flag.percent:
+        return flag.variant
+    return flag.default
+
+FLAGS = {
+    "answer_prompt": Flag("answer_prompt", "answer@v7", "answer@v8", percent=10),
+    "answer_model": Flag("answer_model", "claude-sonnet-5-5", "claude-haiku-5-5",
+                         allow=frozenset({"staff-1"})),
+}
+users = [f"u{i}" for i in range(10_000)]
+share = sum(resolve(FLAGS["answer_prompt"], u) == "answer@v8" for u in users) / len(users)
+print(f"v8 share: {share:.3f}")
+print(resolve(FLAGS["answer_model"], "staff-1"), resolve(FLAGS["answer_model"], "u1"))
+print(all(resolve(FLAGS["answer_prompt"], "u42") == resolve(FLAGS["answer_prompt"], "u42") for _ in range(100)))</code></pre>
+  <pre><code class="plain">v8 share: 0.105
+claude-haiku-5-5 claude-sonnet-5-5
+True</code></pre>
+  <p class="code-cap">Log the resolved values (prompt version, model) on every request, as the <code>chat()</code> wrapper from <a href="p00.html#l2">L2</a> already does. Without them, a quality dip cannot be traced to the rollout that caused it.</p>
+
+  <h3>Separate environments</h3>
+  <p>Run at least three environments: dev, staging and prod. Each has its own provider API keys, so a runaway loop in dev cannot drain the production rate limit or budget. Each has its own vector index and database, so a half-finished re-chunking experiment cannot change production answers. And each has its own trace project, so test traffic does not pollute dashboards. Most providers let you group keys into workspaces or projects with separate spend limits. Staging should mirror production's configuration and flags exactly. Its data should be the real public corpus plus synthetic tickets, never copied customer data (<a href="p09.html#l101">L101</a>).</p>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>A developer runs a re-embedding job against the "docs" collection, meaning to target the dev cluster. With one shared index, half of production's chunks now carry new-model vectors while queries are still embedded with the old model, so retrieval quality collapses silently. With per-environment collection names (<code>k8s-docs-dev</code>, <code>k8s-docs-prod</code>) and per-environment credentials, the same mistake fails with an authorisation error.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Hidden state.</b> A module-level dict of conversations works on one replica. It loses context the first time a load balancer routes a follow-up elsewhere.</li>
+      <li><b>Model IDs in code.</b> Changing a model means a deploy, and nobody can tell which requests used which model. Put them in config and log the resolved value.</li>
+      <li><b>Long jobs on the request path.</b> An ingestion endpoint that works locally times out behind a proxy and gets retried by the client, so the job runs twice.</li>
+      <li><b>Shared keys and indexes across environments.</b> Load tests trip production rate limits, and experiments change production retrieval.</li>
+      <li><b>No owner for cross-cutting concerns.</b> Retries are implemented in three places with three policies. Retries multiply across layers (<a href="#l107">L107</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Draw DocPilot's production architecture with the components above. Mark every arrow as sync or async, and write the latency budget on each sync hop.</li>
+      <li>Write a component list: for each service give what it owns, which store it uses, which phase built it, and how it scales (replicas, workers, managed service).</li>
+      <li>List every piece of state DocPilot keeps today (conversations, checkpoints, caches, indexes, uploaded files) and assign each to a store. Delete any in-process state that would break with two replicas.</li>
+      <li>Move the prompt version, model IDs and retrieval parameters into a flag file like the one above, and add per-environment settings for keys, index names and trace project.</li>
+    </ol>
+    <p><b>Ship:</b> an architecture diagram and component list that the rest of Phase 10 implements, one box per lesson.</p>
+  </div>
+  <p class="refs"><b>Read</b> Chip Huyen, <i>AI Engineering</i> (2025), ch. 10 “AI Engineering Architecture and User Feedback” · Martin Kleppmann, <i>Designing Data-Intensive Applications</i>, ch. 1 · Anthropic docs, Workspaces and API keys · The Twelve-Factor App, “Config” and “Processes”</p>
+</article>
+<!-- ================================================================ L105 -->
+<article class="day" id="l105">
+  <header class="day-head">
+    <span class="day-no">L105 · DAY 76</span>
+    <h2>Streaming to Users: SSE, WebSockets and Partial Results</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Users judge speed by when something useful first appears, not by when the answer finishes. Streaming turns a multi-second wait into a sub-second start. Done properly, it also tells users what the system is doing, and stops spending tokens the moment they leave.</p>
+
+  <h3>Why streaming matters</h3>
+  <p>A grounded DocPilot answer might be 400 output tokens. Decode speed varies by model and load, but at tens of tokens per second that is several seconds of generation after retrieval (<a href="p00.html#l4">L4</a>, <a href="p01.html#l8">L8</a>). Without streaming, the user stares at a spinner for the whole time. With streaming, they start reading after the <b>time to first token</b> (TTFT) and read at about the speed the text arrives. The total time is unchanged. Perceived latency drops to TTFT plus whatever you show before the first token: a "searching the docs" status, then the sources. <a href="#l110">L110</a> attacks TTFT itself.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 290" role="img" aria-label="Sequence diagram: browser posts a question, the API streams status, sources and deltas, the user cancels and the API closes the model stream">
+      <defs>
+        <marker id="ah-l105" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="50" y="10" width="100" height="28" rx="6" class="s-node"/>
+      <text x="100" y="29" class="s-ttl s-mid">Browser</text>
+      <rect x="280" y="10" width="110" height="28" rx="6" class="s-node-mod"/>
+      <text x="335" y="29" class="s-ttl s-mid">DocPilot API</text>
+      <rect x="520" y="10" width="110" height="28" rx="6" class="s-node"/>
+      <text x="575" y="29" class="s-ttl s-mid">Model API</text>
+      <line x1="100" y1="38" x2="100" y2="282" class="s-grid s-dash"/>
+      <line x1="335" y1="38" x2="335" y2="282" class="s-grid s-dash"/>
+      <line x1="575" y1="38" x2="575" y2="282" class="s-grid s-dash"/>
+
+      <line x1="100" y1="64" x2="333" y2="64" class="s-ln" marker-end="url(#ah-l105)"/>
+      <text x="218" y="58" class="s-ink s-mid s-sm">POST /answer</text>
+      <line x1="335" y1="90" x2="102" y2="90" class="s-ln-mod" marker-end="url(#ah-l105)"/>
+      <text x="218" y="84" class="s-mod s-mid s-sm">event: status</text>
+      <line x1="335" y1="116" x2="102" y2="116" class="s-ln-mod" marker-end="url(#ah-l105)"/>
+      <text x="218" y="110" class="s-mod s-mid s-sm">event: sources</text>
+      <line x1="335" y1="134" x2="573" y2="134" class="s-ln" marker-end="url(#ah-l105)"/>
+      <text x="455" y="128" class="s-ink s-mid s-sm">messages.stream()</text>
+      <line x1="575" y1="160" x2="337" y2="160" class="s-ln" marker-end="url(#ah-l105)"/>
+      <text x="455" y="154" class="s-ink s-mid s-sm">text deltas</text>
+      <line x1="335" y1="178" x2="102" y2="178" class="s-ln-mod" marker-end="url(#ah-l105)"/>
+      <text x="218" y="172" class="s-mod s-mid s-sm">event: delta (× n)</text>
+      <line x1="100" y1="214" x2="333" y2="214" class="s-ln-bad s-dash" marker-end="url(#ah-l105)"/>
+      <text x="218" y="208" class="s-bad s-mid s-sm">cancel: abort()</text>
+      <line x1="335" y1="240" x2="573" y2="240" class="s-ln-bad s-dash" marker-end="url(#ah-l105)"/>
+      <text x="455" y="234" class="s-bad s-mid s-sm">close stream</text>
+      <text x="345" y="268" class="s-ink2 s-sm">is_disconnected() → leave async with</text>
+
+      <line x1="22" y1="64" x2="22" y2="178" class="s-ln-acc"/>
+      <line x1="18" y1="64" x2="26" y2="64" class="s-ln-acc"/>
+      <line x1="18" y1="178" x2="26" y2="178" class="s-ln-acc"/>
+      <text x="30" y="124" class="s-acc s-sm">TTFT</text>
+    </svg>
+    <figcaption><b>One SSE response, many events.</b> Status and sources go out before the model has produced a token, so the screen is never empty. When the user cancels, the browser closes the connection. The API sees the disconnect and leaves the stream's context manager, which closes the connection to the model provider.</figcaption>
+  </figure>
+
+  <h3>Server-sent events vs WebSockets</h3>
+  <div class="box def"><span class="tag">Definition · SSE wire format</span>
+    <p>An SSE response is an ordinary HTTP response with <code>Content-Type: text/event-stream</code> that stays open. Each event is a few <code>field: value</code> lines (<code>event</code>, <code>data</code>, <code>id</code>, <code>retry</code>) ended by a blank line, so every event ends in <code>\n\n</code>. Lines starting with <code>:</code> are comments, used as keep-alive pings. The browser's <code>EventSource</code> reconnects automatically and sends <code>Last-Event-ID</code>.</p>
+  </div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>SSE</th><th>WebSocket</th></tr></thead>
+    <tbody>
+      <tr><td>Direction</td><td>server to client; the request carries the input</td><td>both ways, any time</td></tr>
+      <tr><td>Transport</td><td>plain HTTP; works through most proxies, CDNs and HTTP/2</td><td>an upgraded connection (RFC 6455); some proxies need configuration</td></tr>
+      <tr><td>Reconnects</td><td>built into <code>EventSource</code></td><td>you write them</td></tr>
+      <tr><td>Fits</td><td>chat answers, agent progress, job status</td><td>voice and realtime sessions, mid-stream interrupts, collaborative editing</td></tr>
+    </tbody>
+  </table></div>
+  <p>For DocPilot, SSE is the default. One caveat: <code>EventSource</code> only supports GET and cannot set custom headers, so a POST with a JSON body uses <code>fetch</code> and reads the response body as a stream. The wire format is identical. Voice agents (<a href="p12.html#l125">L125</a>) are where WebSockets earn their complexity.</p>
+
+  <h3>Streaming through FastAPI</h3>
+  <p>A <code>StreamingResponse</code> wraps an async generator; each yielded string is sent as soon as it is produced. Use <code>anthropic.AsyncAnthropic</code> on an async server: the sync client would block the event loop for every other user. Typed events let the front end route each one to a different part of the UI.</p>
+  <pre><code># services/api.py
+import asyncio, json
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from docpilot.llm import MODEL
+from docpilot.search import search
+
+app = FastAPI()            # at startup: app.state.llm = anthropic.AsyncAnthropic()
+
+class Ask(BaseModel):
+    question: str
+
+def sse(event: str, data: dict) -&gt; str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+async def answer_events(ask: Ask, request: Request):
+    yield sse("status", {"step": "searching"})
+    hits = await asyncio.to_thread(search, ask.question, k=5)   # search() is sync: keep it off the event loop
+    yield sse("sources", {"urls": [h.url for h in hits]})
+    context = "\n\n".join(f"[{i}] {h.text}" for i, h in enumerate(hits, 1))
+    async with request.app.state.llm.messages.stream(
+        model=MODEL, max_tokens=1024,
+        messages=[{"role": "user", "content": f"{context}\n\nQuestion: {ask.question}"}],
+    ) as stream:
+        async for text in stream.text_stream:
+            if await request.is_disconnected():
+                return             # leaving the block closes the provider stream
+            yield sse("delta", {"text": text})
+        final = await stream.get_final_message()
+    yield sse("done", {"stop_reason": final.stop_reason, "output_tokens": final.usage.output_tokens})
+
+@app.post("/answer")
+async def answer(ask: Ask, request: Request):
+    return StreamingResponse(answer_events(ask, request), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})</code></pre>
+  <p class="code-cap"><code>X-Accel-Buffering: no</code> stops nginx from buffering the whole stream, which would turn it back into one late response. FastAPI 0.143 also ships <code>fastapi.sse.EventSourceResponse</code>, which formats events and sends keep-alive pings for you.</p>
+  <p>The test fakes the SDK stream (an async context manager with <code>text_stream</code> and <code>get_final_message()</code>) and checks the event sequence and the cancellation path.</p>
+  <pre><code># tests/test_sse.py
+import asyncio, anthropic
+from fastapi.testclient import TestClient
+from services.api import app, answer_events, Ask
+
+class FakeStream:                      # stands in for the SDK's AsyncMessageStream
+    def __init__(self, chunks):
+        self.chunks, self.closed = chunks, False
+        self.text_stream = self._text()
+    async def _text(self):
+        for c in self.chunks:
+            await asyncio.sleep(0)
+            yield c
+    async def __aenter__(self): return self
+    async def __aexit__(self, *exc): self.closed = True
+    async def get_final_message(self):
+        return anthropic.types.Message.model_validate({
+            "id": "msg_1", "type": "message", "role": "assistant", "model": "fake",
+            "content": [{"type": "text", "text": "".join(self.chunks)}], "stop_reason": "end_turn",
+            "stop_sequence": None, "usage": {"input_tokens": 50, "output_tokens": len(self.chunks)}})
+
+class FakeLLM:
+    def __init__(self, chunks): self.chunks, self.messages = chunks, self
+    def stream(self, **kw):
+        self.last = FakeStream(self.chunks)
+        return self.last
+
+app.state.llm = FakeLLM(["A Pod ", "is the smallest ", "deployable ", "unit."])
+with TestClient(app).stream("POST", "/answer", json={"question": "What is a Pod?"}) as r:
+    print(r.headers["content-type"])
+    lines = [ln for ln in r.iter_lines() if ln]
+print([ln[7:] for ln in lines if ln.startswith("event:")])
+print(lines[5], lines[-1], sep="\n")
+
+class GoneAfter:                       # a Request whose client leaves after n checks
+    def __init__(self, n): self.app, self.n = app, n
+    async def is_disconnected(self):
+        self.n -= 1
+        return self.n &lt; 0
+
+async def main():
+    return [e async for e in answer_events(Ask(question="q"), GoneAfter(2))]
+events = asyncio.run(main())
+print(len(events), "events; provider stream closed:", app.state.llm.last.closed)</code></pre>
+  <pre><code class="plain">text/event-stream; charset=utf-8
+['status', 'sources', 'delta', 'delta', 'delta', 'delta', 'done']
+data: {"text": "A Pod "}
+data: {"stop_reason": "end_turn", "output_tokens": 4}
+4 events; provider stream closed: True</code></pre>
+
+  <h3>Disconnects and cancellation</h3>
+  <p>A cancel button calls <code>AbortController.abort()</code> on the fetch, which closes the connection. On the server, two things can notice. Starlette's <code>StreamingResponse</code> watches for the ASGI disconnect message (or a failed send) and cancels the generator. The explicit <code>is_disconnected()</code> check between chunks makes the behaviour visible and testable. Either way, the <code>async with</code> block exits and the SDK closes its HTTP stream to the provider, so generation stops instead of running on for an absent user. How cancelled requests are billed is provider-specific; check the docs. For agents, check for cancellation between steps too. A tool call already in flight should finish or be rolled back, never abandoned halfway (<a href="p07.html#l78">L78</a>).</p>
+
+  <h3>Streaming agent progress and structured output</h3>
+  <p>Agents spend most of their time not producing answer text. Stream their steps as typed events, such as <code>status</code>, <code>tool_call</code> (name plus a short summary of the arguments, never secrets), <code>tool_result</code>, <code>sources</code>, <code>delta</code>, <code>done</code> and <code>error</code>. The UI can then show "Searching the docs…", then "Reading 3 pages…", then the answer (<a href="#l113">L113</a>). Structured output is harder: a JSON prefix does not parse. Three options:</p>
+  <ul>
+    <li>Stream the prose answer as text, and send the structured parts (citations, confidence, suggested actions) as separate events.</li>
+    <li>Use the SDK's parsed events. Iterating the stream directly yields <code>InputJsonEvent</code>s (<code>type="input_json"</code>) carrying <code>partial_json</code> and a parsed <code>snapshot</code> of a tool input so far.</li>
+    <li>Render only fields that are already complete, and validate the whole object at the end (<a href="p02.html#l20">L20</a>).</li>
+  </ul>
+
+  <h3>Rendering partial Markdown</h3>
+  <p>Re-render the accumulated text on each animation frame, not on every delta. Before rendering, repair the two artefacts of a cut-off stream. An unclosed code fence swallows the rest of the page. A half-written link shows raw syntax or points at a truncated URL. Always render with raw HTML disabled and sanitise the output: model text is untrusted input to your page (<a href="p09.html#l100">L100</a>).</p>
+  <pre><code>import re
+
+def renderable(md: str) -&gt; str:
+    """Make a partial Markdown answer safe to render mid-stream."""
+    md = re.sub(r"\[[^\]\n]*(\]\([^)\n]*)?$", "", md)   # hold back a half-written link
+    if md.count("```") % 2:                             # close an open code fence
+        md += "\n```"
+    return md
+
+for partial in ["See [the Pod docs](https://kubernetes.io/do",
+                "Run:\n```bash\nkubectl get po",
+                "[Pods](https://kubernetes.io/docs/concepts/workloads/pods/) are"]:
+    print(repr(renderable(partial)))</code></pre>
+  <pre><code class="plain">'See '
+'Run:\n```bash\nkubectl get po\n```'
+'[Pods](https://kubernetes.io/docs/concepts/workloads/pods/) are'</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Buffering proxies.</b> A reverse proxy, CDN or compression middleware collects the stream and delivers it all at the end. Test through the real ingress, not just locally.</li>
+      <li><b>Idle timeouts.</b> A long tool call sends nothing for 60 s and a load balancer drops the connection. Send <code>: ping</code> comments every 15–30 s.</li>
+      <li><b>Orphaned generations.</b> Ignoring disconnects means paying for answers nobody reads, multiplied by every impatient retry.</li>
+      <li><b>Errors after the 200.</b> Once streaming starts, the status code is already sent. Report mid-stream failures as an <code>error</code> event, and make the client treat a stream without <code>done</code> as failed.</li>
+      <li><b>Guardrails on partial text.</b> An output filter (<a href="p09.html#l100">L100</a>) that only sees the final answer has let the user read everything before it. Check in windows as you stream, and be ready to retract.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Add <code>/answer</code> to DocPilot's API with typed <code>status</code>, <code>sources</code>, <code>delta</code>, <code>done</code> and <code>error</code> events; run the test above against it.</li>
+      <li>Stream the research agent's steps (<a href="p07.html#l85">L85</a>) as <code>tool_call</code> and <code>tool_result</code> events, checking for disconnects between steps.</li>
+      <li>Build the web UI: <code>fetch</code> with an <code>AbortController</code>, a reader that splits on blank lines, a cancel button, and <code>renderable()</code> before Markdown rendering.</li>
+      <li>Measure time to first visible content (the status event) and time to first token in the browser's network panel, through your real proxy.</li>
+    </ol>
+    <p><b>Ship:</b> the first visible token appears in the UI in under a second, and cancelling stops generation on the server.</p>
+  </div>
+  <p class="refs"><b>Read</b> WHATWG HTML Living Standard, “Server-sent events” · RFC 6455, The WebSocket Protocol · Anthropic docs, Streaming messages · FastAPI docs, Custom response: StreamingResponse · MDN, AbortController</p>
+</article>
+<!-- ================================================================ L106 -->
+<article class="day" id="l106">
+  <header class="day-head">
+    <span class="day-no">L106 · DAY 77</span>
+    <h2>Observability: Traces, Spans and GenAI Semantic Conventions</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">A bad answer is usually caused several steps before the model writes it: a missed chunk, a stale tool result, the wrong prompt version. One trace per request, with a span for every retrieval, model call and tool call, makes each answer explainable after the fact.</p>
+
+  <h3>Why logs are not enough</h3>
+  <p>The JSONL line that <code>chat()</code> has written since <a href="p00.html#l2">L2</a> records one model call. A single DocPilot request now makes several model calls, retrieves twice, calls tools and runs guardrails, sometimes across three services. When a user reports a wrong answer, you need the <em>tree</em>: which retrieval fed which call, what the tool returned, where the 6 seconds went. You can rebuild that by grepping log lines for a request ID. A trace records it directly, with timing and parent–child structure.</p>
+  <div class="box def"><span class="tag">Definition</span>
+    <ul>
+      <li><b>Trace:</b> everything that happened for one request, identified by a <code>trace_id</code>.</li>
+      <li><b>Span:</b> one timed operation in that trace (name, start, duration, status, a <code>parent_id</code>, and key–value <b>attributes</b>). Spans nest: the request span contains retrieval, model and tool spans.</li>
+      <li><b>Context propagation:</b> passing the trace and parent IDs across process boundaries, for example in the W3C <code>traceparent</code> HTTP header or a queue message field. The search service and the workers then add their spans to the same trace.</li>
+    </ul>
+  </div>
+  <p>Here is a trace in thirty lines of plain Python. A context variable holds the current span, so nested blocks find their parent automatically, including across <code>await</code>. OpenTelemetry does the same thing, plus standard IDs, propagation, sampling and export.</p>
+  <pre><code>import contextvars, time, uuid
+from contextlib import contextmanager
+
+_current = contextvars.ContextVar("span", default=None)
+SPANS: list[dict] = []                     # an exporter would ship these in batches
+
+@contextmanager
+def span(name: str, **attrs):
+    parent = _current.get()
+    s = {"name": name, "attrs": attrs, "span_id": uuid.uuid4().hex[:8],
+         "trace_id": parent["trace_id"] if parent else uuid.uuid4().hex,
+         "parent_id": parent["span_id"] if parent else None, "t0": time.perf_counter()}
+    token = _current.set(s)                # children opened inside this block get s as parent
+    try:
+        yield s
+    except Exception as e:
+        s["attrs"]["error.type"] = type(e).__name__
+        raise
+    finally:
+        s["ms"] = round((time.perf_counter() - s["t0"]) * 1000)
+        _current.reset(token)
+        SPANS.append(s)
+
+def handle(question: str):
+    with span("POST /answer", **{"docpilot.prompt_version": "answer@v8"}):
+        with span("retrieve", **{"docpilot.k": 5}) as s:
+            time.sleep(0.04)
+            s["attrs"]["docpilot.hit_ids"] = ["pods#1", "pods#4"]
+        with span("chat claude-sonnet-5-5", **{"gen_ai.operation.name": "chat"}) as s:
+            time.sleep(0.09)
+            s["attrs"].update({"gen_ai.usage.output_tokens": 41,
+                               "gen_ai.response.finish_reasons": ["tool_use"]})
+        with span("execute_tool kubectl_explain", **{"gen_ai.tool.name": "kubectl_explain"}):
+            time.sleep(0.02)
+        with span("chat claude-sonnet-5-5", **{"gen_ai.operation.name": "chat"}) as s:
+            time.sleep(0.12)
+            s["attrs"]["gen_ai.response.finish_reasons"] = ["end_turn"]
+
+handle("Why is my Pod stuck in Pending?")
+depth = {None: -1}
+for s in sorted(SPANS, key=lambda s: s["t0"]):
+    depth[s["span_id"]] = depth[s["parent_id"]] + 1
+    print(f"{'  ' * depth[s['span_id']]}{s['name']:&lt;32}{s['ms']:&gt;5} ms  {s['attrs']}")
+print(len({s["trace_id"] for s in SPANS}), "trace,", len(SPANS), "spans")</code></pre>
+  <pre><code class="plain">POST /answer                      273 ms  {'docpilot.prompt_version': 'answer@v8'}
+  retrieve                           40 ms  {'docpilot.k': 5, 'docpilot.hit_ids': ['pods#1', 'pods#4']}
+  chat claude-sonnet-5-5             92 ms  {'gen_ai.operation.name': 'chat', 'gen_ai.usage.output_tokens': 41, 'gen_ai.response.finish_reasons': ['tool_use']}
+  execute_tool kubectl_explain       20 ms  {'gen_ai.tool.name': 'kubectl_explain'}
+  chat claude-sonnet-5-5            121 ms  {'gen_ai.operation.name': 'chat', 'gen_ai.response.finish_reasons': ['end_turn']}
+1 trace, 5 spans</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 286" role="img" aria-label="Trace waterfall: request span containing retrieve, a chat call ending in tool_use, a tool execution and a final chat call, with the attributes of one chat span">
+      <rect x="200" y="30" width="429" height="18" rx="3" class="s-node"/>
+      <text x="16" y="43" class="s-ttl">POST /answer</text>
+      <rect x="200" y="60" width="63" height="18" rx="3" class="s-node"/>
+      <text x="30" y="73" class="s-ink">retrieve</text>
+      <rect x="263" y="90" width="144" height="18" rx="3" class="s-node-mod"/>
+      <text x="30" y="103" class="s-ink">chat · tool_use</text>
+      <rect x="407" y="120" width="32" height="18" rx="3" class="s-node"/>
+      <text x="30" y="133" class="s-ink">execute_tool</text>
+      <rect x="439" y="150" width="190" height="18" rx="3" class="s-node-mod"/>
+      <text x="30" y="163" class="s-ink">chat · end_turn</text>
+      <line x1="200" y1="180" x2="640" y2="180" class="s-ln"/>
+      <line x1="200" y1="176" x2="200" y2="184" class="s-ln"/>
+      <line x1="357" y1="176" x2="357" y2="184" class="s-ln"/>
+      <line x1="514" y1="176" x2="514" y2="184" class="s-ln"/>
+      <text x="200" y="196" class="s-ink2 s-sm s-mid">0</text>
+      <text x="357" y="196" class="s-ink2 s-sm s-mid">100 ms</text>
+      <text x="514" y="196" class="s-ink2 s-sm s-mid">200 ms</text>
+      <line x1="335" y1="108" x2="335" y2="206" class="s-ln-mod s-dash"/>
+      <rect x="200" y="206" width="440" height="72" rx="6" class="s-node"/>
+      <text x="212" y="224" class="s-mod s-sm">gen_ai.operation.name = chat</text>
+      <text x="212" y="240" class="s-mod s-sm">gen_ai.request.model = claude-sonnet-5-5</text>
+      <text x="212" y="256" class="s-mod s-sm">gen_ai.usage.output_tokens = 41</text>
+      <text x="212" y="272" class="s-mod s-sm">gen_ai.response.finish_reasons = [tool_use]</text>
+      <text x="16" y="224" class="s-ink2 s-sm">span attributes</text>
+      <text x="16" y="240" class="s-ink2 s-sm">(selected span)</text>
+    </svg>
+    <figcaption><b>The trace above as a waterfall.</b> Bars are drawn to scale from the run. Model calls (shaded) dominate. Each child starts when the previous one ends, so nothing runs in parallel; fixing that is <a href="#l110">L110</a>'s starting point. Clicking a span in a trace viewer shows its attributes, here the GenAI ones.</figcaption>
+  </figure>
+
+  <h3>OpenTelemetry and the GenAI semantic conventions</h3>
+  <p>OpenTelemetry (OTel) is the vendor-neutral standard for traces, metrics and logs: an API you call in code, an SDK that samples and batches, and the OTLP protocol that ships data to any backend. Its <b>semantic conventions</b> fix attribute names, so every tool reads <code>gen_ai.usage.input_tokens</code> the same way. As of late 2026 the GenAI conventions are still marked as in development (experimental), and names have changed between releases. For example, the provider attribute <code>gen_ai.system</code> became <code>gen_ai.provider.name</code>. Pin the version you follow.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Attribute</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td><code>gen_ai.operation.name</code></td><td><code>chat</code>, <code>embeddings</code>, <code>execute_tool</code>, <code>invoke_agent</code></td></tr>
+      <tr><td><code>gen_ai.request.model</code> / <code>gen_ai.response.model</code></td><td>the ID you asked for / the one that answered</td></tr>
+      <tr><td><code>gen_ai.usage.input_tokens</code>, <code>gen_ai.usage.output_tokens</code></td><td>from the response's <code>usage</code></td></tr>
+      <tr><td><code>gen_ai.response.finish_reasons</code></td><td><code>["end_turn"]</code>, <code>["max_tokens"]</code></td></tr>
+      <tr><td><code>gen_ai.tool.name</code></td><td>on tool execution spans</td></tr>
+    </tbody>
+  </table></div>
+  <p>Span names follow the pattern <code>{operation} {model}</code>, e.g. <code>chat claude-sonnet-5-5</code>. Use your own namespace (<code>docpilot.*</code>) for what the conventions do not cover: prompt version, retrieved chunk IDs and scores, cache tokens, estimated cost, the flag variant from <a href="#l104">L104</a>.</p>
+  <pre><code># OpenTelemetry SDK, API as documented; check your installed version (not installed here: untested)
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from docpilot.llm import MODEL, chat
+
+provider = TracerProvider(sampler=ParentBased(TraceIdRatioBased(0.25)))
+provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4318/v1/traces")))
+trace.set_tracer_provider(provider)
+tracer = trace.get_tracer("docpilot")
+
+def traced_chat(messages, *, model=MODEL, prompt_version="unknown", **kw):
+    with tracer.start_as_current_span(f"chat {model}", kind=trace.SpanKind.CLIENT) as sp:
+        sp.set_attribute("gen_ai.operation.name", "chat")
+        sp.set_attribute("gen_ai.provider.name", "anthropic")
+        sp.set_attribute("gen_ai.request.model", model)
+        sp.set_attribute("docpilot.prompt_version", prompt_version)
+        msg = chat(messages, model=model, **kw)
+        sp.set_attribute("gen_ai.response.model", msg.model)
+        sp.set_attribute("gen_ai.usage.input_tokens", msg.usage.input_tokens)
+        sp.set_attribute("gen_ai.usage.output_tokens", msg.usage.output_tokens)
+        sp.set_attribute("gen_ai.response.finish_reasons", [msg.stop_reason])
+        return msg</code></pre>
+  <p class="code-cap">Community instrumentation packages can create these spans for the provider SDKs automatically. Wrapping <code>chat()</code> yourself keeps the attributes you need under your control.</p>
+
+  <h3>What to record, sampling and privacy</h3>
+  <p>For every model span, record the prompt version and template variables, token usage including cache reads and writes, the stop reason, latency and TTFT, and the estimated cost. For retrieval, record the query actually sent (after rewriting), the hit IDs, their scores and the filters. For tools, record name, arguments, a truncated result and errors. The full prompt and output text are the most useful attributes and the most dangerous ones. The conventions make content capture opt-in for this reason.</p>
+  <div class="box note"><span class="tag">Sampling and privacy</span>
+    <ul>
+      <li><b>Head sampling</b> decides at the start of a trace (keep 25%). It is cheap, but it drops most failures.</li>
+      <li><b>Tail sampling</b> decides after the trace ends, for example in the OTel Collector. Keep every error, every trace with negative feedback, every guardrail hit and every slow trace, plus a small random share of the rest.</li>
+      <li>Redact PII before export, not in the viewer (<a href="p09.html#l101">L101</a>). Set retention limits, restrict who can read traces with content, and store tenant IDs as attributes so you can delete a tenant's data.</li>
+    </ul>
+  </div>
+
+  <h3>Platforms, dashboards and alerts</h3>
+  <p>LLM observability platforms add what generic tracing lacks: prompt and response viewers, token and cost roll-ups, sessions that group a conversation, user feedback linked to traces, and datasets built from production traces for your evals (<a href="p08.html#l94">L94</a>). Langfuse and Arize Phoenix are open source and self-hostable. LangSmith is LangChain's hosted platform. Many others exist, and many accept OTLP, so instrumenting with OTel keeps you portable.</p>
+  <div class="box intuition"><span class="tag">Worked example · dashboards</span>
+    <p>Request rate and error rate by type (429, 5xx, timeout, refusal). TTFT and total latency at p50, p95 and p99. Tokens per request and cost per day, split by feature and model. Share of <code>max_tokens</code> stops. Cache hit rate. Tool error rate. Thumbs-down rate. Alert on symptoms users feel: the error rate above 2% for 10 minutes, p95 latency over budget, daily spend over plan, or a spike in refusals or <code>max_tokens</code> stops after a deploy.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Broken context.</b> A thread pool, a queue hop or a raw <code>httpx</code> call drops the trace context, and the trace splits in two. Propagate it explicitly across every boundary.</li>
+      <li><b>Unbounded attributes.</b> Full documents as span attributes blow up storage and hit exporter size limits. Store IDs and truncated text.</li>
+      <li><b>Secrets in traces.</b> Authorisation headers or tool credentials recorded as arguments. Use an allow-list of attributes.</li>
+      <li><b>Sampling away the evidence.</b> At 5% head sampling, the one trace a user complains about is usually gone.</li>
+      <li><b>Streaming spans that end too early.</b> The span closes when the response object is returned, not when the last token is sent, so durations and token counts are wrong.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Run a self-hosted trace viewer locally (Langfuse, Phoenix or Jaeger) and point an OTLP exporter at it.</li>
+      <li>Wrap <code>chat()</code>, <code>search()</code> and the tool handlers in spans with the GenAI attributes above plus <code>docpilot.*</code> attributes for prompt version, hit IDs and estimated cost.</li>
+      <li>Propagate context from the API to the search service and to queue workers; confirm one request produces one trace.</li>
+      <li>Add redaction for e-mail addresses and tokens before export, and a tail-sampling rule that keeps errors and thumbs-down traces.</li>
+      <li>Take three bad answers from your eval set and diagnose each one from its trace alone.</li>
+    </ol>
+    <p><b>Ship:</b> any bad answer can be traced to its retrieval results, prompt version and tool calls.</p>
+  </div>
+  <p class="refs"><b>Read</b> OpenTelemetry docs, Semantic conventions for generative AI systems · W3C, Trace Context · Beyer et al., <i>Site Reliability Engineering</i> (2016), ch. 6 “Monitoring Distributed Systems” · Langfuse docs · Arize Phoenix docs · Chip Huyen, <i>AI Engineering</i> (2025), ch. 10</p>
+</article>
+<!-- ================================================================ L107 -->
+<article class="day" id="l107">
+  <header class="day-head">
+    <span class="day-no">L107 · DAY 78</span>
+    <h2>Reliability: Rate Limits, Retries, Timeouts and Fallbacks</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Model providers fail in ordinary, predictable ways: rate limits, overload, slow responses, outages. A resilient client retries only what is worth retrying, spreads retries out, bounds how many it makes, stops calling a provider that is down, and always has a next-best answer.</p>
+
+  <h3>Rate limits and the failures you will see</h3>
+  <p>Providers limit each organisation or workspace in <b>requests per minute</b> and <b>tokens per minute</b>; Anthropic counts input and output tokens separately. Exceeding a limit returns 429 with a <code>retry-after</code> header. Provider-wide overload returns a 5xx; Anthropic uses 529 <code>overloaded_error</code>, which SDK 1.13 raises as <code>anthropic.OverloadedError</code>.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Failure</th><th>Retry?</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td>429 rate limited</td><td>yes</td><td>wait at least <code>retry-after</code>; smooth traffic with a client-side token bucket</td></tr>
+      <tr><td>529 overloaded, 500, 502, 503, 504</td><td>yes</td><td>back off with jitter; fall back if it persists</td></tr>
+      <tr><td>408, connection error, timeout</td><td>yes</td><td>retry within the request's deadline</td></tr>
+      <tr><td>400, 401, 403, 404, 413, 422</td><td>no</td><td>a bug or config error: fail fast, alert</td></tr>
+      <tr><td><code>stop_reason</code> <code>max_tokens</code> or <code>refusal</code></td><td>not blindly</td><td>a successful response; handle it in logic (<a href="p07.html#l84">L84</a>)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Backoff with full jitter, and retry budgets</h3>
+  <p>If a thousand clients all retry exactly 1 s, 2 s and 4 s after an overload, they hit the recovering provider in synchronised waves. Jitter spreads them out. In Marc Brooker's simulation on the AWS Architecture Blog (2015), <em>full jitter</em> did the least work of the variants tested, with completion time close to the best.</p>
+  <div class="box algo"><span class="tag">Algorithm · Full jitter</span>
+    <p>For retry number \(n = 0, 1, 2, \dots\), with base delay \(b\) and cap \(c\):</p>
+    $$\text{sleep}_n \sim \mathrm{Uniform}\big(0,\ \min(c,\ b \cdot 2^{n})\big)$$
+    <p>If the server sent <code>retry-after</code>, wait at least that long instead.</p>
+  </div>
+  <p>Retries multiply across layers: if the browser, the API and the model client each try 3 times, one click can become \(3^3 = 27\) calls to a struggling provider. A <b>retry budget</b> caps retries at a fraction of recent traffic (say 20% extra), so an outage does not triple the load (SRE book, ch. 22). Retry in one layer, the gateway (<a href="#l108">L108</a>), with a budget.</p>
+
+  <h3>Timeouts per call and per request</h3>
+  <p>Every request gets a <b>deadline</b> (DocPilot: 20 s interactive), and every call inside it a timeout no longer than the time remaining; three sequential 10 s timeouts would make a 30 s request. Configure the SDK's own retry layer deliberately:</p>
+  <pre><code>import anthropic
+
+# SDK 1.13 defaults: max_retries=2 (on 408, 409, 429, 5xx incl. 529 and connection errors,
+# honouring retry-after; backoff 0.5 s doubling to 8 s, minus up to 25% jitter) and a
+# 10-minute read timeout. Own the retry policy in one place, so set max_retries=0 here.
+client = anthropic.Anthropic(max_retries=0, timeout=anthropic.Timeout(30.0, connect=5.0))
+fast = client.with_options(timeout=10.0)        # per-call override for a small classifier call</code></pre>
+  <p class="code-cap">For streaming, an HTTP read timeout limits the gap between chunks, not the total duration. Enforce the request deadline separately, for example with <code>asyncio.timeout()</code> around the whole stream.</p>
+
+  <h3>Circuit breakers and fallbacks</h3>
+  <p>In an outage, retries only add latency. A <b>circuit breaker</b> (Nygard, <i>Release It!</i>) counts consecutive failures per dependency. Past a threshold it <em>opens</em> and calls skip that dependency. After a cooldown it goes <em>half-open</em> and lets one probe through, which closes or re-opens it. Pair it with a <b>fallback chain</b>: primary model, smaller model, another provider (<a href="#l108">L108</a>), degraded answer. Evaluate every fallback in advance (<a href="p08.html#l93">L93</a>).</p>
+  <pre><code># docpilot/resilient.py
+import random, time
+import anthropic
+
+RETRY_STATUS = {408, 409, 429, 500, 502, 503, 504, 529}      # 529 = Anthropic "overloaded"
+
+def retryable(e: Exception) -&gt; bool:
+    if isinstance(e, anthropic.APIConnectionError):           # includes APITimeoutError
+        return True
+    return isinstance(e, anthropic.APIStatusError) and e.status_code in RETRY_STATUS
+
+def full_jitter(attempt: int, base: float = 0.5, cap: float = 8.0) -&gt; float:
+    return random.uniform(0, min(cap, base * 2 ** attempt))   # Brooker 2015
+
+class RetryBudget:
+    """Token bucket: each request earns `ratio` tokens, each retry spends one."""
+    def __init__(self, ratio: float = 0.2, cap: float = 5.0):
+        self.ratio, self.cap, self.tokens = ratio, cap, cap
+    def earn(self):
+        self.tokens = min(self.cap, self.tokens + self.ratio)
+    def spend(self) -&gt; bool:
+        if self.tokens &gt;= 1:
+            self.tokens -= 1
+            return True
+        return False
+
+class Breaker:
+    """Open after `threshold` consecutive failures; allow one probe after `cooldown` s."""
+    def __init__(self, clock, threshold: int = 3, cooldown: float = 20.0):
+        self.clock, self.threshold, self.cooldown = clock, threshold, cooldown
+        self.failures, self.opened_at, self.state = 0, 0.0, "closed"
+    def allow(self) -&gt; bool:
+        if self.state == "open" and self.clock() - self.opened_at &gt;= self.cooldown:
+            self.state = "half-open"                          # let one request probe
+        return self.state != "open"
+    def record(self, ok: bool):
+        if ok:
+            self.failures, self.state = 0, "closed"
+            return
+        self.failures += 1
+        if self.state == "half-open" or self.failures &gt;= self.threshold:
+            self.state, self.opened_at = "open", self.clock()
+
+def call(fn, models, *, breakers, budget, clock=time.monotonic, sleep=time.sleep,
+         deadline_s=20.0, max_retries=2):
+    """fn(model, timeout) -&gt; result. Tries each model in order; returns (model, result, log)."""
+    start, log = clock(), []
+    budget.earn()
+    for model in models:
+        if not breakers[model].allow():
+            log.append(f"{model}: open, skip")
+            continue
+        for attempt in range(max_retries + 1):
+            remaining = deadline_s - (clock() - start)
+            if remaining &lt;= 0:
+                return None, None, log + ["deadline"]
+            try:
+                result = fn(model, timeout=min(10.0, remaining))
+                breakers[model].record(True)
+                return model, result, log
+            except Exception as e:
+                if not retryable(e):
+                    raise
+                breakers[model].record(False)
+                log.append(f"{model}: {getattr(e, 'status_code', type(e).__name__)}")
+                delay = full_jitter(attempt)
+                if (attempt == max_retries or breakers[model].state == "open"
+                        or delay &gt; remaining or not budget.spend()):
+                    break                                     # give up on this model
+                sleep(delay)
+    return None, None, log                                    # caller degrades gracefully</code></pre>
+  <p>The test injects an outage: real <code>anthropic.OverloadedError</code>s for the primary until t = 32 s, on a fake clock, with a request every 5 s.</p>
+  <pre><code>import random, httpx, anthropic
+from docpilot.resilient import Breaker, RetryBudget, call
+
+random.seed(7)
+now = [0.0]                                      # fake clock: sleeps and calls advance it
+clock, sleep = (lambda: now[0]), (lambda s: now.__setitem__(0, now[0] + s))
+REQ = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+def fake_llm(model, timeout):                    # primary is overloaded until t = 32 s
+    if model == "claude-sonnet-5-5" and now[0] &lt; 32:
+        sleep(0.3)
+        raise anthropic.OverloadedError("overloaded", response=httpx.Response(529, request=REQ), body=None)
+    sleep(1.0)
+    return "answer"
+
+def run(breakers, budget, show):
+    primary_calls, extra = 0, 0.0
+    for t in range(0, 60, 5):
+        now[0] = float(t)
+        model, _, log = call(fake_llm, ["claude-sonnet-5-5", "claude-haiku-5-5"],
+                             breakers=breakers, budget=budget, clock=clock, sleep=sleep)
+        primary_calls += sum(e.startswith("claude-sonnet-5-5: 5") for e in log)
+        extra += now[0] - t - 1.0
+        if show:
+            print(f"t={t:2d}s  {model or 'DEGRADED':17} {now[0] - t:4.1f}s  {'; '.join(log)}")
+    return primary_calls, extra
+
+models = ["claude-sonnet-5-5", "claude-haiku-5-5"]
+for name, br, bud in [("breaker + budget", 3, 5.0), ("retries only", 10**9, 1e9)]:
+    calls, extra = run({m: Breaker(clock, threshold=br) for m in models}, RetryBudget(cap=bud),
+                       show=(br == 3))
+    print(f"{name}: {calls} calls to the failing model, {extra:.1f}s added latency in total")</code></pre>
+  <pre><code class="plain">t= 0s  claude-haiku-5-5   2.2s  claude-sonnet-5-5: 529; claude-sonnet-5-5: 529; claude-sonnet-5-5: 529
+t= 5s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=10s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=15s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=20s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=25s  claude-haiku-5-5   1.3s  claude-sonnet-5-5: 529
+t=30s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=35s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=40s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=45s  claude-haiku-5-5   1.0s  claude-sonnet-5-5: open, skip
+t=50s  claude-sonnet-5-5  1.0s
+t=55s  claude-sonnet-5-5  1.0s
+breaker + budget: 4 calls to the failing model, 1.5s added latency in total
+retries only: 21 calls to the failing model, 11.0s added latency in total</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 204" role="img" aria-label="Timeline of the simulated outage: provider overloaded until 32 s, breaker open with probes at 25 s and 50 s, requests served by the fallback until 50 s">
+      <text x="8" y="36" class="s-ink2 s-sm">provider</text>
+      <rect x="80" y="24" width="288" height="16" rx="3" class="s-bad" fill-opacity="0.25"/>
+      <text x="224" y="36" class="s-bad s-sm s-mid">overloaded (529)</text>
+      <text x="8" y="73" class="s-ink2 s-sm">breaker</text>
+      <rect x="91" y="60" width="214" height="18" rx="3" class="s-warn" fill-opacity="0.25"/>
+      <text x="198" y="73" class="s-warn s-sm s-mid">open</text>
+      <rect x="308" y="60" width="222" height="18" rx="3" class="s-warn" fill-opacity="0.25"/>
+      <text x="419" y="73" class="s-warn s-sm s-mid">open</text>
+      <rect x="530" y="60" width="90" height="18" rx="3" class="s-acc" fill-opacity="0.2"/>
+      <text x="575" y="73" class="s-acc s-sm s-mid">closed</text>
+      <text x="305" y="94" class="s-bad s-sm s-mid">probe ✗</text>
+      <text x="530" y="94" class="s-acc s-sm s-mid">probe ✓</text>
+      <text x="8" y="120" class="s-ink2 s-sm">served</text>
+      <circle cx="80" cy="116" r="6" class="s-warn"/>
+      <circle cx="125" cy="116" r="6" class="s-warn"/>
+      <circle cx="170" cy="116" r="6" class="s-warn"/>
+      <circle cx="215" cy="116" r="6" class="s-warn"/>
+      <circle cx="260" cy="116" r="6" class="s-warn"/>
+      <circle cx="305" cy="116" r="6" class="s-warn"/>
+      <circle cx="350" cy="116" r="6" class="s-warn"/>
+      <circle cx="395" cy="116" r="6" class="s-warn"/>
+      <circle cx="440" cy="116" r="6" class="s-warn"/>
+      <circle cx="485" cy="116" r="6" class="s-warn"/>
+      <circle cx="530" cy="116" r="6" class="s-acc"/>
+      <circle cx="575" cy="116" r="6" class="s-acc"/>
+      <line x1="80" y1="136" x2="620" y2="136" class="s-ln"/>
+      <text x="80" y="152" class="s-ink2 s-sm s-mid">0 s</text>
+      <text x="170" y="152" class="s-ink2 s-sm s-mid">10</text>
+      <text x="260" y="152" class="s-ink2 s-sm s-mid">20</text>
+      <text x="350" y="152" class="s-ink2 s-sm s-mid">30</text>
+      <text x="440" y="152" class="s-ink2 s-sm s-mid">40</text>
+      <text x="530" y="152" class="s-ink2 s-sm s-mid">50</text>
+      <text x="620" y="152" class="s-ink2 s-sm s-mid">60</text>
+      <circle cx="86" cy="182" r="6" class="s-warn"/>
+      <text x="98" y="186" class="s-ink s-sm">fallback (haiku)</text>
+      <circle cx="286" cy="182" r="6" class="s-acc"/>
+      <text x="298" y="186" class="s-ink s-sm">primary (sonnet)</text>
+    </svg>
+    <figcaption><b>The run above.</b> Three failures open the breaker during the first request; later requests go straight to the fallback. The probe at 25 s fails (the outage lasts until 32 s); the probe at 50 s closes the breaker.</figcaption>
+  </figure>
+
+  <h3>Idempotency, graceful degradation and load shedding</h3>
+  <ul>
+    <li><b>Idempotency.</b> Retrying a model call costs money; retrying an agent step can create a ticket twice. Give side-effecting tool calls a key such as <code>request_id:step</code>, and have the handler return the stored result on a repeat (<a href="p07.html#l74">L74</a>).</li>
+    <li><b>Graceful degradation.</b> When every model is down, return a cached answer labelled with its age (<a href="#l111">L111</a>), the top documentation links without generation, or an honest "try again in a minute". Never a silent empty answer.</li>
+    <li><b>Load shedding.</b> Over capacity, reject new requests at once with 503 and <code>Retry-After</code> instead of letting all of them time out. Shed batch work before interactive traffic (SRE book, ch. 21).</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Retry storms.</b> SDK, wrapper and client retries multiply during the exact minutes the provider is weakest.</li>
+      <li><b>Retrying 400s.</b> A too-long prompt fails identically every time; retrying triples the cost and hides the bug.</li>
+      <li><b>Untested fallbacks.</b> The small model first sees the big model's prompt during the outage, and ignores the citation format.</li>
+      <li><b>One shared breaker.</b> A rate limit on one model blocks every model and feature. Keep breakers per model and provider.</li>
+      <li><b>Timeouts longer than patience.</b> The SDK's default read timeout is 10 minutes; the user left after 20 seconds.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Put <code>docpilot/resilient.py</code> under <code>chat()</code>: set SDK <code>max_retries=0</code>, add a 20 s request deadline, and log every retry and breaker transition as span events (<a href="#l106">L106</a>).</li>
+      <li>Write failure-injection tests: 429 with <code>retry-after</code>, 529 bursts, a 400 that must not be retried, a timeout, and a full outage of the primary model.</li>
+      <li>Add a fallback chain (primary, small model, degraded answer) and run the <a href="p08.html#l95">L95</a> eval suite on the fallback model so you know what quality users get during an outage.</li>
+      <li>Add idempotency keys to the side-effecting tools and a concurrency limit that returns 503 with <code>Retry-After</code> under overload.</li>
+    </ol>
+    <p><b>Ship:</b> DocPilot keeps answering through a simulated provider outage, with bounded retries and a measured fallback quality.</p>
+  </div>
+  <p class="refs"><b>Read</b> Marc Brooker, “Exponential Backoff And Jitter”, AWS Architecture Blog (2015) · Beyer et al., <i>Site Reliability Engineering</i>, ch. 21 “Handling Overload” and ch. 22 “Addressing Cascading Failures” · Michael Nygard, <i>Release It!</i>, “Stability Patterns” · Anthropic docs, Errors and Rate limits</p>
+</article>
+<!-- ================================================================ L108 -->
+<article class="day" id="l108">
+  <header class="day-head">
+    <span class="day-no">L108 · DAY 78</span>
+    <h2>LLM Gateways and Multi-Provider Routing</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A gateway is the one place where every model call passes through: it holds the provider keys, enforces budgets, retries and falls back, and logs usage. Application code then names a feature alias, and the model behind it becomes configuration.</p>
+
+  <h3>What a gateway does</h3>
+  <p>By now DocPilot calls models from the answer path, the triage job, chunk enrichment, the judge and the agent. Without a gateway each caller carries a provider key and its own retry logic, and nobody can say what the triage job spent last week. A gateway centralises the cross-cutting concerns that <a href="#l104">L104</a> assigned to one box.</p>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>An <b>LLM gateway</b> is a proxy between your services and model providers that offers one API and handles:</p>
+    <ul>
+      <li><b>Key management:</b> provider keys live only in the gateway. Callers get <em>virtual keys</em> scoped to a team or feature, which you can rotate and revoke without touching provider accounts.</li>
+      <li><b>Quotas and budgets:</b> rate and spend limits per virtual key.</li>
+      <li><b>Routing:</b> an alias such as <code>docpilot-answer</code> maps to an ordered list of models, with retries, fallbacks and the circuit breakers of <a href="#l107">L107</a>.</li>
+      <li><b>Logging and tracing:</b> one usage record per call, tagged with feature and key (<a href="#l106">L106</a>).</li>
+      <li><b>Caching:</b> optionally, exact or semantic response caches (<a href="#l111">L111</a>).</li>
+    </ul>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Three DocPilot features with their own virtual keys call one gateway, which routes to Anthropic, an open-model server and another provider">
+      <defs>
+        <marker id="ah-l108" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="16" y="24" width="120" height="44" rx="8" class="s-node"/>
+      <text x="76" y="42" class="s-ttl s-mid">support UI</text>
+      <text x="76" y="59" class="s-ink2 s-mid s-sm">vk-support</text>
+      <rect x="16" y="88" width="120" height="44" rx="8" class="s-node"/>
+      <text x="76" y="106" class="s-ttl s-mid">triage job</text>
+      <text x="76" y="123" class="s-ink2 s-mid s-sm">vk-triage</text>
+      <rect x="16" y="152" width="120" height="44" rx="8" class="s-node"/>
+      <text x="76" y="170" class="s-ttl s-mid">enrichment</text>
+      <text x="76" y="187" class="s-ink2 s-mid s-sm">vk-batch</text>
+
+      <rect x="220" y="14" width="190" height="192" rx="10" class="s-node-mod"/>
+      <text x="315" y="38" class="s-ttl s-mid">Gateway</text>
+      <text x="315" y="64" class="s-ink s-mid s-sm">virtual keys</text>
+      <text x="315" y="86" class="s-ink s-mid s-sm">budgets per key</text>
+      <text x="315" y="108" class="s-ink s-mid s-sm">aliases → models</text>
+      <text x="315" y="130" class="s-ink s-mid s-sm">retries · fallbacks</text>
+      <text x="315" y="152" class="s-ink s-mid s-sm">cache · logs · traces</text>
+      <text x="315" y="188" class="s-acc s-mid s-sm">one API for callers</text>
+
+      <rect x="494" y="24" width="130" height="44" rx="8" class="s-node"/>
+      <text x="559" y="42" class="s-ttl s-mid">Anthropic</text>
+      <text x="559" y="59" class="s-ink2 s-mid s-sm">primary</text>
+      <rect x="494" y="88" width="130" height="44" rx="8" class="s-node"/>
+      <text x="559" y="106" class="s-ttl s-mid">vLLM</text>
+      <text x="559" y="123" class="s-ink2 s-mid s-sm">open models</text>
+      <rect x="494" y="152" width="130" height="44" rx="8" class="s-node"/>
+      <text x="559" y="170" class="s-ttl s-mid">provider B</text>
+      <text x="559" y="187" class="s-ink2 s-mid s-sm">fallback</text>
+
+      <line x1="136" y1="46" x2="218" y2="60" class="s-ln" marker-end="url(#ah-l108)"/>
+      <line x1="136" y1="110" x2="218" y2="110" class="s-ln" marker-end="url(#ah-l108)"/>
+      <line x1="136" y1="174" x2="218" y2="160" class="s-ln" marker-end="url(#ah-l108)"/>
+      <line x1="410" y1="60" x2="492" y2="46" class="s-ln" marker-end="url(#ah-l108)"/>
+      <line x1="410" y1="110" x2="492" y2="110" class="s-ln" marker-end="url(#ah-l108)"/>
+      <line x1="410" y1="160" x2="492" y2="174" class="s-ln s-dash" marker-end="url(#ah-l108)"/>
+    </svg>
+    <figcaption><b>Keys on the left, providers on the right.</b> Callers never see a provider key. The gateway decides which model serves each alias, and records spend against the caller's virtual key. The dashed route is used only when the primary fails.</figcaption>
+  </figure>
+
+  <h3>Open-source and hosted gateways</h3>
+  <p><b>LiteLLM</b> is the most widely used open-source option. It is both a Python library that translates one call format to many providers and a proxy server with virtual keys, budgets, fallbacks and logging callbacks. Other options include hosted or self-hostable gateways from API-management and observability vendors, edge-network gateways, OpenRouter-style hosted routers that resell many providers behind one key, and cloud model platforms (Bedrock, Vertex AI, Azure) that put several model families behind one cloud account. Compare them on where the data flows, whether you can self-host, latency overhead, which native features pass through, and how budgets are enforced.</p>
+  <pre><code class="plain"># LiteLLM proxy config.yaml: API as documented; check your installed version (untested here)
+model_list:
+  - model_name: docpilot-answer             # the alias callers use
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: docpilot-answer-small
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+router_settings:
+  fallbacks: [{"docpilot-answer": ["docpilot-answer-small"]}]</code></pre>
+
+  <h3>OpenAI-compatible APIs as the common format</h3>
+  <p>The OpenAI Chat Completions request shape (<code>model</code>, <code>messages</code>, <code>max_tokens</code>, <code>tools</code>) has become the lingua franca. Ollama, vLLM and most gateways expose it, and several providers, Anthropic included, document an OpenAI-compatible endpoint with listed gaps. Callers then use one client and change only <code>base_url</code> and the alias:</p>
+  <pre><code>import os
+from openai import OpenAI
+
+gw = OpenAI(base_url="http://gateway.internal:4000", api_key=os.environ["DOCPILOT_GATEWAY_KEY"])
+resp = gw.chat.completions.create(            # a virtual key, never a provider key
+    model="docpilot-answer",                  # an alias; the gateway picks the model
+    messages=[{"role": "user", "content": "How do I drain a node before maintenance?"}],
+    max_tokens=1024,
+)
+print(resp.choices[0].message.content, resp.usage)</code></pre>
+
+  <h3>The cost of abstraction</h3>
+  <p>A common format is the intersection of what providers offer. Provider-specific features either disappear or travel as non-standard extensions. For DocPilot the ones that matter are Anthropic's prompt-caching breakpoints (<a href="p02.html#l24">L24</a>), extended and adaptive thinking, <code>output_config</code> effort and native structured outputs, PDF and citation content blocks, and the exact usage fields for cache reads and writes. Stop reasons get mapped too (<code>end_turn</code> becomes <code>stop</code>), and <code>refusal</code> or <code>pause_turn</code> may not map cleanly.</p>
+  <div class="box note"><span class="tag">Keeping the features you pay for</span>
+    <ul>
+      <li>Many gateways also offer a <em>pass-through</em> route to the provider's native API. Point <code>anthropic.Anthropic(base_url=...)</code> at it and you keep budgets and logging without losing native features.</li>
+      <li>Use the common format for features that genuinely need to be portable, such as triage, enrichment and judges, and the native route for the answer path, which depends on caching.</li>
+      <li>Check that cache tokens appear in the gateway's usage records. If they are dropped, your cost reports overstate spend (<a href="#l109">L109</a>).</li>
+    </ul>
+  </div>
+
+  <h3>Per-team budgets and keys</h3>
+  <p>The core of a gateway is small enough to write, and writing it shows what you are buying. Here, virtual keys map to a feature and an alias, each feature has a monthly token budget that is checked with an estimate before the call, routes fall through on provider failure, and changing a model is one line of configuration:</p>
+  <pre><code>from dataclasses import dataclass
+
+class BudgetExceeded(Exception): ...
+
+@dataclass
+class Budget:
+    monthly_tokens: int
+    used: int = 0
+
+ROUTES = {                      # alias -&gt; ordered models; swapping models = editing this table
+    "docpilot-answer": ["anthropic/claude-sonnet-5-5", "anthropic/claude-haiku-5-5"],
+    "docpilot-triage": ["anthropic/claude-haiku-5-5"],
+}
+KEYS = {"vk-support-ui": ("answer", "docpilot-answer"),       # virtual key -&gt; (feature, alias)
+        "vk-triage-job": ("triage", "docpilot-triage")}
+BUDGETS = {"answer": Budget(2_000_000), "triage": Budget(3_200)}
+
+def complete(key, messages, *, max_tokens, providers):
+    feature, alias = KEYS[key]                                  # unknown key -&gt; KeyError -&gt; 401
+    budget = BUDGETS[feature]
+    estimate = sum(len(m["content"]) for m in messages) // 4 + max_tokens
+    if budget.used + estimate &gt; budget.monthly_tokens:
+        raise BudgetExceeded(f"{feature}: {budget.used:,}/{budget.monthly_tokens:,} tokens used")
+    for model in ROUTES[alias]:
+        provider, name = model.split("/", 1)
+        try:
+            text, usage = providers[provider](name, messages, max_tokens)
+        except ConnectionError:
+            continue                                            # next model in the route
+        budget.used += usage["input_tokens"] + usage["output_tokens"]
+        print(f"log feature={feature} alias={alias} model={model} usage={usage}")
+        return text
+    raise ConnectionError(f"all routes failed for {alias}")
+
+down = set()
+def fake_anthropic(name, messages, max_tokens):
+    if name in down:
+        raise ConnectionError(name)
+    return f"[{name}] ok", {"input_tokens": 1200, "output_tokens": 300}
+
+P = {"anthropic": fake_anthropic}
+ask = [{"role": "user", "content": "How do I drain a node?"}]
+complete("vk-support-ui", ask, max_tokens=1024, providers=P)
+down.add("claude-sonnet-5-5")                                   # provider incident
+complete("vk-support-ui", ask, max_tokens=1024, providers=P)
+ROUTES["docpilot-answer"] = ["anthropic/claude-opus-5-5"]       # model swap: config only
+complete("vk-support-ui", ask, max_tokens=1024, providers=P)
+complete("vk-triage-job", ask, max_tokens=256, providers=P)
+complete("vk-triage-job", ask, max_tokens=256, providers=P)
+try:
+    complete("vk-triage-job", ask, max_tokens=256, providers=P)
+except BudgetExceeded as e:
+    print("429 budget exceeded:", e)</code></pre>
+  <pre><code class="plain">log feature=answer alias=docpilot-answer model=anthropic/claude-sonnet-5-5 usage={'input_tokens': 1200, 'output_tokens': 300}
+log feature=answer alias=docpilot-answer model=anthropic/claude-haiku-5-5 usage={'input_tokens': 1200, 'output_tokens': 300}
+log feature=answer alias=docpilot-answer model=anthropic/claude-opus-5-5 usage={'input_tokens': 1200, 'output_tokens': 300}
+log feature=triage alias=docpilot-triage model=anthropic/claude-haiku-5-5 usage={'input_tokens': 1200, 'output_tokens': 300}
+log feature=triage alias=docpilot-triage model=anthropic/claude-haiku-5-5 usage={'input_tokens': 1200, 'output_tokens': 300}
+429 budget exceeded: triage: 3,000/3,200 tokens used</code></pre>
+  <p class="code-cap">Production budgets are in money, using the price table from <a href="#l109">L109</a>, and live in a shared store, because a gateway has many replicas. Decide in advance what happens at the limit: hard-stop batch jobs, but alert and degrade interactive features rather than cutting users off.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>A new single point of failure.</b> A gateway with one replica takes down every feature at once. Run several, and health-check it like the providers.</li>
+      <li><b>Silent feature loss.</b> Routing the answer path through the common format quietly turns off prompt caching. Latency and cost rise, and nothing errors.</li>
+      <li><b>Fallbacks across providers change behaviour.</b> A different model family formats citations differently and refuses different things. Evaluate each route (<a href="p08.html#l93">L93</a>).</li>
+      <li><b>Budgets checked after the fact.</b> Counting spend from logs at the end of the day lets a runaway agent spend a month's budget in an hour.</li>
+      <li><b>Data residency surprises.</b> A hosted gateway or router is another processor of your users' prompts. Add it to the threat model and data inventory (<a href="p09.html#l96">L96</a>, <a href="p09.html#l101">L101</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Run a gateway locally, LiteLLM's proxy or the minimal one above behind FastAPI, with aliases <code>docpilot-answer</code>, <code>docpilot-triage</code> and <code>docpilot-enrich</code>.</li>
+      <li>Issue one virtual key per feature with a monthly budget, and move provider keys out of every other service's environment.</li>
+      <li>Point triage and enrichment at the OpenAI-compatible route, and keep the answer path on a native pass-through so prompt caching still works. Verify cache-read tokens in the usage logs.</li>
+      <li>Swap the triage model by editing configuration only, and re-run the triage eval to confirm the swap.</li>
+    </ol>
+    <p><b>Ship:</b> swapping models becomes a configuration change, and every call is attributed to a feature budget.</p>
+  </div>
+  <p class="refs"><b>Read</b> LiteLLM docs, Proxy: virtual keys, budgets and fallbacks · Anthropic docs, OpenAI SDK compatibility · OpenAI API reference, Chat Completions · Chip Huyen, <i>AI Engineering</i> (2025), ch. 10 (model router and gateway)</p>
+</article>
+<!-- ================================================================ L109 -->
+<article class="day" id="l109">
+  <header class="day-head">
+    <span class="day-no">L109 · DAY 79</span>
+    <h2>Cost Engineering: Budgets, Routing and Batch Processing</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Cost is a product metric like latency: measure it per request, user and feature, then pull the levers (smaller models, routing, shorter prompts and outputs, caching, batch processing) one at a time. Measure the quality change each one causes as well as the saving.</p>
+
+  <h3>Cost per request, per user and per feature</h3>
+  <p>The price of a call is tokens times per-token prices, summed over the token types the provider bills differently. Anthropic's <code>usage</code> reports uncached <code>input_tokens</code>, <code>output_tokens</code>, and separately <code>cache_creation_input_tokens</code> and <code>cache_read_input_tokens</code> (<a href="p02.html#l24">L24</a>). Output tokens cost several times more than input tokens, so a verbose answer can cost more than a long prompt. Prices change often, so the code keeps them in a table you fill in from the current price page, and refuses to guess:</p>
+  <pre><code>FIELDS = ("input", "output", "cache_write", "cache_read")
+# USD per million tokens. Fill in from each provider's current price page; None on purpose.
+PRICES = {
+    "claude-haiku-5-5":  dict.fromkeys(FIELDS),
+    "claude-sonnet-5-5": dict.fromkeys(FIELDS),
+    "claude-opus-5-5":   dict.fromkeys(FIELDS),
+}
+BATCH_DISCOUNT = None            # fraction off for batch jobs; see the price page
+
+def cost(model: str, usage: dict, *, batch: bool = False, prices=PRICES) -&gt; float:
+    p = prices[model]
+    if None in p.values() or (batch and BATCH_DISCOUNT is None):
+        raise ValueError(f"fill in prices for {model!r} from the provider's current price page")
+    usd = (usage["input_tokens"] * p["input"] + usage["output_tokens"] * p["output"]
+           + (usage.get("cache_creation_input_tokens") or 0) * p["cache_write"]
+           + (usage.get("cache_read_input_tokens") or 0) * p["cache_read"]) / 1e6
+    return usd * (1 - BATCH_DISCOUNT) if batch else usd
+
+usage = {"input_tokens": 900, "output_tokens": 350, "cache_read_input_tokens": 2950}
+try:
+    cost("claude-sonnet-5-5", usage)
+except ValueError as e:
+    print("ValueError:", e)
+unit = {"m": dict.fromkeys(FIELDS, 1.0)}          # test arithmetic: 1 USD per million of each
+print(cost("m", usage, prices=unit) == 4200 / 1e6)</code></pre>
+  <pre><code class="plain">ValueError: fill in prices for 'claude-sonnet-5-5' from the provider's current price page
+True</code></pre>
+  <p><code>chat()</code> (<a href="p00.html#l2">L2</a>) logs <code>est_cost</code>; the gateway (<a href="#l108">L108</a>) adds feature and key. Cost per <b>feature</b> shows where to optimise, per <b>user</b> finds abuse, and per <b>outcome</b> (per resolved ticket) is what the business compares with value.</p>
+
+  <h3>The levers, and how to measure each</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Lever</th><th>Mechanism</th><th>Quality check</th></tr></thead>
+    <tbody>
+      <tr><td>Smaller model</td><td>a lower price per token for a sub-task (triage, query rewriting, judging easy cases)</td><td>the sub-task's eval set, small vs large</td></tr>
+      <tr><td>Routing, cascades</td><td>use the large model only where needed</td><td>accuracy on routed items; regressions list</td></tr>
+      <tr><td>Trim prompts</td><td>fewer or shorter chunks, a shorter system prompt, compacted history (<a href="p02.html#l23">L23</a>)</td><td>faithfulness and recall evals (<a href="p05.html#l60">L60</a>)</td></tr>
+      <tr><td>Caching</td><td>prompt caching of stable prefixes (<a href="p02.html#l24">L24</a>), response caches (<a href="#l111">L111</a>)</td><td>wrong-hit rate</td></tr>
+      <tr><td>Control output length</td><td><code>max_tokens</code>, length instructions, lower <code>effort</code> in <code>output_config</code></td><td>completeness judge; <code>max_tokens</code> stop rate</td></tr>
+      <tr><td>Batch API</td><td>asynchronous processing at a discount for offline work</td><td>same outputs; check the turnaround fits</td></tr>
+    </tbody>
+  </table></div>
+  <p>Change one lever at a time and run the full eval suite (<a href="p08.html#l95">L95</a>) before and after. Two levers that each lose 1 point of quality can lose 3 together, and you will not know which one to undo.</p>
+
+  <h3>Routing by difficulty, and cascades</h3>
+  <div class="box deriv"><span class="tag">Derivation · expected cost</span>
+    <p>Let \(c_S, c_L\) be the costs of a request on the small and large model. A <b>router</b> sends a share \(s\) to the small model up front. A <b>cascade</b> always tries the small model and escalates a share \(e\) when a check fails (no citation, low confidence, schema error):</p>
+    $$C_{\text{route}} = s\,c_S + (1-s)\,c_L, \qquad C_{\text{cascade}} = c_S + e\,c_L .$$
+    <p>The cascade beats all-large only if \(e &lt; 1 - c_S / c_L\). It also adds the small call's latency to every escalated request. The router costs nothing extra per request, but its mistakes are silent.</p>
+  </div>
+  <p>Start with a rule-based router and an evaluation on fixtures. The fixtures are your last offline eval run, which records for each question whether each model was judged correct. Cost is expressed relative to all-large with the price ratio \(r = c_L / c_S\) left as a parameter, because the real ratio comes from your price table.</p>
+  <pre><code>import re
+
+SMALL, LARGE = "claude-haiku-5-5", "claude-sonnet-5-5"
+HARD = re.compile(r"\b(why|debug|troubleshoot|compare|versus|design|migrate|"
+                  r"pending|crashloopbackoff|oomkilled|hangs?|fails?|error)\b", re.I)
+
+def route(q: str) -&gt; str:
+    hard = HARD.search(q) or len(q.split()) &gt; 30 or q.count("?") &gt; 1
+    return LARGE if hard else SMALL
+
+FIXTURES = [  # (question, small correct?, large correct?) from the last offline eval run
+    ("What is a Pod?", 1, 1),
+    ("How do I list all namespaces?", 1, 1),
+    ("What does kubectl apply -f do?", 1, 1),
+    ("What is the default Service type?", 1, 1),
+    ("How do I scale a Deployment to 5 replicas?", 1, 1),
+    ("Where does the API server store ConfigMaps?", 1, 1),
+    ("Which port does the kubelet API listen on?", 0, 1),
+    ("How do I set a memory limit on a container?", 1, 1),
+    ("What is a DaemonSet for?", 1, 1),
+    ("Why is my Pod stuck in Pending with no events?", 0, 1),
+    ("Compare StatefulSet and Deployment for a Postgres cluster.", 0, 1),
+    ("Debug: my Ingress returns 404 but the Service works.", 0, 1),
+    ("My container is OOMKilled although usage looks low. Why?", 1, 1),
+    ("How do I migrate from PodSecurityPolicy to Pod Security Admission?", 0, 1),
+    ("Design RBAC for three teams sharing one cluster.", 0, 0),
+    ("Why does kubectl drain hang, and what blocks eviction?", 0, 1),
+]
+
+def evaluate(policy):
+    picks = [policy(q) for q, _, _ in FIXTURES]
+    ok = [s if m == SMALL else l for m, (_, s, l) in zip(picks, FIXTURES)]
+    lost = [q for m, (q, s, l) in zip(picks, FIXTURES) if m == SMALL and l and not s]
+    return sum(ok) / len(ok), picks.count(SMALL) / len(picks), lost
+
+print("policy     accuracy  small share  cost vs all-large at price ratio r=3, r=10")
+for name, policy in [("all small", lambda q: SMALL), ("all large", lambda q: LARGE), ("router", route)]:
+    acc, s, lost = evaluate(policy)
+    rel = [(s + (1 - s) * r) / r for r in (3, 10)]  # same tokens per request; r = large/small price
+    print(f"{name:10} {acc:8.2f} {s:12.2f}   {rel[0]:.2f}  {rel[1]:.2f}")
+print("routed small but only the large model was right:", evaluate(route)[2])</code></pre>
+  <pre><code class="plain">policy     accuracy  small share  cost vs all-large at price ratio r=3, r=10
+all small      0.56         1.00   0.33  0.10
+all large      0.94         0.00   1.00  1.00
+router         0.88         0.56   0.62  0.49
+routed small but only the large model was right: ['Which port does the kubelet API listen on?']</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 244" role="img" aria-label="Cost versus accuracy for all-small, all-large and the router at price ratio 10">
+      <line x1="80" y1="200" x2="610" y2="200" class="s-ln"/>
+      <line x1="80" y1="200" x2="80" y2="24" class="s-ln"/>
+      <line x1="80" y1="115" x2="610" y2="115" class="s-grid s-dash"/>
+      <line x1="80" y1="30" x2="610" y2="30" class="s-grid s-dash"/>
+      <text x="72" y="204" class="s-ink2 s-sm s-end">0.50</text>
+      <text x="72" y="119" class="s-ink2 s-sm s-end">0.75</text>
+      <text x="72" y="34" class="s-ink2 s-sm s-end">1.00</text>
+      <text x="80" y="216" class="s-ink2 s-sm s-mid">0</text>
+      <text x="210" y="216" class="s-ink2 s-sm s-mid">0.25</text>
+      <text x="340" y="216" class="s-ink2 s-sm s-mid">0.50</text>
+      <text x="470" y="216" class="s-ink2 s-sm s-mid">0.75</text>
+      <text x="600" y="216" class="s-ink2 s-sm s-mid">1.00</text>
+      <text x="345" y="236" class="s-ink2 s-sm s-mid">cost relative to all-large (r = 10)</text>
+      <text x="16" y="16" class="s-ink2 s-sm">accuracy</text>
+      <circle cx="132" cy="180" r="6" class="s-warn"/>
+      <text x="144" y="184" class="s-warn s-sm">all small</text>
+      <circle cx="600" cy="50" r="6" class="s-ink"/>
+      <text x="588" y="72" class="s-ink s-sm s-end">all large</text>
+      <circle cx="335" cy="71" r="6" class="s-acc"/>
+      <text x="335" y="56" class="s-acc s-sm s-mid">router</text>
+      <path d="M592,52 L345,69" class="s-ln-acc s-dash" fill="none"/>
+      <text x="470" y="96" class="s-acc s-sm s-mid">−51% cost, −1 question</text>
+    </svg>
+    <figcaption><b>The router on the cost–quality plane.</b> At a price ratio of 10, the router halves cost and loses one of sixteen questions, a factual lookup that looked easy. The Ship target, no measured quality loss, means fixing that miss first.</figcaption>
+  </figure>
+  <p>Over-routing (the OOMKilled question) costs money; under-routing costs quality. Read the regressions list, not only the averages. Sixteen fixtures can debug a router but cannot show "no quality loss": use the full eval set with a confidence interval (<a href="p01.html#l16">L16</a>). FrugalGPT and RouteLLM describe learned routers.</p>
+
+  <h3>Batch APIs for offline work</h3>
+  <p>Chunk enrichment (<a href="p04.html#l42">L42</a>), re-embedding, eval runs and nightly triage do not need an answer in seconds. Anthropic's Message Batches API takes many requests at once, processes them asynchronously at a discount relative to standard calls (see the price page), and returns results to fetch later. Each request is a <code>custom_id</code> plus the usual <code>messages.create</code> parameters.</p>
+  <pre><code>from docpilot.llm import SMALL
+
+def enrichment_requests(chunks: list[dict], doc_title: str) -&gt; list[dict]:
+    return [{"custom_id": c["id"],                   # letters, digits, - and _ only
+             "params": {"model": SMALL, "max_tokens": 150,
+                        "system": "In one sentence, situate this chunk within the document, for search.",
+                        "messages": [{"role": "user",
+                                      "content": f"Document: {doc_title}\n\nChunk:\n{c['text']}"}]}}
+            for c in chunks]
+
+# batch = client.messages.batches.create(requests=enrichment_requests(chunks, title))
+# poll client.messages.batches.retrieve(batch.id).processing_status until it is "ended"
+
+def collect(client, batch_id: str) -&gt; tuple[dict, list]:
+    """Read results once processing_status == 'ended'; return texts and IDs to resubmit."""
+    texts, retry = {}, []
+    for entry in client.messages.batches.results(batch_id):
+        if entry.result.type == "succeeded":
+            texts[entry.custom_id] = entry.result.message.content[0].text
+        else:                                        # errored, canceled or expired
+            retry.append(entry.custom_id)
+    return texts, retry</code></pre>
+  <p class="code-cap">Tested locally: the SDK's <code>batch_create_params.Request</code> type (via a Pydantic <code>TypeAdapter</code>) accepts these requests, and <code>collect()</code> on constructed succeeded, errored and expired results returns one text and <code>['chunk-0002', 'chunk-0003']</code>. Results can arrive in any order; key them by <code>custom_id</code>.</p>
+
+  <h3>Cost dashboards and alerts</h3>
+  <p>Chart daily spend by feature and model, cost per request at p50 and p95 (agents have long tails), tokens by type, cache-read share, and the most expensive users and conversations. Alert on daily spend above plan, cost per request jumping after a deploy (often disabled caching or a loop that stopped terminating, <a href="p07.html#l84">L84</a>), and any key spending far above its usual rate.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Optimising the wrong feature.</b> Shaving the answer prompt while a nightly eval job re-runs a thousand judge calls. Look at the per-feature view first.</li>
+      <li><b>Stale price tables.</b> Prices and models change. Date the table and review it monthly; a wrong table makes every cost report wrong.</li>
+      <li><b>Ignoring cached tokens.</b> Treating <code>input_tokens</code> as the whole prompt understates or overstates spend, depending on cache use.</li>
+      <li><b>Routers that drift.</b> Users' questions change, the router does not. Re-evaluate it on fresh traffic monthly.</li>
+      <li><b>Batch jobs nobody watches.</b> Expired or errored requests silently leave chunks unenriched. Track the resubmit list until it is empty.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Fill in the price table from the current price pages (dated), and produce a per-feature, per-model cost report from a week of logs.</li>
+      <li>Build the difficulty router, then replace keywords with a small-model or embedding classifier trained on eval verdicts. Report accuracy, small share and cost at your real price ratio, plus the regressions list.</li>
+      <li>Iterate until the router shows no measured quality loss on the full eval set, with a confidence interval.</li>
+      <li>Move chunk enrichment to the Batch API: submit, poll, collect, resubmit failures, and compare cost with the synchronous run.</li>
+    </ol>
+    <p><b>Ship:</b> a documented cost reduction, with the eval numbers showing no measured quality loss.</p>
+  </div>
+  <p class="refs"><b>Read</b> Anthropic docs, Pricing; Message Batches; Prompt caching · Chen, Zaharia &amp; Zou 2023, “FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance” · Ong et al. 2024, “RouteLLM: Learning to Route LLMs with Preference Data” · Chip Huyen, <i>AI Engineering</i> (2025), ch. 9–10</p>
+</article>
+<!-- ================================================================ L110 -->
+<article class="day" id="l110">
+  <header class="day-head">
+    <span class="day-no">L110 · DAY 80</span>
+    <h2>Latency Engineering: Time to First Token, Parallelism and Speculation</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Latency is a critical path through a graph of calls. Cut it by running independent calls concurrently, by making the calls on the path shorter (fewer output tokens, smaller models, cached prefixes), and by showing progress while the rest finishes.</p>
+
+  <h3>Time to first token vs total time</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>For one model call, <b>time to first token</b> (TTFT) is network plus queueing plus prefill (plus thinking, if enabled). <b>Total time</b> adds one decode step per output token:</p>
+    $$T_{\text{total}} \approx \underbrace{T_{\text{net}} + T_{\text{queue}} + T_{\text{prefill}}(n_{\text{in}})}_{\text{TTFT}} + n_{\text{out}}\, t_{\text{tok}}$$
+    <p>Prefill grows with the input length \(n_{\text{in}}\) but runs in parallel across tokens. Decode is sequential, so total time is roughly linear in \(n_{\text{out}}\) (<a href="p01.html#l8">L8</a>). For a request, TTFT is everything before the answer's first token: rewriting, retrieval, tools, guardrails, earlier model calls.</p>
+  </div>
+  <p>With streaming (<a href="#l105">L105</a>), users feel the request's TTFT and then read at the decode rate. Without streaming, they feel the total. Track both at p50 and p95 per feature. The p95 is where users give up, and it is dominated by the slowest step plus tail jitter, not by averages.</p>
+
+  <h3>Where the time goes</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Component</th><th>Driven by</th><th>Main fix</th></tr></thead>
+    <tbody>
+      <tr><td>Network</td><td>round trips, region distance, TLS setup</td><td>keep connections alive (reuse one client); run near the model endpoint</td></tr>
+      <tr><td>Queueing</td><td>provider load, your own concurrency limits</td><td>priority tiers where offered; shed batch load first (<a href="#l107">L107</a>)</td></tr>
+      <tr><td>Prefill</td><td>input tokens</td><td>prompt caching of the stable prefix (<a href="p02.html#l24">L24</a>); trim context</td></tr>
+      <tr><td>Decode</td><td>output tokens, model size, thinking</td><td>shorter outputs; smaller models; lower effort</td></tr>
+      <tr><td>Retrieval, tools</td><td>index latency, external APIs</td><td>parallelise; cache tool results (<a href="#l111">L111</a>); timeouts</td></tr>
+      <tr><td>Sequential calls</td><td>pipeline design</td><td>parallelise independent steps; merge steps</td></tr>
+    </tbody>
+  </table></div>
+  <p>Read the trace waterfall (<a href="#l106">L106</a>) before optimising. The longest bar is often not a model call. It may be a reranker on CPU, or a guardrail call that runs after generation instead of alongside it.</p>
+
+  <h3>Running independent calls in parallel</h3>
+  <p>In DocPilot's request, dense search, BM25 and a version-lookup tool all depend only on the condensed query, not on each other. Run them concurrently with <code>asyncio.gather</code> (or <code>asyncio.TaskGroup</code>, which cancels siblings when one fails). The simulation uses <code>asyncio.sleep</code> in place of network calls and measures real elapsed time:</p>
+  <pre><code>import asyncio, time
+
+STEPS = {"condense": 0.40, "dense": 0.25, "bm25": 0.15, "version_tool": 0.50,
+         "rerank": 0.20, "generate": 1.60}            # simulated seconds per call
+TTFT, DECODE = 0.50, 1.10                             # generate = first token + decoding
+LOG, T0 = [], 0.0
+
+async def step(name: str, seconds: float | None = None):
+    start = time.perf_counter() - T0
+    await asyncio.sleep(seconds or STEPS[name])       # stands in for a network call
+    LOG.append((name, start, time.perf_counter() - T0))
+
+async def sequential():
+    for name in ["condense", "dense", "bm25", "version_tool", "rerank", "generate"]:
+        await step(name)
+
+async def parallel(out_frac: float = 1.0):
+    await step("condense")                            # everything below needs the condensed query
+    async def retrieve():
+        await asyncio.gather(step("dense"), step("bm25"))
+        await step("rerank")
+    await asyncio.gather(retrieve(), step("version_tool"))
+    await step("generate", TTFT + DECODE * out_frac)  # out_frac &lt; 1: a shorter answer
+
+for label, run in [("before: sequential", sequential()), ("after: parallel", parallel()),
+                   ("after: parallel + half-length answer", parallel(0.5))]:
+    LOG.clear()
+    T0 = time.perf_counter()
+    asyncio.run(run)
+    print(f"{label}: {max(e for *_, e in LOG):.2f} s")
+    for name, s, e in sorted(LOG, key=lambda x: x[1]):
+        print(f"  {name:13}{s:5.2f} {e:5.2f}  {' ' * round(s * 10)}{'#' * round((e - s) * 10)}")</code></pre>
+  <pre><code class="plain">before: sequential: 3.16 s
+  condense      0.00  0.42  ####
+  dense         0.42  0.67      ###
+  bm25          0.67  0.83         ##
+  version_tool  0.83  1.34          #####
+  rerank        1.34  1.55               ##
+  generate      1.55  3.16                 ################
+after: parallel: 2.52 s
+  condense      0.00  0.43  ####
+  version_tool  0.43  0.90      #####
+  dense         0.43  0.69      ###
+  bm25          0.43  0.59      ##
+  rerank        0.69  0.90         ##
+  generate      0.90  2.52           ################
+after: parallel + half-length answer: 1.99 s
+  condense      0.00  0.42  ####
+  version_tool  0.42  0.93      #####
+  dense         0.42  0.68      ###
+  bm25          0.42  0.59      ##
+  rerank        0.68  0.89         ##
+  generate      0.93  1.99           ###########</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 276" role="img" aria-label="Latency waterfalls before and after: sequential steps take 3.16 seconds; parallel retrieval and tool calls plus a shorter answer take 1.99 seconds">
+      <text x="130" y="22" class="s-ttl">before: sequential · 3.16 s</text>
+      <text x="120" y="40" class="s-ink2 s-sm s-end">condense</text>
+      <rect x="130" y="30" width="63" height="12" rx="2" class="s-node"/>
+      <text x="120" y="56" class="s-ink2 s-sm s-end">dense</text>
+      <rect x="193" y="46" width="38" height="12" rx="2" class="s-node"/>
+      <text x="120" y="72" class="s-ink2 s-sm s-end">bm25</text>
+      <rect x="231" y="62" width="24" height="12" rx="2" class="s-node"/>
+      <text x="120" y="88" class="s-ink2 s-sm s-end">version_tool</text>
+      <rect x="255" y="78" width="76" height="12" rx="2" class="s-node"/>
+      <text x="120" y="104" class="s-ink2 s-sm s-end">rerank</text>
+      <rect x="331" y="94" width="32" height="12" rx="2" class="s-node"/>
+      <text x="120" y="120" class="s-ink2 s-sm s-end">generate</text>
+      <rect x="363" y="110" width="241" height="12" rx="2" class="s-node-mod"/>
+      <line x1="438" y1="28" x2="438" y2="126" class="s-ln-acc s-dash"/>
+      <text x="444" y="40" class="s-acc s-sm">first token 2.05 s</text>
+
+      <text x="130" y="146" class="s-ttl">after: parallel + half-length answer · 1.99 s</text>
+      <text x="120" y="164" class="s-ink2 s-sm s-end">condense</text>
+      <rect x="130" y="154" width="63" height="12" rx="2" class="s-node"/>
+      <text x="120" y="180" class="s-ink2 s-sm s-end">version_tool</text>
+      <rect x="193" y="170" width="77" height="12" rx="2" class="s-node"/>
+      <text x="120" y="196" class="s-ink2 s-sm s-end">dense</text>
+      <rect x="193" y="186" width="39" height="12" rx="2" class="s-node"/>
+      <text x="120" y="212" class="s-ink2 s-sm s-end">bm25</text>
+      <rect x="193" y="202" width="26" height="12" rx="2" class="s-node"/>
+      <text x="120" y="228" class="s-ink2 s-sm s-end">rerank</text>
+      <rect x="232" y="218" width="32" height="12" rx="2" class="s-node"/>
+      <text x="120" y="244" class="s-ink2 s-sm s-end">generate</text>
+      <rect x="270" y="234" width="159" height="12" rx="2" class="s-node-mod"/>
+      <line x1="345" y1="152" x2="345" y2="250" class="s-ln-acc s-dash"/>
+      <text x="351" y="164" class="s-acc s-sm">first token 1.43 s</text>
+
+      <line x1="130" y1="256" x2="610" y2="256" class="s-ln"/>
+      <text x="130" y="270" class="s-ink2 s-sm s-mid">0 s</text>
+      <text x="280" y="270" class="s-ink2 s-sm s-mid">1 s</text>
+      <text x="430" y="270" class="s-ink2 s-sm s-mid">2 s</text>
+      <text x="580" y="270" class="s-ink2 s-sm s-mid">3 s</text>
+    </svg>
+    <figcaption><b>The measured runs, to scale.</b> Parallelism moves the first token earlier, from 2.05 s to 1.43 s. A shorter answer moves the last token earlier but leaves the first token where it was. The critical path is now condense, then the version tool, then generate. Speeding up dense search further would change nothing.</figcaption>
+  </figure>
+
+  <p>One run shows the mechanism; the p95 needs a distribution. The same graph with log-normal jitter on every call, over 5,000 simulated requests:</p>
+  <pre><code>import random, statistics
+
+STEPS = {"condense": 0.40, "dense": 0.25, "bm25": 0.15, "version_tool": 0.50,
+         "rerank": 0.20, "generate": 1.60}
+TTFT, DECODE = 0.50, 1.10
+random.seed(0)
+runs = {"sequential": [], "parallel": [], "parallel + half output": []}
+for _ in range(5000):                                  # heavy-tailed jitter on every call
+    d = {k: v * random.lognormvariate(0, 0.4) for k, v in STEPS.items()}
+    pre = d["condense"] + max(max(d["dense"], d["bm25"]) + d["rerank"], d["version_tool"])
+    runs["sequential"].append(sum(d.values()))
+    runs["parallel"].append(pre + d["generate"])
+    runs["parallel + half output"].append(pre + d["generate"] * (TTFT + DECODE / 2) / STEPS["generate"])
+for name, xs in runs.items():
+    q = statistics.quantiles(xs, n=100)
+    print(f"{name:23} p50 {q[49]:.2f} s   p95 {q[94]:.2f} s")</code></pre>
+  <pre><code class="plain">sequential              p50 3.25 s   p95 4.81 s
+parallel                p50 2.67 s   p95 4.19 s
+parallel + half output  p50 2.12 s   p95 3.17 s</code></pre>
+
+  <h3>Shorter outputs and small models for intermediate steps</h3>
+  <p>Decode time scales with output tokens, so the cheapest latency win is often an instruction ("answer in at most five sentences, then the citations") plus a tighter <code>max_tokens</code>, checked with a completeness eval. Intermediate steps such as query condensation, routing and extraction rarely need the large model: a small model has lower TTFT and decodes faster. Ask intermediate steps for compact outputs, such as an ID or a short JSON object, not prose. For reasoning models, a lower <code>effort</code> or thinking budget on easy requests cuts the hidden decode time (<a href="p01.html#l11">L11</a>).</p>
+
+  <h3>Server-side techniques, caching and regions</h3>
+  <ul>
+    <li><b>Speculative decoding</b> (overview). A small draft model proposes several tokens. The large model verifies them in one parallel forward pass and keeps the longest accepted prefix. The output distribution is unchanged, and decode gets faster when drafts are usually accepted (Leviathan et al. 2023; Chen et al. 2023). Providers and serving engines apply it internally; on your own models it is a serving option (<a href="p11.html#l118">L118</a>). Related server-side work includes continuous batching and prefix caching.</li>
+    <li><b>Prompt caching for TTFT.</b> A cached prefix skips most of its prefill, so long stable system prompts and tool definitions stop costing time on every request (<a href="p02.html#l24">L24</a>). Order the prompt with stable parts first.</li>
+    <li><b>Regional endpoints.</b> Run your API in the same region as the model endpoint (cloud platforms offer regional deployments), and keep a single long-lived client so connections are reused. Each cross-ocean round trip adds tens of milliseconds or more.</li>
+  </ul>
+
+  <h3>Perceived latency</h3>
+  <p>When the critical path cannot get shorter, change what the user waits for. Stream the answer and status events (<a href="#l105">L105</a>). Show the sources as soon as retrieval ends. Use optimistic UI: render the question, a skeleton for the answer and the cancel button immediately. Start retrieval on the raw query while the condensation call runs, and keep the result if the condensed query barely differs. That is speculation at the application level: you spend a little extra work to save time.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Optimising averages.</b> The p50 improves and the p95 does not, because the slow step is a tail event (cold index shard, rate-limit retry).</li>
+      <li><b>Unbounded fan-out.</b> Parallel calls for every sub-question hit rate limits and create queueing, which is slower than sequential. Cap concurrency with a semaphore.</li>
+      <li><b>Orphaned tasks.</b> With bare <code>gather</code>, one failure leaves siblings running and billing. Use <code>TaskGroup</code> or cancel explicitly.</li>
+      <li><b>Sync calls in async code.</b> One blocking SDK or database call stalls every request on that worker. Use async clients or <code>asyncio.to_thread</code>.</li>
+      <li><b>Caching broken by a timestamp.</b> Putting the current time at the top of the system prompt invalidates the prefix cache on every request, raising TTFT for everyone.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>From a day of traces, build the p50 and p95 waterfall of DocPilot's answer path and mark the critical path.</li>
+      <li>Parallelise every independent step (dense, BM25, tool lookups, input guardrail) with <code>TaskGroup</code> and a concurrency cap.</li>
+      <li>Move condensation and routing to the small model, shorten the answer format, and confirm with the eval suite that quality holds.</li>
+      <li>Put the stable prompt prefix first and verify cache reads in <code>usage</code>. Then compare before-and-after TTFT and total-time distributions on replayed traffic.</li>
+    </ol>
+    <p><b>Ship:</b> a measured p95 latency reduction, with before-and-after waterfalls and no quality loss.</p>
+  </div>
+  <p class="refs"><b>Read</b> Leviathan, Kalman &amp; Matias 2023, “Fast Inference from Transformers via Speculative Decoding” · Chen et al. 2023, “Accelerating Large Language Model Decoding with Speculative Sampling” · Anthropic docs, Reducing latency; Prompt caching · Python docs, asyncio: Task groups</p>
+</article>
+<!-- ================================================================ L111 -->
+<article class="day" id="l111">
+  <header class="day-head">
+    <span class="day-no">L111 · DAY 81</span>
+    <h2>Caching Beyond Prompts: Exact, Semantic and Tool-Result Caches</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A response cache skips the model entirely, which makes it the biggest cost and latency saving available, and the most dangerous one. A cached answer served to the wrong question, the wrong user or after the docs changed is a confident wrong answer. Measure the wrong-hit rate, not just the hit rate.</p>
+
+  <h3>Exact-match response caches</h3>
+  <p>Prompt caching (<a href="p02.html#l24">L24</a>) still runs the model; it only skips prefill on a repeated prefix. A <b>response cache</b> returns a stored answer without calling the model at all. The safe version matches exactly: normalise the query (case, whitespace, trailing punctuation) and hash it together with <em>everything else that can change the right answer</em>. Exact caches pay off on FAQ-style traffic, page reloads, client retries and eval re-runs. They can never serve an answer to a different question, but they can serve one to a different <em>context</em> if the key is incomplete.</p>
+  <div class="box note"><span class="tag">What goes in the key</span>
+    <ul>
+      <li><b>Model ID and prompt version.</b> A new prompt (<a href="p02.html#l21">L21</a>) must not serve the old prompt's answers.</li>
+      <li><b>Permission scope.</b> Tenant and the user's document-access set (<a href="p04.html#l47">L47</a>). Two users asking the same words may be allowed to see different sources.</li>
+      <li><b>Index version.</b> A blunt but safe way to invalidate everything on re-index. Tag-based invalidation, below, is finer.</li>
+      <li><b>Conversation state, if used.</b> A follow-up such as "and for StatefulSets?" means nothing without its history. Cache only the condensed standalone query (<a href="p04.html#l46">L46</a>).</li>
+    </ul>
+  </div>
+
+  <h3>Semantic caches and false hits</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A <b>semantic cache</b> embeds each query and returns a stored answer when the most similar cached query has cosine similarity \(\cos(q, q') \ge \tau\). The threshold \(\tau\) trades hit rate against <b>false hits</b>: cached answers to queries that look similar but need a different answer.</p>
+  </div>
+  <p>Similarity is not equivalence. "Delete a Pod" and "delete a Deployment" differ in one word and need different commands. "All namespaces" and "one namespace" differ in one flag. Embedding models place such pairs close together, often closer than genuine paraphrases. The code below uses a character-trigram stand-in for an embedding model, so the replay runs anywhere. It adds a <b>guard</b>: the answer-changing terms (resource kind, verb, scope) must match exactly, as well as the tenant.</p>
+  <pre><code>import hashlib, json, re
+import numpy as np
+
+def norm(q: str) -&gt; str:
+    return re.sub(r"\s+", " ", q.lower()).strip(" ?!.")
+
+def cache_key(q: str, *, model: str, prompt_version: str, scope: str, index_version: str) -&gt; str:
+    """Everything that can change the right answer goes into the key."""
+    return hashlib.sha256(json.dumps([norm(q), model, prompt_version, scope, index_version]).encode()).hexdigest()
+
+def embed(text: str, dim: int = 512) -&gt; np.ndarray:
+    """Stand-in for an embedding model (L28): hashed character trigrams, unit length."""
+    t = f"  {norm(text)}  "
+    v = np.zeros(dim)
+    for i in range(len(t) - 2):
+        v[int(hashlib.md5(t[i:i + 3].encode()).hexdigest(), 16) % dim] += 1
+    return v / np.linalg.norm(v)
+
+CRITICAL = {"pod", "deployment", "node", "namespace", "all", "one", "cpu", "memory",
+            "list", "delete", "drain", "cordon", "pending", "crashloopbackoff"}
+
+def terms(q: str) -&gt; set:
+    """Words that change the answer if they differ: resource kind, verb, scope."""
+    return {w.rstrip("s") for w in re.findall(r"[a-z]+", norm(q))} &amp; CRITICAL
+
+class SemanticCache:
+    def __init__(self, threshold: float, guard: bool = False):
+        self.threshold, self.guard, self.vecs, self.items = threshold, guard, [], []
+    def get(self, q: str, scope: str):
+        if not self.items:
+            return None
+        sims = np.array(self.vecs) @ embed(q)
+        for i in np.argsort(-sims):
+            if sims[i] &lt; self.threshold:
+                return None
+            it = self.items[i]
+            if it["scope"] == scope and (not self.guard or terms(it["q"]) == terms(q)):
+                return it                                # same tenant, same critical terms
+        return None
+    def put(self, q: str, scope: str, answer: str, sources: set):
+        self.vecs.append(embed(q))
+        self.items.append({"q": q, "scope": scope, "answer": answer, "sources": sources})
+    def invalidate(self, changed_docs: set):
+        keep = [i for i, it in enumerate(self.items) if not it["sources"] &amp; changed_docs]
+        self.vecs, self.items = [self.vecs[i] for i in keep], [self.items[i] for i in keep]</code></pre>
+
+  <h3>Measuring hit rate and wrong-hit rate</h3>
+  <p>Replay real traffic in arrival order. Label each query's intent by hand: two queries with the same intent have interchangeable answers. On every hit, check whether the cached entry's intent matches. <b>Hit rate</b> is hits over requests. <b>Wrong-hit rate</b> is wrong hits over hits: the share of cached answers that were wrong for the person who received them.</p>
+  <pre><code>TRAFFIC = [  # (query, scope, intent): replayed from logs, intents labelled by hand
+    ("How do I list pods in all namespaces?", "t1", "list-all"), ("How do I delete a Pod?", "t1", "del-pod"),
+    ("Why is my Pod stuck in Pending?", "t1", "pending"), ("How do I drain a node?", "t1", "drain"),
+    ("how do i list pods in all namespaces", "t1", "list-all"), ("How do I delete a Deployment?", "t1", "del-deploy"),
+    ("List pods across all namespaces", "t1", "list-all"), ("How do I list pods in one namespace?", "t1", "list-one"),
+    ("how to delete a pod", "t1", "del-pod"), ("Why is my Pod in CrashLoopBackOff?", "t1", "crashloop"),
+    ("How do I cordon a node?", "t1", "cordon"), ("pod stuck in pending, why?", "t1", "pending"),
+    ("How do I set a container's memory limit?", "t1", "mem"), ("How do I set a container's CPU limit?", "t1", "cpu"),
+    ("how to drain a node safely", "t1", "drain"), ("How do I drain a node?", "t2", "drain"),
+    ("Delete a pod with kubectl", "t1", "del-pod"), ("My Pod stays Pending. What is wrong?", "t1", "pending"),
+]
+
+def replay(threshold: float, guard: bool = False):
+    cache, hits, wrong = SemanticCache(threshold, guard), 0, []
+    for q, scope, intent in TRAFFIC:
+        item = cache.get(q, scope)
+        if item is None:
+            cache.put(q, scope, answer=intent, sources={f"{intent}.md"})   # "call the model"
+        else:
+            hits += 1
+            if item["answer"] != intent:
+                wrong.append(f"{q!r} -&gt; {item['q']!r}")
+    return hits, wrong, cache
+
+exact = len(TRAFFIC) - len({(norm(q), s) for q, s, _ in TRAFFIC})
+print(f"exact cache: {exact}/{len(TRAFFIC)} hits, 0 wrong")
+for guard in (False, True):
+    for th in (0.6, 0.7, 0.8, 0.9):
+        hits, wrong, _ = replay(th, guard)
+        print(f"semantic {th:.1f}{' + guard' if guard else '        '}: {hits:2d} hits, {len(wrong)} wrong")
+print(*replay(0.7)[1], sep="\n")
+cache = replay(0.6, guard=True)[2]
+n = len(cache.items)
+cache.invalidate({"pending.md"})                          # the Pending page was re-indexed
+print(f"after invalidating pending.md: {n} -&gt; {len(cache.items)} entries")</code></pre>
+  <pre><code class="plain">exact cache: 1/18 hits, 0 wrong
+semantic 0.6        :  9 hits, 4 wrong
+semantic 0.7        :  7 hits, 4 wrong
+semantic 0.8        :  3 hits, 2 wrong
+semantic 0.9        :  1 hits, 0 wrong
+semantic 0.6 + guard:  5 hits, 0 wrong
+semantic 0.7 + guard:  3 hits, 0 wrong
+semantic 0.8 + guard:  1 hits, 0 wrong
+semantic 0.9 + guard:  1 hits, 0 wrong
+'How do I delete a Deployment?' -&gt; 'How do I delete a Pod?'
+'How do I list pods in one namespace?' -&gt; 'How do I list pods in all namespaces?'
+'How do I cordon a node?' -&gt; 'How do I drain a node?'
+"How do I set a container's CPU limit?" -&gt; "How do I set a container's memory limit?"
+after invalidating pending.md: 13 -&gt; 11 entries</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 216" role="img" aria-label="Bar chart of hits and wrong hits by threshold, with and without the critical-term guard">
+      <rect x="130" y="12" width="12" height="10" class="s-node"/>
+      <text x="148" y="21" class="s-ink s-sm">hits</text>
+      <rect x="200" y="12" width="12" height="10" class="s-bad" fill-opacity="0.7"/>
+      <text x="218" y="21" class="s-ink s-sm">wrong hits</text>
+      <rect x="310" y="12" width="12" height="10" class="s-acc" fill-opacity="0.7"/>
+      <text x="328" y="21" class="s-ink s-sm">hits with guard (0 wrong)</text>
+      <rect x="130" y="55" width="22" height="135" class="s-node"/>
+      <rect x="154" y="130" width="22" height="60" class="s-bad" fill-opacity="0.7"/>
+      <rect x="178" y="115" width="22" height="75" class="s-acc" fill-opacity="0.7"/>
+      <text x="141" y="51" class="s-ink s-sm s-mid">9</text>
+      <text x="165" y="126" class="s-bad s-sm s-mid">4</text>
+      <text x="189" y="111" class="s-acc s-sm s-mid">5</text>
+      <rect x="260" y="85" width="22" height="105" class="s-node"/>
+      <rect x="284" y="130" width="22" height="60" class="s-bad" fill-opacity="0.7"/>
+      <rect x="308" y="145" width="22" height="45" class="s-acc" fill-opacity="0.7"/>
+      <text x="271" y="81" class="s-ink s-sm s-mid">7</text>
+      <text x="295" y="126" class="s-bad s-sm s-mid">4</text>
+      <text x="319" y="141" class="s-acc s-sm s-mid">3</text>
+      <rect x="390" y="145" width="22" height="45" class="s-node"/>
+      <rect x="414" y="160" width="22" height="30" class="s-bad" fill-opacity="0.7"/>
+      <rect x="438" y="175" width="22" height="15" class="s-acc" fill-opacity="0.7"/>
+      <text x="401" y="141" class="s-ink s-sm s-mid">3</text>
+      <text x="425" y="156" class="s-bad s-sm s-mid">2</text>
+      <text x="449" y="171" class="s-acc s-sm s-mid">1</text>
+      <rect x="520" y="175" width="22" height="15" class="s-node"/>
+      <rect x="568" y="175" width="22" height="15" class="s-acc" fill-opacity="0.7"/>
+      <text x="531" y="171" class="s-ink s-sm s-mid">1</text>
+      <text x="555" y="186" class="s-bad s-sm s-mid">0</text>
+      <text x="579" y="171" class="s-acc s-sm s-mid">1</text>
+      <line x1="110" y1="190" x2="610" y2="190" class="s-ln"/>
+      <text x="165" y="206" class="s-ink2 s-sm s-mid">τ = 0.6</text>
+      <text x="295" y="206" class="s-ink2 s-sm s-mid">τ = 0.7</text>
+      <text x="425" y="206" class="s-ink2 s-sm s-mid">τ = 0.8</text>
+      <text x="555" y="206" class="s-ink2 s-sm s-mid">τ = 0.9</text>
+    </svg>
+    <figcaption><b>18 replayed queries.</b> Without the guard, loosening τ adds wrong hits about as fast as right ones; at τ = 0.7 more than half of the hits are wrong. With the guard, τ = 0.6 gives 5 hits and no wrong ones, against 1 hit for the exact cache. A real embedding model shifts the numbers, not the shape: tune τ and the guard on your own labelled replay.</figcaption>
+  </figure>
+
+  <h3>Tool-result caches with expiry</h3>
+  <p>Tool calls are often slower than the model, and many are pure reads: an API reference lookup, a docs fetch, cluster status. Cache them per (tool, scope, arguments), each tool with its own time to live. The TTL should match how fast the underlying data changes. Never cache tools with side effects.</p>
+  <pre><code>import json, time
+
+class ToolCache:
+    """Tool results keyed by (tool, scope, args), each tool with its own time to live."""
+    TTL = {"kubectl_explain": 24 * 3600, "cluster_status": 30, "create_ticket": 0}  # 0: never cache
+    def __init__(self, clock=time.monotonic):
+        self.clock, self.data = clock, {}
+    def call(self, tool: str, fn, scope: str, **args):
+        ttl = self.TTL.get(tool, 0)
+        key = (tool, scope, json.dumps(args, sort_keys=True))
+        hit = self.data.get(key)
+        if ttl and hit and self.clock() - hit[0] &lt; ttl:
+            return hit[1]
+        value = fn(**args)
+        if ttl:
+            self.data[key] = (self.clock(), value)
+        return value
+
+now, calls = [0.0], []
+def cluster_status(cluster):
+    calls.append(now[0])
+    return f"{cluster}: 3 nodes Ready"
+tc = ToolCache(clock=lambda: now[0])
+for t in (0, 10, 25, 31, 40):
+    now[0] = t
+    tc.call("cluster_status", cluster_status, "t1", cluster="prod")
+print("real calls at t =", calls)</code></pre>
+  <pre><code class="plain">real calls at t = [0, 31]</code></pre>
+
+  <h3>Invalidation when documents change</h3>
+  <p>Tag every cached answer with the IDs of the documents it cited. When ingestion re-indexes or deletes a page (<a href="p04.html#l48">L48</a>), it publishes the changed IDs, and the cache drops every entry tagged with them (<code>invalidate</code> above: 13 entries become 11). Also set a maximum age on every entry as a backstop for changes you failed to track, and bump the index version for a full re-embed.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Cross-tenant leaks.</b> A cache keyed on the question alone serves one customer's answer, with their sources, to another. Scope belongs in every key.</li>
+      <li><b>Thresholds tuned on paraphrases only.</b> A test set without near-miss pairs reports no false hits. Include them on purpose.</li>
+      <li><b>Caching bad answers.</b> A refusal, an error message or a thumbs-down answer gets cached and repeated. Store only answers that passed output checks, and evict on negative feedback.</li>
+      <li><b>Stale after re-index.</b> No source tags, so updated docs keep producing old answers until the TTL expires.</li>
+      <li><b>Hidden personalisation.</b> Answers that depend on the user's cluster or plan are cached as if they were general.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Add an exact cache in front of the answer path, keyed on normalised query, model, prompt version, scope and index version.</li>
+      <li>Replay a day of logged queries, label intents for a sample that includes near-miss pairs, and measure hit and wrong-hit rates for a semantic cache using your real embedding model, with and without a critical-term guard.</li>
+      <li>Choose the threshold with zero wrong hits on the replay, and log every semantic hit with its similarity so you can audit it later.</li>
+      <li>Add tool-result caching with per-tool TTLs and source-tag invalidation driven by the ingestion job.</li>
+    </ol>
+    <p><b>Ship:</b> a cache that saves money without serving wrong answers, with the replay numbers to show it.</p>
+  </div>
+  <p class="refs"><b>Read</b> Bang 2023, “GPTCache: An Open-Source Semantic Cache for LLM Applications Enabling Faster Answers and Cost Savings” (NLP-OSS) · Chip Huyen, <i>AI Engineering</i> (2025), ch. 10 (exact and semantic caches) · Anthropic docs, Prompt caching</p>
+</article>
+<!-- ================================================================ L112 -->
+<article class="day" id="l112">
+  <header class="day-head">
+    <span class="day-no">L112 · DAY 82</span>
+    <h2>Deploying: Containers, Serverless, Queues and Background Agents</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Ship one immutable image that runs as both API and worker. Put long jobs on a queue that survives crashes. Release prompt and model changes like code: behind a flag, to a small canary first, with a rollback that is one command.</p>
+
+  <h3>Packaging with Docker</h3>
+  <p>One image, built from the lockfile, serves every role; the command decides whether a container is the API, a worker or a scheduled job. The image contains no secrets, no <code>.env</code> file and no index data: those arrive at runtime from the platform. Tag images with the git SHA so that "the previous version" is always a specific, pullable artefact.</p>
+  <pre><code class="plain"># Dockerfile (Docker is not installed here: untested; follows uv's Docker guide)
+FROM python:3.12-slim
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project      # dependency layer, cached across code changes
+COPY docpilot/ docpilot/
+COPY services/ services/
+COPY prompts/ prompts/
+RUN uv sync --frozen --no-dev
+RUN useradd --create-home app
+USER app
+ENV PATH="/app/.venv/bin:$PATH"
+CMD ["uvicorn", "services.api:app", "--host", "0.0.0.0", "--port", "8000"]</code></pre>
+  <pre><code class="plain"># compose.yaml: API, worker, Postgres (conversations, jobs) and a vector DB (untested)
+services:
+  api:
+    image: docpilot:${GIT_SHA}
+    ports: ["8000:8000"]
+    env_file: .env.local          # local only; deployed environments inject secrets
+    depends_on: [db, qdrant]
+  worker:
+    image: docpilot:${GIT_SHA}
+    command: ["python", "-m", "services.worker"]
+    env_file: .env.local
+    depends_on: [db, qdrant]
+    deploy: {replicas: 2}
+  db:
+    image: postgres:16
+    environment: {POSTGRES_PASSWORD_FILE: /run/secrets/db_password}
+    secrets: [db_password]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  qdrant:
+    image: qdrant/qdrant          # pin a version tag in real deployments
+    volumes: ["qdrant:/qdrant/storage"]
+secrets:
+  db_password: {file: ./secrets/db_password.txt}
+volumes: {pgdata: {}, qdrant: {}}</code></pre>
+
+  <h3>Where the API runs: container platforms and serverless</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Container platform</th><th>Serverless functions</th></tr></thead>
+    <tbody>
+      <tr><td>Examples</td><td>Cloud Run, ECS/Fargate, Fly.io, Kubernetes</td><td>AWS Lambda, Cloud Functions, Azure Functions</td></tr>
+      <tr><td>Duration</td><td>long requests and streams are fine (check the platform's request timeout)</td><td>hard execution limits (Lambda: 15 minutes); response streaming support varies</td></tr>
+      <tr><td>Scaling</td><td>replicas on concurrency or CPU</td><td>one instance per concurrent request; cold starts</td></tr>
+      <tr><td>Fits DocPilot</td><td>the streaming API and workers</td><td>webhooks, light glue, scheduled triggers</td></tr>
+    </tbody>
+  </table></div>
+  <p>LLM requests mostly wait on the network, so CPU autoscaling sees idle replicas while users queue. <b>Scale on concurrency</b>: cap in-flight requests per replica and add replicas as the average nears the cap, keeping the total within provider rate limits, or scaling just turns queueing into 429s (<a href="#l107">L107</a>).</p>
+
+  <h3>Queues and workers for agents and ingestion</h3>
+  <p>A research agent that runs for minutes, a re-index of a new Kubernetes release (<a href="p04.html#l48">L48</a>) and batch enrichment (<a href="#l109">L109</a>) all go on the asynchronous path (<a href="#l104">L104</a>). The API enqueues and returns a job ID; workers claim jobs; the client follows progress over SSE (<a href="#l105">L105</a>). The queue must survive a worker crash, which means <em>leases</em>, not deletes.</p>
+  <div class="box algo"><span class="tag">Algorithm · Lease-based job queue</span>
+    <ol>
+      <li><b>Enqueue</b> with a caller-chosen job ID, so a retried enqueue is a no-op.</li>
+      <li><b>Claim</b> one job atomically: mark it running, increment its attempts, and set a lease expiry.</li>
+      <li><b>Complete</b> marks it done. A worker that dies never completes, its lease expires, and another worker claims the job again.</li>
+      <li>After the maximum attempts, the job stays put as dead-lettered, for a human to inspect.</li>
+    </ol>
+  </div>
+  <pre><code>import json, sqlite3, time, uuid
+
+class JobQueue:
+    """Durable queue on one table. A claim takes a lease; if the worker dies, the job reappears."""
+    def __init__(self, path: str = ":memory:", clock=time.time):
+        self.db, self.clock = sqlite3.connect(path, isolation_level=None), clock
+        self.db.execute("""CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT, payload TEXT,
+            status TEXT DEFAULT 'queued', attempts INT DEFAULT 0, lease_until REAL DEFAULT 0)""")
+    def enqueue(self, kind: str, payload: dict, job_id: str | None = None) -&gt; str:
+        job_id = job_id or uuid.uuid4().hex
+        self.db.execute("INSERT OR IGNORE INTO jobs (id, kind, payload) VALUES (?, ?, ?)",
+                        (job_id, kind, json.dumps(payload)))           # same id twice = one job
+        return job_id
+    def claim(self, lease_s: float = 60, max_attempts: int = 3):
+        now = self.clock()
+        return self.db.execute("""UPDATE jobs SET status = 'running', attempts = attempts + 1,
+            lease_until = ? WHERE id = (SELECT id FROM jobs WHERE attempts &lt; ? AND (status = 'queued'
+            OR (status = 'running' AND lease_until &lt; ?)) ORDER BY rowid LIMIT 1)
+            RETURNING id, attempts""", (now + lease_s, max_attempts, now)).fetchone()
+    def complete(self, job_id: str):
+        self.db.execute("UPDATE jobs SET status = 'done' WHERE id = ?", (job_id,))
+
+now = [0.0]
+q = JobQueue(clock=lambda: now[0])
+for name in ["research-1", "research-2", "research-1", "reindex-k8s-1.31"]:
+    q.enqueue("agent" if name.startswith("research") else "ingest", {"name": name}, job_id=name)
+print("A claims", q.claim())                    # worker A crashes and never completes it
+job = q.claim(); print("B claims", job); q.complete(job[0])
+job = q.claim(); print("B claims", job); q.complete(job[0])
+print("B claims", q.claim())                    # nothing free: research-1 is still leased
+now[0] = 61                                     # A's lease expires
+job = q.claim(); print("B claims", job); q.complete(job[0])
+print(q.db.execute("SELECT id, status, attempts FROM jobs").fetchall())</code></pre>
+  <pre><code class="plain">A claims ('research-1', 1)
+B claims ('research-2', 1)
+B claims ('reindex-k8s-1.31', 1)
+B claims None
+B claims ('research-1', 2)
+[('research-1', 'done', 2), ('research-2', 'done', 1), ('reindex-k8s-1.31', 'done', 1)]</code></pre>
+  <p class="code-cap">Delivery is at least once: research-1 ran twice. Jobs must therefore be idempotent or checkpointed (<a href="p07.html#l74">L74</a>). In Postgres, the same claim uses <code>SELECT … FOR UPDATE SKIP LOCKED</code> so that many workers never collide. Managed queues provide the same visibility-timeout semantics. Long agents should renew their lease as they make progress.</p>
+  <p><b>Scheduled jobs</b> (the nightly docs sync, the weekly eval run, monthly key rotation) are just enqueues on a timer: a platform scheduler or a Kubernetes CronJob calls one endpoint. Keep them idempotent, because schedulers occasionally fire twice.</p>
+
+  <h3>Secrets management</h3>
+  <p>Secrets live in the platform's secret manager and reach containers at runtime as environment variables or mounted files, never in the image, compose file, repo or logs. Each environment has its own (<a href="#l104">L104</a>), provider keys live only in the gateway (<a href="#l108">L108</a>), and each key has an owner and a rotation date. Scan commits in CI; a leaked key means rotation, not deletion.</p>
+
+  <h3>Canary releases and rollbacks for prompts and models</h3>
+  <p>A prompt edit or model swap changes behaviour as much as code, yet ships without a deploy (<a href="#l104">L104</a>), so gate it. Pass the offline evals in CI (<a href="p08.html#l93">L93</a>), then raise the flag's percentage in stages, comparing canary and stable on live signals at each.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 190" role="img" aria-label="Release stages: offline evals, canary 1 percent, 10 percent, 50 percent, then 100 percent stable, with a rollback path from every canary stage">
+      <defs>
+        <marker id="ah-l112" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker>
+      </defs>
+      <rect x="16" y="60" width="100" height="50" rx="8" class="s-node"/>
+      <text x="66" y="82" class="s-ttl s-mid">offline</text>
+      <text x="66" y="99" class="s-ink2 s-mid s-sm">evals in CI</text>
+      <rect x="146" y="60" width="96" height="50" rx="8" class="s-node"/>
+      <text x="194" y="90" class="s-ttl s-mid">canary 1%</text>
+      <rect x="272" y="60" width="96" height="50" rx="8" class="s-node"/>
+      <text x="320" y="90" class="s-ttl s-mid">10%</text>
+      <rect x="398" y="60" width="96" height="50" rx="8" class="s-node"/>
+      <text x="446" y="90" class="s-ttl s-mid">50%</text>
+      <rect x="524" y="60" width="100" height="50" rx="8" class="s-node-mod"/>
+      <text x="574" y="82" class="s-ttl s-mid">100%</text>
+      <text x="574" y="99" class="s-ink2 s-mid s-sm">new stable</text>
+      <line x1="116" y1="85" x2="144" y2="85" class="s-ln" marker-end="url(#ah-l112)"/>
+      <line x1="242" y1="85" x2="270" y2="85" class="s-ln" marker-end="url(#ah-l112)"/>
+      <line x1="368" y1="85" x2="396" y2="85" class="s-ln" marker-end="url(#ah-l112)"/>
+      <line x1="494" y1="85" x2="522" y2="85" class="s-ln" marker-end="url(#ah-l112)"/>
+      <text x="131" y="48" class="s-acc s-sm s-mid">pass</text>
+      <text x="257" y="48" class="s-acc s-sm s-mid">gate</text>
+      <text x="383" y="48" class="s-acc s-sm s-mid">gate</text>
+      <text x="509" y="48" class="s-acc s-sm s-mid">gate</text>
+      <line x1="194" y1="110" x2="194" y2="146" class="s-ln-bad s-dash"/>
+      <line x1="320" y1="110" x2="320" y2="146" class="s-ln-bad s-dash"/>
+      <line x1="446" y1="110" x2="446" y2="146" class="s-ln-bad s-dash"/>
+      <path d="M446,146 L66,146 L66,112" class="s-ln-bad s-dash" fill="none" marker-end="url(#ah-l112)"/>
+      <text x="320" y="170" class="s-bad s-sm s-mid">any gate fails: flag to 0%, stable serves; fix, re-run evals</text>
+      <text x="320" y="20" class="s-ink2 s-sm s-mid">gate = canary vs stable: errors, thumbs-down, p95, cost</text>
+    </svg>
+    <figcaption><b>A prompt release.</b> Each stage runs until the canary has enough traffic to compare. Rolling back is a flag change, so it takes seconds and needs no build.</figcaption>
+  </figure>
+  <pre><code>def canary_verdict(base: dict, canary: dict, *, min_n: int = 400,
+                   max_error_ratio: float = 1.5, max_thumbs_down_rise: float = 0.02) -&gt; str:
+    """Compare a canary prompt/model with the stable one on live traffic."""
+    if canary["n"] &lt; min_n:
+        return "wait"
+    rate = lambda m, k: m[k] / m["n"]
+    if rate(canary, "errors") &gt; max_error_ratio * max(rate(base, "errors"), 0.002):
+        return "rollback: errors"
+    if rate(canary, "thumbs_down") - rate(base, "thumbs_down") &gt; max_thumbs_down_rise:
+        return "rollback: feedback"
+    if canary["p95_ms"] &gt; 1.2 * base["p95_ms"]:
+        return "rollback: latency"
+    return "promote to next stage"
+
+stable = {"n": 9500, "errors": 19, "thumbs_down": 380, "p95_ms": 4200}
+for canary in [{"n": 120, "errors": 0, "thumbs_down": 4, "p95_ms": 4100},
+               {"n": 500, "errors": 1, "thumbs_down": 21, "p95_ms": 4300},
+               {"n": 500, "errors": 1, "thumbs_down": 34, "p95_ms": 4000},
+               {"n": 500, "errors": 1, "thumbs_down": 20, "p95_ms": 5600},
+               {"n": 500, "errors": 6, "thumbs_down": 18, "p95_ms": 4000}]:
+    print(canary, "-&gt;", canary_verdict(stable, canary))</code></pre>
+  <pre><code class="plain">{'n': 120, 'errors': 0, 'thumbs_down': 4, 'p95_ms': 4100} -&gt; wait
+{'n': 500, 'errors': 1, 'thumbs_down': 21, 'p95_ms': 4300} -&gt; promote to next stage
+{'n': 500, 'errors': 1, 'thumbs_down': 34, 'p95_ms': 4000} -&gt; rollback: feedback
+{'n': 500, 'errors': 1, 'thumbs_down': 20, 'p95_ms': 5600} -&gt; rollback: latency
+{'n': 500, 'errors': 6, 'thumbs_down': 18, 'p95_ms': 4000} -&gt; rollback: errors</code></pre>
+  <p>Fixed thresholds on a few hundred requests are noisy: one error more or less flips the verdict. Use the statistics from <a href="p08.html#l94">L94</a> for promotion decisions, and use thresholds only for fast automatic rollbacks. For code, <b>blue/green</b> keeps the previous version's replicas running until the new one is healthy, and rollback redeploys the previous image tag. Kubernetes has <code>kubectl rollout undo</code>, and most platforms keep previous revisions. For the index, build the new collection beside the old one and switch an alias, so a bad re-chunking is also a one-command rollback.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Jobs lost on deploy.</b> Without leases, killed workers leave jobs "running" forever. On SIGTERM, stop claiming and finish or release the current job.</li>
+      <li><b>Image drift.</b> With <code>:latest</code> tags and unpinned dependencies, "roll back" deploys something new. Tag by SHA; build from the lockfile.</li>
+      <li><b>Rollbacks that cannot roll back.</b> A release that migrated the database or re-embedded the index in place cannot be reverted. Make data changes additive.</li>
+      <li><b>Canary on the wrong traffic.</b> Bucketing by request instead of user mixes versions inside one conversation and hides the effects of a prompt on follow-ups.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Build the image and run API, worker, Postgres and the vector DB with Compose. Confirm that the image contains no secrets (<code>docker history</code>, and a search of its filesystem).</li>
+      <li>Replace in-process background tasks with the lease queue (on Postgres with <code>SKIP LOCKED</code>), run the research agent as a job, and stream its progress. Kill a worker mid-job and confirm that the job completes elsewhere.</li>
+      <li>Deploy to a container platform of your choice with secrets from its secret manager, concurrency-based scaling, and SHA-tagged images.</li>
+      <li>Write <code>make rollback</code> (or a CLI command) that redeploys the previous SHA and sets all canary flags to 0%, then rehearse it.</li>
+    </ol>
+    <p><b>Ship:</b> a deployed DocPilot with background agents and a rehearsed one-command rollback.</p>
+  </div>
+  <p class="refs"><b>Read</b> Docker docs, Dockerfile reference and Compose file reference · uv docs, Using uv in Docker · PostgreSQL docs, SELECT: the locking clause (SKIP LOCKED) · Beyer et al., <i>Site Reliability Engineering</i>, ch. 8 “Release Engineering” · The Twelve-Factor App, “Build, release, run”</p>
+</article>
+<!-- ================================================================ L113 -->
+<article class="day" id="l113">
+  <header class="day-head">
+    <span class="day-no">L113 · DAY 83</span>
+    <h2>Product Patterns: UX for Uncertainty, Feedback and Trust</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">35m practice</span></p>
+  </header>
+
+  <p class="thesis">Users trust an assistant that shows its evidence, admits its limits and is easy to correct, and they stop using one that is confidently wrong. The interface has to carry the uncertainty that the model's prose hides.</p>
+
+  <div class="box def"><span class="tag">Definition · appropriate reliance</span>
+    <p>The goal is not maximum trust but <b>calibrated</b> trust. Users should rely on DocPilot when it is right and notice when it is wrong. <b>Over-reliance</b> means accepting wrong answers; <b>under-reliance</b> means re-checking or ignoring right ones. Every pattern below either gives users evidence to tell the two cases apart, or makes acting on a wrong answer cheap to undo.</p>
+  </div>
+
+  <h3>Designing for non-deterministic output</h3>
+  <p>The same question can get differently worded answers on different days, and a regenerated answer may disagree with the first. Design so that this is unsurprising rather than alarming:</p>
+  <ul>
+    <li>Keep the <em>shape</em> stable even when the words vary: a fixed answer structure (short answer, steps, citations) from structured output (<a href="p02.html#l20">L20</a>) makes answers comparable.</li>
+    <li>Make regeneration explicit, and keep earlier versions visible, so users can compare and pick.</li>
+    <li>Never present an answer as a lookup result. Copy such as "DocPilot's answer, based on these pages" frames it correctly. "The answer" does not.</li>
+    <li>Treat formatting failures as failures: a half-rendered table or broken code block costs more trust than a slow answer (<a href="#l105">L105</a>).</li>
+  </ul>
+
+  <h3>Showing sources and uncertainty</h3>
+  <p>Inline citations that open the exact passage (<a href="p04.html#l45">L45</a>) let users verify in seconds. They are the single most effective trust feature for a documentation assistant. Uncertainty is harder. A model's self-reported confidence is poorly calibrated (<a href="p01.html#l12">L12</a>), so do not show "92% confident". Show <b>evidence signals</b> the system can actually measure: no relevant sources, sources that conflict, sources for a different version than the user asked about, an answer cut off by <code>max_tokens</code>.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Annotated DocPilot answer card with collapsed steps, inline citations, a version caveat, a sources panel and feedback buttons">
+      <rect x="20" y="10" width="600" height="282" rx="10" class="s-node"/>
+      <rect x="330" y="22" width="276" height="26" rx="12" class="s-node-mod"/>
+      <text x="468" y="39" class="s-ink s-mid s-sm">Why is my Pod stuck in Pending?</text>
+      <text x="36" y="72" class="s-ink2 s-sm">▸ Searched docs · read 3 pages · 2.1 s</text>
+      <text x="36" y="98" class="s-ink">The scheduler found no node that fits [1].</text>
+      <text x="36" y="116" class="s-ink">Compare requests with allocatable, and</text>
+      <text x="36" y="134" class="s-ink">check taints and node selectors [2].</text>
+      <rect x="36" y="146" width="400" height="24" rx="4" class="s-warn" fill-opacity="0.15"/>
+      <text x="46" y="162" class="s-warn s-sm">Docs shown are v1.31; you asked about v1.29.</text>
+      <rect x="36" y="180" width="400" height="54" rx="4" class="s-node"/>
+      <text x="46" y="200" class="s-acc s-sm">[1] Scheduling, Preemption and Eviction</text>
+      <text x="46" y="222" class="s-acc s-sm">[2] Debug Pods</text>
+      <rect x="36" y="250" width="70" height="24" rx="12" class="s-node"/>
+      <text x="71" y="266" class="s-ink s-sm s-mid">Helpful</text>
+      <rect x="114" y="250" width="62" height="24" rx="12" class="s-node"/>
+      <text x="145" y="266" class="s-ink s-sm s-mid">Wrong</text>
+      <rect x="184" y="250" width="110" height="24" rx="12" class="s-node"/>
+      <text x="239" y="266" class="s-ink s-sm s-mid">Edit question</text>
+      <rect x="302" y="250" width="100" height="24" rx="12" class="s-node"/>
+      <text x="352" y="266" class="s-ink s-sm s-mid">Ask a human</text>
+      <text x="456" y="72" class="s-mod s-sm">← steps, collapsed</text>
+      <text x="456" y="116" class="s-mod s-sm">← inline citations</text>
+      <text x="456" y="162" class="s-mod s-sm">← evidence caveat</text>
+      <text x="456" y="210" class="s-mod s-sm">← sources to verify</text>
+      <text x="456" y="266" class="s-mod s-sm">← correct or escape</text>
+    </svg>
+    <figcaption><b>One answer, five trust features.</b> Every element is driven by data the system has: the step log, citation IDs, version metadata on the chunks, the source list, and a feedback event tied to the trace. None of it depends on the model describing its own confidence.</figcaption>
+  </figure>
+  <p>Drive these states from signals in code, so they are testable and consistent:</p>
+  <pre><code>from enum import Enum
+from pydantic import BaseModel, Field, ValidationError
+
+def ui_state(*, n_citations: int, top_score: float, stop_reason: str, version_match: bool) -&gt; str:
+    """Map evidence signals (not the model's self-reported confidence) to what the UI shows."""
+    if stop_reason == "refusal":
+        return "decline: say what DocPilot cannot help with, offer a human"
+    if n_citations == 0 or top_score &lt; 0.35:            # threshold tuned on the eval set (L44)
+        return "no answer: say so, show nearest docs and example questions"
+    if stop_reason == "max_tokens":
+        return "partial: label as cut off, offer 'continue'"
+    if not version_match:
+        return "caveat: docs are for a different Kubernetes version"
+    return "answer: with inline citations"
+
+class Reason(str, Enum):
+    wrong = "wrong"
+    outdated = "outdated"
+    bad_source = "bad_source"
+    too_long = "too_long"
+    other = "other"
+
+class Feedback(BaseModel):
+    trace_id: str                                      # joins feedback to the trace (L106)
+    rating: int = Field(ge=-1, le=1)                   # -1 thumbs down, +1 thumbs up
+    reason: Reason | None = None
+    correction: str | None = Field(default=None, max_length=2000)
+
+for case in [dict(n_citations=2, top_score=0.81, stop_reason="end_turn", version_match=True),
+             dict(n_citations=2, top_score=0.77, stop_reason="end_turn", version_match=False),
+             dict(n_citations=0, top_score=0.12, stop_reason="end_turn", version_match=True),
+             dict(n_citations=3, top_score=0.70, stop_reason="max_tokens", version_match=True)]:
+    print(ui_state(**case))
+print(Feedback(trace_id="4bf92f35", rating=-1, reason="outdated").model_dump(mode="json", exclude_none=True))
+try:
+    Feedback(trace_id="4bf92f35", rating=5)
+except ValidationError as e:
+    print(e.errors()[0]["msg"])</code></pre>
+  <pre><code class="plain">answer: with inline citations
+caveat: docs are for a different Kubernetes version
+no answer: say so, show nearest docs and example questions
+partial: label as cut off, offer 'continue'
+{'trace_id': '4bf92f35', 'rating': -1, 'reason': 'outdated'}
+Input should be less than or equal to 1</code></pre>
+
+  <h3>Letting users correct and steer, with undo and confirmations</h3>
+  <p>Give users handles that map to things the system can act on. "Edit question" re-runs with the edited text. A version picker becomes a metadata filter (<a href="p03.html#l33">L33</a>). "Shorter" or "show commands only" become format instructions. Suggested follow-ups move the conversation forward without typing. Thumbs-down asks for a reason in one tap, with an optional correction, and both are stored against the trace for evals (<a href="p08.html#l94">L94</a>). For agent actions, show a preview before anything changes (the ticket that will be filed, the diff that will be applied) and confirm side effects explicitly (<a href="p07.html#l78">L78</a>). Where possible, offer undo instead of a confirmation, because users click through confirmations they see too often.</p>
+
+  <h3>Progressive disclosure of agent steps</h3>
+  <p>Show agent work as one collapsed line by default ("Searched docs · read 3 pages · ran <code>kubectl explain</code>"). It expands into the step list from the streamed <code>tool_call</code> and <code>tool_result</code> events (<a href="#l105">L105</a>), and each step expands into its inputs and a truncated output. Most users never open it. The ones who do are checking whether to trust the answer, and the steps tell them. Long-running jobs (<a href="#l112">L112</a>) need the same view as a progress page, plus a notification when they finish.</p>
+
+  <h3>Empty states, failure messages and stated limits</h3>
+  <div class="box note"><span class="tag">Patterns</span>
+    <ul>
+      <li><b>Empty state.</b> Three example questions that show the scope ("Why is my Pod Pending?", "How do I drain a node?", "What changed in v1.31?"). They also teach phrasing.</li>
+      <li><b>Stated limits.</b> One line under the input box: what DocPilot reads (public Kubernetes docs and your tickets), and what it cannot do (see your cluster, make changes without approval).</li>
+      <li><b>No answer.</b> "I couldn't find this in the docs" plus the nearest pages. This beats a fluent guess every time (<a href="p04.html#l45">L45</a>).</li>
+      <li><b>Failures.</b> Specific, honest and actionable: "The model provider is overloaded; here are the top matching pages, and you can retry in a minute" (<a href="#l107">L107</a>). Never a raw stack trace, never a silent spinner.</li>
+    </ul>
+  </div>
+
+  <h3>Measuring trust and adoption</h3>
+  <p>Thumbs ratings are sparse and skewed toward unhappy users, so combine them with implicit signals. Useful ones include citation click-through, copying an answer or command, immediate reformulation of the same question (a sign of failure), escalation to a human, and abandonment mid-stream. Adoption is the share of eligible users active weekly, and whether they come back. Watch for <b>over-trust</b> as well as distrust: a high thumbs-up rate on answers that sampled audits find wrong means users have stopped checking. Treat that as a defect in the citation and caveat design.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Citations that do not support the claim.</b> One unsupported citation, once noticed, discredits all the others. Check faithfulness (<a href="p05.html#l51">L51</a>) before showing.</li>
+      <li><b>Caveats on everything.</b> A warning on every answer is noise users learn to ignore. Show caveats only when a measured signal fires.</li>
+      <li><b>Feedback with no loop.</b> Thumbs-down data that nobody triages teaches users that feedback is pointless. Close the loop visibly ("fixed in this week's update").</li>
+      <li><b>Hidden agent actions.</b> An agent that files tickets without a preview loses trust permanently after its first wrong ticket.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 35 min</h4>
+    <ol>
+      <li>Run a UX review of DocPilot against this lesson's patterns: list each gap with a screenshot and the signal that could drive a fix.</li>
+      <li>Implement five changes, for example inline citations that open passages, the version caveat, collapsed agent steps, a one-tap reason on thumbs-down, and an empty state with example questions.</li>
+      <li>Drive every answer state from <code>ui_state()</code>-style code and add unit tests for each state.</li>
+      <li>Add implicit-signal events (citation click, copy, reformulation, escalation) tied to trace IDs, and chart them next to thumbs ratings.</li>
+    </ol>
+    <p><b>Ship:</b> an interface that shows its sources, its steps and its limits.</p>
+  </div>
+  <p class="refs"><b>Read</b> Amershi et al. 2019, “Guidelines for Human-AI Interaction” (CHI) · Google PAIR, <i>People + AI Guidebook</i> · Chip Huyen, <i>AI Engineering</i> (2025), ch. 10 “User Feedback” · Eugene Yan 2023, “Patterns for Building LLM-based Systems &amp; Products” (UX and feedback sections)</p>
+</article>
+<!-- ================================================================ L114 (stub) -->
+<article class="day stub" id="l114">
+  <header class="day-head">
+    <span class="day-no">L114 · DAY 84</span>
+    <h2>Project: Shipping DocPilot</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">150m practice</span><span class="tagx">project day</span></p>
+  </header>
+  
+  <p class="thesis">Full notes for this lesson are still being written. Here is what it covers, from the curriculum.</p>
+  <div class="box note"><span class="tag">From the plan</span>
+<ul><li><b>COVERS:</b> integrating Phase 10 — architecture, streaming, tracing, resilience, the gateway, cost and latency work, caching and deployment.</li><li><b>BUILD:</b> production DocPilot with dashboards for latency, cost, errors and quality signals, plus alerts.</li><li><b>SHIP:</b> a deployed, observable, budgeted system with a runbook.</li></ul>
+  </div>
+</article>
+
+<nav class="modnav">
+  <a href="p09.html"><small>Previous · Days 70–75</small>◂ Phase 9 — Security, Safety and Guardrails</a>
+  <a class="next" href="p11.html"><small>Next · Days 85–92</small>Phase 11 — Open Models, Fine-Tuning and Serving ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,1686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 5 — Advanced RAG and RAG Evaluation · 100 Days of AI Engineering</title>
+<meta name="description" content="100 Days of AI Engineering, phase 5: Advanced RAG and RAG Evaluation (lessons 50–60).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;family=Fira+Code:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m5" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of AI Engineering</a>
+  <span class="meta">Phase 5 · Advanced RAG and RAG Evaluation · Days 36–43</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 5 · Advanced RAG and RAG Evaluati…</h4>
+  <nav>
+    <a href="#l50"><span class="n">L50</span>Evaluating Retrieval: Recall@k, M…</a>
+    <a href="#l51"><span class="n">L51</span>Evaluating Generation: Faithfulne…</a>
+    <a href="#l52"><span class="n">L52</span>Diagnosing RAG Failures: A System…</a>
+    <a href="#l53"><span class="n">L53</span>Small-to-Big Retrieval: Parent-Do…</a>
+    <a href="#l54"><span class="n">L54</span>GraphRAG and Knowledge Graphs</a>
+    <a href="#l55"><span class="n">L55</span>Agentic RAG: Retrieval as a Tool</a>
+    <a href="#l56"><span class="n">L56</span>Long Context vs RAG: Stuffing, Ca…</a>
+    <a href="#l57"><span class="n">L57</span>Structured Data: Text-to-SQL and…</a>
+    <a href="#l58"><span class="n">L58</span>Multimodal RAG: Images, Charts an…</a>
+    <a href="#l59"><span class="n">L59</span>RAG at Scale: Latency Budgets, Ca…</a>
+    <a href="#l60"><span class="n">L60</span>Milestone: A RAG Evaluation Harne…</a>
+  </nav>
+  <h4>All 133 lessons</h4>
+  <div class="spine" data-spine data-module="5" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p04.html">◂ Phase 4</a><a href="p06.html">Phase 6 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 5 · Days 36–43 · Lessons 50–60</p>
+<h1>Advanced RAG and RAG Evaluation</h1>
+<p class="dek">Phase 5 turns DocPilot's working RAG pipeline into one you can measure, debug and extend: retrieval and generation are scored separately, failures are traced to the stage that caused them, and advanced techniques are adopted only when the numbers say they help. It builds directly on Phase 4's cited answers and Phase 3's search service. Its evaluation harness becomes the base of the full eval suite and CI gate in Phase 8, and its search tool becomes a starting point for Phase 6's tool use.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Build a graded golden set and report recall@k, precision@k, MRR and nDCG with paired bootstrap intervals and per-category breakdowns.</li>
+    <li>Score faithfulness by claim extraction and verification, and correctness against reference answers, and check both metrics against your own labels with kappa.</li>
+    <li>Trace a failed answer to its first failing stage with a fixed taxonomy, and turn 50 labelled failures into a ranked fix list.</li>
+    <li>Choose between small-to-big retrieval, graph traversal, agentic search, cached long context and page-image retrieval for a given question type, using measured cost and quality.</li>
+    <li>Ship a read-only text-to-SQL tool with an authorizer, a timeout and a row cap, and evaluate it by execution accuracy.</li>
+    <li>Instrument every RAG stage, read a latency waterfall, and predict where queueing will set the p95.</li>
+    <li>Run <code>docpilot eval</code> against a baseline, measure the A/A noise floor, and show an improvement larger than it.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>11</b> lessons</li><li><b>8h 25m</b> video</li><li><b>10h 40m</b> practice</li><li>Days <b>36–43</b></li>
+</ul>
+
+<!-- ================================================================ L50 -->
+<article class="day" id="l50">
+  <header class="day-head">
+    <span class="day-no">L50 · DAY 36</span>
+    <h2>Evaluating Retrieval: Recall@k, MRR, nDCG and Golden Sets</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Retrieval is the stage you can measure without a model in the loop: given labelled relevant chunks for each query, four cheap formulas tell you how often the right evidence reaches the generator and how high it ranks. The numbers mean little without the labels behind them and the confidence interval around them.</p>
+
+  <h3>Relevance judgements and the golden set</h3>
+  <p>A <b>relevance judgement</b> is a label saying how useful a passage is for a query. A <b>golden set</b> is a list of real queries, each with its judged passages, a category, and ideally a reference answer (used in <a href="#l51">L51</a>). You already wrote a small one for the search milestone (<a href="p03.html#l37">L37</a>) and used recall@5 to choose a chunker (<a href="p04.html#l41">L41</a>). This lesson makes the set and its metrics trustworthy enough to compare configurations.</p>
+  <div class="box def"><span class="tag">Definition · graded relevance scale</span>
+    <ul>
+      <li><b>3</b>: the passage answers the query on its own.</li>
+      <li><b>2</b>: needed for the answer, but not sufficient alone.</li>
+      <li><b>1</b>: on topic, adds context.</li>
+      <li><b>0</b>: not relevant (also the default for unjudged passages).</li>
+    </ul>
+    <p><b>Binary</b> relevance collapses this to grade &gt; 0. Recall, precision and MRR use the binary view; nDCG uses the grades.</p>
+  </div>
+  <p>Sources of queries, best first: real user questions from logs or support tickets; questions written by people who know the docs; model-generated questions. To label, use <b>pooling</b>: run several retrievers (BM25, dense, hybrid), take the union of their top 10, and judge everything in the pool. Anything outside the pool counts as 0, so a new retriever that finds good unjudged passages is penalised. When a new configuration surfaces many unjudged passages, judge them before trusting its score.</p>
+
+  <h3>The four metrics</h3>
+  <p>For one query, let \(R\) be the set of relevant passages (grade &gt; 0), \(d_1, d_2, \dots\) the ranked results, and \(g_i\) the grade of \(d_i\).</p>
+  <div class="box deriv"><span class="tag">Formulas</span>
+    $$\text{recall@}k = \frac{|R \cap \{d_1,\dots,d_k\}|}{|R|} \qquad \text{precision@}k = \frac{|R \cap \{d_1,\dots,d_k\}|}{k}$$
+    $$\text{MRR} = \frac{1}{|Q|}\sum_{q \in Q} \frac{1}{\text{rank}_q}\quad(\text{rank}_q = \text{position of the first relevant result};\ 1/\text{rank}_q = 0 \text{ if none})$$
+    $$\text{DCG@}k = \sum_{i=1}^{k} \frac{g_i}{\log_2(i+1)} \qquad \text{nDCG@}k = \frac{\text{DCG@}k}{\text{IDCG@}k}$$
+    <p>IDCG@k is the DCG of the ideal ranking: all judged grades sorted in descending order, truncated to \(k\). nDCG lies in \([0, 1]\). A common variant uses gain \(2^{g_i} - 1\) instead of \(g_i\), which rewards grade-3 hits more strongly; say which one you report.</p>
+  </div>
+  <p>Recall@k is the metric that matters most for RAG: the generator cannot cite what never reached it, and a reranker or the model can cope with some noise. Precision@k matters when the context budget is tight (<a href="p04.html#l44">L44</a>). MRR rewards putting <em>one</em> good passage first, which suits single-fact lookups. nDCG rewards putting the <em>best</em> passages first and is the right choice when grades differ.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 260" role="img" aria-label="A ranked list of five results with grades, log discounts and DCG contributions">
+      <text x="30" y="30" class="s-ttl">rank</text>
+      <text x="80" y="30" class="s-ttl">chunk</text>
+      <text x="250" y="30" class="s-ttl">grade</text>
+      <text x="310" y="30" class="s-ttl">discount 1/log₂(i+1)</text>
+      <text x="610" y="30" class="s-ttl s-end">g·disc</text>
+      <line x1="25" y1="40" x2="615" y2="40" class="s-grid"/>
+      <text x="40" y="66" class="s-ink2 s-mid">1</text><text x="80" y="66" class="s-ink3">deploy#strategy</text><text x="265" y="66" class="s-ink3 s-mid">0</text>
+      <rect x="310" y="54" width="150" height="16" class="s-node"/><text x="470" y="66" class="s-ink2 s-sm">1.000</text><text x="610" y="66" class="s-ink3 s-end">0</text>
+      <text x="40" y="101" class="s-ink2 s-mid">2</text><text x="80" y="101" class="s-acc">pods#lifecycle</text><text x="265" y="101" class="s-acc s-mid">2</text>
+      <rect x="310" y="89" width="95" height="16" class="s-node-mod"/><text x="415" y="101" class="s-ink2 s-sm">0.631</text><text x="610" y="101" class="s-acc s-end">1.262</text>
+      <text x="40" y="136" class="s-ink2 s-mid">3</text><text x="80" y="136" class="s-acc">pods#restart</text><text x="265" y="136" class="s-acc s-mid">3</text>
+      <rect x="310" y="124" width="75" height="16" class="s-node-mod"/><text x="395" y="136" class="s-ink2 s-sm">0.500</text><text x="610" y="136" class="s-acc s-end">1.500</text>
+      <text x="40" y="171" class="s-ink2 s-mid">4</text><text x="80" y="171" class="s-ink3">svc#types</text><text x="265" y="171" class="s-ink3 s-mid">0</text>
+      <rect x="310" y="159" width="65" height="16" class="s-node"/><text x="385" y="171" class="s-ink2 s-sm">0.431</text><text x="610" y="171" class="s-ink3 s-end">0</text>
+      <text x="40" y="206" class="s-ink2 s-mid">5</text><text x="80" y="206" class="s-acc">jobs#backoff</text><text x="265" y="206" class="s-acc s-mid">1</text>
+      <rect x="310" y="194" width="58" height="16" class="s-node-mod"/><text x="378" y="206" class="s-ink2 s-sm">0.387</text><text x="610" y="206" class="s-acc s-end">0.387</text>
+      <text x="182" y="101" class="s-warn s-sm">← RR = 1/2</text>
+      <line x1="25" y1="222" x2="615" y2="222" class="s-grid"/>
+      <text x="320" y="246" class="s-ink s-mid">DCG@5 = 3.149 · IDCG@5 = 3 + 1.262 + 0.5 = 4.762 · nDCG@5 = 0.661</text>
+    </svg>
+    <figcaption><b>One query, all four metrics.</b> Three passages are relevant (grades 3, 2, 1). Recall@3 = 2/3, precision@3 = 2/3, RR = 1/2, nDCG@3 = 2.762 / 4.762 = 0.580. Moving the grade-3 passage to rank 1 would raise nDCG and RR without changing recall or precision at all.</figcaption>
+  </figure>
+
+  <h3>The evaluation module</h3>
+  <pre><code># docpilot/evals/retrieval.py
+import math, random
+from statistics import mean
+
+def recall_at_k(ranked, rel, k):            # rel: {chunk_id: grade}
+    hits = {d for d, g in rel.items() if g &gt; 0}
+    return len(hits &amp; set(ranked[:k])) / len(hits)
+
+def precision_at_k(ranked, rel, k):
+    return sum(rel.get(d, 0) &gt; 0 for d in ranked[:k]) / k
+
+def reciprocal_rank(ranked, rel):
+    for i, d in enumerate(ranked, start=1):
+        if rel.get(d, 0) &gt; 0:
+            return 1 / i
+    return 0.0
+
+def ndcg_at_k(ranked, rel, k):
+    dcg = sum(rel.get(d, 0) / math.log2(i + 1) for i, d in enumerate(ranked[:k], start=1))
+    ideal = sorted(rel.values(), reverse=True)[:k]
+    idcg = sum(g / math.log2(i + 1) for i, g in enumerate(ideal, start=1))
+    return dcg / idcg if idcg else 0.0
+
+def bootstrap_ci(values, n_boot=5000, alpha=0.05, seed=0):
+    rng, n = random.Random(seed), len(values)
+    means = sorted(mean(rng.choices(values, k=n)) for _ in range(n_boot))
+    return means[int(n_boot * alpha / 2)], means[int(n_boot * (1 - alpha / 2)) - 1]
+
+def evaluate(run, golden, k=5):
+    """run: qid -&gt; ranked ids; golden: qid -&gt; {"cat": str, "rel": {id: grade}}."""
+    per_q = {q: {"recall": recall_at_k(run[q], g["rel"], k),
+                 "precision": precision_at_k(run[q], g["rel"], k),
+                 "rr": reciprocal_rank(run[q], g["rel"]),
+                 "ndcg": ndcg_at_k(run[q], g["rel"], k)} for q, g in golden.items()}
+    report = {m: (mean(v := [s[m] for s in per_q.values()]), *bootstrap_ci(v))
+              for m in ("recall", "precision", "rr", "ndcg")}
+    return report, per_q</code></pre>
+  <p>On the one-query example above this prints <code>R@3 0.667 P@3 0.667 RR 0.5 nDCG@3 0.58 nDCG@5 0.661</code>. On a 12-query synthetic fixture (three categories) comparing two configurations, with k = 5:</p>
+  <pre><code class="plain">config         recall@5           precision@5        MRR                nDCG@5
+bm25           0.33 [0.22, 0.44]  0.20 [0.13, 0.27]  0.43 [0.27, 0.61]  0.28 [0.16, 0.43]
+hybrid+rerank  0.39 [0.22, 0.56]  0.23 [0.13, 0.33]  0.43 [0.23, 0.65]  0.33 [0.18, 0.49]
+recall@5 by category (n)   bm25:   howto 0.27 (5)  troubleshoot 0.42 (4)  concept 0.33 (3)
+                           hybrid: howto 0.53 (5)  troubleshoot 0.17 (4)  concept 0.44 (3)
+paired delta nDCG@5, hybrid - bm25: +0.053 [-0.177, +0.265]</code></pre>
+
+  <h3>Sample sizes, confidence intervals and categories</h3>
+  <p>Each cell is the mean with its 95% bootstrap interval. The second configuration "wins" on every mean, yet the intervals overlap almost completely. The last line is the honest comparison: a <b>paired</b> bootstrap of per-query differences (same queries, both systems), whose interval still spans zero. With 12 queries you cannot tell these systems apart.</p>
+  <div class="box intuition"><span class="tag">Worked example · how many queries?</span>
+    <p>Per-query recall@5 values sit in \([0,1]\) with a standard deviation of roughly 0.3–0.4. The 95% half-width of a mean is about \(1.96\,\sigma/\sqrt{n}\): 0.18 at \(n = 12\), 0.06 at \(n = 100\), 0.03 at \(n = 400\). To detect a 0.05 change, unpaired, you need several hundred queries. Pairing helps a lot, because most per-query variance is "this query is hard for everyone" and cancels in the difference. That is why <a href="p01.html#l16">L16</a> told you to report intervals, and why the leaderboard below compares against a baseline with paired differences.</p>
+  </div>
+  <p>Report by <b>query category</b> as well as overall. In the fixture, hybrid+rerank is better on how-to queries and worse on troubleshooting (n = 4, so this is a hypothesis, not a finding). An average can hide a category that got worse. Show \(n\) next to every per-category number.</p>
+
+  <h3>Synthetic queries and their biases</h3>
+  <p>The cheap way to grow a golden set: give a model a chunk and ask for a question it answers, then label that chunk as relevant (grade 3). This works for coverage, but it is biased in known ways:</p>
+  <ul>
+    <li><b>Lexical leakage.</b> Generated questions reuse the chunk's words, which inflates BM25 and hides the vocabulary gap real users have (<a href="p04.html#l43">L43</a>). Ask for paraphrases in user language and forbid copying headings.</li>
+    <li><b>One-chunk answerability.</b> Every question has exactly one source chunk, so multi-hop questions (<a href="#l54">L54</a>) are missing and recall looks better than it is. Other chunks that also answer the question are unlabelled and count as misses.</li>
+    <li><b>Topic skew.</b> Models prefer to ask about definitions and well-structured sections. Sample chunks by stratum (page type, depth) and compare the category mix with real logs.</li>
+  </ul>
+  <p>Keep synthetic and real queries in separate slices and report both. Phase 8 builds the full dataset workflow (<a href="p08.html#l87">L87</a>).</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Labels tied to chunk IDs.</b> Re-chunk the corpus and every judgement points at an ID that no longer exists. Store labels as (URL, heading path, character span) and map them to current chunks by overlap at evaluation time.</li>
+      <li><b>Unjudged winners.</b> A new retriever finds a better passage nobody labelled, scores 0 for it and loses. Track the fraction of unjudged results in the top k per configuration.</li>
+      <li><b>Evaluating on the tuning set.</b> If you tuned k, λ and the fusion weights on the golden set, its scores are optimistic. Hold out a test slice you only touch when you report results.</li>
+      <li><b>Recall over an empty set.</b> Queries with no relevant passage (questions the docs do not answer) make recall undefined. Keep them in a separate abstention slice and score them on the generation side.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Convert your L37/L41 query set into the golden-set schema: query, category, graded labels stored as (URL, heading path, span), source (real, written, synthetic).</li>
+      <li>Pool the top 10 from BM25, dense and hybrid retrieval and judge every pooled passage on the 0–3 scale. Note how many relevant passages only one retriever found.</li>
+      <li>Implement <code>docpilot/evals/retrieval.py</code> as above, with tests that check the one-query example by hand (R@3 = 2/3, RR = 1/2, nDCG@3 = 0.580).</li>
+      <li>Run four or more configurations (BM25, dense, hybrid, hybrid + reranker, different k) and print a leaderboard: each metric with its 95% CI, per-category recall@5 with \(n\), and the paired delta against the baseline.</li>
+    </ol>
+    <p><b>Ship:</b> a leaderboard of your own retrieval configurations, where every claimed win has a paired interval that excludes zero.</p>
+  </div>
+  <p class="refs"><b>Read</b> Manning, Raghavan &amp; Schütze, <i>Introduction to Information Retrieval</i>, ch. 8 (evaluation) · Järvelin &amp; Kekäläinen 2002, “Cumulated Gain-Based Evaluation of IR Techniques” · Voorhees &amp; Harman (eds.), <i>TREC: Experiment and Evaluation in Information Retrieval</i> (pooling) · Efron &amp; Tibshirani, <i>An Introduction to the Bootstrap</i></p>
+</article>
+<!-- ================================================================ L51 -->
+<article class="day" id="l51">
+  <header class="day-head">
+    <span class="day-no">L51 · DAY 37</span>
+    <h2>Evaluating Generation: Faithfulness, Relevance and Correctness</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">A RAG answer can fail because the evidence was missing or because the generator misused good evidence. Score the two separately: faithfulness asks whether every claim is backed by the retrieved context, correctness asks whether the answer matches an expert's reference. Both come down to splitting text into claims and checking each one.</p>
+
+  <h3>Separate retrieval quality from generation quality</h3>
+  <p>L50 measured retrieval against labels. Generation metrics answer different questions, and combining them tells you which stage to fix:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Metric</th><th>Compares</th><th>Needs a reference?</th><th>Low score means</th></tr></thead>
+    <tbody>
+      <tr><td><b>Faithfulness</b></td><td>answer vs retrieved context</td><td>no</td><td>the generator added claims the context does not back</td></tr>
+      <tr><td><b>Answer relevance</b></td><td>answer vs question</td><td>no</td><td>on-topic text that dodges or pads the question</td></tr>
+      <tr><td><b>Correctness</b></td><td>answer vs reference answer</td><td>yes</td><td>wrong or incomplete, whatever the cause</td></tr>
+      <tr><td><b>Context precision</b></td><td>retrieved chunks vs question</td><td>optional</td><td>noise in the window; relevant chunks ranked low</td></tr>
+      <tr><td><b>Context recall</b></td><td>reference claims vs context</td><td>yes</td><td>retrieval missed evidence the answer needed</td></tr>
+    </tbody>
+  </table></div>
+  <p>Context precision and recall are model-judged stand-ins for L50's metrics when you have reference answers but no chunk labels. Context recall is the fraction of reference claims attributable to some retrieved chunk. Low context recall points at retrieval; high context recall with low correctness points at the generator.</p>
+
+  <h3>Faithfulness as claim extraction plus verification</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>Split the answer \(a\) into atomic claims \(c_1, \dots, c_n\). A verifier labels each claim against the context \(C\) as supported, contradicted or unsupported.</p>
+    $$\text{faithfulness}(a, C) = \frac{|\{i : C \text{ supports } c_i\}|}{n}$$
+    <p>Leave the score undefined when \(n = 0\), for example on a refusal. Score refusals separately rather than counting them as perfectly faithful.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Answer split into three claims, each verified against retrieved chunks, giving faithfulness two thirds">
+      <defs><marker id="ah-l51" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="15" y="70" width="120" height="70" rx="8" class="s-node"/>
+      <text x="75" y="100" class="s-ttl s-mid">answer</text>
+      <text x="75" y="120" class="s-ink2 s-mid s-sm">3 sentences</text>
+      <path d="M135,105 L175,105" class="s-ln" marker-end="url(#ah-l51)"/>
+      <text x="158" y="92" class="s-ink3 s-mid s-sm">extract</text>
+      <rect x="180" y="30" width="230" height="40" rx="6" class="s-node-mod"/>
+      <text x="192" y="55" class="s-ink">c₀ default policy = Always</text>
+      <rect x="180" y="85" width="230" height="40" rx="6" class="s-node-mod"/>
+      <text x="192" y="110" class="s-ink">c₁ Jobs: Never or OnFailure</text>
+      <rect x="180" y="140" width="230" height="40" rx="6" class="s-node-mod"/>
+      <text x="192" y="165" class="s-ink">c₂ back-off capped at 10 min</text>
+      <path d="M410,50 L460,50" class="s-ln" marker-end="url(#ah-l51)"/>
+      <path d="M410,105 L460,105" class="s-ln" marker-end="url(#ah-l51)"/>
+      <path d="M410,160 L460,160" class="s-ln" marker-end="url(#ah-l51)"/>
+      <text x="470" y="55" class="s-acc">supported · pods#restart</text>
+      <text x="470" y="110" class="s-acc">supported · jobs#backoff</text>
+      <text x="470" y="165" class="s-bad">unsupported · no chunk</text>
+      <text x="330" y="212" class="s-ttl s-mid">faithfulness = 2/3 = 0.667</text>
+    </svg>
+    <figcaption><b>Two model calls per answer.</b> The extractor rewrites the answer as standalone claims. The verifier sees only the retrieved chunks, never the open web or its own beliefs. The back-off claim is labelled unsupported because no retrieved chunk states it, whether or not it is true.</figcaption>
+  </figure>
+  <pre><code># docpilot/evals/generation.py
+import json
+from typing import Literal
+from pydantic import BaseModel
+from docpilot.llm import client, SMALL
+
+CLAIMS_PROMPT = """Break the ANSWER into atomic factual claims.
+One claim = one checkable statement. Replace pronouns with the names they refer to.
+Skip greetings, hedges and remarks about the documentation itself.
+&lt;question&gt;{question}&lt;/question&gt;
+&lt;answer&gt;{answer}&lt;/answer&gt;"""
+
+VERIFY_PROMPT = """Judge each numbered claim against the CONTEXT only, not your own knowledge.
+supported: the context states it, or it follows directly from the context.
+contradicted: the context states something incompatible with it.
+unsupported: the context does not say, even if you believe the claim is true.
+Return one verdict per claim, with i = the claim number and a short supporting quote ("" if none).
+&lt;context&gt;{context}&lt;/context&gt;
+&lt;claims&gt;{claims}&lt;/claims&gt;"""
+
+class Claims(BaseModel):
+    claims: list[str]
+
+class Verdict(BaseModel):
+    i: int
+    label: Literal["supported", "unsupported", "contradicted"]
+    quote: str
+
+class Verdicts(BaseModel):
+    verdicts: list[Verdict]
+
+def llm_judge(prompt: str, out: type[BaseModel], model: str = SMALL) -&gt; BaseModel:
+    msg = client.messages.parse(model=model, max_tokens=2048, output_format=out,
+                                messages=[{"role": "user", "content": prompt}])
+    return msg.parsed_output
+
+def faithfulness(question, answer, hits, judge=llm_judge) -&gt; dict:
+    claims = judge(CLAIMS_PROMPT.format(question=question, answer=answer), Claims).claims
+    if not claims:                       # a refusal has nothing to verify; score it elsewhere
+        return {"score": None, "n_claims": 0, "verdicts": []}
+    context = "\n\n".join(f"[{h.id}] {h.text}" for h in hits)
+    numbered = json.dumps([{"i": i, "claim": c} for i, c in enumerate(claims)])
+    verdicts = judge(VERIFY_PROMPT.format(context=context, claims=numbered), Verdicts).verdicts
+    if sorted(v.i for v in verdicts) != list(range(len(claims))):
+        raise ValueError("verifier must return exactly one verdict per claim")
+    labels = [v.label for v in verdicts]
+    return {"score": labels.count("supported") / len(claims), "n_claims": len(claims),
+            "contradicted": labels.count("contradicted"), "verdicts": verdicts}</code></pre>
+  <p><code>client.messages.parse(output_format=Model)</code> (SDK 1.13) turns the Pydantic model into a native structured-output schema and returns a <code>ParsedMessage</code> whose <code>parsed_output</code> is a validated instance (<a href="p02.html#l20">L20</a>). It bypasses the logging in <code>chat()</code>, so log judge calls yourself, with token usage, because evaluation spend adds up fast.</p>
+
+  <h3>Answer relevance and correctness</h3>
+  <p><b>Answer relevance</b> catches answers that are faithful but beside the point. RAGAS scores it by asking a model to generate several questions the answer would answer, embedding them, and averaging their cosine similarity to the real question. A direct judge prompt ("does this answer address the question? which parts are padding?") is simpler and easier to audit. <b>Correctness</b> needs a reference answer from the golden set. Turn the reference into key points and gate the score on contradictions, because one confident wrong statement is worse than an omission:</p>
+  <pre><code>CORRECT_PROMPT = """An expert wrote the REFERENCE answer. List its key points, and for each
+say whether the ANSWER conveys it (wording may differ). Then list every statement
+in the ANSWER that contradicts the REFERENCE.
+&lt;question&gt;{question}&lt;/question&gt;
+&lt;reference&gt;{reference}&lt;/reference&gt;
+&lt;answer&gt;{answer}&lt;/answer&gt;"""
+
+class KeyPoint(BaseModel):
+    point: str
+    covered: bool
+
+class Correctness(BaseModel):
+    key_points: list[KeyPoint]
+    contradictions: list[str]
+
+def correctness(question, answer, reference, judge=llm_judge) -&gt; float:
+    r = judge(CORRECT_PROMPT.format(question=question, reference=reference, answer=answer), Correctness)
+    if r.contradictions or not r.key_points:
+        return 0.0                         # a confident wrong statement fails the answer
+    return sum(k.covered for k in r.key_points) / len(r.key_points)
+
+def agreement(metric_pass: list[bool], human_pass: list[bool]) -&gt; tuple[float, float]:
+    """Raw agreement and Cohen's kappa between a metric's pass/fail and your labels."""
+    n = len(human_pass)
+    po = sum(m == h for m, h in zip(metric_pass, human_pass)) / n
+    pm, ph = sum(metric_pass) / n, sum(human_pass) / n
+    pe = pm * ph + (1 - pm) * (1 - ph)
+    return po, (po - pe) / (1 - pe) if pe &lt; 1 else 1.0</code></pre>
+
+  <h3>Test the scoring logic without a model</h3>
+  <p>The judge is a parameter, so a fake that replays canned JSON (the claims of the figure, then three verdicts) through the same Pydantic validation tests every branch offline:</p>
+  <pre><code>def fake_judge(canned):                    # canned JSON strings, returned in order
+    replies = iter(canned)
+    return lambda prompt, out: out.model_validate_json(next(replies))</code></pre>
+  <pre><code class="plain">faithfulness 0.667 claims 3 contradicted 0
+ValueError: verifier must return exactly one verdict per claim     # judge dropped a claim
+refusal None                                                       # zero claims
+correctness 1.0 0.0                                                # second answer contradicts the reference
+ValidationError 1 validation error for Verdicts                    # label "maybe" rejected
+agreement 0.9 kappa 0.76                                           # 20 answers, metric vs my labels</code></pre>
+
+  <h3>RAGAS-style metrics and their caveats</h3>
+  <p>RAGAS (Es et al., 2023) popularised reference-free RAG evaluation with three model-judged scores: faithfulness (claims in the answer supported by the context), answer relevance (the generated-question similarity above) and context relevance. Later versions of the library added context precision and recall and changed definitions over time, so pin the version and read its metric source before comparing numbers across projects. The ideas carry over; the exact numbers do not.</p>
+  <div class="box note"><span class="tag">Caveats that apply to any judged metric</span>
+    <ul>
+      <li><b>Claim granularity moves the score.</b> Finer splitting yields more trivially supported claims. Fix the extractor prompt and model across compared runs.</li>
+      <li><b>Faithful is not correct.</b> An answer faithful to an outdated chunk scores 1.0. Pair faithfulness with correctness.</li>
+      <li><b>Unsupported is not false.</b> The back-off claim may be true; it still breaks the citation contract of <a href="p04.html#l45">L45</a>.</li>
+      <li><b>Judges vary.</b> Rerun a sample and count label flips. Phase 8 calibrates judges properly (<a href="p08.html#l89">L89</a>, <a href="p08.html#l90">L90</a>).</li>
+    </ul>
+  </div>
+  <p><b>Human spot checks</b> are the ground truth for the metric itself. Label 20 answers yourself (pass/fail on faithfulness and correctness) before you look at the metric's scores, then compute agreement and Cohen's kappa \(\kappa = (p_o - p_e)/(1 - p_e)\). In the run above, 90% raw agreement is only \(\kappa = 0.76\), because both raters pass 70% of answers and would agree 58% of the time by chance. Read every disagreement: each one is either a judge-prompt bug or a flaw in your own rubric.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>The judge sees more than the generator did.</b> Pass the verifier exactly the chunks that were in the prompt, after truncation.</li>
+      <li><b>Same model judging itself.</b> Prefer a different or larger judge, fixed across compared runs.</li>
+      <li><b>Silent judge failures.</b> Truncated JSON and missing verdicts must raise and be counted, never become 0.0.</li>
+      <li><b>Cost.</b> Two or three calls per answer per run. Cache verdicts keyed by (answer hash, context hash, prompt version).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Implement <code>faithfulness</code> and <code>correctness</code> as above, with the fake-judge tests for: all supported, one unsupported, a refusal, a dropped verdict and an invalid label.</li>
+      <li>Run both metrics over DocPilot's answers on the golden set (using the reference answers from L50's set), logging judge token usage.</li>
+      <li>Before looking at the scores, label 20 answers yourself as pass/fail on faithfulness and correctness. Compute agreement and kappa per metric.</li>
+      <li>Read every disagreement and change one thing (extractor wording, verifier definitions, the pass threshold), then rerun and recompute kappa.</li>
+    </ol>
+    <p><b>Ship:</b> generation metrics that agree with your own judgement on a 20-answer sample, with the agreement and kappa reported next to them.</p>
+  </div>
+  <p class="refs"><b>Read</b> Es, James, Espinosa-Anke &amp; Schockaert 2023, “RAGAS: Automated Evaluation of Retrieval Augmented Generation” · Min et al. 2023, “FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation” · Anthropic docs, Structured outputs · Huyen, <i>AI Engineering</i>, ch. 3–4</p>
+</article>
+<!-- ================================================================ L52 -->
+<article class="day" id="l52">
+  <header class="day-head">
+    <span class="day-no">L52 · DAY 37</span>
+    <h2>Diagnosing RAG Failures: A Systematic Playbook</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">An aggregate score tells you that DocPilot is wrong; only reading failures tells you why. Trace each bad answer back to the first stage that went wrong, label it with a fixed taxonomy, count the labels, and fix the most common cause first.</p>
+
+  <h3>A failure taxonomy</h3>
+  <p>Every RAG failure has an upstream-most cause. Label that cause, not its downstream symptoms: if the right chunk never reached the prompt, the generator could not have been faithful to it. The stages are the ones on your L38 failure-mode map (<a href="p04.html#l38">L38</a>).</p>
+  <div class="box def"><span class="tag">Definition · seven failure classes</span>
+    <ul>
+      <li><b>Missing from corpus.</b> No document in the index contains the answer. Parsing bugs that drop a table or a page belong here too (<a href="p04.html#l40">L40</a>).</li>
+      <li><b>Not retrieved.</b> The answer is indexed but is not among the first-stage candidates (typically the top 50). Usual cause: vocabulary gap or a bad chunk.</li>
+      <li><b>Ranked too low.</b> It is a candidate, but the reranker or the cut-off at \(k\) drops it before the prompt.</li>
+      <li><b>Lost in context.</b> It is in the prompt, but buried among many other chunks, and the model misses it (<a href="p01.html#l13">L13</a>).</li>
+      <li><b>Context ignored.</b> It is in the prompt and easy to find, but the model answers from its own prior or misreads it.</li>
+      <li><b>Incomplete answer.</b> The answer is right as far as it goes but misses parts of a multi-part question.</li>
+      <li><b>Wrong format.</b> The content is right, but the shape is wrong: no citations, prose instead of steps, YAML that does not parse.</li>
+    </ul>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 700 200" role="img" aria-label="Six checks in order; the first failing check names the failure class">
+      <defs><marker id="ah-l52" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="350" y="22" class="s-ink2 s-mid s-sm">check in order · "yes" moves right · the first "no" is the label</text>
+      <rect x="10" y="45" width="96" height="44" rx="6" class="s-node"/><text x="58" y="72" class="s-ink s-mid">in corpus?</text>
+      <rect x="120" y="45" width="96" height="44" rx="6" class="s-node"/><text x="168" y="72" class="s-ink s-mid">in top 50?</text>
+      <rect x="230" y="45" width="96" height="44" rx="6" class="s-node"/><text x="278" y="72" class="s-ink s-mid">in prompt?</text>
+      <rect x="340" y="45" width="96" height="44" rx="6" class="s-node"/><text x="388" y="72" class="s-ink s-mid">used?</text>
+      <rect x="450" y="45" width="96" height="44" rx="6" class="s-node"/><text x="498" y="72" class="s-ink s-mid">complete?</text>
+      <rect x="560" y="45" width="96" height="44" rx="6" class="s-node"/><text x="608" y="72" class="s-ink s-mid">format ok?</text>
+      <path d="M106,67 L118,67" class="s-ln" marker-end="url(#ah-l52)"/>
+      <path d="M216,67 L228,67" class="s-ln" marker-end="url(#ah-l52)"/>
+      <path d="M326,67 L338,67" class="s-ln" marker-end="url(#ah-l52)"/>
+      <path d="M436,67 L448,67" class="s-ln" marker-end="url(#ah-l52)"/>
+      <path d="M546,67 L558,67" class="s-ln" marker-end="url(#ah-l52)"/>
+      <path d="M656,67 L668,67" class="s-ln-acc" marker-end="url(#ah-l52)"/>
+      <text x="672" y="71" class="s-acc">pass</text>
+      <path d="M58,89 L58,118" class="s-ln-bad" marker-end="url(#ah-l52)"/>
+      <path d="M168,89 L168,118" class="s-ln-bad" marker-end="url(#ah-l52)"/>
+      <path d="M278,89 L278,118" class="s-ln-bad" marker-end="url(#ah-l52)"/>
+      <path d="M388,89 L388,118" class="s-ln-bad" marker-end="url(#ah-l52)"/>
+      <path d="M498,89 L498,118" class="s-ln-bad" marker-end="url(#ah-l52)"/>
+      <path d="M608,89 L608,118" class="s-ln-bad" marker-end="url(#ah-l52)"/>
+      <text x="58" y="136" class="s-bad s-mid">missing</text>
+      <text x="168" y="136" class="s-bad s-mid">not retrieved</text>
+      <text x="278" y="136" class="s-bad s-mid">ranked low</text>
+      <text x="388" y="136" class="s-bad s-mid">lost / ignored</text>
+      <text x="498" y="136" class="s-bad s-mid">incomplete</text>
+      <text x="608" y="136" class="s-bad s-mid">wrong format</text>
+      <text x="58" y="158" class="s-ink3 s-mid s-sm">ingest, docs</text>
+      <text x="168" y="158" class="s-ink3 s-mid s-sm">query, chunks</text>
+      <text x="278" y="158" class="s-ink3 s-mid s-sm">rerank, k</text>
+      <text x="388" y="158" class="s-ink3 s-mid s-sm">ablate to split</text>
+      <text x="498" y="158" class="s-ink3 s-mid s-sm">decompose</text>
+      <text x="608" y="158" class="s-ink3 s-mid s-sm">prompt, schema</text>
+      <text x="350" y="188" class="s-ink2 s-mid s-sm">grey line: where the fix usually lives</text>
+    </svg>
+    <figcaption><b>Trace back, stop at the first failure.</b> Each check needs one field from the request log: the gold span lookup, the pre-rerank candidates, the final context, the citations, the L51 key-point coverage and a format check. If L49's tracing did not log the pre-rerank candidates, add that first, because "not retrieved" and "ranked too low" have different fixes.</figcaption>
+  </figure>
+
+  <h3>Tracing a bad answer back through the stages</h3>
+  <p>Most of the trace can be checked automatically once each request logs its intermediate results. Treat the automatic label as a hypothesis that a person confirms by reading the trace:</p>
+  <pre><code># docpilot/evals/diagnose.py
+from dataclasses import dataclass
+
+@dataclass
+class Trace:                    # one logged /ask request, joined with its golden-set row
+    qid: str
+    gold: set[str]              # relevant chunk ids (L50), mapped to the current index
+    in_corpus: bool             # does the gold span exist in the index at all?
+    candidates: list[str]       # pre-rerank top 50
+    context: list[str]          # chunk ids sent to the generator, in prompt order
+    context_tokens: int
+    cited: set[str]             # chunk ids cited in the answer (L45)
+    covered: float              # fraction of reference key points covered (L51)
+    contradiction: bool
+    format_ok: bool
+
+def first_failure(t: Trace) -&gt; str:
+    """Upstream-most stage that failed. A hypothesis for a human to confirm, not a verdict."""
+    if not t.in_corpus:
+        return "missing_from_corpus"
+    if not t.gold &amp; set(t.candidates):
+        return "not_retrieved"
+    in_ctx = [t.context.index(g) for g in t.gold if g in t.context]
+    if not in_ctx:
+        return "ranked_too_low"
+    if t.contradiction or not t.gold &amp; t.cited:
+        middle = 0 &lt; min(in_ctx) &lt; len(t.context) - 1
+        return "lost_in_context" if t.context_tokens &gt; 8000 and middle else "context_ignored"
+    if t.covered &lt; 1.0:
+        return "incomplete_answer"
+    return "wrong_format" if not t.format_ok else "pass"</code></pre>
+  <p>Run on seven hand-built traces, one per class, it returns each label once. The weakest heuristic is lost versus ignored. To separate them, use an <b>ablation</b>: rerun the question with only the gold chunk in the prompt. If the answer is now right, the model was distracted (lost in context). If it is still wrong, the model overrode or misread the evidence (context ignored).</p>
+
+  <h3>Error analysis: open coding, then counting</h3>
+  <div class="box algo"><span class="tag">Algorithm · error analysis</span>
+    <ol>
+      <li><b>Sample</b> about 50 failures: answers with correctness below 1, faithfulness below 1, or a thumbs-down. Stratify by query category so one category does not dominate.</li>
+      <li><b>Open coding.</b> Read each trace from question to answer. Write one free-text note about the first thing that went wrong, in your own words. Do not look at the taxonomy yet, because it would hide failure types it does not include.</li>
+      <li><b>Axial coding.</b> Group the notes into clusters and map each cluster to a taxonomy class. Add a class if a cluster fits none (for example "parser dropped the table").</li>
+      <li><b>Count</b> labels per class and per category. Have a second person relabel 10 traces to check the taxonomy is unambiguous.</li>
+      <li><b>Prioritise</b> by frequency × severity ÷ effort, write down the expected gain for the top fix, then measure it (<a href="#l60">L60</a>).</li>
+    </ol>
+  </div>
+  <div class="box intuition"><span class="tag">Worked example · from notes to labels</span>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Query</th><th>Open-coding note</th><th>Label</th></tr></thead>
+      <tbody>
+        <tr><td>"pod keeps restarting"</td><td>gold is the CrashLoopBackOff section; not in top 50; query never says the term</td><td>not retrieved</td></tr>
+        <tr><td>"max pods per node"</td><td>gold chunk at candidate rank 23; reranker only sees top 20</td><td>ranked too low</td></tr>
+        <tr><td>"PSP replacement"</td><td>gold in prompt; answer describes PodSecurityPolicy as current</td><td>context ignored</td></tr>
+        <tr><td>"limits vs requests, and for init containers?"</td><td>first half right, init containers never addressed</td><td>incomplete</td></tr>
+        <tr><td>"pricing of GKE Autopilot"</td><td>not in Kubernetes docs at all; answer guessed</td><td>missing (should refuse)</td></tr>
+        <tr><td>"rollback a deployment"</td><td>right commands, no citations, steps run together</td><td>wrong format</td></tr>
+      </tbody>
+    </table></div>
+    <p>After 50 notes the counts were: not retrieved 14, ranked too low 9, missing 7, incomplete 7, ignored 5, lost 4, format 4. Severity is 3 for answers that end up wrong, 2 for incomplete answers or answers that should have refused, 1 for format. Effort is S = 1, M = 2, L = 4. The ranked list, printed from those counts:</p>
+    <pre><code class="plain">ranked_too_low         9   18%  priority  27.0  rerank top 50 instead of top 20; k 5 -&gt; 8 (L44)
+not_retrieved         14   28%  priority  21.0  query rewriting for symptom-style queries (L43)
+context_ignored        5   10%  priority  15.0  quote-then-answer prompt (L45)
+lost_in_context        4    8%  priority   8.0  cap context at 6 chunks; best chunk last
+incomplete_answer      7   14%  priority   7.0  decompose multi-part questions (L43)
+wrong_format           4    8%  priority   4.0  format instructions + output check
+missing_from_corpus    7   14%  priority   3.5  add the missing pages; refuse cleanly meanwhile</code></pre>
+  </div>
+
+  <h3>Prioritising fixes</h3>
+  <p>The most frequent class is not automatically first. The cheapest fix to a frequent class often wins: here, widening the reranker's candidate pool is a configuration change, while query rewriting adds a model call to every request. The 7 "missing" cases need two owners. The docs team can fill the gaps, but refusing cleanly (<a href="p04.html#l45">L45</a>) is your job now. Before you fix anything, write the expected effect as a hypothesis ("recall@5 on troubleshooting queries +0.10") so that L60's harness can confirm or refute it.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Labelling symptoms.</b> "Hallucinated" is a symptom. Labelling it as the cause sends you to prompt tweaks when the chunk was never retrieved.</li>
+      <li><b>Taxonomy drift.</b> Classes renamed or merged between rounds make counts incomparable. Version the taxonomy alongside the prompts.</li>
+      <li><b>Missing intermediate logs.</b> Without pre-rerank candidates and the exact prompt context, half the classes cannot be told apart. Log them for every request, or at least for a sample.</li>
+      <li><b>One-off reading.</b> Error analysis is a weekly habit. The failure mix changes after every fix, and the next fix depends on the new counts.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Make sure DocPilot's request log stores pre-rerank candidates, final context ids, context tokens and citations. Join it with the golden set into <code>Trace</code> rows.</li>
+      <li>Pull 50 failed answers. Open-code each in one sentence before running <code>first_failure</code>, then compare your labels with the automatic ones.</li>
+      <li>Run the single-chunk ablation on every lost/ignored case to split the two classes.</li>
+      <li>Count labels per class and per category, score each class by frequency × severity ÷ effort, and write the ranked fix list with an expected gain for each fix.</li>
+    </ol>
+    <p><b>Ship:</b> a data-driven improvement plan: 50 labelled failures, the counts, and a ranked fix list whose first item you will measure in L60.</p>
+  </div>
+  <p class="refs"><b>Read</b> Hamel Husain's writing on evals and error analysis · Huyen, <i>AI Engineering</i>, ch. 4 · Eugene Yan 2023, “Patterns for Building LLM-based Systems &amp; Products” · Liu et al. 2023, “Lost in the Middle: How Language Models Use Long Contexts”</p>
+</article>
+<!-- ================================================================ L53 -->
+<article class="day" id="l53">
+  <header class="day-head">
+    <span class="day-no">L53 · DAY 38</span>
+    <h2>Small-to-Big Retrieval: Parent-Document, Sentence-Window and Multi-Vector</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">The unit that matches a query best is small, and the unit the generator needs to answer is big. Small-to-big retrieval separates the two: index small, precise entries that each point at a larger parent, match on the entries, and put the parents in the prompt.</p>
+
+  <h3>Why decouple the matching unit from the context unit</h3>
+  <p>L41 forced one chunk size to serve two jobs (<a href="p04.html#l41">L41</a>). Small chunks embed sharply, because one idea per vector means the query is not diluted by neighbouring topics, but they arrive without the conditions, caveats and examples around them. Large chunks carry that context, but their embeddings average several topics and rank worse. Contextual enrichment (<a href="p04.html#l42">L42</a>) patches the small chunk with a summary of its surroundings; small-to-big instead hands the generator the surroundings themselves.</p>
+  <div class="box def"><span class="tag">Definition · the small-to-big family</span>
+    <ul>
+      <li><b>Parent-document retrieval:</b> index child chunks (or sentences), each tagged with a parent id such as a section's heading path. Retrieve children, map them to parents, deduplicate, and send the parents.</li>
+      <li><b>Sentence-window retrieval:</b> index single sentences; return each hit with its \(w\) neighbours on either side, within the same section.</li>
+      <li><b>Multi-vector indexing:</b> several entries per parent of different kinds (raw chunks, a model-written summary, hypothetical questions as in L42) all point to the same parent. A parent's score is the maximum over its entries: \(s(p) = \max_{e \in E(p)} s(q, e)\).</li>
+      <li><b>Hierarchical retrieval:</b> first pick the top \(m\) sections by their summaries, then retrieve chunks only inside those sections.</li>
+    </ul>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 230" role="img" aria-label="Query matches small index entries, which point to parent sections that go into the prompt">
+      <defs><marker id="ah-l53" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="65" y="30" class="s-ttl s-mid">query</text>
+      <text x="250" y="30" class="s-ttl s-mid">index entries (small)</text>
+      <text x="470" y="30" class="s-ttl s-mid">parents (big)</text>
+      <rect x="10" y="95" width="110" height="40" rx="6" class="s-node"/>
+      <text x="65" y="113" class="s-ink s-mid s-sm">retries before a</text>
+      <text x="65" y="127" class="s-ink s-mid s-sm">Job fails?</text>
+      <rect x="180" y="45" width="140" height="26" rx="4" class="s-node-mod"/><text x="190" y="62" class="s-ink s-sm">question q1 · 0.55</text>
+      <rect x="180" y="79" width="140" height="26" rx="4" class="s-node-mod"/><text x="190" y="96" class="s-ink s-sm">sentence #1 · 0.43</text>
+      <rect x="180" y="113" width="140" height="26" rx="4" class="s-node-mod"/><text x="190" y="130" class="s-ink s-sm">sentence #0 · 0.35</text>
+      <rect x="180" y="147" width="140" height="26" rx="4" class="s-node"/><text x="190" y="164" class="s-ink3 s-sm">summary s1 · 0.00</text>
+      <rect x="180" y="181" width="140" height="26" rx="4" class="s-node"/><text x="190" y="198" class="s-ink3 s-sm">init #2 · 0.18</text>
+      <path d="M120,110 L178,60" class="s-ln-mod s-dash"/>
+      <path d="M120,113 L178,92" class="s-ln-mod s-dash"/>
+      <path d="M120,118 L178,126" class="s-ln-mod s-dash"/>
+      <rect x="400" y="55" width="140" height="60" rx="8" class="s-node-mod"/>
+      <text x="470" y="80" class="s-ink s-mid">Jobs › backoff</text>
+      <text x="470" y="98" class="s-ink2 s-mid s-sm">s(p) = max = 0.55</text>
+      <rect x="400" y="145" width="140" height="60" rx="8" class="s-node"/>
+      <text x="470" y="170" class="s-ink s-mid">Pods › restart</text>
+      <text x="470" y="188" class="s-ink3 s-mid s-sm">no strong entry</text>
+      <path d="M320,58 L398,78" class="s-ln" marker-end="url(#ah-l53)"/>
+      <path d="M320,92 L398,85" class="s-ln" marker-end="url(#ah-l53)"/>
+      <path d="M320,126 L398,95" class="s-ln" marker-end="url(#ah-l53)"/>
+      <path d="M320,160 L398,170" class="s-ln" marker-end="url(#ah-l53)"/>
+      <path d="M540,85 L585,85" class="s-ln-acc" marker-end="url(#ah-l53)"/>
+      <text x="620" y="82" class="s-acc s-mid">prompt</text>
+      <text x="620" y="98" class="s-ink2 s-mid s-sm">1 parent</text>
+    </svg>
+    <figcaption><b>Three hits, one parent.</b> The question entry and two sentences all point at the Jobs back-off section, so the generator receives that section once, scored by its best entry. The init-container sentence (0.18) points at a third section (not drawn); with a larger budget its parent comes second.</figcaption>
+  </figure>
+
+  <h3>Parent-document and sentence-window retrieval</h3>
+  <pre><code># docpilot/small_to_big.py
+from dataclasses import dataclass
+
+@dataclass
+class Entry:                     # one index entry; many entries point at one parent
+    id: str
+    text: str
+    parent: str                  # section id (heading path) the entry came from
+    kind: str = "chunk"          # chunk | sentence | summary | question
+    pos: int = 0                 # sentence number inside the parent (sentence-window)
+
+def to_parents(hits, parents, budget_tokens=3000):
+    """Parent-document retrieval: score parents by their best entry (max), dedupe, fit a budget."""
+    best = {}
+    for s, e in hits:
+        best[e.parent] = max(s, best.get(e.parent, 0.0))
+    chosen, used = [], 0
+    for pid in sorted(best, key=best.get, reverse=True):
+        cost = len(parents[pid]) // 4                  # rough token count
+        if used + cost &lt;= budget_tokens:
+            chosen.append(pid); used += cost
+    return chosen, used
+
+def sentence_window(hit, sentences, w=1):
+    """Sentence-window retrieval: the hit sentence with w neighbours from the same section."""
+    sents = sentences[hit.parent]
+    return " ".join(sents[max(0, hit.pos - w): hit.pos + w + 1])</code></pre>
+  <p>On three Kubernetes sections (11 sentences, plus one hypothetical question and one summary), the query "how many retries before a job is marked failed" and a word-overlap stand-in for the hybrid score give:</p>
+  <pre><code class="plain">0.55 question Jobs &gt; Pod backoff failure policy    How many times does a Job retry a failed Pod bef
+0.43 sentence Jobs &gt; Pod backoff failure policy    Set .spec.backoffLimit to specify the number of
+0.35 sentence Jobs &gt; Pod backoff failure policy    A Job can fail after a number of retries.
+0.18 sentence Pods &gt; Init containers               However, if the Pod has a restartPolicy of Never
+(['Jobs &gt; Pod backoff failure policy'], 60)                       # budget 60 tokens
+(['Jobs &gt; Pod backoff failure policy', 'Pods &gt; Init containers'], 122)   # budget 200
+window: A Job can fail after a number of retries. Set .spec.backoffLimit to specify the number of
+        retries before considering a Job as failed. Failed Pods associated with the Job are ...
+entries: 3 parents -&gt; 13 index entries</code></pre>
+  <p>Sentence windows are cheaper than whole parents and suit dense reference text where the answer is local. Parents suit procedures and explanations where step 4 means nothing without steps 1–3. Never let a window or a parent cross a section boundary: the neighbour of the last sentence in "Restart policy" belongs to a different topic.</p>
+
+  <h3>Multi-vector and hierarchical indexing</h3>
+  <p>Multi-vector indexing generalises L42. Raw chunks match users who quote the docs; hypothetical questions match users who ask; summaries match broad queries that no single chunk covers. Store all of them in one collection with a <code>kind</code> field and the parent id as metadata (<a href="p03.html#l33">L33</a>), so you can filter by kind when you measure which kind contributes the hits. Aggregating by maximum means one strong entry is enough. Use a sum of the top two or three entries only if you want parents with several weak matches to rise.</p>
+  <p>Hierarchical retrieval is the two-stage version for large corpora. Score section summaries, keep the top \(m\) (say 5), then rank chunks inside them. It cuts the search space and keeps hits topically coherent. The cost is that if the section stage misses, no chunk inside the missed section can be retrieved, so measure section-level recall first.</p>
+
+  <h3>Storage and cost</h3>
+  <div class="box intuition"><span class="tag">Worked example · what small-to-big costs</span>
+    <p>Assume 2,000 sections averaging 1,500 tokens, with 1,024-dimensional float32 vectors (4,096 bytes each).</p>
+    <ul>
+      <li>200-token children: 15,000 vectors, about 61 MB. Single sentences (about 25 tokens): 120,000 vectors, about 492 MB, plus an ANN index on top (<a href="p03.html#l31">L31</a>).</li>
+      <li>Multi-vector extras (1 summary + 3 questions per section): 8,000 more vectors, plus a one-off 2,000 model calls of about 1,500 input tokens each. Cache the section prefix (<a href="p02.html#l24">L24</a>).</li>
+      <li>Query time: five 200-token children are 1,000 prompt tokens. Their parents, after deduplication to three sections, are about 4,500, so input cost per answer goes up roughly 4.5×. A budget cap like <code>budget_tokens</code> keeps this bounded.</li>
+    </ul>
+    <p>Small-to-big is worth that cost only if correctness rises. Measure it with L51's correctness metric, not with recall alone: recall@k on parents is almost always higher, because the target is bigger.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Giant parents.</b> A 12,000-token reference page as a parent blows the budget and buries the answer (lost in context, <a href="#l52">L52</a>). Cap parent size and fall back to the window around the hit.</li>
+      <li><b>Stale pointers.</b> Re-ingesting a page re-creates parents with new ids, leaving children pointing at nothing. Derive parent ids from stable heading paths and update children and parents in one transaction (<a href="p04.html#l48">L48</a>).</li>
+      <li><b>Citations to the wrong grain.</b> The model cites the parent while your citation checker expects child ids. Decide which unit is citable and keep a span map from children to parent offsets.</li>
+      <li><b>Permissions on the parent.</b> A public child inside a restricted page must not pull the restricted parent into the prompt. Check access on the parent you send, not only on the entry you matched (<a href="p04.html#l47">L47</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Re-index DocPilot with 150–250-token children, each carrying a parent id equal to its section's heading path. Keep the current index for comparison.</li>
+      <li>Implement <code>to_parents</code> with a 3,000-token budget, and a parent-size cap that falls back to a sentence window.</li>
+      <li>Run L51's correctness and faithfulness metrics on the golden set for three setups: current chunks, children only, children → parents. Log prompt tokens per answer.</li>
+      <li>Report the paired difference in correctness with a bootstrap interval (<a href="#l50">L50</a>), and the change in prompt tokens per answer.</li>
+    </ol>
+    <p><b>Ship:</b> a measured result for small-to-big retrieval on your data: correctness delta with its interval, and the token cost per answer.</p>
+  </div>
+  <p class="refs"><b>Read</b> LangChain docs, ParentDocumentRetriever and MultiVectorRetriever (concepts) · LlamaIndex docs, Sentence-window retrieval and auto-merging retrieval (concepts) · Anthropic, “Introducing Contextual Retrieval” (2024) · Huyen, <i>AI Engineering</i>, ch. 6</p>
+</article>
+<!-- ================================================================ L54 -->
+<article class="day" id="l54">
+  <header class="day-head">
+    <span class="day-no">L54 · DAY 39</span>
+    <h2>GraphRAG and Knowledge Graphs</h2>
+    <p class="day-meta"><span class="vid">55m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">Vector search finds passages that resemble the question. It cannot follow a chain of relations across documents, and it cannot summarise a whole corpus. A knowledge graph extracted by a model handles both, through explicit edges for multi-hop questions and community summaries for global ones, but you pay a model call per chunk to build it.</p>
+
+  <h3>Questions vector search answers badly</h3>
+  <ul>
+    <li><b>Multi-hop:</b> "Which objects decide what API calls a Deployment's Pods can make?" The answer chains Deployment → ReplicaSet → Pod → ServiceAccount ← RoleBinding across four pages. No single chunk resembles the question, and the RBAC page never mentions Deployments.</li>
+    <li><b>Global:</b> "What are the main themes of the storage documentation?" or "Summarise every breaking change across these release notes." The answer depends on the whole corpus. Top-k retrieval returns k arbitrary pieces of it.</li>
+  </ul>
+  <p>L52 files these as "not retrieved" or "incomplete", but no query rewrite fixes them: the information is spread out by nature.</p>
+
+  <h3>Building a knowledge graph with a model</h3>
+  <div class="box algo"><span class="tag">Algorithm · graph construction</span>
+    <ol>
+      <li><b>Extract.</b> For each chunk, prompt a model for entities (name, type, description) and relations (head, relation, tail, description) as structured output (<a href="p02.html#l20">L20</a>). Give a closed list of entity types (Kubernetes kinds, fields, CLI commands, feature gates) and relation types. Record the source chunk id on every element.</li>
+      <li><b>Glean</b> (optional). Ask again "did you miss any entities?" A second pass finds more on dense chunks, at the cost of another call each.</li>
+      <li><b>Resolve entities.</b> Merge "PVC", "persistent volume claim" and "PersistentVolumeClaims" into one node. Start with normalisation and an alias table, then embed the remaining names and ask a model to confirm candidate merges above a similarity threshold. Wrong merges are worse than missed ones.</li>
+      <li><b>Store.</b> For a few thousand nodes, networkx in memory and a JSON file are enough. For larger graphs, or ones you query concurrently and update, use a graph database such as Neo4j (property graph, Cypher queries).</li>
+    </ol>
+  </div>
+
+  <h3>Microsoft's GraphRAG and community summaries</h3>
+  <p>Edge et al. (2024) target <em>query-focused summarisation</em> over a whole corpus. After extraction and entity summarisation (merging each entity's descriptions across chunks), they run <b>Leiden</b> community detection hierarchically, giving nested groups of densely connected entities. A model then writes a <b>community summary</b> (report) for every community at every level, bottom-up. A global question is answered by <b>map-reduce</b>:</p>
+  <ul>
+    <li><b>Map:</b> each community summary at the chosen level produces a partial answer plus a helpfulness score; zero-score partials are dropped.</li>
+    <li><b>Reduce:</b> the best partials, sorted by score and packed into the window, are combined into the final answer.</li>
+  </ul>
+  <p>On roughly million-token corpora (podcast transcripts, news) with model-generated sensemaking questions, the paper reports that GraphRAG beat a vector-RAG baseline on comprehensiveness and diversity, as judged by a model. The baseline was better on directness. The open-source implementation also has a <b>local</b> mode: match the question to entities, then gather their neighbours, relations, source chunks and community reports. That mode is the multi-hop half of the story.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 260" role="img" aria-label="GraphRAG indexing pipeline, global map-reduce query path and local traversal query path">
+      <defs><marker id="ah-l54" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="10" y="24" class="s-ink2 s-sm">INDEX · once, one model call per chunk and per community</text>
+      <rect x="10" y="34" width="115" height="50" rx="6" class="s-node"/><text x="67" y="56" class="s-ink s-mid">chunks</text><text x="67" y="73" class="s-ink3 s-mid s-sm">text units</text>
+      <rect x="145" y="34" width="115" height="50" rx="6" class="s-node-mod"/><text x="202" y="56" class="s-ink s-mid">extract E + R</text><text x="202" y="73" class="s-ink3 s-mid s-sm">model per chunk</text>
+      <rect x="280" y="34" width="115" height="50" rx="6" class="s-node"/><text x="337" y="56" class="s-ink s-mid">entity graph</text><text x="337" y="73" class="s-ink3 s-mid s-sm">resolved, cited</text>
+      <rect x="415" y="34" width="115" height="50" rx="6" class="s-node"/><text x="472" y="56" class="s-ink s-mid">Leiden</text><text x="472" y="73" class="s-ink3 s-mid s-sm">nested communities</text>
+      <rect x="550" y="34" width="115" height="50" rx="6" class="s-node-mod"/><text x="607" y="56" class="s-ink s-mid">summaries</text><text x="607" y="73" class="s-ink3 s-mid s-sm">model per community</text>
+      <path d="M125,59 L143,59" class="s-ln" marker-end="url(#ah-l54)"/>
+      <path d="M260,59 L278,59" class="s-ln" marker-end="url(#ah-l54)"/>
+      <path d="M395,59 L413,59" class="s-ln" marker-end="url(#ah-l54)"/>
+      <path d="M530,59 L548,59" class="s-ln" marker-end="url(#ah-l54)"/>
+      <text x="10" y="114" class="s-ink2 s-sm">GLOBAL question · map-reduce over summaries</text>
+      <rect x="10" y="124" width="115" height="44" rx="6" class="s-node"/><text x="67" y="150" class="s-ink s-mid">"main themes?"</text>
+      <rect x="415" y="124" width="115" height="44" rx="6" class="s-node-mod"/><text x="472" y="143" class="s-ink s-mid">map</text><text x="472" y="159" class="s-ink3 s-mid s-sm">partial + score</text>
+      <rect x="550" y="124" width="115" height="44" rx="6" class="s-node-mod"/><text x="607" y="143" class="s-ink s-mid">reduce</text><text x="607" y="159" class="s-ink3 s-mid s-sm">final answer</text>
+      <path d="M125,146 L413,146" class="s-ln-acc" marker-end="url(#ah-l54)"/>
+      <path d="M590,84 L500,122" class="s-ln-acc s-dash" marker-end="url(#ah-l54)"/>
+      <path d="M530,146 L548,146" class="s-ln-acc" marker-end="url(#ah-l54)"/>
+      <text x="10" y="198" class="s-ink2 s-sm">LOCAL question · traverse from matched entities</text>
+      <rect x="10" y="208" width="115" height="44" rx="6" class="s-node"/><text x="67" y="234" class="s-ink s-mid">multi-hop</text>
+      <rect x="145" y="208" width="115" height="44" rx="6" class="s-node"/><text x="202" y="234" class="s-ink s-mid">match entities</text>
+      <rect x="280" y="208" width="115" height="44" rx="6" class="s-node-mod"/><text x="337" y="234" class="s-ink s-mid">k-hop paths</text>
+      <rect x="415" y="208" width="115" height="44" rx="6" class="s-node"/><text x="472" y="227" class="s-ink s-mid">facts + chunks</text><text x="472" y="243" class="s-ink3 s-mid s-sm">cited edges</text>
+      <rect x="550" y="208" width="115" height="44" rx="6" class="s-node-mod"/><text x="607" y="234" class="s-ink s-mid">generator</text>
+      <path d="M125,230 L143,230" class="s-ln-info" marker-end="url(#ah-l54)"/>
+      <path d="M260,230 L278,230" class="s-ln-info" marker-end="url(#ah-l54)"/>
+      <path d="M395,230 L413,230" class="s-ln-info" marker-end="url(#ah-l54)"/>
+      <path d="M530,230 L548,230" class="s-ln-info" marker-end="url(#ah-l54)"/>
+      <path d="M337,84 L337,206" class="s-ln-info s-dash" marker-end="url(#ah-l54)"/>
+    </svg>
+    <figcaption><b>One index, two query paths.</b> Global questions never touch individual chunks: they read community summaries in a map step (one call per community at the chosen level) and combine them in a reduce step. Local questions walk the graph from the entities they mention and hand cited facts plus source chunks to the generator.</figcaption>
+  </figure>
+
+  <h3>Local traversal over a Kubernetes resource graph</h3>
+  <p>Below are 18 relations of the kind an extractor emits from the concepts pages, each carrying its source section, so every hop can be cited.</p>
+  <pre><code># docpilot/graph.py
+import networkx as nx
+
+ALIASES = {"pvc": "PersistentVolumeClaim", "persistent volume claim": "PersistentVolumeClaim",
+           "pv": "PersistentVolume", "hpa": "HorizontalPodAutoscaler", "sa": "ServiceAccount"}
+
+def canon(name: str) -&gt; str:            # entity resolution, first pass: alias table
+    return ALIASES.get(name.strip().lower(), name.strip())
+
+TRIPLES = [  # (head, relation, tail, source section)
+    ("Deployment", "manages", "ReplicaSet", "workloads/deployment#overview"),
+    ("ReplicaSet", "manages", "Pod", "workloads/replicaset#how-it-works"),
+    ("StatefulSet", "manages", "Pod", "workloads/statefulset#overview"),
+    ("StatefulSet", "creates", "pvc", "workloads/statefulset#volume-claim-templates"),
+    ("CronJob", "creates", "Job", "workloads/cron-jobs#overview"),
+    ("Job", "manages", "Pod", "workloads/job#overview"),
+    ("HPA", "scales", "Deployment", "autoscaling/hpa#how-it-works"),
+    ("Service", "selects", "Pod", "networking/service#selector"),
+    ("Ingress", "routes to", "Service", "networking/ingress#rules"),
+    ("NetworkPolicy", "selects", "Pod", "networking/network-policies#overview"),
+    ("Pod", "mounts", "ConfigMap", "configuration/configmap#using-configmaps"),
+    ("Pod", "reads", "Secret", "configuration/secret#using"),
+    ("Pod", "claims", "persistent volume claim", "storage/pv#claims-as-volumes"),
+    ("PVC", "binds to", "PV", "storage/pv#binding"),
+    ("StorageClass", "provisions", "PersistentVolume", "storage/storage-classes#provisioner"),
+    ("Pod", "runs as", "SA", "security/service-accounts#use"),
+    ("RoleBinding", "grants Role to", "ServiceAccount", "rbac#rolebinding"),
+    ("Pod", "scheduled on", "Node", "scheduling/kube-scheduler#overview"),
+]</code></pre>
+  <pre><code>def build(triples) -&gt; nx.MultiDiGraph:
+    g = nx.MultiDiGraph()
+    for h, rel, t, src in triples:
+        g.add_edge(canon(h), canon(t), rel=rel, src=src)
+    return g
+
+def fact(g, x, y) -&gt; str:               # one edge as a cited sentence, whichever way it points
+    h, t = (x, y) if g.has_edge(x, y) else (y, x)
+    d = next(iter(g[h][t].values()))
+    return f"{h} {d['rel']} {t} [{d['src']}]"
+
+def explain_paths(g, a, b, cutoff=4):
+    """Multi-hop: simple paths between two entities, ignoring edge direction, shortest first."""
+    paths = nx.all_simple_paths(nx.Graph(g), a, b, cutoff=cutoff)
+    for path in sorted(paths, key=len):
+        yield [fact(g, x, y) for x, y in zip(path, path[1:])]
+
+g = build(TRIPLES)
+for facts in explain_paths(g, "Deployment", "RoleBinding"):
+    print("\n".join(facts))
+communities = nx.community.leiden_communities(nx.Graph(g), seed=7, metric="modularity")</code></pre>
+  <pre><code class="plain">18 entities, 18 relations          # aliases merged: one PersistentVolumeClaim node
+Deployment manages ReplicaSet [workloads/deployment#overview]
+ReplicaSet manages Pod [workloads/replicaset#how-it-works]
+Pod runs as ServiceAccount [security/service-accounts#use]
+RoleBinding grants Role to ServiceAccount [rbac#rolebinding]
+
+communities (networkx 3.7 Leiden, modularity 0.426):
+['ConfigMap', 'NetworkPolicy', 'Node', 'Pod', 'Secret']
+['PersistentVolume', 'PersistentVolumeClaim', 'StatefulSet', 'StorageClass']
+['Deployment', 'HorizontalPodAutoscaler', 'ReplicaSet']
+['CronJob', 'Job']   ['Ingress', 'Service']   ['RoleBinding', 'ServiceAccount']</code></pre>
+  <p>The four facts, with their citations, go into the generator's prompt alongside the vector hits for the same question. The communities are what GraphRAG would summarise: pod configuration, storage, rollout and scaling, batch, networking, RBAC. Without the alias table, "pvc", "PVC" and "persistent volume claim" become three nodes, and the path from StatefulSet to PersistentVolume breaks.</p>
+
+  <h3>The cost, and when it is worth it</h3>
+  <div class="box intuition"><span class="tag">Worked example · indexing bill</span>
+    <p>With 15,000 chunks and one gleaning pass, extraction takes 30,000 calls. At about 1,500 input and 400 output tokens per call, that is roughly 45 M input and 12 M output tokens, before entity summaries and one report per community at every level. Embedding the same corpus costs one cheap batch job. Use the small model and batch pricing (<a href="p10.html#l109">L109</a>), and price it from the current price page. Every documentation release re-runs extraction for changed chunks, and community summaries may need rebuilding when the graph shifts.</p>
+  </div>
+  <p>Graphs earn their cost when questions are relational or global, when the entity types are well defined, and when the corpus changes slowly. Most DocPilot questions are local ("how do I set a restart policy?"), and vector or hybrid retrieval already answers them. A reasonable verdict to test: a small graph of Kubernetes kinds and their relations (hundreds of nodes, cheap to build) used for multi-hop expansion, without corpus-wide community summaries. Agentic retrieval (<a href="#l55">L55</a>) can follow the same chains with several searches, and comparing against it is part of the verdict.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Extraction drift.</b> Without a closed type list, the model invents "relates to", "is used with" and fifty other relations, and the graph becomes a hairball. Fix the schema and reject off-schema edges.</li>
+      <li><b>Bad merges.</b> "Service" (the Kubernetes kind) merged with "service" (a generic word) connects everything to everything. Merge only within a type, and log every merge.</li>
+      <li><b>Uncited edges.</b> An edge without a source chunk cannot be cited or checked, and may be a hallucination. Drop edges whose source does not mention both endpoints.</li>
+      <li><b>Path explosion.</b> Hub nodes like Pod make the number of simple paths grow fast with the cutoff. Cap hops at 3–4, prefer shortest paths, and rank paths by edge relevance to the question.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Write an extraction prompt with a closed list of entity and relation types and run it, with the small model and caching, over the workloads, networking, storage and RBAC concept pages. Store triples with their source chunk ids.</li>
+      <li>Resolve entities with an alias table plus a logged review of candidate merges; build the networkx graph and run Leiden to inspect the communities.</li>
+      <li>Write ten multi-hop questions with reference answers. Answer each with vector retrieval alone and with vector hits plus <code>explain_paths</code> facts, then score both with L51's correctness metric.</li>
+      <li>Record the build cost (calls, tokens), the correctness delta with its interval, and your verdict.</li>
+    </ol>
+    <p><b>Ship:</b> a documented verdict on GraphRAG for DocPilot: which question types it helps, by how much, and what it costs to build and keep fresh.</p>
+  </div>
+  <p class="refs"><b>Read</b> Edge et al. 2024, “From Local to Global: A Graph RAG Approach to Query-Focused Summarization” · Traag, Waltman &amp; van Eck 2019, “From Louvain to Leiden: guaranteeing well-connected communities” · networkx docs, Community detection · Neo4j docs, Cypher manual (concepts)</p>
+</article>
+<!-- ================================================================ L55 -->
+<article class="day" id="l55">
+  <header class="day-head">
+    <span class="day-no">L55 · DAY 40</span>
+    <h2>Agentic RAG: Retrieval as a Tool</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Single-shot RAG retrieves once, before the model has read anything. Agentic RAG turns search into a tool the model calls when it needs evidence, as many times as the question requires. That helps on multi-part and multi-hop questions, at the price of more model calls, more latency, and a loop that needs a budget and a stopping rule.</p>
+
+  <h3>Letting the model decide when and what to retrieve</h3>
+  <p>In L39–L49 the pipeline was fixed: condense the query, retrieve, generate. The first retrieval is a guess based on the user's wording. If it misses, the generator can only refuse or improvise. In <b>iterative retrieval</b>, the model reads what came back, notices what is missing ("the passage covers requests and limits but not init containers"), and searches again with better terms. The vocabulary gap from <a href="p04.html#l43">L43</a> shrinks, because after one search the model has seen the documentation's own vocabulary. Decomposition also happens naturally, one search per sub-question.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 210" role="img" aria-label="Agentic RAG loop: the model calls search up to a budget, reads results, then answers">
+      <defs><marker id="ah-l55" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="80" width="110" height="44" rx="6" class="s-node"/><text x="65" y="106" class="s-ink s-mid">question</text>
+      <rect x="180" y="70" width="130" height="64" rx="8" class="s-node-mod"/><text x="245" y="98" class="s-ttl s-mid">model</text><text x="245" y="117" class="s-ink2 s-mid s-sm">reads, decides</text>
+      <rect x="420" y="15" width="150" height="50" rx="6" class="s-node"/><text x="495" y="37" class="s-ink s-mid">search_docs</text><text x="495" y="54" class="s-ink3 s-mid s-sm">hybrid + rerank (L37)</text>
+      <rect x="420" y="140" width="150" height="50" rx="6" class="s-node-mod"/><text x="495" y="162" class="s-ink s-mid">answer</text><text x="495" y="179" class="s-ink3 s-mid s-sm">with citations</text>
+      <path d="M120,102 L178,102" class="s-ln" marker-end="url(#ah-l55)"/>
+      <path d="M290,70 C320,30 360,28 418,34" class="s-ln-mod" marker-end="url(#ah-l55)"/>
+      <text x="340" y="22" class="s-mod s-mid s-sm">tool_use: query</text>
+      <path d="M420,52 C370,70 340,80 312,90" class="s-ln" marker-end="url(#ah-l55)"/>
+      <text x="380" y="88" class="s-ink2 s-mid s-sm">new passages</text>
+      <path d="M300,134 C340,160 370,165 418,165" class="s-ln-acc" marker-end="url(#ah-l55)"/>
+      <text x="345" y="185" class="s-acc s-mid s-sm">end_turn</text>
+      <text x="245" y="160" class="s-warn s-mid s-sm">searches ≥ 4 →</text>
+      <text x="245" y="174" class="s-warn s-mid s-sm">tool_choice none</text>
+      <text x="495" y="80" class="s-ink3 s-mid s-sm">drops ids already seen</text>
+    </svg>
+    <figcaption><b>A bounded loop.</b> Each round trip is a full model call over a growing transcript. The budget is enforced in code: once four searches are spent, the next call sets <code>tool_choice</code> to none, so the model must answer from what it has. Passages already returned are not sent again.</figcaption>
+  </figure>
+
+  <h3>Search as a tool, with a budget</h3>
+  <p>Phase 6 covers tool use in depth (<a href="p06.html#l61">L61</a>, and the general loop in <a href="p06.html#l62">L62</a>). Here is the minimum needed for retrieval: one tool, one loop, a hard cap on searches, and deduplication of passages already shown.</p>
+  <pre><code># docpilot/agentic.py
+from docpilot.llm import chat
+from docpilot.search import search
+
+SEARCH_TOOL = {
+    "name": "search_docs",
+    "description": ("Search the Kubernetes documentation. Returns up to k passages, each with an id "
+                    "and URL. Use Kubernetes terms. If results are off-topic, search again with "
+                    "different terms. Search once per sub-question of a multi-part question."),
+    "input_schema": {"type": "object", "additionalProperties": False, "required": ["query"],
+                     "properties": {"query": {"type": "string"},
+                                    "k": {"type": "integer", "minimum": 1, "maximum": 8}}},
+}
+SYSTEM = ("Answer questions about Kubernetes using only passages returned by search_docs, "
+          "citing passage ids like [pods#restart]. If the passages do not answer it, say so.")
+
+def agentic_answer(question, *, max_searches=4, llm=chat, search_fn=search):
+    messages, log, seen = [{"role": "user", "content": question}], [], set()
+    while True:
+        out_of_budget = len(log) &gt;= max_searches
+        msg = llm(messages, system=SYSTEM, tools=[SEARCH_TOOL],
+                  tool_choice={"type": "none"} if out_of_budget else {"type": "auto"})
+        if msg.stop_reason != "tool_use":
+            return msg, log
+        messages.append({"role": "assistant", "content": msg.content})
+        results = []
+        for b in (b for b in msg.content if b.type == "tool_use"):
+            if len(log) &gt;= max_searches:          # parallel calls can overshoot the budget
+                results.append({"type": "tool_result", "tool_use_id": b.id, "is_error": True,
+                                "content": "Search budget used up. Answer with what you have."})
+                continue
+            hits = search_fn(b.input["query"], k=b.input.get("k", 5))
+            new = [h for h in hits if h.id not in seen]
+            seen.update(h.id for h in hits)
+            log.append({"query": b.input["query"], "hits": len(hits), "new": len(new)})
+            text = "\n\n".join(f"[{h.id}] ({h.url})\n{h.text}" for h in new) or "No new passages."
+            results.append({"type": "tool_result", "tool_use_id": b.id, "content": text})
+        messages.append({"role": "user", "content": results})</code></pre>
+  <p>Tested offline with scripted <code>anthropic.types.Message</code> objects built by <code>Message.model_validate</code> and a fake search: (1) a two-part question; (2) a model that never stops searching; (3) three parallel calls against a budget of two.</p>
+  <pre><code class="plain">end_turn [{'query': 'container resource requests and limits', 'hits': 2, 'new': 2},
+          {'query': 'init container resources', 'hits': 2, 'new': 1}] ['auto', 'auto', 'auto']
+4 [2, 0, 0, 0] ['auto', 'auto', 'auto', 'auto', 'none'] Best effort answer.
+2 ['auto', 'none']</code></pre>
+  <p>Every <code>tool_use</code> block gets a matching <code>tool_result</code>, including the refused ones; the API rejects a transcript that leaves one unanswered. The caller still has to handle <code>max_tokens</code> and <code>refusal</code> stop reasons, which also leave the loop.</p>
+
+  <h3>Self-RAG and CRAG: grading what was retrieved</h3>
+  <ul>
+    <li><b>Self-RAG</b> (Asai et al., 2023) trains the generator to emit <em>reflection tokens</em>. These decide whether to retrieve at all, judge whether each retrieved passage is relevant, whether the generated segment is supported by it, and how useful the response is. At inference the model retrieves on demand, generates candidate segments for several passages in parallel, and keeps the best one according to its own critique scores. It needs a specially fine-tuned model; with an API model you can only copy the idea with prompts.</li>
+    <li><b>CRAG</b> (Corrective RAG; Yan et al., 2024) adds a lightweight trained <em>retrieval evaluator</em> that scores the retrieved documents and triggers one of three actions. <b>Correct:</b> refine the documents by splitting them into strips and dropping irrelevant ones. <b>Incorrect:</b> discard them and fall back to web search with a rewritten query. <b>Ambiguous:</b> combine both. It is plug-and-play around any generator.</li>
+  </ul>
+  <p>The DocPilot version of both ideas is a cheap grader: the small model labels each hit relevant or not before generation. If nothing is relevant, rewrite the query and search once more. If that also fails, refuse rather than fall back to the web, since L65 adds web tools with their own risks (<a href="p06.html#l65">L65</a>).</p>
+
+  <h3>Deep research, latency, cost and stopping</h3>
+  <p><b>Deep-research loops</b> stretch the same pattern to minutes: plan sub-questions, run many searches (often in parallel workers), take notes, and write a long cited report. They are worth it for open-ended research, not for a support bot answering in seconds. Phase 7 covers planning and long-horizon loops (<a href="p07.html#l77">L77</a>).</p>
+  <div class="box deriv"><span class="tag">Cost of n searches</span>
+    <p>Let \(b\) be the base prompt (system, tools, question) and \(r\) the tokens each search adds. Call \(i\) (for \(i = 0, \dots, n\)) re-reads the whole transcript, so total input tokens are</p>
+    $$\sum_{i=0}^{n} (b + i\,r) = (n+1)\,b + r\,\frac{n(n+1)}{2}.$$
+    <p>With \(b = 1{,}500\) and \(r = 2{,}000\): 1,500 for no search; 10,500 for two searches; 27,500 for four. Single-shot RAG with five passages is about 3,500. Growth is quadratic in \(n\), and prompt caching (<a href="p02.html#l24">L24</a>) bills the repeated prefix at the cache-read rate. Latency is \(n+1\) sequential model calls plus \(n\) searches; parallel tool calls in one turn cut the number of rounds.</p>
+  </div>
+  <div class="box note"><span class="tag">Stopping criteria, cheapest first</span>
+    <ul>
+      <li><b>Hard budget:</b> max searches, max tokens, wall-clock deadline. Always present, enforced in code.</li>
+      <li><b>Diminishing returns:</b> a search that returns no new passage ids (the <code>new</code> count in the log) is evidence the model is circling. Two in a row should end the loop.</li>
+      <li><b>Coverage:</b> for decomposed questions, stop when every sub-question has at least one cited passage.</li>
+      <li><b>The model's own end_turn:</b> necessary but not sufficient. Models both stop early and over-search.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Runaway loops.</b> Without a code-enforced budget, one confused question can make a dozen calls. Log searches per question and alert on the p99.</li>
+      <li><b>Agentic everywhere.</b> Most DocPilot questions are answered by one search. Route only multi-part or failed-first-search questions to the loop (<a href="p02.html#l25">L25</a>), or pay 3–8× on everything.</li>
+      <li><b>Lost permissions.</b> The tool must call <code>search</code> with the asking user's filters (<a href="p04.html#l47">L47</a>). The model must never be able to choose them.</li>
+      <li><b>Untestable behaviour.</b> The number of searches varies run to run. Evaluate on outcomes (correctness, citations) and on the trajectory (searches, tokens), as Phase 8 does (<a href="p08.html#l91">L91</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Implement <code>agentic_answer</code> with the scripted-message tests above: two-part question, runaway model, parallel overshoot.</li>
+      <li>Collect 20 multi-part questions from the golden set (or write them), each with a reference answer.</li>
+      <li>Run single-shot RAG and agentic RAG (max four searches) on all 20. Record correctness (L51), searches, input and output tokens, and wall-clock latency per question.</li>
+      <li>Add the "two searches with no new passages" stop and the relevance grader, and rerun.</li>
+    </ol>
+    <p><b>Ship:</b> a measured trade-off between agentic and single-shot RAG: the correctness gain with its interval against the extra tokens and seconds per question.</p>
+  </div>
+  <p class="refs"><b>Read</b> Asai et al. 2023, “Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection” · Yan et al. 2024, “Corrective Retrieval Augmented Generation” · Anthropic docs, Tool use · Anthropic 2024, “Building effective agents”</p>
+</article>
+<!-- ================================================================ L56 -->
+<article class="day" id="l56">
+  <header class="day-head">
+    <span class="day-no">L56 · DAY 40</span>
+    <h2>Long Context vs RAG: Stuffing, Caching and Hybrids</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">If the whole corpus fits in the context window, you can skip retrieval and send everything, cached, on every request. Whether you should depends on a cost curve that rises with corpus size and falls with cache hit rate, and on whether context rot hurts more than retrieval misses do.</p>
+
+  <h3>When the whole corpus fits</h3>
+  <p>Measure before you argue. <code>client.messages.count_tokens(model=..., system=..., messages=...)</code> returns the exact input size for a model's tokenizer (<a href="p00.html#l4">L4</a>). Context-window sizes differ by model and change between releases, so read them from the model documentation rather than from memory. "Fits" also needs headroom: the system prompt, the conversation, tool definitions and the output all share the window, and quality drops well before the limit (<a href="p01.html#l13">L13</a>). A 50-page slice of the Kubernetes docs, around 35,000 tokens, fits easily. The full documentation set does not, and never will at a sensible cost per request.</p>
+
+  <h3>Cache-augmented generation</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p><b>Cache-augmented generation (CAG)</b>: load the whole knowledge base into the model's context once, keep the processed prefix in a cache, and answer each question by appending it to that cached prefix, with no retrieval step. Chan et al. (2024) describe it with a precomputed KV cache on open models (<a href="p01.html#l8">L8</a>). With an API model, the equivalent is prompt caching (<a href="p02.html#l24">L24</a>): put the corpus in a stable prefix and mark it cacheable.</p>
+  </div>
+  <pre><code>from docpilot.llm import chat
+
+RULES = "Answer only from the documentation in &lt;docs&gt;. Cite page paths. Say so if it is not covered."
+
+def ask_long_context(question: str, corpus_md: str):
+    system = [
+        {"type": "text", "text": RULES},
+        {"type": "text", "text": f"&lt;docs&gt;\n{corpus_md}\n&lt;/docs&gt;",
+         "cache_control": {"type": "ephemeral", "ttl": "1h"}},     # breakpoint after the corpus
+    ]
+    msg = chat([{"role": "user", "content": question}], system=system)
+    u = msg.usage                     # cache_read_input_tokens should be ~corpus size when warm
+    return msg, {"read": u.cache_read_input_tokens, "write": u.cache_creation_input_tokens,
+                 "uncached": u.input_tokens}</code></pre>
+  <p>Everything before the breakpoint must be byte-identical across requests. Do not put a timestamp, the user's name or a per-user filter result in the system prompt ahead of the corpus. Check <code>usage</code> in your logs: a warm cache shows the corpus in <code>cache_read_input_tokens</code>, while a cold one shows it in <code>cache_creation_input_tokens</code>.</p>
+
+  <h3>Cost at scale</h3>
+  <p>Caching does not make the corpus free. Every request still pays for the whole prefix at the cache-read rate, and a request that arrives after the cache expired pays the higher write rate. RAG pays the full rate, but only for \(k\) chunks. The model below works in units of "base input tokens", so you can multiply by any provider's current price. The multipliers are parameters: Anthropic's docs have described cache writes at 1.25× the base input price for the 5-minute TTL (more for 1 hour) and reads at 0.1×. Check the current pricing page.</p>
+  <pre><code># docpilot/costmodel.py — input cost per request in "base input token" units
+from dataclasses import dataclass
+
+@dataclass
+class Rates:                      # multipliers on the base input price; check the current pricing page
+    cache_write: float = 1.25     # 5-minute TTL write (1-hour TTL writes cost more)
+    cache_read: float = 0.10
+
+def rag_cost(question=300, system=1200, k=5, chunk=400):
+    return system + question + k * chunk
+
+def long_context_cost(corpus, question=300, system=1200, cold_fraction=0.02, r=Rates()):
+    """Corpus + system cached; a fraction of requests arrive after the cache expired and rewrite it."""
+    prefix = system + corpus
+    cached = (1 - cold_fraction) * r.cache_read * prefix + cold_fraction * r.cache_write * prefix
+    return cached + question
+
+def hybrid_cost(question=300, system=1200, docs=3, doc_tokens=2500):
+    return system + question + docs * doc_tokens        # retrieve 3 whole pages, no cache
+
+for corpus in [10_000, 35_000, 100_000, 200_000, 400_000]:
+    print(f"corpus {corpus:&gt;7,}  rag {rag_cost():&gt;6,.0f}  hybrid {hybrid_cost():&gt;6,.0f}  "
+          f"long+cache {long_context_cost(corpus):&gt;7,.0f}  long, no cache {1500 + corpus:&gt;7,}")</code></pre>
+  <pre><code class="plain">corpus  10,000  rag  3,500  hybrid  9,000  long+cache   1,678  long, no cache  11,500
+corpus  35,000  rag  3,500  hybrid  9,000  long+cache   4,753  long, no cache  36,500
+corpus 100,000  rag  3,500  hybrid  9,000  long+cache  12,748  long, no cache 101,500
+corpus 200,000  rag  3,500  hybrid  9,000  long+cache  25,048  long, no cache 201,500
+corpus 400,000  rag  3,500  hybrid  9,000  long+cache  49,648  long, no cache 401,500
+35k corpus, cold fraction 0%: 3,920 · 2%: 4,753 · 20%: 12,246 · 100%: 45,550</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 660 260" role="img" aria-label="Input cost per request against corpus size for RAG, hybrid, cached long context and uncached long context">
+      <line x1="70" y1="210" x2="620" y2="210" class="s-ln-ink"/>
+      <line x1="70" y1="150" x2="620" y2="150" class="s-grid"/>
+      <line x1="70" y1="90" x2="620" y2="90" class="s-grid"/>
+      <line x1="70" y1="30" x2="620" y2="30" class="s-grid"/>
+      <text x="62" y="214" class="s-ink3 s-end s-sm">0</text>
+      <text x="62" y="154" class="s-ink3 s-end s-sm">10k</text>
+      <text x="62" y="94" class="s-ink3 s-end s-sm">20k</text>
+      <text x="62" y="34" class="s-ink3 s-end s-sm">30k</text>
+      <text x="70" y="228" class="s-ink3 s-mid s-sm">0</text>
+      <text x="207" y="228" class="s-ink3 s-mid s-sm">50k</text>
+      <text x="345" y="228" class="s-ink3 s-mid s-sm">100k</text>
+      <text x="482" y="228" class="s-ink3 s-mid s-sm">150k</text>
+      <text x="620" y="228" class="s-ink3 s-mid s-sm">200k</text>
+      <text x="345" y="250" class="s-ink2 s-mid s-sm">corpus size (tokens)</text>
+      <text x="70" y="16" class="s-ink2 s-sm">input cost per request (base-token units)</text>
+      <line x1="70" y1="189" x2="620" y2="189" class="s-ln-acc"/>
+      <line x1="70" y1="156" x2="620" y2="156" class="s-ln-info"/>
+      <line x1="70" y1="207" x2="620" y2="60" class="s-ln-mod"/>
+      <line x1="70" y1="201" x2="148" y2="30" class="s-ln-bad s-dash"/>
+      <circle cx="138" cy="189" r="4" class="s-ink"/>
+      <circle cx="261" cy="156" r="4" class="s-ink"/>
+      <text x="142" y="204" class="s-ink s-sm">≈ 25k: cached = RAG</text>
+      <text x="265" y="171" class="s-ink s-sm">≈ 70k: cached = hybrid</text>
+      <line x1="470" y1="177" x2="486" y2="177" class="s-ln-acc"/><text x="490" y="181" class="s-ink s-sm">RAG, k = 5</text>
+      <line x1="470" y1="143" x2="486" y2="143" class="s-ln-info"/><text x="490" y="147" class="s-ink s-sm">hybrid, 3 pages</text>
+      <line x1="296" y1="91" x2="312" y2="91" class="s-ln-mod"/><text x="316" y="95" class="s-ink s-sm">long context, cached</text>
+      <line x1="160" y1="40" x2="176" y2="40" class="s-ln-bad s-dash"/><text x="180" y="44" class="s-ink s-sm">long context, no cache</text>
+    </svg>
+    <figcaption><b>The crossover is a corpus size, not a principle.</b> With these assumptions (2% cold requests, five 400-token chunks), cached long context is cheaper than RAG below about 25k corpus tokens and cheaper than whole-page hybrids below about 70k. Above that, every request pays for pages it does not need. Without caching, long context is uncompetitive almost immediately. Output tokens are similar in all four and are left out.</figcaption>
+  </figure>
+  <p>The cold fraction matters as much as the corpus size. At 20% cold requests (low traffic and a 5-minute TTL), the 35k corpus costs 12,246 units per request, 3.5× RAG. The 1-hour TTL costs more to write but goes cold far less often for bursty, low-volume traffic. Latency follows the same logic: a warm cached prefix skips most of the prefill (<a href="p01.html#l8">L8</a>), and a cold one makes the user wait for the whole corpus to be processed. Measure time to first token for both.</p>
+
+  <h3>Quality: context rot against retrieval misses</h3>
+  <p>The two approaches fail in opposite ways. RAG misses evidence that was never retrieved: L52's "not retrieved" and "ranked too low" classes. Long context has every page in the window but suffers <b>context rot</b>: attention spreads across hundreds of irrelevant pages, facts in the middle are used less reliably, and similar pages (v1.29 vs v1.30 behaviour) get blended (<a href="p01.html#l13">L13</a>). Long context tends to win on questions that need many pages at once (comparisons, "list every place X is configured") and on small corpora where retrieval is the weak link. RAG tends to win on precise lookups in large corpora. Your golden set decides, by category.</p>
+
+  <h3>Hybrids</h3>
+  <ul>
+    <li><b>Retrieve documents, pass whole documents.</b> Retrieve at chunk level, map to pages (the small-to-big idea from <a href="#l53">L53</a> at document grain), and send three to five complete pages. This fixes most "incomplete answer" failures without paying for the whole corpus.</li>
+    <li><b>Cached core plus retrieved tail.</b> Cache the 20–30 pages that answer most questions (from your logs), and retrieve from the rest only when the question falls outside them.</li>
+    <li><b>Long context for the conversation's documents.</b> When a user is working through one runbook, keep that runbook cached for the session and retrieve only for side questions.</li>
+  </ul>
+  <div class="box note"><span class="tag">Decision rules</span>
+    <ol>
+      <li>Corpus larger than about half the usable window, or growing: RAG or hybrid.</li>
+      <li>Different users may see different documents (<a href="p04.html#l47">L47</a>): RAG with filters. A shared cached corpus must contain only what every user may read.</li>
+      <li>Corpus small, stable and queried often enough to keep the cache warm: try cached long context, and compare correctness by category.</li>
+      <li>Questions span many pages at once: a hybrid with whole documents, or long context if the corpus fits.</li>
+      <li>In every case, decide from your measured cost, latency and correctness, not from this list.</li>
+    </ol>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Silent cache misses.</b> A changed byte early in the prefix (a reordered page, a new date line) turns every request into a cache write. Alert when the share of input billed as <code>cache_read_input_tokens</code> drops.</li>
+      <li><b>Stale corpus.</b> A cached corpus is a snapshot. Rebuild it on documentation releases and version it, or long context serves last month's docs with full confidence (<a href="p04.html#l48">L48</a>).</li>
+      <li><b>Citations get vague.</b> With 50 pages in view, models cite less precisely. Keep page paths in the corpus markup and check citations as in L45.</li>
+      <li><b>Window pressure in long conversations.</b> Corpus plus a long chat history can hit the limit mid-conversation. Budget the window explicitly.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Pick a 50-page subset (one docs section) and the golden-set questions it answers. Count its tokens with <code>count_tokens</code>.</li>
+      <li>Run every question three ways: RAG over the subset, cached full context (warm the cache first, then log <code>usage</code>), and the whole-page hybrid.</li>
+      <li>Record correctness (L51), billed input split into uncached, cache write and cache read, and time to first token, per question.</li>
+      <li>Plug your measured traffic and cold fraction into <code>long_context_cost</code>, find your crossover corpus size, and write the decision rule.</li>
+    </ol>
+    <p><b>Ship:</b> a decision rule backed by numbers: correctness, cost and latency for all three setups on the same questions, and the corpus size at which your rule flips.</p>
+  </div>
+  <p class="refs"><b>Read</b> Anthropic docs, Prompt caching · Anthropic docs, Token counting · Chan et al. 2024, “Don't Do RAG: When Cache-Augmented Generation is All You Need for Knowledge Tasks” · Liu et al. 2023, “Lost in the Middle: How Language Models Use Long Contexts”</p>
+</article>
+<!-- ================================================================ L57 -->
+<article class="day" id="l57">
+  <header class="day-head">
+    <span class="day-no">L57 · DAY 41</span>
+    <h2>Structured Data: Text-to-SQL and Table Question Answering</h2>
+    <p class="day-meta"><span class="vid">55m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">"How many P1 tickets are still open?" has no answer in any document; it lives in a database. Have the model write SQL, but run it as an untrusted program: read-only connection, an authorizer that permits only reads of approved columns, a time limit and a row cap. Judge the result by executing it, not by reading the SQL.</p>
+
+  <h3>Text-to-SQL prompting: schema, metrics and examples</h3>
+  <p>The model needs three things it cannot guess. The <b>schema</b>: tables, columns, types, foreign keys, and the literal values of enum-like columns (is it <code>'open'</code> or <code>'OPEN'</code>?). The <b>metric definitions</b>: what "backlog" or "resolution time" means here. And a few <b>examples</b> of question-to-SQL pairs in your house style (<a href="p02.html#l18">L18</a>). Together, the metric definitions form a small <b>semantic layer</b>: the business meaning of numbers is defined once, by people, and the model chooses a metric instead of inventing a formula.</p>
+  <pre><code class="plain">-- schema (generated from the admin connection, then annotated by hand)
+tickets(id INTEGER PK, customer_id INTEGER -&gt; customers.id, category TEXT, priority TEXT,
+        status TEXT, created_at TEXT 'YYYY-MM-DD HH:MM:SS', resolved_at TEXT NULL)
+  category IN ('networking','storage','rbac','scheduling','upgrades')
+  priority IN ('p1','p2','p3')    status IN ('open','pending','resolved')
+customers(id INTEGER PK, name TEXT, plan TEXT IN ('free','team','enterprise'), region TEXT IN ('eu','us','apac'))
+-- metrics: use these exact definitions
+backlog          = tickets with status IN ('open','pending')
+resolution_hours = (julianday(resolved_at) - julianday(created_at)) * 24, only status = 'resolved'</code></pre>
+  <p><b>Schema linking</b> handles large schemas. With 300 tables you cannot paste everything, so retrieve. Embed a description of each table and column, retrieve the top tables for the question (<a href="p03.html#l32">L32</a>), add the tables they join to through foreign keys, and send only those. Measure linking recall the way L50 measures retrieval: did the gold query's tables make it into the prompt?</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 190" role="img" aria-label="Text-to-SQL pipeline with validation, bounded execution and an error-feedback retry loop">
+      <defs><marker id="ah-l57" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="60" width="100" height="50" rx="6" class="s-node"/><text x="60" y="82" class="s-ink s-mid">question</text><text x="60" y="99" class="s-ink3 s-mid s-sm">+ linked schema</text>
+      <rect x="135" y="60" width="100" height="50" rx="6" class="s-node-mod"/><text x="185" y="82" class="s-ink s-mid">model</text><text x="185" y="99" class="s-ink3 s-mid s-sm">writes SELECT</text>
+      <rect x="260" y="60" width="120" height="50" rx="6" class="s-node"/><text x="320" y="82" class="s-ink s-mid">validate</text><text x="320" y="99" class="s-ink3 s-mid s-sm">prefix · authorizer</text>
+      <rect x="405" y="60" width="120" height="50" rx="6" class="s-node"/><text x="465" y="82" class="s-ink s-mid">execute</text><text x="465" y="99" class="s-ink3 s-mid s-sm">ro, 2 s, 200 rows</text>
+      <rect x="550" y="60" width="120" height="50" rx="6" class="s-node-mod"/><text x="610" y="82" class="s-ink s-mid">answer</text><text x="610" y="99" class="s-ink3 s-mid s-sm">rows + the SQL</text>
+      <path d="M110,85 L133,85" class="s-ln" marker-end="url(#ah-l57)"/>
+      <path d="M235,85 L258,85" class="s-ln" marker-end="url(#ah-l57)"/>
+      <path d="M380,85 L403,85" class="s-ln" marker-end="url(#ah-l57)"/>
+      <path d="M525,85 L548,85" class="s-ln-acc" marker-end="url(#ah-l57)"/>
+      <path d="M465,110 C465,160 185,160 185,112" class="s-ln-warn s-dash" marker-end="url(#ah-l57)"/>
+      <text x="325" y="172" class="s-warn s-mid s-sm">error or empty result → message back to the model (max 3 attempts)</text>
+      <text x="320" y="45" class="s-bad s-mid s-sm">denied: writes, PRAGMA, ATTACH, PII columns</text>
+    </svg>
+    <figcaption><b>Treat generated SQL as untrusted code.</b> The checks live in the executor, not in the prompt. Error messages go back to the model so it can repair column names or literals, and the final answer shows the SQL it ran so the user can check it.</figcaption>
+  </figure>
+
+  <h3>Read-only execution and validation</h3>
+  <p>Never let generated SQL run with write access. In production, that means a database role with <code>SELECT</code> on approved views only, a statement timeout and, ideally, a read replica. SQLite has no roles, so the same layers are built from the standard library: open the file read-only through a URI, install an <b>authorizer</b> callback that SQLite consults while compiling every statement, and abort long queries with a progress handler.</p>
+  <pre><code># docpilot/sql_tool.py: run model-written SQL read-only, validated, bounded
+import sqlite3, time
+
+READABLE = {"tickets": None, "customers": {"id", "name", "plan", "region"}}   # None = all columns
+OK = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
+
+def authorizer(action, table, column, dbname, source):
+    if action not in OK:
+        return sqlite3.SQLITE_DENY                  # INSERT, UPDATE, DELETE, PRAGMA, ATTACH, CREATE ...
+    if action == sqlite3.SQLITE_READ and dbname is not None:    # None = a CTE, not a stored table
+        if table not in READABLE:
+            return sqlite3.SQLITE_DENY              # sqlite_master or any table not on the list
+        cols = READABLE[table]
+        if cols is not None and column and column not in cols:
+            return sqlite3.SQLITE_DENY              # a PII column such as customers.email
+    return sqlite3.SQLITE_OK
+
+def run_sql(sql: str, path="tickets.db", max_rows=200, timeout_s=2.0) -&gt; dict:
+    if not sql.lstrip().lower().startswith(("select", "with")):
+        return {"error": "only SELECT queries are allowed"}
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)       # read-only at the file level too
+    con.set_authorizer(authorizer)
+    deadline = time.monotonic() + timeout_s
+    con.set_progress_handler(lambda: time.monotonic() &gt; deadline, 10_000)   # non-zero aborts
+    try:
+        cur = con.execute(sql)                      # execute() refuses multiple statements
+        rows = cur.fetchmany(max_rows + 1)
+        return {"columns": [d[0] for d in cur.description], "rows": rows[:max_rows],
+                "truncated": len(rows) &gt; max_rows}
+    except (sqlite3.Error, sqlite3.Warning) as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    finally:
+        con.close()</code></pre>
+  <p>Against a synthetic 600-ticket database (built with a seeded generator, as in L27's ticket queue: <a href="p02.html#l27">L27</a>), using the bundled SQLite 3.49:</p>
+  <pre><code class="plain">SELECT status, COUNT(*) ... GROUP BY status    rows [('resolved', 419), ('open', 127), ('pending', 54)]
+DELETE FROM tickets                            only SELECT queries are allowed
+SELECT 1; DROP TABLE tickets                   ProgrammingError: You can only execute one statement at a time.
+WITH x AS (SELECT 1) DELETE FROM tickets       DatabaseError: not authorized
+SELECT email FROM customers                    DatabaseError: access to customers.email is prohibited
+SELECT * FROM customers LIMIT 1                DatabaseError: access to customers.email is prohibited
+SELECT * FROM sqlite_master                    DatabaseError: access to sqlite_master.type is prohibited
+SELECT * FROM pragma_table_info('tickets')     DatabaseError: access to pragma_table_info.cid is prohibited
+SELECT COUNT(*) FROM customers                 rows [(40,)]
+WITH RECURSIVE r(n) ... (no termination)       OperationalError: interrupted   (after 2.0 s)
+UPDATE with no authorizer, mode=ro             OperationalError: attempt to write a readonly database</code></pre>
+  <p>The prefix check alone would miss <code>WITH … DELETE</code>; the authorizer catches it. The first draft of this authorizer also denied <code>COUNT(*)</code> on <code>customers</code> and every CTE, because SQLite reports those reads with an empty column name and a <code>None</code> database name. Test your allowlist against legitimate queries as well as hostile ones. A <code>SELECT *</code> fails on a table with a denied column. Either list the permitted columns in the schema prompt, or return <code>SQLITE_IGNORE</code> to read the column as NULL instead.</p>
+
+  <h3>Execute, check, retry; and plain tables</h3>
+  <pre><code>def answer_with_sql(question, schema, model, max_attempts=3):
+    """model(question, schema, feedback) -&gt; SQL string; feedback is the last error, or None."""
+    feedback = None
+    for attempt in range(1, max_attempts + 1):
+        sql = model(question, schema, feedback)
+        out = run_sql(sql)
+        if "error" not in out and out["rows"]:
+            return sql, out, attempt
+        feedback = out.get("error") or "query returned no rows; check filters and literal values"
+    return sql, out, attempt</code></pre>
+  <p>With a scripted model whose first draft filters on a non-existent column <code>state</code>, the second attempt receives <code>OperationalError: no such column: state</code> and returns mean resolution hours by category: <code>[('storage', 32.9), ('scheduling', 31.2), ('rbac', 30.0), …]</code> in 2 attempts. An empty result is fed back too: <code>WHERE status = 'Open'</code> runs fine and returns nothing. For <b>CSV tables</b>, load the file into an in-memory SQLite database with the <code>csv</code> module and reuse the same tool. A table under a few hundred rows can simply go into the prompt as Markdown.</p>
+
+  <h3>Evaluation by execution accuracy</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p><b>Execution accuracy</b> is the fraction of questions where the predicted query's result equals the gold query's result on the same database. Compare as multisets of rows, or as ordered lists when the gold query has <code>ORDER BY</code>, with floats rounded. Comparing SQL strings is useless: <code>COUNT(id)</code> and <code>COUNT(*)</code> with the conditions swapped are the same query.</p>
+  </div>
+  <pre><code>from collections import Counter
+
+def normalise(rows, ordered):
+    rows = [tuple(round(v, 2) if isinstance(v, float) else v for v in r) for r in rows]
+    return rows if ordered else Counter(rows)
+
+def execution_match(pred_sql, gold_sql, **kw) -&gt; bool:
+    gold, pred = run_sql(gold_sql, **kw), run_sql(pred_sql, **kw)
+    if "error" in pred:
+        return False
+    ordered = "order by" in gold_sql.lower()
+    return normalise(pred["rows"], ordered) == normalise(gold["rows"], ordered)</code></pre>
+  <pre><code class="plain">p1 tickets still open      match      # columns and conditions reordered
+tickets per region         match      # join written the other way round, extra ORDER BY
+enterprise backlog         MISMATCH   # used status='open', ignored the backlog definition
+top category in august     match      # strftime('%m')='08' ignores the year: right only because data is 2026
+customers with p1 tickets  MISMATCH   # selected customers.email: denied by the authorizer
+execution accuracy 3/5 = 0.60</code></pre>
+  <p>The August row is a false positive: the query is wrong, but this database cannot tell. That is why Spider-style evaluation moved to running queries against several database variants (Zhong et al., 2020, "test-suite accuracy"). Cheaply, add a few tickets from 2025 to a test copy of the database.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Write access "just for now".</b> One generated <code>UPDATE</code> on a production connection is an incident. Enforce read-only at the connection or role level, not with a prompt.</li>
+      <li><b>Expensive reads.</b> A cross join over two large tables is read-only and still takes the database down. Use timeouts, row caps, a replica, and <code>EXPLAIN</code> cost checks where the database supports them.</li>
+      <li><b>Confidently wrong numbers.</b> A plausible SQL query with the wrong metric definition (the backlog case) gives a clean-looking wrong answer. Show the SQL and the metric used next to every number.</li>
+      <li><b>Prompt injection through data.</b> Ticket text returned in results can contain instructions. Treat row contents as data, not instructions (<a href="p09.html#l97">L97</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Build the SQLite ticket database from your L27 tickets (or the seeded generator), with a <code>customers.email</code> column to protect.</li>
+      <li>Implement <code>run_sql</code> and a pytest suite of hostile queries (writes, multi-statement, PRAGMA, ATTACH, PII, runaway CTE) and legitimate ones (COUNT(*), CTEs, joins).</li>
+      <li>Write the annotated schema and metric definitions, then a <code>write_sql</code> function using <code>chat()</code> with three examples; wire it into <code>answer_with_sql</code>.</li>
+      <li>Write 30 questions with gold SQL, run them, and report execution accuracy with a bootstrap interval, plus a 2025-data variant of the database to catch coincidental matches.</li>
+    </ol>
+    <p><b>Ship:</b> a safe, read-only analytics question tool with its hostile-query test suite passing and a measured execution accuracy on 30 questions.</p>
+  </div>
+  <p class="refs"><b>Read</b> Python docs, sqlite3 (<code>set_authorizer</code>, <code>set_progress_handler</code>, URI filenames) · SQLite docs, Compile-time authorization callbacks · Yu et al. 2018, “Spider” · Li et al. 2023, “Can LLM Already Serve as a Database Interface? A BIg Bench for Large-Scale Database Grounded Text-to-SQLs” (BIRD) · Zhong, Yu &amp; Klein 2020, “Semantic Evaluation for Text-to-SQL with Distilled Test Suites”</p>
+</article>
+<!-- ================================================================ L58 -->
+<article class="day" id="l58">
+  <header class="day-head">
+    <span class="day-no">L58 · DAY 42</span>
+    <h2>Multimodal RAG: Images, Charts and Page-Level Retrieval</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Some answers live in a diagram, a chart or a page layout that text extraction flattens or drops. There are three ways to make them retrievable: caption the figures into the text index, embed images in a shared image–text space, or embed whole page screenshots as many patch vectors and score them by late interaction. In every case, send the retrieved page image to a vision-capable model at answer time.</p>
+
+  <h3>When the meaning is in the figure</h3>
+  <p>The Kubernetes docs explain the control plane, Service routing and the Pod lifecycle with diagrams. Vendor runbooks put the decisive information in screenshots, and incident reports put it in charts. L40's parser keeps the figure's alt text at best (<a href="p04.html#l40">L40</a>). A question like "which component talks to etcd directly?" may be answered only by the arrows in a diagram. Before choosing a method, measure the size of the problem: label which golden-set questions need a figure to answer. If it is 3% of them, captions are enough. If it is 30%, page-level retrieval is worth a look.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 230" role="img" aria-label="Three indexing routes for figures: captions, single image embeddings, page patch embeddings; all feed a vision model">
+      <defs><marker id="ah-l58" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="85" width="110" height="56" rx="6" class="s-node"/><text x="65" y="108" class="s-ink s-mid">doc page</text><text x="65" y="126" class="s-ink3 s-mid s-sm">text + figures</text>
+      <rect x="170" y="20" width="150" height="46" rx="6" class="s-node-mod"/><text x="245" y="40" class="s-ink s-mid">caption figure</text><text x="245" y="56" class="s-ink3 s-mid s-sm">vision model, once</text>
+      <rect x="170" y="90" width="150" height="46" rx="6" class="s-node"/><text x="245" y="110" class="s-ink s-mid">image embedding</text><text x="245" y="126" class="s-ink3 s-mid s-sm">1 vector per image</text>
+      <rect x="170" y="160" width="150" height="46" rx="6" class="s-node-mod"/><text x="245" y="180" class="s-ink s-mid">page screenshot</text><text x="245" y="196" class="s-ink3 s-mid s-sm">~1,000 patch vectors</text>
+      <rect x="370" y="20" width="130" height="46" rx="6" class="s-node"/><text x="435" y="40" class="s-ink s-mid">text index</text><text x="435" y="56" class="s-ink3 s-mid s-sm">BM25 + dense</text>
+      <rect x="370" y="90" width="130" height="46" rx="6" class="s-node"/><text x="435" y="110" class="s-ink s-mid">vector index</text><text x="435" y="126" class="s-ink3 s-mid s-sm">cosine</text>
+      <rect x="370" y="160" width="130" height="46" rx="6" class="s-node"/><text x="435" y="180" class="s-ink s-mid">multi-vector</text><text x="435" y="196" class="s-ink3 s-mid s-sm">MaxSim scoring</text>
+      <rect x="550" y="85" width="120" height="56" rx="6" class="s-node-mod"/><text x="610" y="108" class="s-ink s-mid">vision model</text><text x="610" y="126" class="s-ink3 s-mid s-sm">gets page image</text>
+      <path d="M120,105 L168,45" class="s-ln" marker-end="url(#ah-l58)"/>
+      <path d="M120,113 L168,113" class="s-ln" marker-end="url(#ah-l58)"/>
+      <path d="M120,121 L168,180" class="s-ln" marker-end="url(#ah-l58)"/>
+      <path d="M320,43 L368,43" class="s-ln" marker-end="url(#ah-l58)"/>
+      <path d="M320,113 L368,113" class="s-ln" marker-end="url(#ah-l58)"/>
+      <path d="M320,183 L368,183" class="s-ln" marker-end="url(#ah-l58)"/>
+      <path d="M500,43 L548,100" class="s-ln-acc" marker-end="url(#ah-l58)"/>
+      <path d="M500,113 L548,113" class="s-ln-acc" marker-end="url(#ah-l58)"/>
+      <path d="M500,183 L548,126" class="s-ln-acc" marker-end="url(#ah-l58)"/>
+    </svg>
+    <figcaption><b>Index however you like; answer from pixels.</b> A caption makes a figure findable with the text tools you already have, but the caption may omit the detail the question needs. Whichever route retrieves the page, sending the original image to the generator lets it read what the caption left out.</figcaption>
+  </figure>
+
+  <h3>Captioning images into the text index</h3>
+  <p>For each figure, ask a vision model (<a href="p01.html#l14">L14</a>) for a dense, literal description, giving it the page title, the surrounding paragraph and the alt text as context. Ask for every label, every arrow with its direction, the axes, units and notable values of a chart, and the question types the figure could answer. Index the caption as a chunk with <code>kind="figure"</code>, the heading path and a pointer to the image file (multi-vector style, <a href="#l53">L53</a>). This costs one vision call per figure, once, and needs nothing new in the retrieval stack. The risk is that a caption is a lossy summary written before anyone knew the question.</p>
+
+  <h3>Multimodal embeddings and page-image retrieval</h3>
+  <p><b>Multimodal embedding</b> models in the CLIP family (Radford et al., 2021) map images and text into one vector space, so a text query can retrieve an image directly. They were trained mostly on natural photos with short captions. In general they handle text-dense diagrams and screenshots poorly, and one vector per image dilutes small details.</p>
+  <div class="box def"><span class="tag">Definition · page-image retrieval, the ColPali approach</span>
+    <p>Faysse et al. (2024) embed a <em>screenshot of each page</em> with a vision-language model and keep one vector per image patch, on the order of a thousand low-dimensional vectors per page as described in the paper. No OCR or layout parsing is needed. A query is encoded into one vector per token, and the page score is ColBERT-style late interaction (<a href="p03.html#l35">L35</a>):</p>
+    $$s(q, P) = \sum_{i=1}^{|q|} \max_{j \in P} \langle q_i, p_j \rangle$$
+    <p>The paper reports strong results against text-extraction pipelines on visually rich documents in its benchmark (ViDoRe). Treat that as a reason to test it on your pages, not as a guarantee. Successor models apply the same recipe to other vision-language backbones.</p>
+  </div>
+  <pre><code># docpilot/pages.py: late-interaction scoring over page-patch embeddings
+import base64
+import numpy as np
+
+def maxsim(q: np.ndarray, page: np.ndarray) -&gt; float:
+    """q: (n_query_tokens, d), page: (n_patches, d), rows L2-normalised.
+    Each query token takes its best-matching patch; the page score is the sum."""
+    return float((q @ page.T).max(axis=1).sum())
+
+def rank_pages(q, pages: dict[str, np.ndarray], k=3):
+    return sorted(((maxsim(q, p), pid) for pid, p in pages.items()), reverse=True)[:k]
+
+def page_block(png: bytes) -&gt; dict:          # an image content block for the Messages API
+    return {"type": "image",
+            "source": {"type": "base64", "media_type": "image/png",
+                       "data": base64.standard_b64encode(png).decode()}}</code></pre>
+  <p>Twenty synthetic pages of 1,030 random 128-dimensional patch vectors were used, with an 8-token query. On page p13, 12 patches (a small diagram) were planted to match 5 of the query tokens:</p>
+  <pre><code class="plain">late interaction: [(5.4, 'p13'), (2.39, 'p18'), (2.37, 'p01')]
+mean-pooled rank of p13: 15 of 20</code></pre>
+  <p>Late interaction finds the page because each query token can match its own patch. Averaging the page into one vector drowns 12 relevant patches in 1,018 irrelevant ones, the same dilution that motivated small chunks in L41. Real patch embeddings come from a ColPali-family checkpoint run on a GPU, through its own library (API as documented; check your installed version). The scoring above works on whatever vectors it produces.</p>
+
+  <h3>Sending retrieved pages to a vision model</h3>
+  <p>Put each retrieved page into the user message as an image block, labelled with its page id so the model can cite it, followed by the question: <code>content = [{"type": "text", "text": "Page p13:"}, page_block(png), …, {"type": "text", "text": question}]</code>, then call <code>chat()</code>. The SDK also accepts URL and file sources. Render PDF pages to PNG at a resolution where the smallest label is legible, and crop to the figure when you know where it is, because unnecessary pixels cost tokens and attention.</p>
+
+  <h3>Costs</h3>
+  <div class="box intuition"><span class="tag">Worked example · three routes, priced in units</span>
+    <ul>
+      <li><b>Storage.</b> Page patches at 1,030 × 128 dims × 2 bytes: 5.3 MB for 20 pages, 2.6 GB for 10,000. A caption is one ordinary vector. Compression (pooling similar patches, binarising) is an active area; measure recall after any reduction.</li>
+      <li><b>Query time.</b> Exact MaxSim touches every patch of every candidate page. At scale, use a cheap first stage (text hybrid, or one pooled vector per page) to pick about 50 pages, then MaxSim-rerank them. Some vector databases now support multi-vector late interaction natively.</li>
+      <li><b>Generation.</b> Anthropic's vision docs have estimated image cost at about width × height / 750 tokens, which makes a 1000 × 1294 px page about 1,725 input tokens. Three pages are about 5,200 tokens, against about 450 for three captions. Check the current docs for resizing limits.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Captions that hallucinate.</b> A captioner can invent arrows or misread small labels. Spot-check captions against figures like any other ingestion output, and keep the image so the generator can check.</li>
+      <li><b>Unreadable renders.</b> 72-dpi page renders turn 8-point labels into blur for both the retriever and the generator. Fix the render resolution, then measure.</li>
+      <li><b>Citations to pixels.</b> "See page 13" is weaker than a quoted sentence. Ask the model to name the figure and describe the part it relied on, so a user can verify it.</li>
+      <li><b>Stale screenshots.</b> Page images go stale when the source page changes. Hash the rendered page and re-embed on change (<a href="p04.html#l48">L48</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Choose 20 diagram-heavy pages (architecture, networking, storage concepts), render them to PNG and write 15 questions that need a figure, each with a reference answer.</li>
+      <li>Index A: caption every figure with the small vision model and add the captions to the text index. Index B: page-patch embeddings from a ColPali-family model, scored with <code>maxsim</code>.</li>
+      <li>For each question, record recall@3 at page level for both indexes, then answer with the retrieved page images and score correctness with L51's metric.</li>
+      <li>Add per-question cost (image tokens) and latency, and write the recommendation.</li>
+    </ol>
+    <p><b>Ship:</b> a recommendation for handling figures in DocPilot: captions, page images, or both, with the measured recall, correctness and cost behind it.</p>
+  </div>
+  <p class="refs"><b>Read</b> Faysse et al. 2024, “ColPali: Efficient Document Retrieval with Vision Language Models” · Khattab &amp; Zaharia 2020, “ColBERT” · Radford et al. 2021, “Learning Transferable Visual Models From Natural Language Supervision” (CLIP) · Anthropic docs, Vision</p>
+</article>
+<!-- ================================================================ L59 -->
+<article class="day" id="l59">
+  <header class="day-head">
+    <span class="day-no">L59 · DAY 42</span>
+    <h2>RAG at Scale: Latency Budgets, Caching and Cost</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A RAG request is a chain of stages, and the user waits for the critical path through them. Instrument every stage, look at percentiles rather than averages, and remember that queues at shared components set the tail. Then spend the latency budget where users feel it: on time to the first token.</p>
+
+  <h3>The latency budget across stages</h3>
+  <p>DocPilot's <code>/ask</code> (<a href="p04.html#l49">L49</a>) runs: embed the query → BM25 and vector search → fuse → rerank → generate (time to first token, then decoding) → check citations. A budget assigns each stage a p95 target that serves a product goal, for example first token under 1.5 s and full answer under 5 s.</p>
+  <div class="box def"><span class="tag">Definition · critical path</span>
+    $$T_{\text{first token}} = t_{\text{embed}} + \max(t_{\text{bm25}}, t_{\text{vec}}) + t_{\text{fuse}} + t_{\text{queue}} + t_{\text{rerank}} + t_{\text{ttft}}$$
+    $$T_{\text{total}} = T_{\text{first token}} + t_{\text{decode}} + t_{\text{cite}}$$
+    <p><b>Parallel stages cost their maximum, not their sum.</b> <b>Percentiles do not add:</b> the p95 of \(T\) is below the sum of stage p95s, because stages are rarely all slow at once. Budget on measured end-to-end percentiles, and use stage percentiles to find the culprit.</p>
+  </div>
+
+  <h3>Instrument every stage</h3>
+  <pre><code># docpilot/timing.py: per-stage spans for one request
+import asyncio, time
+from contextlib import contextmanager
+
+class Trace:
+    def __init__(self):
+        self.t0, self.spans = time.perf_counter(), []
+
+    @contextmanager
+    def stage(self, name: str):
+        a = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.spans.append((name, 1000 * (a - self.t0), 1000 * (time.perf_counter() - self.t0)))
+
+async def demo():
+    tr = Trace()
+    with tr.stage("embed"):
+        await asyncio.sleep(0.03)
+    async def timed(name, secs):
+        with tr.stage(name):
+            await asyncio.sleep(secs)
+    await asyncio.gather(timed("bm25", 0.02), timed("vector", 0.05))   # parallel retrieval
+    return tr.spans</code></pre>
+  <p>Run on Windows, this printed <code>[('embed', 0, 46), ('bm25', 46, 75), ('vector', 46, 124)]</code>. The 30 ms sleep took 46 ms because of the OS timer granularity, a reminder to measure real stages with <code>perf_counter</code> and never to trust nominal durations. Store the spans with each request log line. Phase 10 turns them into OpenTelemetry traces (<a href="p10.html#l106">L106</a>).</p>
+
+  <h3>Load-testing with ten users: a simulation first</h3>
+  <p>Before load-testing the real service, simulate it, so you know what the numbers should look like. Ten closed-loop users (each sends its next question when the last answer finishes) share one GPU reranker that serves one batch at a time. Stage times are lognormal around simulated medians, the query-embedding cache hits 30% of the time, and decoding emits 150–350 tokens at 10 ms each:</p>
+  <pre><code># docpilot/loadsim.py: simulated stage timings, closed-loop users, a shared reranker
+import heapq, math, random
+
+MEDIAN_MS = {"embed": 35, "bm25": 20, "vector": 45, "rerank": 120, "ttft": 650}   # simulated, not measured
+SIGMA = {"embed": 0.3, "bm25": 0.3, "vector": 0.4, "rerank": 0.25, "ttft": 0.35}
+
+def draw(rng, stage):                           # lognormal around the median
+    return MEDIAN_MS[stage] * math.exp(SIGMA[stage] * rng.gauss(0, 1))
+
+def simulate(users=10, per_user=20, rerank_slots=1, cache_hit=0.3, ms_per_token=10, seed=0):
+    rng, slots, traces = random.Random(seed), [0.0] * rerank_slots, []
+    events, done = [(0.0, u, "start", None) for u in range(users)], [0] * users
+    while events:
+        t, u, kind, tr = heapq.heappop(events)
+        if kind == "start":
+            tr = {"t0": t, "spans": []}
+            e = 1.0 if rng.random() &lt; cache_hit else draw(rng, "embed")
+            b, v = draw(rng, "bm25"), draw(rng, "vector")          # run in parallel
+            tr["spans"] += [("embed", 0, e), ("bm25", e, e + b), ("vector", e, e + v),
+                            ("fuse", e + max(b, v), e + max(b, v) + 2)]
+            heapq.heappush(events, (t + e + max(b, v) + 2, u, "rerank", tr))
+        else:                                   # FIFO: earliest-free reranker slot
+            free = heapq.heappop(slots)
+            start, rr = max(t, free), draw(rng, "rerank")
+            heapq.heappush(slots, start + rr)
+            off = t - tr["t0"]
+            q0, r1 = off + (start - t), off + (start - t) + rr
+            g1 = r1 + draw(rng, "ttft")
+            g2 = g1 + rng.randint(150, 350) * ms_per_token
+            tr["spans"] += [("queue", off, q0), ("rerank", q0, r1), ("ttft", r1, g1),
+                            ("decode", g1, g2), ("cite", g2, g2 + 15)]
+            tr["ttfb"], tr["total"] = g1, g2 + 15
+            traces.append(tr)
+            done[u] += 1
+            if done[u] &lt; per_user:
+                heapq.heappush(events, (tr["t0"] + tr["total"], u, "start", None))
+    return traces</code></pre>
+  <pre><code class="plain">200 requests             p50     p95  (ms)
+embed                     29      55
+vector                    43      83
+queue                      0     165     # waiting for the shared reranker
+rerank                   120     187
+ttft                     651    1176     # model's time to first token
+decode                  2480    3400
+ttfb (user sees text)    873    1474
+total                   3444    4499     # sum of stage p95s would claim 5085
+rerank slots 1 / 2 / 4:      queue p95 165 / 59 / 0      ttfb p95 1474 / 1422 / 1267
+30 users, 1 slot:            queue p95 915               ttfb p95 2081</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 680 280" role="img" aria-label="Latency waterfall of one simulated request, with the first 300 ms zoomed">
+      <text x="10" y="20" class="s-ink2 s-sm">first 300 ms, zoomed</text>
+      <text x="160" y="47" class="s-ink s-end s-sm">embed</text><rect x="170" y="38" width="49" height="12" class="s-node"/><text x="223" y="47" class="s-ink2 s-sm">32</text>
+      <text x="160" y="65" class="s-ink s-end s-sm">bm25</text><rect x="219" y="56" width="41" height="12" class="s-node"/><text x="264" y="65" class="s-ink2 s-sm">27</text>
+      <text x="160" y="83" class="s-ink s-end s-sm">vector</text><rect x="219" y="74" width="54" height="12" class="s-node"/><text x="277" y="83" class="s-ink2 s-sm">35 (critical path)</text>
+      <text x="160" y="101" class="s-ink s-end s-sm">fuse</text><rect x="273" y="92" width="3" height="12" class="s-node"/><text x="281" y="101" class="s-ink2 s-sm">2</text>
+      <text x="160" y="119" class="s-ink s-end s-sm">queue</text><rect x="276" y="110" width="97" height="12" class="s-warn" fill-opacity="0.75"/><text x="377" y="119" class="s-ink2 s-sm">63 waiting for reranker</text>
+      <text x="160" y="137" class="s-ink s-end s-sm">rerank</text><rect x="373" y="128" width="219" height="12" class="s-node-mod"/><text x="596" y="137" class="s-ink2 s-sm">143</text>
+      <line x1="170" y1="148" x2="630" y2="148" class="s-ln-ink"/>
+      <text x="170" y="160" class="s-ink3 s-mid s-sm">0</text><text x="323" y="160" class="s-ink3 s-mid s-sm">100</text><text x="476" y="160" class="s-ink3 s-mid s-sm">200</text><text x="630" y="160" class="s-ink3 s-mid s-sm">300 ms</text>
+      <text x="10" y="184" class="s-ink2 s-sm">whole request</text>
+      <text x="160" y="203" class="s-ink s-end s-sm">retrieve+rerank</text><rect x="170" y="194" width="37" height="12" class="s-node-mod"/><text x="211" y="203" class="s-ink2 s-sm">275</text>
+      <text x="160" y="221" class="s-ink s-end s-sm">ttft</text><rect x="207" y="212" width="162" height="12" class="s-acc" fill-opacity="0.75"/><text x="270" y="221" class="s-ink s-mid s-sm">1,197</text>
+      <text x="160" y="239" class="s-ink s-end s-sm">decode</text><rect x="369" y="230" width="244" height="12" class="s-info" fill-opacity="0.6"/><text x="491" y="239" class="s-ink s-mid s-sm">1,800 (streamed)</text>
+      <text x="160" y="257" class="s-ink s-end s-sm">cite check</text><rect x="613" y="248" width="3" height="12" class="s-node"/><text x="610" y="257" class="s-ink2 s-end s-sm">15</text>
+      <line x1="369" y1="188" x2="369" y2="262" class="s-ln-warn s-dash"/>
+      <text x="373" y="200" class="s-warn s-sm">first token 1,472 ms</text>
+      <line x1="170" y1="266" x2="630" y2="266" class="s-ln-ink"/>
+      <text x="170" y="278" class="s-ink3 s-mid s-sm">0</text><text x="305" y="278" class="s-ink3 s-mid s-sm">1 s</text><text x="441" y="278" class="s-ink3 s-mid s-sm">2 s</text><text x="576" y="278" class="s-ink3 s-mid s-sm">3 s</text>
+    </svg>
+    <figcaption><b>One simulated request (total 3,287 ms).</b> Retrieval is a rounding error next to generation. The visible levers are the queue (63 ms, here caused purely by contention), time to first token, and streaming, which turns 1.8 s of decoding into visible progress instead of waiting. Without streaming the user sees nothing for 3.3 s; with it, text appears at 1.5 s.</figcaption>
+  </figure>
+  <p>The shape matters more than the numbers. With ten users, a single reranker slot already adds a 165 ms p95 wait. With thirty users the wait is 915 ms, more than the rerank itself. Queueing delay grows without bound as utilisation approaches 1. Your real load test (ten concurrent <code>httpx.AsyncClient</code> users against <code>/ask</code>, logging the spans above) should reproduce this shape. If it doesn't, your mental model of the service is wrong.</p>
+
+  <h3>Parallelism, caching and streaming</h3>
+  <ul>
+    <li><b>Parallel calls.</b> Run BM25 and vector search concurrently, and multi-query variants too (<a href="p04.html#l43">L43</a>). Start the reranker model warm, and batch candidates in one call.</li>
+    <li><b>Query-embedding cache.</b> Key it on the normalised query text plus the embedding model version. FAQ-style traffic repeats a lot, and a hit saves a network round trip.</li>
+    <li><b>Retrieval-result cache.</b> Key it on (normalised query, filters, user permission set, index version), and invalidate it on every index update (<a href="p04.html#l48">L48</a>). Leaving the permission set out of the key leaks documents across users. Answer and semantic caches come in <a href="p10.html#l111">L111</a>.</li>
+    <li><b>Stream the answer.</b> Time to first token is the number users feel. Stream tokens as they come, and run the citation check on the finished answer, marking it if the check fails (<a href="p10.html#l105">L105</a>).</li>
+  </ul>
+
+  <h3>Cost per query, and scaling the index</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Stage</th><th>Billed unit</th><th>Per query (example)</th></tr></thead>
+    <tbody>
+      <tr><td>embed query</td><td>embedding tokens</td><td>~20 tokens; zero on a cache hit</td></tr>
+      <tr><td>BM25 + vector</td><td>your servers: RAM for the index, CPU</td><td>fixed cost, divided by queries per second</td></tr>
+      <tr><td>rerank</td><td>tokens or GPU-seconds</td><td>50 candidates × ~300 tokens = 15,000 tokens</td></tr>
+      <tr><td>generate</td><td>input + output tokens</td><td>~3,500 in, ~250 out</td></tr>
+      <tr><td>citation check</td><td>code, or a small-model call</td><td>0 if programmatic (<a href="p04.html#l45">L45</a>)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Multiply by the current price pages to get money. Generation usually dominates, but a hosted reranker billed per token over 50 long candidates can rival it, so price your own numbers. To scale the index, <b>replicas</b> (full copies) add throughput and availability, while <b>shards</b> (partitions) add capacity. A sharded query waits for the slowest shard: if each shard is slower than its own p99 with probability 0.01, a query fanning out to \(n\) shards hits at least one slow shard with probability \(1 - 0.99^{n}\), about 9.6% at \(n = 10\) (Dean &amp; Barroso, 2013). Shard only when one node cannot hold the index (<a href="p03.html#l31">L31</a>).</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Averages in dashboards.</b> A mean of 1.0 s can hide a p99 of 9 s. Chart p50, p95 and p99 per stage.</li>
+      <li><b>Closed-loop tests that hide overload.</b> Ten users who wait for each answer slow down when the service slows, so the test never overloads it. Also run an open-loop test at a fixed arrival rate.</li>
+      <li><b>Caches that outlive the index.</b> A cached retrieval result from before an update serves deleted or restricted content. Include the index version in every key.</li>
+      <li><b>Unbounded queues.</b> At high load, add a queue limit and a fast "busy, retry" response, or degrade (skip the reranker) rather than letting p95 grow without limit (<a href="p10.html#l107">L107</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Wrap every stage of <code>/ask</code> in <code>Trace.stage</code> and write the spans into the request log.</li>
+      <li>Run the simulation with your measured stage medians and predict p95 time to first token for ten users.</li>
+      <li>Load-test the real service with ten concurrent <code>httpx.AsyncClient</code> users for five minutes. Compute p50 and p95 per stage and end to end, and draw the waterfall of a median request.</li>
+      <li>Add the query-embedding cache and parallel retrieval, rerun, and price each stage per query from its token counts.</li>
+    </ol>
+    <p><b>Ship:</b> p50 and p95 latency and cost per query, broken down by stage, with a waterfall and the change from your first optimisation.</p>
+  </div>
+  <p class="refs"><b>Read</b> Dean &amp; Barroso 2013, “The Tail at Scale” · Huyen, <i>AI Engineering</i>, ch. 9 · Anthropic docs, Streaming messages · Python docs, <code>asyncio</code> and <code>time.perf_counter</code></p>
+</article>
+<!-- ================================================================ L60 -->
+<article class="day project" id="l60">
+  <header class="day-head">
+    <span class="day-no">L60 · DAY 43</span>
+    <h2>Milestone: A RAG Evaluation Harness and a Measured Improvement</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">120m practice</span><span class="tagx">project day</span></p>
+  </header>
+
+  <p class="thesis">Phase 5 ends with one command: <code>docpilot eval</code> runs the retrieval and generation metrics on the golden set, saves the run, compares it with a baseline using paired confidence intervals per category, and fails when an overall metric regresses. Then use it to show that one fix from your L52 plan beats the noise.</p>
+
+  <h3>What the harness does</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 200" role="img" aria-label="Eval harness: golden set and config feed a run; the run is compared with a baseline run to produce a report and an exit code">
+      <defs><marker id="ah-l60" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="30" width="120" height="44" rx="6" class="s-node"/><text x="70" y="50" class="s-ink s-mid">golden set</text><text x="70" y="66" class="s-ink3 s-mid s-sm">versioned, hashed</text>
+      <rect x="10" y="110" width="120" height="44" rx="6" class="s-node"/><text x="70" y="130" class="s-ink s-mid">config</text><text x="70" y="146" class="s-ink3 s-mid s-sm">k, pool, prompts</text>
+      <rect x="170" y="60" width="140" height="64" rx="8" class="s-node-mod"/><text x="240" y="84" class="s-ink s-mid">run_eval</text><text x="240" y="101" class="s-ink3 s-mid s-sm">retrieve · answer</text><text x="240" y="115" class="s-ink3 s-mid s-sm">judge (cached)</text>
+      <rect x="350" y="60" width="120" height="64" rx="6" class="s-node"/><text x="410" y="86" class="s-ink s-mid">run JSON</text><text x="410" y="104" class="s-ink3 s-mid s-sm">per-query rows</text>
+      <rect x="350" y="150" width="120" height="40" rx="6" class="s-node"/><text x="410" y="174" class="s-ink s-mid">baseline JSON</text>
+      <rect x="510" y="60" width="160" height="64" rx="8" class="s-node-mod"/><text x="590" y="84" class="s-ink s-mid">compare</text><text x="590" y="101" class="s-ink3 s-mid s-sm">paired bootstrap</text><text x="590" y="115" class="s-ink3 s-mid s-sm">metric × slice</text>
+      <path d="M130,52 L168,80" class="s-ln" marker-end="url(#ah-l60)"/>
+      <path d="M130,132 L168,104" class="s-ln" marker-end="url(#ah-l60)"/>
+      <path d="M310,92 L348,92" class="s-ln" marker-end="url(#ah-l60)"/>
+      <path d="M470,92 L508,92" class="s-ln" marker-end="url(#ah-l60)"/>
+      <path d="M470,170 C500,170 560,160 575,126" class="s-ln" marker-end="url(#ah-l60)"/>
+      <text x="590" y="28" class="s-acc s-mid s-sm">report.md + exit 0</text>
+      <text x="590" y="44" class="s-bad s-mid s-sm">exit 1 on overall regression</text>
+      <path d="M590,60 L590,50" class="s-ln"/>
+    </svg>
+    <figcaption><b>A run is a file.</b> Every run records its config, a config hash, a hash of the golden set and one row per query, so any two runs can be compared later. The exit code makes the same command a CI gate in Phase 8 (<a href="p08.html#l93">L93</a>).</figcaption>
+  </figure>
+  <div class="box algo"><span class="tag">Algorithm · docpilot eval</span>
+    <ol>
+      <li>Load the golden set and hash it; load the config and hash it.</li>
+      <li>For each query: retrieve, answer, judge (with cached verdicts), and compute the per-query metrics.</li>
+      <li>Write the run file. If there is no baseline, stop with exit 0.</li>
+      <li>Refuse to compare if the golden hashes differ. Otherwise compute the paired bootstrap delta for every metric × slice (overall and each category).</li>
+      <li>Mark a slice "better" or "WORSE" when its interval excludes zero. Overall WORSE means exit 1; a per-category WORSE is a warning to read.</li>
+    </ol>
+  </div>
+
+  <h3>The code</h3>
+  <p>The pieces already exist. The retrieval metrics and bootstrap come from <a href="#l50">L50</a>, faithfulness and correctness from <a href="#l51">L51</a> (with verdicts cached by answer hash, context hash and judge-prompt version), and the fix comes from <a href="#l52">L52</a>'s ranked list. The harness takes <code>retrieve</code> and <code>answer_and_judge</code> as parameters, so the same code runs against the real service or against deterministic fixtures in tests.</p>
+  <pre><code># docpilot/evals/harness.py: one command for retrieval + generation evals, diffed against a baseline
+import argparse, hashlib, json, time
+from pathlib import Path
+from statistics import mean
+from docpilot.evals.retrieval import recall_at_k, reciprocal_rank, ndcg_at_k, bootstrap_ci
+
+METRICS = ["recall@5", "mrr", "ndcg@5", "correct", "faithful"]
+
+def digest(obj) -&gt; str:
+    return hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()[:10]
+
+def run_eval(golden, retrieve, answer_and_judge, config: dict, k=5) -&gt; dict:
+    rows = []
+    for g in golden:
+        ranked = retrieve(g, config)                       # ranked chunk ids
+        gen = answer_and_judge(g, ranked, config)          # {"correct": 0..1, "faithful": 0..1 | None}
+        rows.append({"qid": g["qid"], "cat": g["cat"], "recall@5": recall_at_k(ranked, g["rel"], k),
+                     "mrr": reciprocal_rank(ranked, g["rel"]), "ndcg@5": ndcg_at_k(ranked, g["rel"], k), **gen})
+    return {"run_id": time.strftime("%Y%m%d-%H%M%S"), "config": config, "config_hash": digest(config),
+            "golden_hash": digest(golden), "rows": rows}
+
+def paired_delta(base_rows, new_rows, metric, cat=None):
+    old = {r["qid"]: r[metric] for r in base_rows}
+    diffs = [r[metric] - old[r["qid"]] for r in new_rows
+             if (cat is None or r["cat"] == cat) and r[metric] is not None and old.get(r["qid"]) is not None]
+    return (mean(diffs), *bootstrap_ci(diffs), len(diffs))
+
+def compare(base, new, metrics=METRICS):
+    if base["golden_hash"] != new["golden_hash"]:
+        raise ValueError("golden set changed between runs; re-run the baseline first")
+    cats = sorted({r["cat"] for r in new["rows"]})
+    lines, regressions, warnings = ["| metric | slice | n | delta | 95% CI | verdict |", "|---|---|---|---|---|---|"], [], []
+    for m in metrics:
+        for cat in [None, *cats]:
+            d, lo, hi, n = paired_delta(base["rows"], new["rows"], m, cat)
+            verdict = "better" if lo &gt; 0 else "WORSE" if hi &lt; 0 else "~"
+            if verdict == "WORSE":                   # gate on overall slices; per-category = warning
+                (regressions if cat is None else warnings).append(f"{m}/{cat or 'all'}")
+            lines.append(f"| {m} | {cat or 'all'} | {n} | {d:+.3f} | [{lo:+.3f}, {hi:+.3f}] | {verdict} |")
+    return lines, regressions, warnings</code></pre>
+  <pre><code>def main(argv=None, *, golden, retrieve, answer_and_judge) -&gt; int:
+    p = argparse.ArgumentParser(prog="docpilot eval")
+    p.add_argument("--config", required=True, help="JSON file: retrieval and prompt settings")
+    p.add_argument("--baseline", help="a previous run JSON to diff against")
+    p.add_argument("--out", default="evals/runs")
+    a = p.parse_args(argv)
+    run = run_eval(golden, retrieve, answer_and_judge, json.loads(Path(a.config).read_text()))
+    out = Path(a.out) / f"{run['run_id']}-{run['config_hash']}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(run, indent=1))
+    print(f"wrote {out}")
+    if not a.baseline:
+        return 0
+    lines, regressions, warnings = compare(json.loads(Path(a.baseline).read_text()), run)
+    print("\n".join(lines))
+    print("warnings (per-category):", ", ".join(warnings) or "none")
+    print("REGRESSIONS: " + ", ".join(regressions) if regressions else "no significant regressions")
+    return 1 if regressions else 0</code></pre>
+  <p>Expose it as a console script (<code>[project.scripts] docpilot = "docpilot.cli:app"</code> in <code>pyproject.toml</code>, with <code>eval</code> as a subcommand that loads the golden set and the real <code>search</code> and judges, then calls <code>main</code>).</p>
+
+  <h3>A measured improvement, on fixtures first</h3>
+  <p>L52's top-ranked fix was "rerank the top 50 instead of the top 20". The test fixtures model that failure: a 60-query golden set where the gold chunk's first-stage rank falls in 21–50 for about 30% of queries (55% of troubleshooting queries), a reranker that only sees the pool, and a judge whose verdicts depend on whether the gold chunk reached the top 5. Four runs:</p>
+  <pre><code class="plain">=== fix: rerank_pool 20 -&gt; 50                       delta     95% CI
+| recall@5 | all          | 60 |                  +0.133 | [+0.075, +0.192] | better |
+| recall@5 | troubleshoot | 20 |                  +0.225 | [+0.125, +0.325] | better |
+| ndcg@5   | all          | 60 |                  +0.137 | [+0.078, +0.204] | better |
+| correct  | all          | 60 |                  +0.267 | [+0.150, +0.383] | better |
+| correct  | troubleshoot | 20 |                  +0.450 | [+0.250, +0.650] | better |
+| faithful | all          | 60 |                  +0.075 | [+0.033, +0.117] | better |
+exit 0
+=== A/A: same config, judge re-sampled
+| recall@5 | all          | 60 |                  +0.000 | [+0.000, +0.000] | ~      |
+| correct  | all          | 60 |                  +0.133 | [+0.017, +0.267] | better |   &lt;- noise
+| faithful | all          | 60 |                  -0.050 | [-0.125, +0.025] | ~      |
+exit 0
+=== broken: rerank_pool 5
+REGRESSIONS: recall@5/all, mrr/all, ndcg@5/all, correct/all, faithful/all
+warnings (per-category): recall@5/concept, recall@5/howto, ... correct/howto, faithful/howto
+exit 1</code></pre>
+
+  <h3>The noise floor</h3>
+  <div class="box intuition"><span class="tag">Worked example · reading the A/A run</span>
+    <p>Nothing changed in the A/A run except the judge's randomness, yet correctness is "better" by 0.133 with an interval that excludes zero. This is not a bug in the bootstrap. The report makes 20 comparisons (5 metrics × 4 slices), and at 95% you expect about one false flag by chance alone. Three consequences:</p>
+    <ul>
+      <li>Gate only on a few headline metrics, declared before you run. That is why per-category flags are warnings here.</li>
+      <li>Cache judge verdicts so unchanged answers keep their scores. Judge noise then enters only where answers really changed.</li>
+      <li>Claim an improvement only when it clears the noise floor you measured. Here the fix's +0.267 correctness, with lower bound +0.150, is above the A/A swing of 0.133. Recall, which has no judge in it, is unambiguous.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Moving golden sets.</b> Adding questions between runs breaks pairing silently. The golden hash check refuses the comparison: re-run the baseline on the new set.</li>
+      <li><b>Untracked config.</b> A run without its config, prompt versions (<a href="p02.html#l21">L21</a>) and index version cannot be reproduced. Hash all three into the run record.</li>
+      <li><b>Generation variance.</b> Real answers vary between runs too, so a real A/A includes answer variance as well as judge variance. Run it whenever the model, the judge or sampling settings change.</li>
+      <li><b>Fixtures that drift from reality.</b> Fixtures test the harness, not DocPilot. Keep them small and deterministic, and never report fixture numbers as product results.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 120 min</h4>
+    <ol>
+      <li>Implement <code>harness.py</code> and the <code>docpilot eval</code> command. Write pytest tests on deterministic fixtures covering the four runs above: baseline exits 0, fix improves, A/A shows no overall regression, broken config exits 1.</li>
+      <li>Wire in the real pieces: <code>search</code> with a config-driven pool and k, DocPilot's answer path, and L51's judges with a verdict cache on disk.</li>
+      <li>Run the baseline on the full golden set, then an A/A run, and record the noise floor per headline metric.</li>
+      <li>Implement the top fix from your L52 plan, run <code>docpilot eval --baseline</code>, and read every per-category warning.</li>
+      <li>Write <code>evals/reports/phase5.md</code>: the change, headline deltas with intervals, the noise floor, per-category results with \(n\), and the cost and latency change (<a href="#l59">L59</a>).</li>
+    </ol>
+    <ul class="deliverables">
+      <li><code>docpilot eval --config C [--baseline B]</code> writes a run JSON with config hash, golden hash and per-query rows.</li>
+      <li>Retrieval metrics (recall@5, MRR, nDCG@5) and generation metrics (correctness, faithfulness) per query, overall and per category with \(n\).</li>
+      <li>Paired bootstrap deltas against the baseline; exit code 1 on an overall regression; per-category warnings.</li>
+      <li>An A/A run documented as the noise floor.</li>
+      <li>One fix from L52 with a before/after report.</li>
+      <li>Fixture-based tests of the harness passing in CI.</li>
+    </ul>
+    <p><b>Acceptance test:</b> on fixtures, the four-run script reproduces exit codes 0, 0, 0, 1. On real data, the chosen fix's headline metric has a paired 95% interval whose lower bound is above zero and above the A/A swing, and no overall metric regresses.</p>
+    <p><b>Ship:</b> an eval report showing an improvement larger than the noise.</p>
+  </div>
+  <p class="refs"><b>Read</b> Efron &amp; Tibshirani, <i>An Introduction to the Bootstrap</i> · Hamel Husain's writing on evals · Huyen, <i>AI Engineering</i>, ch. 4 · Python docs, <code>argparse</code></p>
+</article>
+
+<nav class="modnav">
+  <a href="p04.html"><small>Previous · Days 27–35</small>◂ Phase 4 — Retrieval-Augmented Generation</a>
+  <a class="next" href="p06.html"><small>Next · Days 44–49</small>Phase 6 — Tool Use and the Model Context Protocol ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

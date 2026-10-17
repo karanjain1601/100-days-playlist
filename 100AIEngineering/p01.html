@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 1 — How LLMs Work, for Engineers · 100 Days of AI Engineering</title>
+<meta name="description" content="100 Days of AI Engineering, phase 1: How LLMs Work, for Engineers (lessons 7–16).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;family=Fira+Code:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m1" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of AI Engineering</a>
+  <span class="meta">Phase 1 · How LLMs Work, for Engineers · Days 5–11</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 1 · How LLMs Work, for Engineers</h4>
+  <nav>
+    <a href="#l7"><span class="n">L7</span>Transformers in One Sitting: From…</a>
+    <a href="#l8"><span class="n">L8</span>Inference Mechanics: Prefill, Dec…</a>
+    <a href="#l9"><span class="n">L9</span>Sampling: Temperature, Top-p, Top…</a>
+    <a href="#l10"><span class="n">L10</span>How Models Are Trained: Pretraini…</a>
+    <a href="#l11"><span class="n">L11</span>Reasoning Models and Test-Time Co…</a>
+    <a href="#l12"><span class="n">L12</span>Hallucination, Calibration and Kn…</a>
+    <a href="#l13"><span class="n">L13</span>Long Context: What Fits, What Get…</a>
+    <a href="#l14"><span class="n">L14</span>Multimodal Inputs: Images, PDFs a…</a>
+    <a href="#l15"><span class="n">L15</span>Scaling, Capability Trends and Pl…</a>
+    <a href="#l16"><span class="n">L16</span>Milestone: An LLM Behaviour Lab</a>
+  </nav>
+  <h4>All 133 lessons</h4>
+  <div class="spine" data-spine data-module="1" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p00.html">◂ Phase 0</a><a href="p02.html">Phase 2 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 1 · Days 5–11 · Lessons 7–16</p>
+<h1>How LLMs Work, for Engineers</h1>
+<p class="dek">This phase teaches just enough of how language models work inside to make sound engineering decisions: why long prompts are slow, why output tokens cost more, why temperature 0 still varies, what reasoning models spend their tokens on, and where hallucinations come from. It builds on the API workbench and cost logging of Phase 0, and every measurement here becomes a baseline that Phase 2's prompt and context engineering has to beat.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Draw a decoder-only transformer's forward pass and implement causal self-attention in NumPy.</li>
+    <li>Compute KV-cache size for any published model configuration and explain prefill, decode and TTFT from your own latency logs.</li>
+    <li>Implement temperature, top-k, top-p and min-p sampling, and choose sampling or effort and thinking settings per task.</li>
+    <li>Attribute a model behaviour, such as sycophancy, refusals or a knowledge cut-off, to the training stage that most likely caused it.</li>
+    <li>Measure hallucination, abstention and calibration on your own probe set, and a model's length and position sensitivity with needle tests.</li>
+    <li>Estimate the token cost of images and PDFs and measure vision accuracy field by field.</li>
+    <li>Profile any new model with one command that reports pass rates with confidence intervals.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>10</b> lessons</li><li><b>7h 25m</b> video</li><li><b>7h 30m</b> practice</li><li>Days <b>5–11</b></li>
+</ul>
+
+<!-- ================================================================ L7 -->
+<article class="day" id="l7">
+  <header class="day-head">
+    <span class="day-no">L7 · DAY 5</span>
+    <h2>Transformers in One Sitting: From Tokens to Logits</h2>
+    <p class="day-meta"><span class="vid">55m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A decoder-only transformer turns a sequence of token ids into one vector per token, lets each vector read from the ones before it (attention) and transform itself (MLP) a few dozen times, then maps the last vector to a score for every token in the vocabulary. Knowing where that work happens tells you where the compute and the memory go.</p>
+
+  <h3>Tokens in, vectors out: embeddings and position</h3>
+  <p>The tokenizer (<a href="p00.html#l4">L4</a>) produces integer ids. The first layer is a lookup table of shape \(V \times d\): vocabulary size by model width. Row \(i\) is the embedding of token \(i\), a learned vector of a few thousand numbers. A prompt of \(T\) tokens becomes a \(T \times d\) matrix, and that matrix is the <em>residual stream</em> every later layer reads from and writes to.</p>
+  <p>Attention by itself treats its input as a set, so the model needs position information. The original transformer added sinusoidal position vectors to the embeddings; GPT-2 learned them. Most current open models use <b>rotary position embeddings (RoPE)</b>: inside each attention layer, pairs of dimensions in every query and key are rotated by an angle proportional to the token's position. The dot product of a rotated query at position \(m\) and a rotated key at position \(n\) then depends on the offset \(m - n\), which is what attention needs. Context-extension tricks for long-context models mostly work by adjusting these rotation frequencies. Values are not rotated.</p>
+
+  <h3>Self-attention as a soft lookup</h3>
+  <div class="box def"><span class="tag">Definition · Scaled dot-product attention</span>
+    <p>Each token's vector \(x_i\) is projected three ways: a query \(q_i = x_i W_Q\) ("what am I looking for?"), a key \(k_i = x_i W_K\) ("what do I contain?") and a value \(v_i = x_i W_V\) ("what do I hand over if chosen?"). Stacking the rows into \(Q, K, V\):</p>
+    $$\operatorname{Attn}(Q, K, V) = \operatorname{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}} + M\right) V, \qquad M_{ij} = \begin{cases} 0 &amp; j \le i \\ -\infty &amp; j &gt; i \end{cases}$$
+    <p>Row \(i\) of the softmax is a probability distribution over earlier tokens; the output for token \(i\) is the weighted average of their values. A dictionary lookup returns the value of the one matching key. Attention returns a blend of all values, weighted by how well each key matches.</p>
+  </div>
+  <p>The \(\sqrt{d_k}\) keeps the scores at a sensible scale: if query and key components have unit variance, their dot product has variance \(d_k\), and without the division the softmax saturates into a near one-hot choice with tiny gradients. The mask \(M\) is <b>causal masking</b>: in a decoder-only model token \(i\) may only attend to positions \(j \le i\). That is what lets one forward pass train on every next-token prediction in a sequence at once, and it is why generation can reuse past keys and values (<a href="#l8">L8</a>).</p>
+  <pre><code>import numpy as np
+
+def softmax(x, axis=-1):
+    x = x - x.max(axis=axis, keepdims=True)          # stability; -inf stays -inf
+    e = np.exp(x)
+    return e / e.sum(axis=axis, keepdims=True)
+
+def causal_attention(X, Wq, Wk, Wv):
+    """X: (T, d_model). Returns the output (T, d_head) and the weights (T, T)."""
+    Q, K, V = X @ Wq, X @ Wk, X @ Wv                  # three linear projections
+    T, d = Q.shape
+    scores = Q @ K.T / np.sqrt(d)                     # (T, T): query i against key j
+    future = np.triu(np.ones((T, T), dtype=bool), k=1)
+    scores = np.where(future, -np.inf, scores)        # token i may not see j &gt; i
+    A = softmax(scores, axis=-1)                      # each row sums to 1
+    return A @ V, A
+
+rng = np.random.default_rng(0)
+tokens = ["the", "pod", "is", "stuck", "in", "Pending"]
+T, d_model, d_head = len(tokens), 8, 4
+X = rng.normal(size=(T, d_model))                     # stand-in token embeddings
+Wq, Wk, Wv = (rng.normal(size=(d_model, d_head)) / np.sqrt(d_model) for _ in range(3))
+out, A = causal_attention(X, Wq, Wk, Wv)
+np.set_printoptions(precision=2, suppress=True)
+print(A)
+print("row sums:", A.sum(axis=1), "output:", out.shape)</code></pre>
+  <pre><code class="plain">[[1.   0.   0.   0.   0.   0.  ]
+ [0.86 0.14 0.   0.   0.   0.  ]
+ [0.5  0.28 0.22 0.   0.   0.  ]
+ [0.33 0.15 0.31 0.22 0.   0.  ]
+ [0.21 0.17 0.22 0.14 0.26 0.  ]
+ [0.1  0.06 0.08 0.03 0.17 0.55]]
+row sums: [1. 1. 1. 1. 1. 1.] output: (6, 4)</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 255" role="img" aria-label="Heatmap of the 6 by 6 causal attention matrix from the NumPy example">
+      <text x="162" y="32" class="s-ink3 s-sm s-end">query ↓ key →</text>
+      <g class="s-sm">
+        <text x="195" y="32" class="s-ink2 s-mid">the</text><text x="245" y="32" class="s-ink2 s-mid">pod</text><text x="295" y="32" class="s-ink2 s-mid">is</text>
+        <text x="345" y="32" class="s-ink2 s-mid">stuck</text><text x="395" y="32" class="s-ink2 s-mid">in</text><text x="445" y="32" class="s-ink2 s-mid">Pending</text>
+        <text x="162" y="61" class="s-ink2 s-end">the</text><text x="162" y="95" class="s-ink2 s-end">pod</text><text x="162" y="129" class="s-ink2 s-end">is</text>
+        <text x="162" y="163" class="s-ink2 s-end">stuck</text><text x="162" y="197" class="s-ink2 s-end">in</text><text x="162" y="231" class="s-ink2 s-end">Pending</text>
+      </g>
+      <g>
+        <rect x="220" y="40" width="250" height="34" class="s-grid"/><rect x="270" y="74" width="200" height="34" class="s-grid"/>
+        <rect x="320" y="108" width="150" height="34" class="s-grid"/><rect x="370" y="142" width="100" height="34" class="s-grid"/>
+        <rect x="420" y="176" width="50" height="34" class="s-grid"/>
+        <rect x="170" y="40" width="50" height="34" class="s-acc" fill-opacity="0.78"/>
+        <rect x="170" y="74" width="50" height="34" class="s-acc" fill-opacity="0.68"/><rect x="220" y="74" width="50" height="34" class="s-acc" fill-opacity="0.18"/>
+        <rect x="170" y="108" width="50" height="34" class="s-acc" fill-opacity="0.43"/><rect x="220" y="108" width="50" height="34" class="s-acc" fill-opacity="0.28"/><rect x="270" y="108" width="50" height="34" class="s-acc" fill-opacity="0.23"/>
+        <rect x="170" y="142" width="50" height="34" class="s-acc" fill-opacity="0.31"/><rect x="220" y="142" width="50" height="34" class="s-acc" fill-opacity="0.19"/><rect x="270" y="142" width="50" height="34" class="s-acc" fill-opacity="0.30"/><rect x="320" y="142" width="50" height="34" class="s-acc" fill-opacity="0.23"/>
+        <rect x="170" y="176" width="50" height="34" class="s-acc" fill-opacity="0.23"/><rect x="220" y="176" width="50" height="34" class="s-acc" fill-opacity="0.20"/><rect x="270" y="176" width="50" height="34" class="s-acc" fill-opacity="0.23"/><rect x="320" y="176" width="50" height="34" class="s-acc" fill-opacity="0.18"/><rect x="370" y="176" width="50" height="34" class="s-acc" fill-opacity="0.26"/>
+        <rect x="170" y="210" width="50" height="34" class="s-acc" fill-opacity="0.15"/><rect x="220" y="210" width="50" height="34" class="s-acc" fill-opacity="0.12"/><rect x="270" y="210" width="50" height="34" class="s-acc" fill-opacity="0.14"/><rect x="320" y="210" width="50" height="34" class="s-acc" fill-opacity="0.10"/><rect x="370" y="210" width="50" height="34" class="s-acc" fill-opacity="0.20"/><rect x="420" y="210" width="50" height="34" class="s-acc" fill-opacity="0.47"/>
+      </g>
+      <g class="s-sm s-ink s-mid">
+        <text x="195" y="61">1.00</text>
+        <text x="195" y="95">0.86</text><text x="245" y="95">0.14</text>
+        <text x="195" y="129">0.50</text><text x="245" y="129">0.28</text><text x="295" y="129">0.22</text>
+        <text x="195" y="163">0.33</text><text x="245" y="163">0.15</text><text x="295" y="163">0.31</text><text x="345" y="163">0.22</text>
+        <text x="195" y="197">0.21</text><text x="245" y="197">0.17</text><text x="295" y="197">0.22</text><text x="345" y="197">0.14</text><text x="395" y="197">0.26</text>
+        <text x="195" y="231">0.10</text><text x="245" y="231">0.06</text><text x="295" y="231">0.08</text><text x="345" y="231">0.03</text><text x="395" y="231">0.17</text><text x="445" y="231">0.55</text>
+      </g>
+      <g class="s-sm">
+        <text x="492" y="70" class="s-ink2">row i: query i</text>
+        <text x="492" y="90" class="s-ink2">column j: key j</text>
+        <text x="492" y="110" class="s-ink2">blank: masked (j &gt; i)</text>
+        <text x="492" y="130" class="s-ink2">each row sums to 1</text>
+        <text x="492" y="160" class="s-ink3">random weights, so</text>
+        <text x="492" y="176" class="s-ink3">no linguistic meaning</text>
+      </g>
+    </svg>
+    <figcaption><b>The attention matrix from the code above.</b> The first token can only attend to itself, so its row is 1.00. Later rows spread their weight over everything before them. The upper triangle is empty because of the causal mask. In a trained model, particular heads learn recognisable patterns such as "attend to the previous token" or "attend to the matching bracket".</figcaption>
+  </figure>
+
+  <h3>Multi-head attention</h3>
+  <p>One head computes one weighting per token. Real layers run \(h\) heads in parallel, each with its own \(W_Q, W_K, W_V\) of width \(d_k = d/h\), so each head can track a different relation (syntax, coreference, position). The \(h\) outputs are concatenated back to width \(d\) and mixed by an output projection \(W_O\). Splitting \(d\) into heads costs about the same as one wide head. The number of <em>key/value</em> heads can be smaller than the number of query heads. That variant, grouped-query attention, matters for memory and is the subject of <a href="#l8">L8</a>.</p>
+
+  <h3>The block: MLP, residual stream and normalisation</h3>
+  <p>A transformer block is two sub-layers, each of which <em>adds</em> its result back into the residual stream (pre-norm form, used by most current models):</p>
+  $$x \leftarrow x + \operatorname{Attn}(\operatorname{Norm}(x)), \qquad x \leftarrow x + \operatorname{MLP}(\operatorname{Norm}(x)).$$
+  <ul>
+    <li><b>Attention</b> is the only place information moves <em>between</em> positions.</li>
+    <li><b>The MLP</b> acts on each position independently: expand to a hidden width (classically \(4d\); gated variants such as SwiGLU use three matrices and a smaller hidden width), apply a non-linearity, project back. Much of what the model "knows" is thought to be stored here.</li>
+    <li><b>Normalisation</b> (LayerNorm or the cheaper RMSNorm) rescales each vector before a sub-layer reads it, which keeps training stable over many layers.</li>
+    <li><b>The residual stream</b> is the running sum. Every layer reads it and adds a small update, so a 60-layer model is a long chain of edits to the same \(T \times d\) matrix.</li>
+  </ul>
+  <p>After the last block comes a final norm and the <b>output head</b>: a \(d \times V\) matrix (sometimes shared with the embedding table) that turns each position's vector into \(V\) raw scores, the <b>logits</b>. During training every position's logits are scored against the actual next token. During generation only the last position's logits matter; <a href="#l9">L9</a> turns them into a choice.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 235" role="img" aria-label="Forward pass: token ids to embedding to L blocks on the residual stream to norm and unembedding to logits">
+      <defs><marker id="ah-l7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="220" y="30" width="265" height="152" rx="8" class="s-node-mod"/>
+      <text x="352" y="48" class="s-sm s-mod s-mid">block × L, on the residual stream</text>
+      <rect x="10" y="120" width="80" height="50" rx="6" class="s-node"/>
+      <text x="50" y="141" class="s-mid">token ids</text><text x="50" y="158" class="s-sm s-ink2 s-mid">T ints</text>
+      <rect x="105" y="120" width="100" height="50" rx="6" class="s-node"/>
+      <text x="155" y="141" class="s-mid">embedding</text><text x="155" y="158" class="s-sm s-ink2 s-mid">V × d table</text>
+      <rect x="235" y="60" width="105" height="46" rx="6" class="s-node"/>
+      <text x="287" y="80" class="s-mid">attention</text><text x="287" y="97" class="s-sm s-ink2 s-mid">mixes tokens</text>
+      <rect x="365" y="60" width="105" height="46" rx="6" class="s-node"/>
+      <text x="417" y="80" class="s-mid">MLP</text><text x="417" y="97" class="s-sm s-ink2 s-mid">per token</text>
+      <rect x="500" y="120" width="95" height="50" rx="6" class="s-node"/>
+      <text x="547" y="141" class="s-mid">norm +</text><text x="547" y="158" class="s-sm s-ink2 s-mid">unembed d × V</text>
+      <rect x="608" y="120" width="66" height="50" rx="6" class="s-node"/>
+      <text x="641" y="141" class="s-mid">logits</text><text x="641" y="158" class="s-sm s-ink2 s-mid">T × V</text>
+      <line x1="90" y1="145" x2="103" y2="145" class="s-ln" marker-end="url(#ah-l7)"/>
+      <line x1="205" y1="145" x2="498" y2="145" class="s-ln-mod" marker-end="url(#ah-l7)"/>
+      <line x1="595" y1="145" x2="606" y2="145" class="s-ln" marker-end="url(#ah-l7)"/>
+      <path d="M250,145 L250,108" class="s-ln" marker-end="url(#ah-l7)"/>
+      <path d="M325,106 L325,138" class="s-ln" marker-end="url(#ah-l7)"/>
+      <circle cx="325" cy="145" r="6" class="s-node"/><text x="325" y="149" class="s-sm s-mid">+</text>
+      <path d="M380,145 L380,108" class="s-ln" marker-end="url(#ah-l7)"/>
+      <path d="M455,106 L455,138" class="s-ln" marker-end="url(#ah-l7)"/>
+      <circle cx="455" cy="145" r="6" class="s-node"/><text x="455" y="149" class="s-sm s-mid">+</text>
+      <text x="352" y="172" class="s-sm s-ink2 s-mid">residual stream: T × d</text>
+      <text x="10" y="208" class="s-sm s-ink2">Memory: weights (2 bytes per parameter in bf16) + KV cache (grows with tokens, L8) + activations</text>
+      <text x="10" y="226" class="s-sm s-ink2">Compute: about 2 FLOPs per parameter per token, plus attention work that grows with context</text>
+    </svg>
+    <figcaption><b>The forward pass.</b> Each block reads the residual stream, computes an update with attention (across tokens) or the MLP (within a token), and adds it back. Repeat \(L\) times, then score the vocabulary.</figcaption>
+  </figure>
+
+  <h3>Parameters vs activations: what "a 70B model" means</h3>
+  <p><b>Parameters</b> are the learned weights: fixed after training, and every one of them is used for every token. <b>Activations</b> are the intermediate values for a particular input; they scale with batch size times sequence length. In a classic GPT-style block, attention has four \(d \times d\) matrices (\(4d^2\)) and the MLP two \(d \times 4d\) matrices (\(8d^2\)), so a model has roughly \(12 L d^2\) parameters plus the embeddings.</p>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p><b>Check the formula.</b> GPT-3's published configuration is \(L = 96\), \(d = 12288\): \(12 \times 96 \times 12288^2 \approx 174\) billion, against the reported 175B.</p>
+    <p><b>Weights for a 70B dense model:</b> \(70 \times 10^9\) parameters × 2 bytes (bf16) = 140 GB; 70 GB at 8 bits; 35 GB at 4 bits (<a href="p11.html#l117">L117</a>). That is before the KV cache and runtime overhead, so in bf16 it does not fit on a single 80 GB GPU.</p>
+    <p><b>Compute:</b> a forward pass costs about \(2N\) FLOPs per token, roughly 140 GFLOPs per generated token for 70B, plus the attention term that grows with context length.</p>
+  </div>
+  <p>Mixture-of-experts models complicate the label. They route each token through a few of many MLP "experts", so they quote <em>total</em> parameters (which set memory) and <em>active</em> parameters (which set compute per token). Always check which number a model card means.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Sizing hardware from the parameter count alone.</b> Weights are only the floor. KV cache for long prompts and many concurrent users can rival the weights (<a href="#l8">L8</a>).</li>
+      <li><b>Assuming the model sees words or characters.</b> It sees token vectors. Spelling, counting letters and exact string manipulation are hard for that reason, not because the model is careless.</li>
+      <li><b>Treating attention weights as an explanation.</b> A high weight says a head read from that position, not that the token caused the answer. There are dozens of heads per layer, and the MLPs do much of the work.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Run the attention code. Change the seed and confirm two invariants: row 0 is always \([1, 0, \dots]\), and every row sums to 1.</li>
+      <li>Delete the mask and rerun. Say in one sentence why a model trained without it would learn nothing useful about predicting the next token.</li>
+      <li>Set <code>d_head = 256</code> and remove the \(\sqrt{d}\) scaling. Print the largest weight in each row and watch the softmax saturate.</li>
+      <li>Plot <code>A</code> as a heatmap (matplotlib <code>imshow</code>, or text shading) with the tokens on both axes.</li>
+      <li>Pick an open model's published config. Compare \(12Ld^2\) with its stated parameter count and explain any gap (gated MLP, vocabulary size, grouped-query attention).</li>
+    </ol>
+    <p><b>Ship:</b> you can draw the forward pass from memory and point to where the compute and the memory go.</p>
+  </div>
+  <p class="refs"><b>Read</b> Vaswani et al. 2017, “Attention Is All You Need” · Su et al. 2021, “RoFormer: Enhanced Transformer with Rotary Position Embedding” · Elhage et al. 2021, “A Mathematical Framework for Transformer Circuits” · Brown et al. 2020, “Language Models are Few-Shot Learners” (configuration table) · Andrej Karpathy, “Let's build GPT: from scratch, in code, spelled out” (video)</p>
+</article>
+<!-- ================================================================ L8 -->
+<article class="day" id="l8">
+  <header class="day-head">
+    <span class="day-no">L8 · DAY 6</span>
+    <h2>Inference Mechanics: Prefill, Decode and the KV Cache</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A model reads your whole prompt in one parallel pass (prefill), then writes its answer one token per forward pass (decode). Prefill is limited by arithmetic, decode by how fast the GPU can stream the weights and the KV cache out of memory. That one asymmetry explains time to first token, output pricing and most latency advice.</p>
+
+  <h3>Autoregressive generation, one token at a time</h3>
+  <p>The forward pass of <a href="#l7">L7</a> yields logits for the next token only. To write 300 tokens, the server runs 300 forward passes, each time appending the chosen token to the input. Causal masking makes this cheap: the keys and values that earlier tokens produced in each layer never change, because a token can't see anything after it. The server stores them and each new step computes \(q, k, v\) for just the newest token, attends over the stored keys and values, and appends its own. That store is the <b>KV cache</b>.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 232" role="img" aria-label="Latency timeline: queue, one wide prefill bar, then many narrow decode steps; TTFT and total latency brackets">
+      <text x="135" y="60" class="s-sm s-mod s-mid">prompt in parallel</text>
+      <text x="420" y="60" class="s-sm s-ink2 s-mid">one token per step; each step reads all weights + KV cache</text>
+      <rect x="20" y="70" width="36" height="44" rx="4" class="s-grid s-dash"/>
+      <text x="38" y="96" class="s-sm s-ink3 s-mid">queue</text>
+      <rect x="60" y="70" width="150" height="44" rx="4" class="s-node-mod"/>
+      <text x="135" y="90" class="s-mid">prefill</text>
+      <text x="135" y="106" class="s-sm s-ink2 s-mid">T prompt tokens</text>
+      <g>
+        <rect x="214" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="240" y="78" width="22" height="28" rx="2" class="s-node"/>
+        <rect x="266" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="292" y="78" width="22" height="28" rx="2" class="s-node"/>
+        <rect x="318" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="344" y="78" width="22" height="28" rx="2" class="s-node"/>
+        <rect x="370" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="396" y="78" width="22" height="28" rx="2" class="s-node"/>
+        <rect x="422" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="448" y="78" width="22" height="28" rx="2" class="s-node"/>
+        <rect x="474" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="500" y="78" width="22" height="28" rx="2" class="s-node"/>
+        <rect x="526" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="552" y="78" width="22" height="28" rx="2" class="s-node"/>
+        <rect x="578" y="78" width="22" height="28" rx="2" class="s-node"/><rect x="604" y="78" width="22" height="28" rx="2" class="s-node"/>
+      </g>
+      <text x="135" y="134" class="s-sm s-mod s-mid">compute-bound</text>
+      <text x="420" y="134" class="s-sm s-ink2 s-mid">memory-bandwidth-bound</text>
+      <circle cx="210" cy="70" r="4" class="s-acc"/>
+      <text x="214" y="30" class="s-sm s-acc">first token appears here</text>
+      <line x1="210" y1="34" x2="210" y2="64" class="s-ln-acc"/>
+      <line x1="20" y1="160" x2="210" y2="160" class="s-ln-ink"/>
+      <line x1="20" y1="154" x2="20" y2="166" class="s-ln-ink"/><line x1="210" y1="154" x2="210" y2="166" class="s-ln-ink"/>
+      <text x="115" y="180" class="s-sm s-mid">TTFT = queue + prefill</text>
+      <line x1="20" y1="200" x2="626" y2="200" class="s-ln-ink"/>
+      <line x1="20" y1="194" x2="20" y2="206" class="s-ln-ink"/><line x1="626" y1="194" x2="626" y2="206" class="s-ln-ink"/>
+      <text x="323" y="222" class="s-sm s-mid">total ≈ TTFT + output tokens × time per output token</text>
+    </svg>
+    <figcaption><b>Where the time goes in one request.</b> The prefill pass produces the first token's logits, so time to first token (TTFT) grows with prompt length. Every later token costs one full decode step, so total latency grows with output length. Streaming (<a href="p10.html#l105">L105</a>) hides the decode phase from the user's eyes but not from the bill.</figcaption>
+  </figure>
+
+  <h3>Prefill vs decode: compute-bound vs bandwidth-bound</h3>
+  <div class="box deriv"><span class="tag">Derivation · Arithmetic intensity</span>
+    <p>A forward pass of an \(N\)-parameter model costs about \(2N\) FLOPs per token, and in bf16 the weights occupy \(2N\) bytes that must be read from GPU memory at least once per pass.</p>
+    <ul>
+      <li><b>Prefill</b> of \(T\) tokens: \(2NT\) FLOPs for one read of the weights, an intensity of about \(T\) FLOPs per byte.</li>
+      <li><b>Decode</b>, one sequence: \(2N\) FLOPs per read of the weights (plus the whole KV cache), about 1 FLOP per byte.</li>
+    </ul>
+    <p>An accelerator with roughly 1,000 TFLOP/s of bf16 compute and 3 TB/s of memory bandwidth (H100-class, order of magnitude) breaks even at about 300 FLOPs per byte. A prompt of a few thousand tokens is far above that: prefill keeps the arithmetic units busy. Decode is far below it: the arithmetic units mostly wait for memory.</p>
+  </div>
+  <p>The only ways to make decode efficient are to do more useful work per byte read: <b>batch</b> many users' sequences into each step so one read of the weights serves all of them, shrink the bytes (quantisation, <a href="p11.html#l117">L117</a>), or guess several tokens per step and verify them at once (speculative decoding, <a href="p10.html#l110">L110</a>).</p>
+  <pre><code>def decode_ceiling(weight_bytes, kv_per_seq, batch, bandwidth=3.0e12):
+    """Upper bound on tokens/s if every decode step must read all weights
+    once plus each sequence's KV cache from memory (ignores compute)."""
+    step_s = (weight_bytes + batch * kv_per_seq) / bandwidth
+    return step_s * 1e3, batch / step_s
+
+weights = 8.0e9 * 2                    # an 8B model in bf16
+kv_4k = 2 * 32 * 8 * 128 * 4096 * 2    # one 4k-token sequence, GQA (see below)
+for b in (1, 8, 32, 128):
+    ms, tps = decode_ceiling(weights, kv_4k, b)
+    print(f"batch {b:3}: step {ms:5.1f} ms, {tps:6.0f} tokens/s total, {tps / b:4.0f} per user")</code></pre>
+  <pre><code class="plain">batch   1: step   5.5 ms,    181 tokens/s total,  181 per user
+batch   8: step   6.8 ms,   1183 tokens/s total,  148 per user
+batch  32: step  11.1 ms,   2893 tokens/s total,   90 per user
+batch 128: step  28.2 ms,   4533 tokens/s total,   35 per user</code></pre>
+  <p>Batching multiplies throughput, but each user's stream slows down, and at large batch the KV caches, not the weights, dominate the bytes read. This is an idealised ceiling; real servers reach a fraction of it.</p>
+
+  <h3>The KV cache and its size</h3>
+  <div class="box def"><span class="tag">Definition · KV-cache size</span>
+    $$\text{KV bytes} = 2 \times L \times n_{\text{kv}} \times d_{\text{head}} \times T \times b \times B$$
+    <p>The 2 is one key and one value; \(L\) layers; \(n_{\text{kv}}\) key/value heads per layer; \(d_{\text{head}}\) dimensions per head; \(T\) tokens in context (prompt plus output so far); \(b\) bytes per value (2 for bf16/fp16, 1 for an 8-bit cache); \(B\) sequences in the batch.</p>
+  </div>
+  <p><b>Grouped-query attention (GQA)</b> lets several query heads share one key/value head. With 32 query heads and 8 KV heads, each group of 4 query heads reads the same keys and values, and the cache is 4× smaller than full multi-head attention (MHA) of the same shape. Multi-query attention is the extreme case, a single KV head. Ainslie et al. (2023) report quality close to MHA at a fraction of the cache, which is why most recent open models use GQA.</p>
+  <pre><code>from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Config:
+    name: str
+    layers: int
+    kv_heads: int
+    head_dim: int
+
+def kv_bytes(c: Config, tokens: int, bytes_per_value: int = 2, batch: int = 1) -> int:
+    """K and V, for every layer, KV head and position."""
+    return 2 * c.layers * c.kv_heads * c.head_dim * tokens * bytes_per_value * batch
+
+CONFIGS = [  # published configurations (model cards / config.json)
+    Config("Llama-2-7B   MHA 32 KV heads", layers=32, kv_heads=32, head_dim=128),
+    Config("Llama-3.1-8B GQA  8 KV heads", layers=32, kv_heads=8, head_dim=128),
+    Config("Llama-3.1-70B GQA 8 KV heads", layers=80, kv_heads=8, head_dim=128),
+]
+GiB = 2**30
+for c in CONFIGS:
+    print(f"{c.name}  {kv_bytes(c, 1) / 1024:4.0f} KiB/token"
+          f"  8k: {kv_bytes(c, 8192) / GiB:5.1f} GiB  128k: {kv_bytes(c, 131072) / GiB:5.1f} GiB")</code></pre>
+  <pre><code class="plain">Llama-2-7B   MHA 32 KV heads   512 KiB/token  8k:   4.0 GiB  128k:  64.0 GiB
+Llama-3.1-8B GQA  8 KV heads   128 KiB/token  8k:   1.0 GiB  128k:  16.0 GiB
+Llama-3.1-70B GQA 8 KV heads   320 KiB/token  8k:   2.5 GiB  128k:  40.0 GiB</code></pre>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>Llama-2-7B and Llama-3.1-8B have the same depth and head size; the 4× gap is GQA alone. (Llama 2's native context is 4k, so its 128k row is what MHA <em>would</em> cost.) One 128k-token conversation on Llama-3.1-8B needs 16 GiB of cache, about as much as the model's own bf16 weights. Ten such users on a 70B model need 400 GiB of cache. Long context is a memory problem before it is a compute problem.</p>
+  </div>
+
+  <h3>Long prompts, long outputs and server-side batching</h3>
+  <ul>
+    <li><b>Long prompts raise TTFT.</b> Prefill work grows linearly with \(T\) for the weight matmuls, plus an attention term that grows with \(T^2\) and starts to matter at long context. A rough estimate for an 8B model at 50% utilisation of 1,000 TFLOP/s: \(2 \times 8\!\times\!10^9 \times 8192 / 5\!\times\!10^{14} \approx 0.26\) s for an 8k prompt, before queueing.</li>
+    <li><b>Long outputs raise total latency.</b> At the batch-1 ceiling above, 8,192 output tokens take \(8192 \times 5.5\) ms \(\approx 45\) s. Each step also reads a slightly bigger KV cache, so time per output token creeps up as the response grows.</li>
+    <li><b>Batching is the server's business.</b> Inference servers use <em>continuous batching</em>: the scheduler adds new requests to the running batch at each decode step and removes finished ones, instead of waiting for a whole batch to finish (Yu et al. 2022). vLLM's PagedAttention stores the cache in fixed-size blocks so it can pack more sequences into memory (Kwon et al. 2023; <a href="p11.html#l118">L118</a>). For you, this means latency depends on other people's traffic, so measure percentiles, not single calls.</li>
+  </ul>
+
+  <h3>Why output tokens cost more</h3>
+  <p>Compare the two phases on the same hardware. In the rough numbers above, prefill handles about 31,000 tokens per second; decode at batch 1 handles 181. Even at batch 32, a decoded token takes about 0.35 ms of GPU time against roughly 0.03 ms for a prefilled one. Decode also holds KV-cache memory for the whole response, which caps how many users fit on a GPU. A plausible reading of API price sheets, which typically charge several times more per output token than per input token, is that they reflect this gap. Providers do not publish their cost models, and prices also carry business choices, so treat this as the engineering intuition rather than an accounting fact. Check the current price page for the actual ratio.</p>
+  <div class="box note"><span class="tag">What this means for prompt design</span>
+    <ul>
+      <li>Put stable content (instructions, tool definitions, documents reused across calls) first and the variable part last. A server that keeps the KV cache for a shared prefix can skip that prefill entirely; that is prompt caching (<a href="p02.html#l24">L24</a>).</li>
+      <li>Every prompt token adds TTFT and occupies cache memory for the whole response. Trim what doesn't help.</li>
+      <li>Output length is the main latency dial. Ask for the format you need, cap <code>max_tokens</code>, and remember that thinking tokens are output tokens (<a href="#l11">L11</a>).</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Capacity planning from weights only.</b> A self-hosted model that fits comfortably at 4k context runs out of memory at 32k with the same concurrency. Size with the KV formula at your p95 context length and target batch.</li>
+      <li><b>Benchmarking latency with one call.</b> Shared servers batch you with strangers. TTFT and time per output token vary with load and time of day.</li>
+      <li><b>"Make it shorter" by trimming the prompt.</b> If the response is long, the decode phase dominates. Cut output first.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Run the KV calculator. Add an open model you might self-host (read its <code>config.json</code>: <code>num_hidden_layers</code>, <code>num_key_value_heads</code>, <code>head_dim</code> or hidden size divided by heads) and compute 8k and 128k at batch 1 and batch 16.</li>
+      <li>Add TTFT to your call log: wrap <code>client.messages.stream(...)</code>, record <code>time.perf_counter()</code> when the first item arrives from <code>.text_stream</code>, then log it with <code>usage.input_tokens</code> from <code>get_final_message()</code>.</li>
+      <li>Send 15 requests with padded prompts of 500 to 50,000 tokens and a fixed short answer. Plot TTFT against input tokens and fit a line with <code>numpy.polyfit</code>. Report the slope in ms per 1,000 tokens.</li>
+      <li>Hold the prompt fixed and vary the requested output length (50, 200, 800 tokens). Fit total latency against output tokens and compare the two slopes.</li>
+    </ol>
+    <p><b>Ship:</b> you can explain, with your own measurements, why output tokens are priced higher than input tokens.</p>
+  </div>
+  <p class="refs"><b>Read</b> Pope et al. 2022, “Efficiently Scaling Transformer Inference” · Ainslie et al. 2023, “GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints” · Shazeer 2019, “Fast Transformer Decoding: One Write-Head is All You Need” · Kwon et al. 2023, “Efficient Memory Management for Large Language Model Serving with PagedAttention” · Yu et al. 2022, “Orca: A Distributed Serving System for Transformer-Based Generative Models” · Anthropic docs, Streaming Messages</p>
+</article>
+<!-- ================================================================ L9 -->
+<article class="day" id="l9">
+  <header class="day-head">
+    <span class="day-no">L9 · DAY 6</span>
+    <h2>Sampling: Temperature, Top-p, Top-k and Logprobs</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">The model outputs a score for every token in the vocabulary; a sampler turns those scores into one choice. Temperature reshapes the distribution, top-k, top-p and min-p cut off its tail, and logprobs let you read it. Pick the settings per task, and know which APIs let you set them at all.</p>
+
+  <h3>From logits to a distribution</h3>
+  <div class="box def"><span class="tag">Definition · Softmax with temperature</span>
+    $$p_i = \frac{\exp(z_i / \tau)}{\sum_j \exp(z_j / \tau)}, \qquad \tau &gt; 0.$$
+    <p>\(z\) is the logit vector from the output head (<a href="#l7">L7</a>). \(\tau = 1\) is the model's own distribution. \(\tau &lt; 1\) sharpens it towards the top token; \(\tau &gt; 1\) flattens it. As \(\tau \to 0\) all the mass goes to \(\arg\max_i z_i\): <b>greedy decoding</b>, which servers implement directly when you pass temperature 0.</p>
+  </div>
+  <p>Temperature never changes the ranking of tokens, only how much probability the lower-ranked ones get. The trouble with high temperature is the long tail: a vocabulary has on the order of 100,000 tokens, and thousands of individually unlikely ones add up to a real chance of picking nonsense. The truncation rules below remove that tail before sampling.</p>
+  <div class="box algo"><span class="tag">Algorithm · Truncated sampling</span>
+    <ol>
+      <li><b>Top-k:</b> keep the \(k\) most probable tokens (Fan et al. 2018).</li>
+      <li><b>Top-p (nucleus):</b> keep the smallest set of top tokens whose probabilities sum to at least \(p\) (Holtzman et al. 2020). The set is small when the model is confident and large when it isn't.</li>
+      <li><b>Min-p:</b> keep tokens with \(p_i \ge m \cdot \max_j p_j\) (Nguyen et al. 2024). The cut-off scales with the top token's probability, which holds up better at high temperature.</li>
+      <li>Renormalise what is left and draw one token. Servers usually apply temperature first, then the filters.</li>
+    </ol>
+  </div>
+  <pre><code>import numpy as np
+
+def softmax_t(logits, temperature):
+    if temperature == 0:                              # greedy: all mass on the argmax
+        p = np.zeros_like(logits)
+        p[np.argmax(logits)] = 1.0
+        return p
+    z = logits / temperature
+    e = np.exp(z - z.max())
+    return e / e.sum()
+
+def top_k(p, k):
+    keep = np.argsort(p)[::-1][:k]
+    out = np.zeros_like(p); out[keep] = p[keep]
+    return out / out.sum()
+
+def top_p(p, mass):
+    order = np.argsort(p)[::-1]
+    n = int(np.searchsorted(np.cumsum(p[order]), mass)) + 1   # smallest set with &gt;= mass
+    out = np.zeros_like(p); out[order[:n]] = p[order[:n]]
+    return out / out.sum()
+
+def min_p(p, ratio):
+    out = np.where(p &gt;= ratio * p.max(), p, 0.0)
+    return out / out.sum()
+
+vocab = np.array(["pods", "nodes", "svc", "deploy", "logs", "events", "banana"])
+logits = np.array([3.0, 2.2, 1.5, 1.2, 0.6, 0.3, -2.0])   # next token after "kubectl get"
+rng = np.random.default_rng(0)
+np.set_printoptions(precision=3, suppress=True)
+for t in (0, 0.5, 1.0, 1.5):
+    p = softmax_t(logits, t)
+    H = float(-(p[p &gt; 0] * np.log2(p[p &gt; 0])).sum()) + 0.0
+    print(f"T={t:&lt;3} p={p}  entropy={H:.2f} bits")
+p = softmax_t(logits, 1.5)
+print("top_k=3  keeps", vocab[top_k(p, 3) &gt; 0])
+print("top_p=.9 keeps", vocab[top_p(p, 0.9) &gt; 0])
+print("min_p=.1 keeps", vocab[min_p(p, 0.1) &gt; 0])
+print("sampled:", vocab[rng.choice(len(p), size=8, p=min_p(p, 0.1))])</code></pre>
+  <pre><code class="plain">T=0   p=[1. 0. 0. 0. 0. 0. 0.]  entropy=0.00 bits
+T=0.5 p=[0.774 0.156 0.039 0.021 0.006 0.003 0.   ]  entropy=1.08 bits
+T=1.0 p=[0.499 0.224 0.111 0.083 0.045 0.034 0.003]  entropy=2.03 bits
+T=1.5 p=[0.376 0.221 0.138 0.113 0.076 0.062 0.013]  entropy=2.38 bits
+top_k=3  keeps ['pods' 'nodes' 'svc']
+top_p=.9 keeps ['pods' 'nodes' 'svc' 'deploy' 'logs']
+min_p=.1 keeps ['pods' 'nodes' 'svc' 'deploy' 'logs' 'events']
+sampled: ['svc' 'pods' 'pods' 'pods' 'deploy' 'logs' 'svc' 'svc']</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 240" role="img" aria-label="Grouped bar chart of token probabilities at temperature 0.5, 1.0 and 1.5">
+<line x1="60" y1="210" x2="620" y2="210" class="s-grid"/><text x="52" y="214" class="s-sm s-ink3 s-end">0.0</text>
+<line x1="60" y1="165" x2="620" y2="165" class="s-grid"/><text x="52" y="169" class="s-sm s-ink3 s-end">0.2</text>
+<line x1="60" y1="120" x2="620" y2="120" class="s-grid"/><text x="52" y="124" class="s-sm s-ink3 s-end">0.4</text>
+<line x1="60" y1="75" x2="620" y2="75" class="s-grid"/><text x="52" y="79" class="s-sm s-ink3 s-end">0.6</text>
+<line x1="60" y1="30" x2="620" y2="30" class="s-grid"/><text x="52" y="34" class="s-sm s-ink3 s-end">0.8</text>
+<rect x="69" y="35.8" width="18" height="174.2" class="s-acc"/>
+<rect x="91" y="97.7" width="18" height="112.3" class="s-info"/>
+<rect x="113" y="125.4" width="18" height="84.6" class="s-warn"/>
+<text x="100" y="228" class="s-sm s-ink2 s-mid">pods</text>
+<rect x="149" y="174.9" width="18" height="35.1" class="s-acc"/>
+<rect x="171" y="159.6" width="18" height="50.4" class="s-info"/>
+<rect x="193" y="160.3" width="18" height="49.7" class="s-warn"/>
+<text x="180" y="228" class="s-sm s-ink2 s-mid">nodes</text>
+<rect x="229" y="201.2" width="18" height="8.8" class="s-acc"/>
+<rect x="251" y="185.0" width="18" height="25.0" class="s-info"/>
+<rect x="273" y="178.9" width="18" height="31.1" class="s-warn"/>
+<text x="260" y="228" class="s-sm s-ink2 s-mid">svc</text>
+<rect x="309" y="205.3" width="18" height="4.7" class="s-acc"/>
+<rect x="331" y="191.3" width="18" height="18.7" class="s-info"/>
+<rect x="353" y="184.6" width="18" height="25.4" class="s-warn"/>
+<text x="340" y="228" class="s-sm s-ink2 s-mid">deploy</text>
+<rect x="389" y="208.6" width="18" height="1.4" class="s-acc"/>
+<rect x="411" y="199.9" width="18" height="10.1" class="s-info"/>
+<rect x="433" y="192.9" width="18" height="17.1" class="s-warn"/>
+<text x="420" y="228" class="s-sm s-ink2 s-mid">logs</text>
+<rect x="469" y="209.3" width="18" height="0.7" class="s-acc"/>
+<rect x="491" y="202.3" width="18" height="7.7" class="s-info"/>
+<rect x="513" y="196.1" width="18" height="13.9" class="s-warn"/>
+<text x="500" y="228" class="s-sm s-ink2 s-mid">events</text>
+<rect x="571" y="209.3" width="18" height="0.7" class="s-info"/>
+<rect x="593" y="207.1" width="18" height="2.9" class="s-warn"/>
+<text x="580" y="228" class="s-sm s-ink2 s-mid">banana</text>
+      <rect x="470" y="42" width="10" height="10" class="s-acc"/><text x="486" y="51" class="s-sm s-ink2">T = 0.5 (peaked)</text>
+      <rect x="470" y="60" width="10" height="10" class="s-info"/><text x="486" y="69" class="s-sm s-ink2">T = 1.0 (model's own)</text>
+      <rect x="470" y="78" width="10" height="10" class="s-warn"/><text x="486" y="87" class="s-sm s-ink2">T = 1.5 (flatter)</text>
+    </svg>
+    <figcaption><b>Same logits, three temperatures.</b> At 0.5 the top token takes 77% of the mass; at 1.5 it takes 38% and the junk token "banana" rises from almost nothing to 1.3%. Over a 300-token answer, a 1% chance of junk per step is roughly a 95% chance of at least one bad token (\(1 - 0.99^{300}\)), which is why high temperature is paired with top-p or min-p.</figcaption>
+  </figure>
+
+  <h3>Why temperature 0 is still not deterministic</h3>
+  <p>Greedy decoding is a deterministic function of the logits, but the logits are not a deterministic function of your prompt on a shared server.</p>
+  <ul>
+    <li><b>Floating point.</b> Addition is not associative: in Python <code>(0.1 + 0.2) + 0.3</code> gives <code>0.6000000000000001</code> and <code>0.1 + (0.2 + 0.3)</code> gives <code>0.6</code>. GPU kernels sum in different orders depending on matrix shapes.</li>
+    <li><b>Batching.</b> Your request is batched with other people's (<a href="#l8">L8</a>), and many kernels are not batch-invariant: the same row can come out with different low-order bits at a different batch size. Thinking Machines Lab (2025) argue this is the main source of run-to-run variation in practice.</li>
+    <li><b>Near-ties.</b> When two tokens' logits differ in the fourth decimal place, those bits decide the argmax, and once one token differs the rest of the answer diverges.</li>
+    <li><b>Mixture-of-experts routing.</b> In some implementations, which expert processes a token can depend on the other tokens in the batch, for example when experts have capacity limits.</li>
+  </ul>
+  <p>Seeds help on a single server with fixed settings, but providers document them as best-effort. Design for variation: evaluate on distributions of outputs, not one run.</p>
+
+  <h3>Logprobs as a confidence signal</h3>
+  <p>OpenAI-compatible servers can return \(\log p\) of each generated token and its top alternatives (<code>logprobs=True, top_logprobs=5</code>). For a classifier that answers with one label token, \(\exp(\text{logprob})\) is the model's probability for that label, which you can threshold to send uncertain tickets to a human. Two caveats: post-trained chat models are often less well calibrated than their base models (OpenAI's GPT-4 technical report shows this), and a sequence's probability says nothing about whether it is grounded. <a href="#l12">L12</a> covers calibration properly.</p>
+  <pre><code>import math
+from openai import OpenAI
+from openai.types.chat import ChatCompletion
+
+oss = OpenAI(base_url="http://localhost:11434/v1", api_key="unused")  # Ollama; vLLM uses :8000/v1
+OPEN_MODEL = "llama3.2:3b"                                             # any model you have pulled
+
+def sample_n(prompt: str, temperature: float, n: int = 10) -&gt; list[ChatCompletion]:
+    return [oss.chat.completions.create(
+                model=OPEN_MODEL, temperature=temperature, max_tokens=60, seed=i,
+                logprobs=True, top_logprobs=5,
+                messages=[{"role": "user", "content": prompt}])
+            for i in range(n)]
+
+def distinct_n(texts: list[str], n: int = 2) -&gt; float:
+    """Share of word n-grams that are unique across all outputs (Li et al. 2016)."""
+    grams = [tuple(w[i:i + n]) for w in (t.lower().split() for t in texts)
+             for i in range(len(w) - n + 1)]
+    return len(set(grams)) / max(1, len(grams))
+
+def first_token_prob(r: ChatCompletion) -&gt; float | None:
+    lp = r.choices[0].logprobs
+    if lp is None or not lp.content:
+        return None                                  # server ignored logprobs=True
+    return math.exp(lp.content[0].logprob)</code></pre>
+  <p class="code-cap">Tested against a locally built <code>ChatCompletion</code> (first-token logprob −0.105 gives 0.9) and three fake outputs (<code>distinct_n</code> = 0.444); the server calls were not run here.</p>
+
+  <h3>Which APIs expose which controls</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Control</th><th>Open models via OpenAI-compatible servers</th><th>Current Claude models</th></tr></thead>
+    <tbody>
+      <tr><td>Temperature, top-p</td><td><code>temperature</code>, <code>top_p</code></td><td>not exposed</td></tr>
+      <tr><td>Top-k, min-p, repetition penalty</td><td>server extensions (vLLM accepts them as extra parameters; check your server's docs)</td><td>not exposed</td></tr>
+      <tr><td>Penalties</td><td><code>frequency_penalty</code>, <code>presence_penalty</code></td><td>not exposed</td></tr>
+      <tr><td>Reproducibility</td><td><code>seed</code> (best-effort)</td><td>none; evaluate distributions</td></tr>
+      <tr><td>Token logprobs</td><td><code>logprobs</code>, <code>top_logprobs</code> (server-dependent)</td><td>no parameter in SDK 1.13</td></tr>
+      <tr><td>Quality and cost dial</td><td>model size, quantisation</td><td><code>output_config={"effort": ...}</code> and <code>thinking</code> (<a href="#l11">L11</a>)</td></tr>
+    </tbody>
+  </table></div>
+  <p><b>Penalties.</b> In the OpenAI definition, a token already generated \(c_j\) times has its logit adjusted to \(z_j - c_j\,\alpha_{\text{freq}} - \mathbb{1}[c_j &gt; 0]\,\alpha_{\text{pres}}\). Frequency penalties grow with every repeat; presence penalties are a one-off nudge towards new tokens. The older multiplicative repetition penalty (Keskar et al. 2019) divides positive logits of seen tokens by \(r &gt; 1\). Keep all of them at zero for extraction and code, where repeating a field name or identifier is correct.</p>
+
+  <h3>Choosing settings per task</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>DocPilot task</th><th>Open model</th><th>Claude</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td>Ticket triage, field extraction</td><td>temperature 0, logprobs on</td><td>effort low, thinking off, structured output (<a href="p02.html#l20">L20</a>)</td><td>one right answer; route low-confidence labels to a human</td></tr>
+      <tr><td>Grounded answer with citations</td><td>0–0.3</td><td>effort medium</td><td>stay close to the sources</td></tr>
+      <tr><td>Query rewriting, multi-query (<a href="p04.html#l43">L43</a>)</td><td>0.7–1.0, several samples</td><td>effort low</td><td>you want different phrasings</td></tr>
+      <tr><td>Synthetic eval questions (<a href="p08.html#l87">L87</a>)</td><td>1.0 with min-p 0.05–0.1</td><td>effort medium</td><td>diversity without junk</td></tr>
+      <tr><td>LLM judge (<a href="p08.html#l89">L89</a>)</td><td>0</td><td>effort high</td><td>repeatable grades</td></tr>
+    </tbody>
+  </table></div>
+  <p>The ranges are starting points to tune against your evals, not measured optima.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Passing <code>temperature</code> to a current Claude model.</b> The Messages API in SDK 1.13 has no such parameter. Code ported from an OpenAI-style client fails, or worse, a wrapper silently drops the argument and you think you tuned something.</li>
+      <li><b>Temperature 0 as a test oracle.</b> Snapshot tests that expect byte-identical output flake. Assert properties (valid JSON, correct label, cites a source) instead (<a href="p08.html#l88">L88</a>).</li>
+      <li><b>Changing temperature and top-p together.</b> They interact. Tune one, and record both in the call log so results can be reproduced.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Run the sampling code. Add a <code>sample(logits, temperature, top_k=None, top_p=None, min_p=None, rng=...)</code> that chains the filters, and check that each filter leaves a distribution that sums to 1.</li>
+      <li>Serve a small open model locally (Ollama or vLLM) and run <code>sample_n</code> on three DocPilot prompts at temperature 0, 0.7 and 1.2.</li>
+      <li>For each temperature, report the number of exactly distinct outputs out of 10 and <code>distinct_n(texts, 2)</code>. Repeat temperature 0 with a fixed seed and note whether outputs match exactly.</li>
+      <li>On a yes/no prompt, print <code>first_token_prob</code> for each answer and check whether low-probability answers are the wrong ones more often.</li>
+    </ol>
+    <p><b>Ship:</b> a per-task sampling-settings table for DocPilot, committed next to <code>llm.py</code>, with the diversity numbers that justify it.</p>
+  </div>
+  <p class="refs"><b>Read</b> Holtzman et al. 2020, “The Curious Case of Neural Text Degeneration” · Fan et al. 2018, “Hierarchical Neural Story Generation” · Nguyen et al. 2024, “Turning Up the Heat: Min-p Sampling for Creative and Coherent LLM Outputs” · Thinking Machines Lab 2025, “Defeating Nondeterminism in LLM Inference” · OpenAI API reference, Chat Completions (sampling and logprobs parameters) · vLLM docs, OpenAI-compatible server · Anthropic docs, Effort</p>
+</article>
+<!-- ================================================================ L10 -->
+<article class="day" id="l10">
+  <header class="day-head">
+    <span class="day-no">L10 · DAY 7</span>
+    <h2>How Models Are Trained: Pretraining, Instruction Tuning, RLHF and DPO</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">30m practice</span></p>
+  </header>
+
+  <p class="thesis">A chat model is a next-token predictor trained on the internet, then taught to follow instructions by imitation, then pushed towards answers people (or other models, or verifiers) prefer. Each stage leaves fingerprints, and most of the strange behaviour you will debug is one of them.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 680 228" role="img" aria-label="Training pipeline: pretraining, SFT, preference tuning, RLVR, with what each adds and its side-effects">
+      <defs><marker id="ah-l10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="40" width="150" height="60" rx="8" class="s-node-mod"/>
+      <text x="85" y="65" class="s-mid">pretraining</text><text x="85" y="84" class="s-sm s-ink2 s-mid">next token, web scale</text>
+      <rect x="180" y="40" width="150" height="60" rx="8" class="s-node"/>
+      <text x="255" y="65" class="s-mid">SFT</text><text x="255" y="84" class="s-sm s-ink2 s-mid">demonstrations</text>
+      <rect x="350" y="40" width="150" height="60" rx="8" class="s-node"/>
+      <text x="425" y="65" class="s-mid">preference tuning</text><text x="425" y="84" class="s-sm s-ink2 s-mid">RLHF, RLAIF, DPO</text>
+      <rect x="520" y="40" width="150" height="60" rx="8" class="s-node"/>
+      <text x="595" y="65" class="s-mid">RLVR</text><text x="595" y="84" class="s-sm s-ink2 s-mid">verifiable rewards</text>
+      <line x1="160" y1="70" x2="178" y2="70" class="s-ln" marker-end="url(#ah-l10)"/>
+      <line x1="330" y1="70" x2="348" y2="70" class="s-ln" marker-end="url(#ah-l10)"/>
+      <line x1="500" y1="70" x2="518" y2="70" class="s-ln" marker-end="url(#ah-l10)"/>
+      <g class="s-sm">
+        <text x="16" y="126" class="s-ink2">+ knowledge</text><text x="16" y="144" class="s-ink2">+ in-context learning</text>
+        <text x="16" y="168" class="s-warn">− just continues text</text><text x="16" y="186" class="s-warn">− knowledge cut-off</text>
+        <text x="186" y="126" class="s-ink2">+ chat format, roles</text><text x="186" y="144" class="s-ink2">+ follows instructions</text>
+        <text x="186" y="168" class="s-warn">− copies data's style</text>
+        <text x="356" y="126" class="s-ink2">+ helpful tone</text><text x="356" y="144" class="s-ink2">+ refuses harmful asks</text>
+        <text x="356" y="168" class="s-warn">− sycophancy</text><text x="356" y="186" class="s-warn">− verbosity, over-refusal</text>
+        <text x="526" y="126" class="s-ink2">+ reasoning, maths</text><text x="526" y="144" class="s-ink2">+ code that passes tests</text>
+        <text x="526" y="168" class="s-warn">− long, costly outputs</text>
+        <text x="10" y="216" class="s-ink3">+ what the stage adds   − side-effects you will see in production</text>
+      </g>
+    </svg>
+    <figcaption><b>The pipeline, schematically.</b> Real recipes interleave and repeat stages, mix human and AI feedback, and keep the details private. The order is still a good mental model for attributing behaviour.</figcaption>
+  </figure>
+
+  <h3>Pretraining: next-token prediction and what it yields</h3>
+  <div class="box def"><span class="tag">Definition · Language-modelling objective</span>
+    $$\mathcal{L}_{\text{LM}}(\theta) = -\sum_{t=1}^{T} \log p_\theta(x_t \mid x_{&lt;t})$$
+    <p>Cross-entropy of the actual next token, averaged over trillions of tokens of web text, books and code. Nothing else is supervised.</p>
+  </div>
+  <p>Predicting the next token well forces the model to absorb facts, grammar, code conventions and a good deal of reasoning patterns. It also yields <b>in-context learning</b>: give a base model a few examples in the prompt and it continues the pattern (Brown et al. 2020). What it does <em>not</em> yield is instruction following. Ask a base model "How do I restart a deployment?" and a plausible continuation is another question from the same FAQ page. The data also has a <b>knowledge cut-off</b>: the model knows nothing after its crawl date, and it may not know where that date is.</p>
+
+  <h3>Supervised fine-tuning on demonstrations</h3>
+  <p>SFT uses the same loss on curated (prompt, ideal response) pairs, written by people or by stronger models, formatted with a chat template that marks the system, user and assistant turns. The loss is usually computed on the response tokens only. Thousands to tens of thousands of good examples are enough to turn a document-continuer into an assistant (Ouyang et al. 2022 used about 13,000 prompts for InstructGPT's SFT stage). The model learns the format and the persona, and it imitates the length, tone and confidence of the demonstrations, including their habit of always having an answer.</p>
+
+  <h3>Reward models and RLHF</h3>
+  <p>Demonstrations are expensive and cap the model at the demonstrators' level. Comparisons are cheaper: show raters two responses and ask which is better. A <b>reward model</b> \(r_\phi(x, y)\), usually the SFT model with a scalar head, is trained so that preferred responses \(y_w\) score above rejected ones \(y_l\) (a Bradley–Terry model):</p>
+  $$\mathcal{L}_{\text{RM}}(\phi) = -\E_{(x, y_w, y_l)}\Big[\log \sigma\big(r_\phi(x, y_w) - r_\phi(x, y_l)\big)\Big].$$
+  <p>The policy is then optimised with reinforcement learning to score highly, with a KL penalty that keeps it close to the SFT model \(\pi_{\text{ref}}\):</p>
+  $$\max_{\pi_\theta}\ \E_{x,\ y \sim \pi_\theta(\cdot \mid x)}\big[r_\phi(x, y)\big] - \beta\, \KL\big(\pi_\theta(\cdot \mid x)\,\|\,\pi_{\text{ref}}(\cdot \mid x)\big).$$
+  <p>InstructGPT used PPO (Schulman et al. 2017) for this step: sample responses, score them with the reward model, and take small, clipped policy-gradient steps. The KL term matters because the reward model is only an approximation. Optimise it too hard and the policy finds responses the reward model loves and people don't (reward hacking, or over-optimisation).</p>
+
+  <h3>RLAIF, Constitutional AI and DPO</h3>
+  <ul>
+    <li><b>RLAIF</b> replaces human preference labels with labels from a model. <b>Constitutional AI</b> (Bai et al. 2022) guides that model with a short written list of principles: a supervised phase where the model critiques and revises its own responses against the principles, then RL on AI-generated preference labels. It scales feedback and makes the target behaviour inspectable.</li>
+    <li><b>DPO</b> (Rafailov et al. 2023) skips the explicit reward model and the RL loop. It shows that the KL-regularised objective above has a closed-form optimal policy, and turns the preference data into a classification loss on the policy itself:</li>
+  </ul>
+  $$\mathcal{L}_{\text{DPO}}(\theta) = -\E_{(x, y_w, y_l)}\left[\log \sigma\!\left(\beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\right)\right]$$
+  <pre><code>import numpy as np
+
+def log_sigmoid(x):
+    return -np.logaddexp(0.0, -x)                    # stable log(1 / (1 + e^-x))
+
+def dpo_loss(pi_w, pi_l, ref_w, ref_l, beta=0.1):
+    """Arguments: summed log-probs of the chosen (w) and rejected (l) responses
+    under the policy being trained (pi) and the frozen reference (ref)."""
+    margin = beta * ((pi_w - ref_w) - (pi_l - ref_l))
+    return float(-log_sigmoid(margin).mean())
+
+ref_w, ref_l = np.array([-42.0, -30.0]), np.array([-40.0, -29.0])
+print(f"{dpo_loss(ref_w, ref_l, ref_w, ref_l):.3f}  policy = reference")
+print(f"{dpo_loss(ref_w + 5, ref_l - 5, ref_w, ref_l):.3f}  chosen up 5 nats, rejected down 5")
+print(f"{dpo_loss(ref_w - 5, ref_l + 5, ref_w, ref_l):.3f}  the wrong way round")</code></pre>
+  <pre><code class="plain">0.693  policy = reference
+0.313  chosen up 5 nats, rejected down 5
+1.313  the wrong way round</code></pre>
+  <p>At initialisation the loss is \(\log 2\); it falls as the policy raises the chosen response's probability <em>relative to the reference</em> and lowers the rejected one's. That is all you need for now. <a href="p11.html#l122">L122</a> derives it and covers the relatives (IPO, KTO, ORPO) when you run it yourself.</p>
+
+  <h3>Reinforcement learning with verifiable rewards</h3>
+  <p>For maths, code and other tasks with checkable answers, the reward can come from a program instead of a learned model: 1 if the final answer matches, or if the unit tests pass, else 0. The model samples many attempts per problem and is updated towards the successful ones. DeepSeek-R1 (DeepSeek-AI 2025) showed this, with the GRPO algorithm (Shao et al. 2024), produces long chains of reasoning that were not demonstrated, and the Tülu 3 report (Lambert et al. 2024) named the approach RLVR. A verifier is much harder to hack than a reward model, though not impossible: a model rewarded for passing tests can learn to special-case the tests. This stage is what produces the reasoning models of <a href="#l11">L11</a>; <a href="p11.html#l123">L123</a> applies it.</p>
+
+  <h3>Reading behaviour back to the stage</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Behaviour you see</th><th>Most likely stage</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td>Doesn't know last month's release</td><td>pretraining cut-off</td><td>retrieval (<a href="p04.html#l38">L38</a>), or tell it the date and the facts</td></tr>
+      <tr><td>Continues your text instead of answering</td><td>a base model, no SFT</td><td>use the instruct checkpoint and its chat template</td></tr>
+      <tr><td>Agrees with a wrong premise in the question</td><td>preference tuning: raters reward agreement (Sharma et al. 2023)</td><td>ask neutrally; don't reveal the answer you hope for</td></tr>
+      <tr><td>Long, hedged, bulleted answers</td><td>SFT style and a length bias in preference data</td><td>specify length and format; measure output tokens</td></tr>
+      <tr><td>Refuses a benign request</td><td>safety training (RLHF, Constitutional AI)</td><td>give legitimate context in the system prompt; track the refusal rate</td></tr>
+      <tr><td>Confident fabricated detail</td><td>next-token objective plus training that rewards answering</td><td>grounding and abstention (<a href="#l12">L12</a>)</td></tr>
+      <tr><td>Thinks at length about an easy question</td><td>RLVR</td><td>lower effort or thinking budget (<a href="#l11">L11</a>)</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Leading questions in evals.</b> "This config is wrong, isn't it?" measures sycophancy, not knowledge. Write eval prompts that don't reveal the expected answer.</li>
+      <li><b>Prompting a base model like a chat model.</b> No template, no roles: it rambles. Many open-model "it's terrible" reports are this.</li>
+      <li><b>Trusting a model's statement of its own cut-off.</b> It is learned from text, not read from a clock. Pass today's date in the system prompt when time matters.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 30 min</h4>
+    <ol>
+      <li>Serve a base and an instruct checkpoint of the same small open model family (several families publish both). Query the base model through the plain completions endpoint, <code>oss.completions.create(model=..., prompt=..., max_tokens=120)</code>, because it has no chat template; query the instruct model through chat completions.</li>
+      <li>Write ten prompts: three questions, two instructions ("list three causes of CrashLoopBackOff"), one few-shot pattern, one false premise, one borderline-safety request, one date question, one formatting request.</li>
+      <li>Run both models at temperature 0 and record, per prompt, whether each answered, continued the text, refused or fabricated.</li>
+      <li>For every difference, name the stage in the table above that most likely caused it, in one line.</li>
+    </ol>
+    <p><b>Ship:</b> a ten-row comparison table in which each behaviour is attributed to the training stage that most likely caused it.</p>
+  </div>
+  <p class="refs"><b>Read</b> Ouyang et al. 2022, “Training language models to follow instructions with human feedback” · Bai et al. 2022, “Constitutional AI: Harmlessness from AI Feedback” · Rafailov et al. 2023, “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” · Schulman et al. 2017, “Proximal Policy Optimization Algorithms” · Shao et al. 2024, “DeepSeekMath” · DeepSeek-AI 2025, “DeepSeek-R1” · Lambert et al. 2024, “Tülu 3” · Sharma et al. 2023, “Towards Understanding Sycophancy in Language Models” · Nathan Lambert, <i>Reinforcement Learning from Human Feedback</i> (online book)</p>
+</article>
+<!-- ================================================================ L11 -->
+<article class="day" id="l11">
+  <header class="day-head">
+    <span class="day-no">L11 · DAY 8</span>
+    <h2>Reasoning Models and Test-Time Compute</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A transformer does a fixed amount of computation per token, so the only way to make it think harder is to let it write more tokens before it answers. Reasoning models are trained to use those tokens well. You pay for them as output tokens and wait for them as decode steps, so spend them only where your evals show they help.</p>
+
+  <h3>Chain of thought as extra computation</h3>
+  <p>One forward pass has a fixed depth: \(L\) layers, whatever the question. A problem that needs ten dependent steps cannot be solved reliably in one pass if each step needs a few layers. Writing intermediate results down turns the output into a scratchpad: every generated token is another full forward pass that can read everything written so far (<a href="#l8">L8</a>). That is why "let's think step by step" helped even untuned models (Kojima et al. 2022) and why few-shot examples with worked reasoning helped more (Wei et al. 2022). The prompting side of this, including self-consistency, is <a href="p02.html#l19">L19</a>.</p>
+  <p><b>Test-time compute</b> is the general idea: spend more inference compute per question, by thinking longer, sampling several answers and voting, or searching over candidates, instead of using a bigger model. Snell et al. (2024) study when that trade is worth it; the answer depends on problem difficulty.</p>
+
+  <h3>Reasoning models: trained to think before answering</h3>
+  <p>Prompted chain of thought imitates reasoning seen in pretraining. Reasoning models are trained for it with reinforcement learning on verifiable tasks (<a href="#l10">L10</a>): sample long reasoning traces, reward the ones that end in a correct answer, repeat. The models learn to plan, check intermediate results, notice mistakes and backtrack, behaviours that were rarely demonstrated explicitly. The result is a model whose quality on maths, code and multi-step problems rises with the number of reasoning tokens it is allowed, with diminishing returns, and whose outputs are much longer.</p>
+
+  <h3>How providers expose it</h3>
+  <p>On Claude (SDK 1.13) there are two dials. <code>thinking</code> controls whether, and how, the model reasons in separate blocks before its answer; <code>output_config={"effort": ...}</code> sets how much work it puts into the whole response, with values <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> and <code>max</code>.</p>
+  <div class="box def"><span class="tag">Definition · Thinking settings</span>
+    <ul>
+      <li><code>{"type": "disabled"}</code>: no thinking blocks.</li>
+      <li><code>{"type": "enabled", "budget_tokens": N}</code>: think for up to about N tokens. The SDK documents N ≥ 1024 and less than <code>max_tokens</code>.</li>
+      <li><code>{"type": "adaptive"}</code>: the model decides how much to think, guided by effort.</li>
+      <li>Both thinking modes accept <code>"display": "summarized"</code> (default, readable thinking text) or <code>"omitted"</code> (thinking content withheld; a signature is still returned for continuity).</li>
+    </ul>
+    <p>The response then contains <code>thinking</code> blocks (fields <code>thinking</code> and <code>signature</code>), occasionally <code>redacted_thinking</code> blocks (opaque <code>data</code>), and finally <code>text</code> or <code>tool_use</code> blocks.</p>
+  </div>
+  <p>What you see is not necessarily the raw reasoning. The SDK calls the default display "summarized", and Anthropic's extended-thinking docs say you are billed for the full thinking tokens generated, not for the length of what is shown. Other providers make similar choices: OpenAI's reasoning models expose a reasoning-effort setting and summaries rather than raw traces, and open reasoning models served locally usually emit their full trace as text between special tags. Check each provider's current docs before you depend on the format.</p>
+  <pre><code>import statistics, time
+from docpilot.llm import MODEL, chat, text_of
+
+CONFIGS = {
+    "off":      {"thinking": {"type": "disabled"}},
+    "think-2k": {"thinking": {"type": "enabled", "budget_tokens": 2048}},
+    "think-8k": {"thinking": {"type": "enabled", "budget_tokens": 8192}},
+}
+
+def run_grid(problems, configs=CONFIGS, *, call=chat, model=MODEL):
+    rows = []
+    for name, kw in configs.items():
+        for p in problems:
+            t0 = time.perf_counter()
+            msg = call([{"role": "user", "content": p["q"]}], model=model, max_tokens=16000, **kw)
+            rows.append({"config": name, "id": p["id"], "correct": p["check"](text_of(msg)),
+                         "output_tokens": msg.usage.output_tokens,   # includes thinking tokens
+                         "latency_s": time.perf_counter() - t0})
+    return rows
+
+def summarise(rows):
+    for name in dict.fromkeys(r["config"] for r in rows):
+        rs = [r for r in rows if r["config"] == name]
+        acc = sum(r["correct"] for r in rs) / len(rs)
+        print(f"{name:9} accuracy {acc:4.0%}  median output tokens "
+              f"{statistics.median(r['output_tokens'] for r in rs):6.0f}  "
+              f"median latency {statistics.median(r['latency_s'] for r in rs):5.2f} s")</code></pre>
+  <p class="code-cap">Tested locally with a fake <code>call</code> that returns <code>anthropic.types.Message</code> objects built with <code>model_validate</code>; the real grid needs an API key. <code>text_of</code> ignores thinking blocks, so <code>check</code> grades only the answer.</p>
+
+  <h3>Latency and cost</h3>
+  <p>Thinking tokens are output tokens. They are billed at the output rate and generated at decode speed, one forward pass each. The arithmetic is simple: at 100 output tokens per second, 8,000 thinking tokens add 80 seconds before the first word of the answer. A budget is a ceiling, not a target; the model often uses less, and on adaptive settings the spend varies per question, so report medians and the 95th percentile, not just means. Put thinking on a task only after you have measured it, and set <code>max_tokens</code> high enough that the answer is not cut off after a long think (check <code>stop_reason == "max_tokens"</code>).</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Usually helps</th><th>Usually doesn't</th></tr></thead>
+    <tbody>
+      <tr><td>Maths and quantitative reasoning</td><td>Lookups: the answer is in the retrieved chunk or it isn't</td></tr>
+      <tr><td>Writing and debugging code</td><td>Style, tone and rewriting</td></tr>
+      <tr><td>Multi-step plans and constraint satisfaction</td><td>Simple classification and extraction</td></tr>
+      <tr><td>Reconciling several conflicting sources</td><td>Latency-critical chat turns</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Thinking with tools, and what the reasoning text is not</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 690 210" role="img" aria-label="Two API calls: first returns thinking and tool_use; second sends them back unchanged with a tool_result and gets thinking and text">
+      <defs><marker id="ah-l11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="8" y="70" class="s-sm s-ink3">call 1</text>
+      <rect x="60" y="46" width="88" height="40" rx="5" class="s-node"/><text x="104" y="63" class="s-sm s-mid">user</text><text x="104" y="78" class="s-sm s-ink2 s-mid">question</text>
+      <line x1="150" y1="66" x2="176" y2="66" class="s-ln" marker-end="url(#ah-l11)"/>
+      <rect x="180" y="46" width="88" height="40" rx="5" class="s-node-mod"/><text x="224" y="63" class="s-sm s-mid">thinking</text><text x="224" y="78" class="s-sm s-ink2 s-mid">+ signature</text>
+      <rect x="272" y="46" width="88" height="40" rx="5" class="s-node-mod"/><text x="316" y="63" class="s-sm s-mid">tool_use</text><text x="316" y="78" class="s-sm s-ink2 s-mid">search()</text>
+      <text x="372" y="70" class="s-sm s-ink2">stop_reason = tool_use</text>
+      <path d="M224,86 L196,134" class="s-ln s-dash" marker-end="url(#ah-l11)"/>
+      <path d="M316,86 L288,134" class="s-ln s-dash" marker-end="url(#ah-l11)"/>
+      <text x="312" y="112" class="s-sm s-ink3">passed back unchanged</text>
+      <text x="8" y="160" class="s-sm s-ink3">call 2</text>
+      <rect x="60" y="136" width="88" height="40" rx="5" class="s-node"/><text x="104" y="153" class="s-sm s-mid">user</text><text x="104" y="168" class="s-sm s-ink2 s-mid">question</text>
+      <rect x="152" y="136" width="88" height="40" rx="5" class="s-node"/><text x="196" y="153" class="s-sm s-mid">thinking</text><text x="196" y="168" class="s-sm s-ink2 s-mid">as received</text>
+      <rect x="244" y="136" width="88" height="40" rx="5" class="s-node"/><text x="288" y="153" class="s-sm s-mid">tool_use</text><text x="288" y="168" class="s-sm s-ink2 s-mid">as received</text>
+      <rect x="336" y="136" width="88" height="40" rx="5" class="s-node"/><text x="380" y="153" class="s-sm s-mid">tool_result</text><text x="380" y="168" class="s-sm s-ink2 s-mid">doc hits</text>
+      <line x1="426" y1="156" x2="452" y2="156" class="s-ln" marker-end="url(#ah-l11)"/>
+      <rect x="456" y="136" width="88" height="40" rx="5" class="s-node-mod"/><text x="500" y="153" class="s-sm s-mid">thinking</text><text x="500" y="168" class="s-sm s-ink2 s-mid">reads results</text>
+      <rect x="548" y="136" width="88" height="40" rx="5" class="s-node-mod"/><text x="592" y="153" class="s-sm s-mid">text</text><text x="592" y="168" class="s-sm s-ink2 s-mid">answer</text>
+      <text x="546" y="198" class="s-sm s-ink2 s-mid">stop_reason = end_turn</text>
+    </svg>
+    <figcaption><b>Thinking interleaved with a tool call.</b> Shaded blocks are model output. The second request resends the assistant turn exactly as received, signature included, followed by a user turn with the <code>tool_result</code>. The SDK's <code>ThinkingBlock</code> docstring says this is required when using tools with extended thinking. <a href="p06.html#l62">L62</a> builds the full loop.</figcaption>
+  </figure>
+  <p>Thinking between tool calls lets the model reason about each result before choosing the next action, which is where much of the benefit in agentic work comes from. SDK 1.13 also accepts <code>{"type": "between_tools"}</code> as a thinking type; its name suggests thinking only around tool calls, but the type has no docstring, so read the extended-thinking docs before using it.</p>
+  <p>Treat the visible reasoning as a useful trace, not a guaranteed account of how the answer was produced. Turpin et al. (2023) showed that stated chain-of-thought explanations can omit the real reason for an answer (such as a biased few-shot pattern), and Chen et al. (2025, Anthropic) found that reasoning models often fail to mention hints they demonstrably used. Use the trace to debug prompts. Don't show it to users as a justification, and don't grade correctness from it.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Truncated answers.</b> With <code>budget_tokens</code> close to <code>max_tokens</code>, the model can spend the allowance thinking and stop with <code>max_tokens</code> before writing the answer.</li>
+      <li><b>Dropped thinking blocks in tool loops.</b> A history-trimming helper that keeps only text blocks breaks the next request. Pass assistant content back exactly as received.</li>
+      <li><b>Thinking everywhere.</b> Turning it on globally multiplies latency and output cost on the many requests that are lookups.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Write 15 multi-step problems with checkable answers drawn from DocPilot's domain: resource-quota arithmetic, scheduling constraints ("which nodes can this pod land on?"), reading a YAML manifest for the bug. Give each a <code>check</code> function.</li>
+      <li>Add five lookup questions answerable from a pasted doc chunk as a control group.</li>
+      <li>Run <code>run_grid</code> with the three configurations, then add rows for <code>{"output_config": {"effort": "low"}}</code> and <code>{"output_config": {"effort": "high"}}</code>.</li>
+      <li>Plot accuracy against median output tokens and against median latency, one point per configuration, separately for the two groups. With 15 problems, a difference of one or two answers is noise (<a href="#l16">L16</a> adds intervals).</li>
+    </ol>
+    <p><b>Ship:</b> a rule of thumb for DocPilot, such as "no thinking for lookups and triage; adaptive thinking at medium effort for troubleshooting questions that need several documents", backed by your own chart.</p>
+  </div>
+  <p class="refs"><b>Read</b> Anthropic docs, Extended thinking · Anthropic docs, Effort · Wei et al. 2022, “Chain-of-Thought Prompting Elicits Reasoning in Large Language Models” · Kojima et al. 2022, “Large Language Models are Zero-Shot Reasoners” · Snell et al. 2024, “Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters” · DeepSeek-AI 2025, “DeepSeek-R1” · Turpin et al. 2023, “Language Models Don't Always Say What They Think” · Chen et al. 2025, “Reasoning Models Don't Always Say What They Think”</p>
+</article>
+<!-- ================================================================ L12 -->
+<article class="day" id="l12">
+  <header class="day-head">
+    <span class="day-no">L12 · DAY 8</span>
+    <h2>Hallucination, Calibration and Knowing What the Model Knows</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">A language model always produces a fluent continuation, whether or not it knows the answer, and most of its training rewarded answering over abstaining. Hallucination is the expected result. You reduce it by grounding, by giving the model a real way out, and by measuring how often it takes that way out on your own questions.</p>
+
+  <h3>Kinds of hallucination</h3>
+  <div class="box def"><span class="tag">Definition · Three kinds that matter in products</span>
+    <ul>
+      <li><b>Fabricated facts</b>: confident claims about the world that are false, such as a flag that doesn't exist on <code>kubectl drain</code> or the wrong default for a timeout.</li>
+      <li><b>Fabricated citations</b>: references, URLs, document titles, API functions or quotations that were never written.</li>
+      <li><b>Unsupported by the context</b>: the answer contradicts, or goes beyond, the documents you supplied. The summarisation literature calls these intrinsic and extrinsic hallucinations (Maynez et al. 2020). For a RAG product this is the kind you can measure most precisely, because you know what the model was given (<a href="p05.html#l51">L51</a>).</li>
+    </ul>
+  </div>
+
+  <h3>Why it happens</h3>
+  <p>Pretraining maximises the probability of the next token (<a href="#l10">L10</a>). Text on the web rarely says "I don't know"; it states things. A fact seen once in training, such as a person's birthday or a minor config default, is hard to learn reliably, but the model still learns the <em>shape</em> of an answer and produces one. Post-training then teaches the assistant persona from demonstrations that almost always contain an answer.</p>
+  <p>Kalai et al. (2025, "Why Language Models Hallucinate") add an incentive argument. Most benchmarks grade answers right or wrong, with no credit for abstaining, and models are tuned to do well on them. Under that grading a guess is never worse than "I don't know".</p>
+  <div class="box deriv"><span class="tag">Derivation · The incentive to guess</span>
+    <p>Let \(p\) be the model's probability of being right if it answers. Under 0/1 grading the expected score is \(p\) for answering and 0 for abstaining, so answering wins for every \(p &gt; 0\). Now charge \(k\) points for a wrong answer:</p>
+    $$\E[\text{score} \mid \text{answer}] = p - k(1 - p) &gt; 0 \iff p &gt; \frac{k}{1 + k}.$$
+    <p>With \(k = t/(1 - t)\) the threshold is exactly \(t\). Kalai et al. propose stating such a confidence target in evaluation instructions ("answer only if you are more than \(t\) confident; mistakes cost \(t/(1-t)\) points"), so that abstaining is rewarded when it should be.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 252" role="img" aria-label="Expected score against probability of being right, under 0/1 grading and with a penalty of 3 for wrong answers">
+      <line x1="70" y1="30" x2="590" y2="30" class="s-grid"/><line x1="70" y1="210" x2="590" y2="210" class="s-grid"/>
+      <line x1="460" y1="30" x2="460" y2="210" class="s-grid"/>
+      <text x="70" y="20" class="s-sm s-ink3">expected score</text>
+      <text x="62" y="34" class="s-sm s-ink3 s-end">+1</text><text x="62" y="124" class="s-sm s-ink3 s-end">0</text><text x="62" y="214" class="s-sm s-ink3 s-end">−1</text>
+      <line x1="70" y1="120" x2="590" y2="120" class="s-ln s-dash"/>
+      <text x="80" y="138" class="s-sm s-ink3">abstain ("I don't know") = 0</text>
+      <line x1="70" y1="120" x2="590" y2="30" class="s-ln-acc"/>
+      <text x="90" y="62" class="s-sm s-acc">0/1 grading: guessing always ≥ abstaining</text>
+      <line x1="330" y1="210" x2="590" y2="30" class="s-ln-warn"/>
+      <circle cx="460" cy="120" r="4" class="s-warn"/>
+      <text x="360" y="180" class="s-sm s-warn s-end">wrong answer costs 3:</text>
+      <text x="345" y="196" class="s-sm s-warn s-end">answer only if p &gt; 0.75</text>
+      <g class="s-sm s-ink3 s-mid">
+        <text x="70" y="228">0</text><text x="200" y="228">0.25</text><text x="330" y="228">0.5</text><text x="460" y="228">0.75</text><text x="590" y="228">1</text>
+      </g>
+      <text x="330" y="246" class="s-sm s-ink2 s-mid">p, the model's chance of being right if it answers</text>
+    </svg>
+    <figcaption><b>Grading shapes behaviour.</b> With no penalty for wrong answers, the guess line is never below the abstain line. A penalty of 3 (\(t = 0.75\)) moves the break-even point to \(p = 0.75\). Your own eval scoring and your product's cost of a wrong answer should set \(t\).</figcaption>
+  </figure>
+  <p><b>Knowledge cut-offs</b> add a time dimension. Kubernetes removed PodSecurityPolicy in v1.25; a model whose data mostly predates that will describe it as current, fluently. Anything versioned, priced or recently changed needs retrieval (<a href="p04.html#l38">L38</a>), and the system prompt should include today's date.</p>
+
+  <h3>Calibration and verbalised confidence</h3>
+  <p>A model is <b>calibrated</b> if, among answers given with confidence 0.8, about 80% are right. Expected calibration error measures the gap: bin the answers by stated confidence and average the difference between accuracy and confidence, weighted by bin size.</p>
+  $$\text{ECE} = \sum_{b=1}^{B} \frac{|S_b|}{n}\,\big|\operatorname{acc}(S_b) - \operatorname{conf}(S_b)\big|$$
+  <pre><code>import numpy as np
+
+def ece(confidence, correct, bins=10):
+    """Expected calibration error: bin by stated confidence, average |accuracy - confidence|."""
+    conf, ok = np.asarray(confidence, float), np.asarray(correct, float)
+    idx = np.minimum((conf * bins).astype(int), bins - 1)
+    return float(sum((idx == b).mean() * abs(ok[idx == b].mean() - conf[idx == b].mean())
+                     for b in range(bins) if (idx == b).any()))
+
+rng = np.random.default_rng(0)
+conf = rng.uniform(0.5, 1.0, size=2000)                  # stated confidences
+calibrated = rng.random(2000) &lt; conf                     # right as often as it claims
+overconfident = rng.random(2000) &lt; conf - 0.2            # right 20 points less often
+print(f"calibrated ECE {ece(conf, calibrated):.3f}   overconfident ECE {ece(conf, overconfident):.3f}")</code></pre>
+  <pre><code class="plain">calibrated ECE 0.013   overconfident ECE 0.200</code></pre>
+  <p>Where do confidences come from? Token probabilities (<a href="#l9">L9</a>) are one source; Kadavath et al. (2022) found large pretrained models reasonably calibrated on multiple-choice questions, while OpenAI's GPT-4 report shows post-training made that model's probabilities less calibrated. <b>Verbalised confidence</b> ("give a confidence from 0 to 1") is the other source and the only one on APIs without logprobs. Results in the literature are mixed: Tian et al. (2023) found verbalised confidence better calibrated than token probabilities for some RLHF models, and Xiong et al. (2024) found it often overconfident. Measure it on your data before you threshold on it.</p>
+
+  <h3>Mitigations</h3>
+  <ul>
+    <li><b>Grounding with retrieval</b>: put the relevant documents in the prompt and instruct the model to answer from them (Phases 4 and 5).</li>
+    <li><b>Permission to say "I don't know"</b>: say explicitly that abstaining is acceptable and what to say instead, and make sure your evals don't penalise it.</li>
+    <li><b>Quote before answering</b>: ask the model to first extract the passages that support the answer, then answer only from those quotes. Missing quotes become a visible signal.</li>
+    <li><b>Verification passes</b>: a second call checks each claim against the sources and removes or flags unsupported ones (Chain-of-Verification, Dhuliawala et al. 2023).</li>
+    <li><b>Constrained outputs</b>: an enum of allowed labels, citations that must be IDs of documents you supplied, then a code check that each cited ID exists (<a href="p02.html#l20">L20</a>, <a href="p04.html#l45">L45</a>).</li>
+  </ul>
+
+  <h3>Measuring hallucination on your own data</h3>
+  <p>Public hallucination benchmarks don't tell you how a model behaves on your corpus. A probe set does: questions in three kinds, each graded differently.</p>
+  <pre><code>import re
+from collections import Counter
+from dataclasses import dataclass
+
+ABSTAIN = re.compile(r"\b(i don['’]t know|i do not know|not (?:in|covered by) the "
+                     r"(?:docs|documentation|context)|no information)\b", re.I)
+
+@dataclass(frozen=True)
+class Probe:
+    id: str
+    kind: str                       # "answerable" | "unanswerable" | "false_premise"
+    question: str
+    accept: tuple[str, ...] = ()    # substrings that mark a correct answer or correction
+
+def grade(p: Probe, reply: str) -&gt; str:
+    hit = any(a.lower() in reply.lower() for a in p.accept)
+    abstained = bool(ABSTAIN.search(reply))
+    if p.kind == "answerable":
+        return "correct" if hit else ("abstained" if abstained else "wrong")
+    if p.kind == "unanswerable":
+        return "abstained" if abstained else "hallucinated"
+    return "corrected" if hit else "accepted_premise"
+
+def report(probes, replies):
+    out = {}
+    for kind in ("answerable", "unanswerable", "false_premise"):
+        g = Counter(grade(p, r) for p, r in zip(probes, replies) if p.kind == kind)
+        out[kind] = dict(g) | {"n": sum(g.values())}
+    return out</code></pre>
+  <p class="code-cap">On three hand-written replies, one of each kind (a correct <code>kubectl describe pod</code> answer, an invented on-call rota, a correction of the PodSecurityPolicy premise), <code>report</code> returns <code>{'answerable': {'correct': 1, 'n': 1}, 'unanswerable': {'hallucinated': 1, 'n': 1}, 'false_premise': {'corrected': 1, 'n': 1}}</code>. Substring and regex grading is crude; read every reply the first time and refine <code>accept</code> and <code>ABSTAIN</code>, or move to an LLM judge later (<a href="p08.html#l89">L89</a>).</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Abstention you never measured.</b> An "I don't know" instruction can also make the model refuse answerable questions. Always report correct answers on answerable probes next to correct abstentions on unanswerable ones.</li>
+      <li><b>Citations that look right.</b> A well-formatted link to a plausible docs page is the most convincing fabrication. Validate every cited URL or ID against your index in code.</li>
+      <li><b>Testing only on questions the model knows.</b> An eval set with no unanswerable or false-premise questions cannot detect hallucination, however large it is.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Write 40 probes over the DocPilot corpus: 20 answerable (with <code>accept</code> strings), 10 unanswerable (plausible but not in the docs: your company's policies, an invented feature), 10 false-premise (a removed API described as current, a wrong default).</li>
+      <li>Run them through <code>chat()</code> with no documents, twice: with your current system prompt, and with an added abstention instruction ("If the documentation does not cover it, say 'Not covered by the documentation'").</li>
+      <li>Grade with <code>report</code>, then read every <code>wrong</code> and <code>hallucinated</code> reply by hand and fix misgrades.</li>
+      <li>Add a confidence field to the prompt, collect it, and compute <code>ece</code> on the answerable probes.</li>
+    </ol>
+    <p><b>Ship:</b> a measured hallucination baseline for DocPilot: correct-answer rate, correct-abstention rate, false-premise correction rate and ECE, with and without the abstention instruction, saved next to the <a href="p00.html#l6">L6</a> baseline score.</p>
+  </div>
+  <p class="refs"><b>Read</b> Kalai, Nachum, Vempala and Zhang 2025, “Why Language Models Hallucinate” (OpenAI) · Maynez et al. 2020, “On Faithfulness and Factuality in Abstractive Summarization” · Kadavath et al. 2022, “Language Models (Mostly) Know What They Know” · Tian et al. 2023, “Just Ask for Calibration” · Xiong et al. 2024, “Can LLMs Express Their Uncertainty?” · Dhuliawala et al. 2023, “Chain-of-Verification Reduces Hallucination in Large Language Models” · OpenAI 2023, “GPT-4 Technical Report” · Anthropic docs, Reduce hallucinations</p>
+</article>
+<!-- ================================================================ L13 -->
+<article class="day" id="l13">
+  <header class="day-head">
+    <span class="day-no">L13 · DAY 9</span>
+    <h2>Long Context: What Fits, What Gets Lost and Context Rot</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">A context window is the most a model will accept, not the amount it uses well. Quality depends on how much irrelevant text surrounds the part that matters and where that part sits, and every token costs prefill time and money on every call. Measure your model's length and position sensitivity before you design around a big number.</p>
+
+  <h3>What "supports a million tokens" means</h3>
+  <p>The advertised window is the maximum of input plus output tokens the API will accept (<a href="p00.html#l4">L4</a>). Reaching it took training or fine-tuning on long sequences and usually adjusting the rotary position frequencies (<a href="#l7">L7</a>). It guarantees that the request runs. It does not guarantee that a fact at token 600,000 is used as reliably as one at token 600. And because a request is stateless, the whole window is prefilled, cached in KV memory (<a href="#l8">L8</a>) and billed again on every call unless you use prompt caching (<a href="p02.html#l24">L24</a>). Some providers also charge a higher rate above a length threshold; check the price page rather than assuming linear pricing.</p>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>A DocPilot question answered by stuffing 400,000 tokens of documentation costs 400,000 input tokens per question. Retrieval that sends 5 chunks of 500 tokens costs 2,500, so stuffing is 160× the input tokens, with a TTFT likely measured in tens of seconds rather than about one. At a few thousand questions a day, the difference decides the architecture before quality is even measured.</p>
+  </div>
+
+  <h3>Needle-in-a-haystack tests and their limits</h3>
+  <p>The standard probe hides one sentence (the needle) at a chosen depth inside filler text and asks for it back. Plotted over length × depth, it shows whether a model can <em>find</em> a literal fact anywhere in its window, and recent frontier models typically score near-perfectly on the simplest version. That is the problem with it as a quality signal:</p>
+  <ul>
+    <li>The needle usually shares words with the question, so it is a lexical lookup. NoLiMa (Modarressi et al. 2025) removed that overlap and reported large drops as context grew.</li>
+    <li>Real tasks need several facts combined, aggregation over the whole context, or ignoring near-miss distractors. RULER (Hsieh et al. 2024) adds such tasks and reports that many models' effective context is much shorter than the claimed one.</li>
+    <li>The filler is often unrelated text (essays, repeated sentences). Your haystack will be documents that look like the needle.</li>
+  </ul>
+  <p>Run needles anyway, as a cheap floor on your own documents. If a model fails the easy version at your target length, it will fail the hard ones.</p>
+
+  <h3>Lost in the middle, and context rot</h3>
+  <div class="box def"><span class="tag">Definition · Two position and length effects</span>
+    <ul>
+      <li><b>Lost in the middle</b> (Liu et al. 2023; TACL 2024): on multi-document question answering and key-value retrieval, accuracy was highest when the relevant document was at the start or end of the context and lowest in the middle, a U-shaped curve.</li>
+      <li><b>Context rot</b>: output quality falling as input length grows, even when the relevant information is present and the task is unchanged. It is widely reported by practitioners; Chroma's 2025 technical report "Context Rot" tested a range of current models on controlled tasks and found performance degrading with input length, more so when similar-looking distractors were present.</li>
+    </ul>
+  </div>
+  <p>The effects vary by model, task and generation, and newer models reduce them. The direction has been consistent enough that you should assume they apply until your own measurements show otherwise. They also explain why stuffing more retrieved chunks into a RAG prompt can make answers worse: each extra chunk is another distractor (<a href="p04.html#l44">L44</a>).</p>
+
+  <h3>Position effects: documents first, question last</h3>
+  <p>Anthropic's long-context prompting guidance recommends putting long documents at the top of the prompt and the question and instructions at the end, wrapping each document in tags with its source. Two reasons fit the mechanics: the question is then the most recent thing the model read when it starts generating, and the documents form a stable prefix that prompt caching can reuse across questions. Asking the model to quote the relevant passages before answering (<a href="#l12">L12</a>) further helps it locate the needle.</p>
+  <pre><code>import itertools, random
+
+NEEDLE = "Internal note: the DocPilot escalation code for etcd quorum loss is TANGERINE-42."
+QUESTION = "What is the DocPilot escalation code for etcd quorum loss? Reply with the code only."
+
+def build_haystack(chunks, target_tokens, depth, *, chars_per_token=4.0, seed=0):
+    """Shuffled doc chunks up to ~target_tokens, with NEEDLE inserted at depth in [0, 1]."""
+    pool = chunks[:]
+    random.Random(seed).shuffle(pool)
+    picked, size = [], 0
+    for c in pool:
+        if size + len(c) &gt; target_tokens * chars_per_token:
+            break
+        picked.append(c)
+        size += len(c)
+    picked.insert(round(depth * len(picked)), NEEDLE)
+    return "\n\n".join(picked)
+
+def needle_messages(haystack):
+    # documents first, question last
+    return [{"role": "user", "content": f"&lt;documents&gt;\n{haystack}\n&lt;/documents&gt;\n\n{QUESTION}"}]
+
+def grid(sizes=(8_000, 32_000, 128_000), depths=(0.1, 0.5, 0.9), repeats=5):
+    return list(itertools.product(sizes, depths, range(repeats)))
+
+chunks = [f"Chunk {i}: " + "Pods are the smallest deployable units. " * 25 for i in range(5000)]
+for size, depth in [(8_000, 0.1), (8_000, 0.9), (128_000, 0.5)]:
+    h = build_haystack(chunks, size, depth)
+    print(f"{size:&gt;7} tokens, depth {depth}: ~{len(h) / 4:,.0f} tokens, "
+          f"needle at {h.index(NEEDLE) / len(h):.2f} of the text")
+print(len(grid()), "calls in the default grid")</code></pre>
+  <pre><code class="plain">   8000 tokens, depth 0.1: ~7,877 tokens, needle at 0.10 of the text
+   8000 tokens, depth 0.9: ~7,877 tokens, needle at 0.90 of the text
+ 128000 tokens, depth 0.5: ~128,264 tokens, needle at 0.50 of the text
+45 calls in the default grid</code></pre>
+  <p class="code-cap">The test uses 5,000 synthetic chunks. The four-characters-per-token ratio is a rough English average; check real sizes with <code>client.messages.count_tokens(model=MODEL, messages=...)</code>, which returns <code>input_tokens</code>.</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 215" role="img" aria-label="Needle test design: three context sizes, needle at 10, 50 and 90 percent depth, question last">
+      <text x="80" y="57" class="s-sm s-ink2 s-end">8k</text>
+      <rect x="90" y="40" width="120" height="24" rx="3" class="s-node"/>
+      <rect x="102" y="40" width="6" height="24" class="s-acc"/><rect x="147" y="40" width="6" height="24" class="s-acc"/><rect x="195" y="40" width="6" height="24" class="s-acc"/>
+      <rect x="214" y="40" width="36" height="24" rx="3" class="s-node-mod"/><text x="232" y="57" class="s-sm s-mid">Q</text>
+      <text x="80" y="107" class="s-sm s-ink2 s-end">32k</text>
+      <rect x="90" y="90" width="280" height="24" rx="3" class="s-node"/>
+      <rect x="118" y="90" width="6" height="24" class="s-acc"/><rect x="227" y="90" width="6" height="24" class="s-acc"/><rect x="339" y="90" width="6" height="24" class="s-acc"/>
+      <rect x="374" y="90" width="36" height="24" rx="3" class="s-node-mod"/><text x="392" y="107" class="s-sm s-mid">Q</text>
+      <text x="330" y="132" class="s-sm s-ink3 s-mid">documents: shuffled DocPilot chunks</text>
+      <text x="80" y="157" class="s-sm s-ink2 s-end">128k</text>
+      <rect x="90" y="140" width="480" height="24" rx="3" class="s-node"/>
+      <rect x="135" y="140" width="6" height="24" class="s-acc"/><rect x="327" y="140" width="6" height="24" class="s-acc"/><rect x="519" y="140" width="6" height="24" class="s-acc"/>
+      <rect x="574" y="140" width="36" height="24" rx="3" class="s-node-mod"/><text x="592" y="157" class="s-sm s-mid">Q</text>
+      <rect x="90" y="186" width="6" height="14" class="s-acc"/><text x="102" y="197" class="s-sm s-ink2">needle at 10%, 50% or 90% depth (one per call)</text>
+      <rect x="420" y="186" width="14" height="14" rx="2" class="s-node-mod"/><text x="440" y="197" class="s-sm s-ink2">question last</text>
+    </svg>
+    <figcaption><b>The experiment.</b> Three sizes × three depths × five repeats is 45 calls. Report a 3 × 3 table of accuracy. With five repeats per cell the table is coarse (<a href="#l16">L16</a> adds intervals), but large effects show up.</figcaption>
+  </figure>
+
+  <h3>When long context can replace retrieval</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Long context is a good fit</th><th>Retrieval is still needed</th></tr></thead>
+    <tbody>
+      <tr><td>The whole corpus fits with room to spare, such as one contract or one codebase module</td><td>The corpus is far larger than any window: the full Kubernetes docs plus tickets</td></tr>
+      <tr><td>The task needs the whole thing: summarise, compare, find inconsistencies</td><td>The task needs a few specific passages</td></tr>
+      <tr><td>The content is stable and reused, so prompt caching pays</td><td>The content changes often, or differs per user and permission (<a href="p04.html#l47">L47</a>)</td></tr>
+      <tr><td>Low query volume, latency is not critical</td><td>High volume or a latency budget of a few seconds</td></tr>
+    </tbody>
+  </table></div>
+  <p>Most production systems mix the two: retrieve generously, then let a long window hold the retrieved set, the conversation and tool results. <a href="p05.html#l56">L56</a> measures the trade-off on DocPilot.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Context that grows silently.</b> Agent loops and chat histories accumulate tool results until the window is mostly stale text, quality drops, and the cost per turn climbs. Budget the window (<a href="p07.html#l75">L75</a>).</li>
+      <li><b>Instructions buried in the middle.</b> A rule stated once in a long system prompt, followed by 50,000 tokens of documents, is followed less reliably than the same rule repeated next to the question.</li>
+      <li><b>Window errors at the edge.</b> Prompt plus <code>max_tokens</code> must fit. Count tokens before sending and handle <code>stop_reason == "model_context_window_exceeded"</code>.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Load your DocPilot corpus snapshot (<a href="p00.html#l6">L6</a>) as a list of section-sized chunks. Check three built haystacks with <code>count_tokens</code> and adjust <code>chars_per_token</code>.</li>
+      <li>Run the 45-call grid with <code>chat(needle_messages(h), max_tokens=20)</code> and grade with <code>"TANGERINE-42" in text_of(msg)</code>. Log TTFT and input tokens for each call.</li>
+      <li>Make it harder: replace the needle with a real fact from one doc chunk, phrase the question without shared keywords, and add two near-miss distractor sentences. Rerun the middle depth at the largest size.</li>
+      <li>Repeat one cell with the question placed <em>before</em> the documents.</li>
+    </ol>
+    <p><b>Ship:</b> a length and position sensitivity profile for your chosen model: two 3 × 3 accuracy tables (easy and hard needle), the question-first comparison, and the TTFT for each size.</p>
+  </div>
+  <p class="refs"><b>Read</b> Liu et al. 2023 (TACL 2024), “Lost in the Middle: How Language Models Use Long Contexts” · Hong, Troynikov and Huber 2025, “Context Rot: How Increasing Input Tokens Impacts LLM Performance” (Chroma technical report) · Hsieh et al. 2024, “RULER: What's the Real Context Size of Your Long-Context Language Models?” · Modarressi et al. 2025, “NoLiMa: Long-Context Evaluation Beyond Literal Matching” · Anthropic docs, Long context prompting tips · Anthropic docs, Token counting</p>
+</article>
+<!-- ================================================================ L14 -->
+<article class="day" id="l14">
+  <header class="day-head">
+    <span class="day-no">L14 · DAY 10</span>
+    <h2>Multimodal Inputs: Images, PDFs and Audio</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">Images and PDF pages go into the same context window as text, as content blocks that cost tokens according to their size. Vision is strong at reading screenshots, charts and document pages and weak at exact counting, tiny text and precise spatial relations, so measure it field by field on your own documents before trusting it.</p>
+
+  <h3>Images as content blocks</h3>
+  <p>A user turn's <code>content</code> can be a list of blocks instead of a string (<a href="p00.html#l3">L3</a>). An image block carries its source either inline as base64 or as a URL the API fetches:</p>
+  <pre><code class="plain">{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0..."}}
+{"type": "image", "source": {"type": "url", "url": "https://example.com/diagram.png"}}</code></pre>
+  <p>In SDK 1.13 the base64 media types are <code>image/jpeg</code>, <code>image/png</code>, <code>image/gif</code> and <code>image/webp</code>. Inside the model, an image encoder turns the picture into a sequence of vectors that sit in the residual stream next to text tokens (<a href="#l7">L7</a>); you pay for them as input tokens.</p>
+  <div class="box def"><span class="tag">Definition · Image token cost (planning estimate)</span>
+    <p>Anthropic's vision docs have given the approximation</p>
+    $$\text{tokens} \approx \frac{w \times h}{750},$$
+    <p>applied after the image is downscaled to fit a maximum size (a long edge of about 1,568 px in the docs at the time of writing). Treat both numbers as model-specific and confirm them with <code>client.messages.count_tokens</code>, which accepts image blocks. Other providers use different schemes, such as fixed-size tiles.</p>
+  </div>
+  <pre><code>import base64, json, struct
+from pathlib import Path
+
+MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+         ".gif": "image/gif", ".webp": "image/webp"}
+
+def image_block(path) -&gt; dict:
+    p = Path(path)
+    return {"type": "image", "source": {"type": "base64", "media_type": MEDIA[p.suffix.lower()],
+                                        "data": base64.standard_b64encode(p.read_bytes()).decode()}}
+
+def png_size(data: bytes) -&gt; tuple[int, int]:
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
+    return struct.unpack("&gt;II", data[16:24])          # IHDR width, height
+
+def estimate_image_tokens(w, h, *, px_per_token=750, max_edge=1568):
+    """Rough planning estimate: downscale so the long edge &lt;= max_edge, then
+    ~1 token per px_per_token pixels. Confirm with count_tokens for your model."""
+    s = min(1.0, max_edge / max(w, h))
+    return round(w * s * h * s / px_per_token)
+
+for w, h in [(800, 600), (1600, 900), (3840, 2160)]:
+    print(f"{w}x{h}: ~{estimate_image_tokens(w, h):,} tokens")</code></pre>
+  <pre><code class="plain">800x600: ~640 tokens
+1600x900: ~1,844 tokens
+3840x2160: ~1,844 tokens</code></pre>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>The 4K screenshot costs the same as the 1600 × 900 one because it is shrunk to the same size first. Its text shrinks too: a 12 px terminal font at 3840 px wide ends up about 5 px tall. The fix is not a bigger image but a <b>crop</b>: cut out the terminal pane at full resolution, and the model sees legible text at a lower token cost.</p>
+  </div>
+
+  <h3>What vision does well, and where it breaks</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Works well</th><th>Known weaknesses</th></tr></thead>
+    <tbody>
+      <tr><td>Reading UI and terminal screenshots, error dialogs, dashboards</td><td>Precise counting of many similar objects (pods in a grid, bars in a dense chart)</td></tr>
+      <tr><td>Charts: trends, comparisons, approximate values with gridlines</td><td>Exact values read off a chart without labels</td></tr>
+      <tr><td>Document pages: tables, forms, mixed text and figures</td><td>Tiny or low-contrast text, especially after downscaling</td></tr>
+      <tr><td>Architecture diagrams: which components connect to which</td><td>Fine spatial reasoning: exact positions, left/right in crowded layouts, measuring</td></tr>
+    </tbody>
+  </table></div>
+  <p>Anthropic's vision docs list similar limitations (spatial reasoning, approximate counting, low-quality or rotated images). They are tendencies, not rules; the only way to know for your documents is to measure.</p>
+
+  <h3>PDFs: extracted text plus page images</h3>
+  <p>A PDF goes in as a <code>document</code> block with source <code>{"type": "base64", "media_type": "application/pdf", "data": ...}</code> or a URL. Anthropic's PDF-support docs describe processing each page as both its extracted text and a rendered image of the page, so the model can use the text layer for exact wording and the image for layout, tables and charts. Both cost tokens, so a page costs its text tokens plus roughly one image's worth. A 100-page manual is a long-context request (<a href="#l13">L13</a>) with all its costs; send the pages you need. The block also accepts <code>title</code>, <code>context</code> and <code>citations</code> fields, which <a href="p04.html#l45">L45</a> uses for grounded citations.</p>
+  <p>For an ingestion pipeline you will usually extract text yourself instead (<a href="p04.html#l40">L40</a>) and send page images only for pages whose layout carries meaning (<a href="p05.html#l58">L58</a>).</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 200" role="img" aria-label="PDF page sent as extracted text and page image; audio via speech-to-text to a text model, or directly to an audio-native model">
+      <defs><marker id="ah-l14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="32" width="100" height="44" rx="6" class="s-node"/><text x="60" y="58" class="s-mid">PDF page</text>
+      <rect x="150" y="14" width="120" height="34" rx="6" class="s-node"/><text x="210" y="35" class="s-sm s-mid">extracted text</text>
+      <rect x="150" y="60" width="120" height="34" rx="6" class="s-node"/><text x="210" y="81" class="s-sm s-mid">page image</text>
+      <rect x="310" y="26" width="100" height="56" rx="6" class="s-node-mod"/><text x="360" y="58" class="s-mid">model</text>
+      <path d="M110,48 L148,31" class="s-ln" marker-end="url(#ah-l14)"/><path d="M110,62 L148,77" class="s-ln" marker-end="url(#ah-l14)"/>
+      <path d="M270,31 L308,46" class="s-ln" marker-end="url(#ah-l14)"/><path d="M270,77 L308,64" class="s-ln" marker-end="url(#ah-l14)"/>
+      <text x="425" y="48" class="s-sm s-ink2">page cost = text tokens</text><text x="425" y="64" class="s-sm s-ink2">+ about one image</text>
+      <rect x="10" y="128" width="100" height="44" rx="6" class="s-node"/><text x="60" y="154" class="s-mid">audio</text>
+      <rect x="150" y="112" width="120" height="34" rx="6" class="s-node"/><text x="210" y="133" class="s-sm s-mid">speech-to-text</text>
+      <rect x="310" y="112" width="100" height="34" rx="6" class="s-node-mod"/><text x="360" y="133" class="s-sm s-mid">text model</text>
+      <rect x="310" y="156" width="100" height="34" rx="6" class="s-node-mod"/><text x="360" y="177" class="s-sm s-mid">audio model</text>
+      <path d="M110,142 L148,130" class="s-ln" marker-end="url(#ah-l14)"/><path d="M270,129 L308,129" class="s-ln" marker-end="url(#ah-l14)"/>
+      <path d="M110,160 L308,173" class="s-ln s-dash" marker-end="url(#ah-l14)"/>
+      <text x="425" y="133" class="s-sm s-ink2">transcript: cheap, inspectable</text>
+      <text x="425" y="177" class="s-sm s-ink2">keeps tone, timing, speakers</text>
+    </svg>
+    <figcaption><b>Two multimodal routes.</b> PDFs reach the model as text and pixels together. Audio either becomes a transcript first (any text model, a log you can read and search) or goes natively to an audio-capable model, which can use what transcripts drop.</figcaption>
+  </figure>
+
+  <h3>Audio: transcribe, or use a native audio model</h3>
+  <p>The Claude Messages API in SDK 1.13 has no audio content block, so audio reaches Claude as text. The usual route is speech-to-text first: open models in the Whisper family (Radford et al. 2022) run locally, and OpenAI-compatible servers expose transcription as <code>client.audio.transcriptions.create(file=..., model=...)</code>. A transcript is cheap, searchable, loggable and can be fed to any model; it loses tone, hesitation, overlapping speakers and timing unless the STT model adds them. Natively audio-capable models from some providers accept audio directly and can respond to how something was said; check which models your provider offers. Real-time voice agents are <a href="p12.html#l125">L125</a>.</p>
+
+  <h3>Prompts that combine images with instructions</h3>
+  <div class="box note"><span class="tag">Prompting with images</span>
+    <ul>
+      <li>Put the image before the question, as with long documents. With several images, label them in text ("Image 1:", "Image 2:") and refer to them by label.</li>
+      <li>Say what the image is ("a terminal screenshot from <code>kubectl describe</code>") and what to ignore.</li>
+      <li>Ask for a transcription of the visible text first, then the answer from that transcription. It turns a vision problem into a reading problem and gives you something to check.</li>
+      <li>Ask for structured fields with an explicit "empty if not visible" rule, so missing fields can't be invented (<a href="#l12">L12</a>).</li>
+    </ul>
+  </div>
+  <pre><code># same module as above: uses image_block and json
+from docpilot.llm import SMALL, chat, text_of
+
+FIELDS = ["transcription", "command", "namespace", "error_message"]
+SCHEMA = {"type": "object", "additionalProperties": False, "required": FIELDS,
+          "properties": {f: {"type": "string"} for f in FIELDS}}
+
+def extract(path) -&gt; dict:
+    msg = chat([{"role": "user", "content": [
+                    image_block(path),                       # image first, instructions after
+                    {"type": "text", "text": "A screenshot of a terminal or a Kubernetes docs page. "
+                     "Put all visible text in 'transcription' first, then fill the other fields "
+                     "by copying from it exactly. Use an empty string if a field is not visible."}]}],
+               model=SMALL, max_tokens=1500,
+               output_config={"format": {"type": "json_schema", "schema": SCHEMA}})
+    return json.loads(text_of(msg))
+
+def norm(v) -&gt; str:
+    return " ".join(str(v).lower().replace("`", "").split())
+
+def field_accuracy(preds: list[dict], golds: list[dict]) -&gt; dict[str, float]:
+    fields = sorted({k for g in golds for k in g})
+    return {f: sum(norm(p.get(f)) == norm(g[f]) for p, g in zip(preds, golds) if f in g)
+               / sum(f in g for g in golds) for f in fields}</code></pre>
+  <p class="code-cap"><code>image_block</code>, <code>png_size</code> (on a hand-built PNG header) and <code>field_accuracy</code> were tested locally: two fake predictions against two gold records gave <code>{'command': 1.0, 'error_message': 0.5, 'namespace': 0.5}</code>. <code>extract</code> calls the API and was not run; structured outputs are taught properly in <a href="p02.html#l20">L20</a>.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Full-screen screenshots of small text.</b> Downscaling makes them unreadable and the model fills the gaps with plausible text. Crop, or check the transcription field.</li>
+      <li><b>Image tokens nobody budgeted.</b> A support flow that lets users attach five screenshots adds thousands of input tokens per turn, on every turn of the conversation that resends them. Cache them or drop them from history after use.</li>
+      <li><b>Exact-match grading of free text.</b> Field accuracy needs normalisation (case, whitespace, backticks), or a correct answer scores zero.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Collect ten images: terminal screenshots of <code>kubectl</code> errors, docs pages with tables, and two architecture diagrams. Write gold values for four to six fields each by hand.</li>
+      <li>Record each image's size with <code>png_size</code>, compare <code>estimate_image_tokens</code> with <code>count_tokens</code>, and note the per-image cost.</li>
+      <li>Run <code>extract</code> on all ten and compute <code>field_accuracy</code>. Then crop the three worst images to the relevant region and rerun them.</li>
+      <li>For one diagram, ask a counting question ("how many worker nodes?") and a spatial one ("what is directly left of the API server?") and record the answers.</li>
+    </ol>
+    <p><b>Ship:</b> a table of token cost and field-level accuracy of vision on your documents, before and after cropping.</p>
+  </div>
+  <p class="refs"><b>Read</b> Anthropic docs, Vision · Anthropic docs, PDF support · Anthropic docs, Token counting · Radford et al. 2022, “Robust Speech Recognition via Large-Scale Weak Supervision” (Whisper) · OpenAI API reference, Audio transcriptions</p>
+</article>
+<!-- ================================================================ L15 -->
+<article class="day" id="l15">
+  <header class="day-head">
+    <span class="day-no">L15 · DAY 10</span>
+    <h2>Scaling, Capability Trends and Planning for Next Year's Models</h2>
+    <p class="day-meta"><span class="vid">35m video</span><span class="prac">25m practice</span></p>
+  </header>
+
+  <p class="thesis">Model quality has improved predictably with compute, data and parameters, and the price of any fixed level of capability keeps falling. Build so that a better model makes your product better on the day it ships: evals you can re-run and a model layer you can swap, not prompt tricks tuned to today's weaknesses.</p>
+
+  <h3>Scaling laws in one picture</h3>
+  <p>Kaplan et al. (2020) trained many transformer language models and found that test loss falls as a <b>power law</b> in each of three quantities when the other two are not the bottleneck: parameters \(N\), training tokens \(D\) and training compute \(C\):</p>
+  $$L(N) \approx \left(\frac{N_c}{N}\right)^{\alpha_N}, \qquad L(D) \approx \left(\frac{D_c}{D}\right)^{\alpha_D}, \qquad C \approx 6ND.$$
+  <p>On log-log axes each is a straight line over many orders of magnitude. The exponents are small (below 0.1 in their fits), so each constant improvement in loss needs a multiplicative increase in resources. The \(6ND\) rule counts about \(2N\) FLOPs per token for the forward pass (<a href="#l7">L7</a>) and \(4N\) for the backward pass. Loss is not capability, and specific skills can appear abruptly as loss falls smoothly, but the smooth curves are why labs could plan ever-larger training runs with confidence.</p>
+
+  <h3>Compute-optimal training, and over-training for cheap inference</h3>
+  <div class="box thm"><span class="tag">Result · Chinchilla</span>
+    <p>Hoffmann et al. (2022) asked: for a fixed compute budget, how should you split it between parameters and tokens? Their answer was to scale both roughly equally with compute, about <b>20 training tokens per parameter</b> (an approximate rule of thumb, not a constant of nature). Chinchilla, 70B parameters trained on 1.4T tokens, outperformed the 280B-parameter Gopher, trained on 300B tokens with a similar budget.</p>
+  </div>
+  <pre><code>import math
+
+def train_flops(n_params, n_tokens):
+    return 6 * n_params * n_tokens                    # forward 2N + backward 4N per token
+
+def chinchilla_optimal(compute, tokens_per_param=20):
+    """C = 6 N D with D = r N  =&gt;  N = sqrt(C / (6 r))."""
+    n = math.sqrt(compute / (6 * tokens_per_param))
+    return n, tokens_per_param * n
+
+C = train_flops(70e9, 1.4e12)
+n, d = chinchilla_optimal(C)
+print(f"Chinchilla budget {C:.2e} FLOPs -&gt; N = {n / 1e9:.0f}B params, D = {d / 1e12:.1f}T tokens")
+
+served = 10e12                                        # tokens generated over the model's life
+for name, N, D in [("70B, 20 tok/param", 70e9, 1.4e12), ("8B, 15T tokens", 8e9, 15e12)]:
+    t, i = train_flops(N, D), 2 * N * served
+    print(f"{name:18} train {t:.1e}  inference {i:.1e}  total {t + i:.1e}  ({D / N:,.0f} tok/param)")</code></pre>
+  <pre><code class="plain">Chinchilla budget 5.88e+23 FLOPs -&gt; N = 70B params, D = 1.4T tokens
+70B, 20 tok/param  train 5.9e+23  inference 1.4e+24  total 2.0e+24  (20 tok/param)
+8B, 15T tokens     train 7.2e+23  inference 1.6e+23  total 8.8e+23  (1,875 tok/param)</code></pre>
+  <p>Chinchilla-optimal minimises <em>training</em> compute for a given loss. A model that will serve trillions of tokens should minimise <em>training plus inference</em>, and inference costs \(2N\) per token forever. Over the 10T served tokens above, the 70B model's inference compute is more than twice its training compute. So labs <b>over-train</b> small models far past 20 tokens per parameter: Meta reported pretraining Llama 3 8B on over 15T tokens, nearly 100× the Chinchilla ratio. The small model will not match a well-trained 70B on everything; the point is that for a fixed quality target, a smaller, longer-trained model is often cheaper over its lifetime (Sardana and Frankle 2023 formalise this).</p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 660 232" role="img" aria-label="Training tokens per parameter on a log scale: GPT-3 1.7, Chinchilla 20, Llama 2 7B about 290, Llama 3 8B about 1900">
+      <g class="s-sm s-ink3 s-mid">
+        <line x1="180" y1="190" x2="620" y2="190" class="s-ln"/><line x1="180" y1="190" x2="180" y2="195" class="s-ln"/><text x="180" y="206">1</text>
+        <line x1="290" y1="190" x2="290" y2="195" class="s-ln"/><text x="290" y="206">10</text>
+        <line x1="400" y1="190" x2="400" y2="195" class="s-ln"/><text x="400" y="206">100</text>
+        <line x1="510" y1="190" x2="510" y2="195" class="s-ln"/><text x="510" y="206">1,000</text>
+        <line x1="620" y1="190" x2="620" y2="195" class="s-ln"/><text x="620" y="206">10,000</text>
+      </g>
+      <text x="400" y="224" class="s-sm s-ink2 s-mid">training tokens per parameter (log scale)</text>
+      <line x1="323" y1="26" x2="323" y2="190" class="s-ln-warn s-dash"/>
+      <text x="329" y="22" class="s-sm s-warn">Chinchilla-optimal ≈ 20</text>
+      <g class="s-sm">
+        <text x="170" y="56" class="s-ink2 s-end">GPT-3 175B, 2020</text>
+        <rect x="180" y="40" width="25.7" height="22" class="s-info"/><text x="212" y="56" class="s-ink2">1.7</text>
+        <text x="170" y="96" class="s-ink2 s-end">Chinchilla 70B, 2022</text>
+        <rect x="180" y="80" width="143.1" height="22" class="s-info"/><text x="330" y="96" class="s-ink2">20</text>
+        <text x="170" y="136" class="s-ink2 s-end">Llama 2 7B, 2023</text>
+        <rect x="180" y="120" width="270.2" height="22" class="s-info"/><text x="457" y="136" class="s-ink2">≈290 (2T tokens)</text>
+        <text x="170" y="176" class="s-ink2 s-end">Llama 3 8B, 2024</text>
+        <rect x="180" y="160" width="360" height="22" class="s-acc"/><text x="547" y="176" class="s-ink2">≈1,900 (15T+)</text>
+      </g>
+    </svg>
+    <figcaption><b>From under-trained to over-trained.</b> GPT-3 (300B tokens) used far fewer tokens per parameter than Chinchilla later found optimal; recent small open models use far more, trading extra training compute for cheaper inference. Token counts are as reported by each paper or model card.</figcaption>
+  </figure>
+
+  <h3>The falling price of capability, and distillation</h3>
+  <p>For a fixed level of capability, say "scores X on a benchmark you care about", the price per token has fallen steeply year on year. Analyses such as Epoch AI's report declines of roughly an order of magnitude per year or more, with wide variation by task and threshold. Over-trained small models, better data, quantisation (<a href="p11.html#l117">L117</a>), serving optimisations (<a href="p11.html#l118">L118</a>) and <b>distillation</b> all contribute.</p>
+  <p>Distillation trains a small <em>student</em> to imitate a large <em>teacher</em>: originally by matching its output distributions (Hinton et al. 2015), and for LLMs usually by fine-tuning on the teacher's generated answers. DeepSeek-R1's release included small models distilled from R1's reasoning traces. You will distil DocPilot's triage into a small open model in <a href="p11.html#l124">L124</a>; check the teacher provider's terms first, since some restrict using outputs to train other models. The engineering consequence: a task that needs the largest model today will probably run on a small, cheap one within a year or two.</p>
+
+  <h3>What to build so the product improves when models do</h3>
+  <div class="box note"><span class="tag">Build for the next model</span>
+    <ul>
+      <li><b>Evals first.</b> A golden set and automated grading (Phase 8) turn "is the new model better for us?" into a one-command answer. Without them, every upgrade is a gamble.</li>
+      <li><b>A swappable model layer.</b> All calls go through <code>llm.py</code>; model IDs and per-task settings live in one table, not scattered string literals. Pin versions and re-run evals before changing them (<a href="p00.html#l5">L5</a>).</li>
+      <li><b>Logged inputs.</b> Keep enough of the call log (<a href="p00.html#l2">L2</a>) to replay real traffic against a candidate model.</li>
+      <li><b>Thin scaffolding.</b> Prefer simple prompts plus retrieval and tools over elaborate chains that compensate for a specific model's weakness.</li>
+    </ul>
+  </div>
+  <p>What to avoid: brittle prompt hacks (all-caps warnings, magic phrases, instructions that only exist to dodge one model's quirk), and heavy engineering around today's limits, such as a five-step decomposition pipeline for reasoning that the next model does in one call. Such work often turns into a liability: it adds latency and cost, and it can make a stronger model perform worse. When you add a workaround, write down which weakness it addresses and an eval that would show it is no longer needed.</p>
+  <pre><code># docpilot/routes.py: the only place that maps tasks to models and settings
+from dataclasses import dataclass
+from docpilot.llm import LARGE, MODEL, SMALL, chat
+
+@dataclass(frozen=True)
+class Route:
+    model: str
+    effort: str | None = None
+    max_tokens: int = 1024
+
+ROUTES = {
+    "triage": Route(SMALL, effort="low", max_tokens=400),
+    "answer": Route(MODEL, effort="medium", max_tokens=1200),
+    "judge":  Route(LARGE, effort="high", max_tokens=800),
+}
+
+def run(task: str, messages, *, routes=ROUTES, call=chat, **kw):
+    r = routes[task]
+    extra = {"output_config": {"effort": r.effort}} if r.effort else {}
+    return call(messages, model=r.model, max_tokens=r.max_tokens, **extra, **kw)</code></pre>
+  <p class="code-cap">Swapping a model is a one-line change to <code>ROUTES</code> plus an eval run. Tested locally with a fake <code>call</code> that records its arguments.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Hard-coded model IDs.</b> A deprecation notice turns into a hunt through the codebase, and some call sites get missed.</li>
+      <li><b>Upgrading without evals.</b> A newer model that is better on average can be worse on your highest-value tasks, or format output differently enough to break a parser.</li>
+      <li><b>Prompts tuned to the old model.</b> Workarounds that were needed for the previous model can confuse a better one. Re-test with the workarounds removed.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 25 min</h4>
+    <ol>
+      <li>Move every model ID and per-task setting in DocPilot into <code>routes.py</code>; grep the repo to confirm no other string literal names a model.</li>
+      <li>Write a one-page model-upgrade plan: which eval sets to re-run (the L6 seed set, the L12 hallucination probes, the L13 long-context profile, the L14 vision table), which settings to re-tune (effort, thinking budget, <code>max_tokens</code>), and which prompt workarounds to try removing.</li>
+      <li>Define acceptance criteria: the score each eval must reach, and the cost and latency ceilings.</li>
+      <li>List the workarounds in your prompts so far, each with the weakness it addresses.</li>
+    </ol>
+    <p><b>Ship:</b> an architecture decision record stating that all model access goes through <code>routes.py</code> and <code>llm.py</code>, with the upgrade plan attached.</p>
+  </div>
+  <p class="refs"><b>Read</b> Kaplan et al. 2020, “Scaling Laws for Neural Language Models” · Hoffmann et al. 2022, “Training Compute-Optimal Large Language Models” · Sardana and Frankle 2023, “Beyond Chinchilla-Optimal: Accounting for Inference in Language Model Scaling Laws” · Hinton, Vinyals and Dean 2015, “Distilling the Knowledge in a Neural Network” · Meta 2024, “The Llama 3 Herd of Models” · Epoch AI, analyses of LLM inference price trends · Richard Sutton 2019, “The Bitter Lesson” (essay)</p>
+</article>
+<!-- ================================================================ L16 -->
+<article class="day project" id="l16">
+  <header class="day-head">
+    <span class="day-no">L16 · DAY 11</span>
+    <h2>Milestone: An LLM Behaviour Lab</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">90m practice</span><span class="tagx">project day</span></p>
+  </header>
+
+  <p class="thesis">Phase 1's experiments become one package that profiles any model with the same probes, caches every result, and reports pass rates with confidence intervals. When a new model ships, one command tells you how it behaves on your questions before you adopt it.</p>
+
+  <h3>What the lab runs</h3>
+  <p>Each probe from this phase becomes a class that yields <b>cases</b>: messages, backend-specific settings and a <code>check</code> function. Probes declare which backends they support, because the controls differ (<a href="#l9">L9</a>): sampling sweeps need an OpenAI-compatible open-model server, thinking budgets need Claude.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Probe</th><th>From</th><th>Groups in the report</th><th>Backends</th></tr></thead>
+    <tbody>
+      <tr><td>Sampling sweep</td><td><a href="#l9">L9</a></td><td>temperature 0, 0.7, 1.2: accuracy and distinct-2</td><td>open models</td></tr>
+      <tr><td>Reasoning budget</td><td><a href="#l11">L11</a></td><td>thinking off, 2k, 8k; or effort levels</td><td>Claude</td></tr>
+      <tr><td>Abstention</td><td><a href="#l12">L12</a></td><td>question kind × with or without the abstention hint</td><td>both</td></tr>
+      <tr><td>Needle</td><td><a href="#l13">L13</a></td><td>size × depth</td><td>both</td></tr>
+    </tbody>
+  </table></div>
+  <pre><code class="plain">lab/
+  __main__.py      # python -m lab --model ID [--base-url URL] [--out reports/] [--dry-run]
+  backends.py      # anthropic_call, openai_compat_call: both return Reply(text, output_tokens)
+  core.py          # Case, Result, run_suite (cached), to_markdown
+  stats.py         # wilson, paired_diff_ci, distinct_n
+  probes.py        # SamplingSweep, ReasoningBudget, Abstention, Needle
+  registry.py      # PROBES = [...], built from your probe data files
+tests/test_lab.py  # fake backend, no network</code></pre>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 196" role="img" aria-label="Lab architecture: probes yield cases, runner checks the cache, calls a backend chosen from the model ID, writes a Markdown report">
+      <defs><marker id="ah-l16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="40" width="130" height="110" rx="8" class="s-node"/>
+      <text x="75" y="60" class="s-mid">probes</text>
+      <g class="s-sm s-ink2"><text x="22" y="82">sampling (L9)</text><text x="22" y="99">reasoning (L11)</text><text x="22" y="116">abstention (L12)</text><text x="22" y="133">needle (L13)</text></g>
+      <rect x="170" y="70" width="90" height="50" rx="6" class="s-node"/>
+      <text x="215" y="92" class="s-mid">cases</text><text x="215" y="108" class="s-sm s-ink2 s-mid">per backend</text>
+      <rect x="290" y="60" width="130" height="70" rx="8" class="s-node-mod"/>
+      <text x="355" y="84" class="s-mid">runner</text><text x="355" y="102" class="s-sm s-ink2 s-mid">cache.jsonl</text><text x="355" y="118" class="s-sm s-ink2 s-mid">skip if seen</text>
+      <text x="535" y="14" class="s-sm s-ink3 s-mid">backend chosen from model ID</text>
+      <rect x="460" y="22" width="150" height="32" rx="6" class="s-node"/><text x="535" y="42" class="s-sm s-mid">anthropic</text>
+      <rect x="460" y="62" width="150" height="32" rx="6" class="s-node"/><text x="535" y="82" class="s-sm s-mid">openai_compat</text>
+      <rect x="460" y="128" width="150" height="50" rx="6" class="s-node"/>
+      <text x="535" y="150" class="s-mid">report.md</text><text x="535" y="167" class="s-sm s-ink2 s-mid">pass, 95% CI, tokens</text>
+      <line x1="140" y1="95" x2="168" y2="95" class="s-ln" marker-end="url(#ah-l16)"/>
+      <line x1="260" y1="95" x2="288" y2="95" class="s-ln" marker-end="url(#ah-l16)"/>
+      <line x1="420" y1="78" x2="458" y2="42" class="s-ln" marker-end="url(#ah-l16)"/>
+      <line x1="420" y1="90" x2="458" y2="80" class="s-ln" marker-end="url(#ah-l16)"/>
+      <line x1="420" y1="115" x2="458" y2="148" class="s-ln" marker-end="url(#ah-l16)"/>
+    </svg>
+    <figcaption><b>The lab.</b> Probes know nothing about providers beyond the settings they emit; backends know nothing about probes. The cache makes re-runs free and makes every report reproducible from <code>cache.jsonl</code>.</figcaption>
+  </figure>
+
+  <h3>Small samples need intervals</h3>
+  <p>Twenty probes per group is what a solo engineer can afford to write and pay for, and 15/20 against 17/20 is not a finding. Report every pass rate with an interval. The textbook \(\hat p \pm 1.96\sqrt{\hat p(1-\hat p)/n}\) behaves badly at small \(n\) and collapses to zero width at 0% or 100%. Use the Wilson interval instead.</p>
+  <div class="box def"><span class="tag">Definition · Wilson score interval</span>
+    <p>For \(k\) passes in \(n\) trials, with \(\hat p = k/n\):</p>
+    $$\frac{\hat p + \frac{z^2}{2n}}{1 + \frac{z^2}{n}} \;\pm\; \frac{z}{1 + \frac{z^2}{n}}\sqrt{\frac{\hat p(1-\hat p)}{n} + \frac{z^2}{4n^2}}, \qquad z = 1.96 \text{ for 95\%}.$$
+    <p>It is the set of true rates \(p\) that a two-sided score test at the 5% level would not reject, so it stays inside [0, 1] and keeps a sensible width even when \(k = 0\) or \(k = n\).</p>
+  </div>
+  <p>To compare two configurations, run them on the <em>same</em> items and look at the per-item differences. Pairing removes the variation due to item difficulty, which is often most of it (Miller 2024 makes this case for LLM evals).</p>
+  <pre><code>import math
+import numpy as np
+
+def wilson(k: int, n: int, z: float = 1.96) -&gt; tuple[float, float]:
+    """Wilson score interval (95% by default) for k successes in n trials."""
+    if n == 0:
+        return 0.0, 1.0
+    p, z2 = k / n, z * z
+    centre = (p + z2 / (2 * n)) / (1 + z2 / n)
+    half = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / (1 + z2 / n)
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+def paired_diff_ci(a, b, *, iters=10_000, seed=0):
+    """Bootstrap 95% CI for mean(a - b) when a and b are scored on the same items."""
+    d = np.asarray(a, float) - np.asarray(b, float)
+    idx = np.random.default_rng(seed).integers(0, len(d), size=(iters, len(d)))
+    boot = d[idx].mean(axis=1)
+    return float(d.mean()), float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975))</code></pre>
+  <pre><code class="plain">8/10: 80%  95% CI 49%–94%
+15/20: 75%  95% CI 53%–89%
+40/50: 80%  95% CI 67%–89%
+0/10: 0%  95% CI 0%–28%
+paired diff (20 items, 3 fixed, 0 broken):    0.15 [0.00, 0.30]
+paired diff (100 items, 15 fixed, 0 broken):  0.15 [0.08, 0.22]</code></pre>
+  <div class="box intuition"><span class="tag">Reading the numbers</span>
+    <p>Zero failures in ten tries still allows a true failure rate of up to 28%. Eighty per cent on ten items is compatible with anything from about half to almost all. A configuration that fixes 3 of 20 items and breaks none has an interval reaching down to zero; the same improvement rate on 100 items is clearly above zero. Decide your sample size from the difference you need to detect, not from what fits in an afternoon.</p>
+  </div>
+
+  <h3>The runner and the cache</h3>
+  <pre><code>import hashlib, json, time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Callable
+
+@dataclass(frozen=True)
+class Reply:                       # what every backend returns
+    text: str
+    output_tokens: int
+
+@dataclass
+class Case:
+    probe: str
+    group: str                     # report row, e.g. "think-2k" or "32k @ 0.5"
+    id: str
+    messages: list
+    settings: dict                 # backend-specific kwargs
+    check: Callable[[str], bool]
+
+@dataclass
+class Result:
+    probe: str
+    group: str
+    case_id: str
+    passed: bool
+    output_tokens: int
+    latency_s: float
+    text: str
+
+def _key(model, c: Case) -&gt; str:
+    raw = json.dumps([model, c.probe, c.group, c.id, c.messages, c.settings],
+                     sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+def run_suite(probes, model, backend, *, call, cache_path: Path):
+    cache = {}
+    if cache_path.exists():
+        for line in cache_path.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            key = row.pop("key")                         # pop before Result(**row)
+            cache[key] = Result(**row)
+    results, skipped = [], [p.name for p in probes if backend not in p.backends]
+    with cache_path.open("a", encoding="utf-8") as log:
+        for probe in (p for p in probes if backend in p.backends):
+            for c in probe.cases(backend):
+                k = _key(model, c)
+                if k not in cache:                       # re-runs are free
+                    t0 = time.perf_counter()
+                    r = call(c.messages, model=model, **c.settings)
+                    cache[k] = Result(c.probe, c.group, c.id, c.check(r.text), r.output_tokens,
+                                      time.perf_counter() - t0, r.text)
+                    log.write(json.dumps({"key": k} | asdict(cache[k])) + "\n")
+                results.append(cache[k])
+    return results, skipped</code></pre>
+  <p class="code-cap">The comment on <code>row.pop</code> marks a real bug found while testing: in <code>cache[row.pop("key")] = Result(**row)</code> Python evaluates the right-hand side first, so <code>Result</code> received the key and raised <code>TypeError</code>.</p>
+  <p><code>to_markdown(results, model, skipped)</code> groups results by <code>(probe, group)</code> and writes one table row each: n, pass rate, Wilson interval, distinct-2 of the replies, median output tokens and median latency, then lists skipped probes. On a fake backend over the three L12 probes, the first rows read:</p>
+  <pre><code class="plain">| probe | group | n | pass | 95% CI | distinct-2 | median out tok | median s |
+|---|---|---|---|---|---|---|---|
+| abstention | answerable, hint=False | 1 | 100% | 21%–100% | 1.00 | 6 | 0.00 |
+| abstention | unanswerable, hint=False | 1 | 0% | 0%–79% | 0.00 | 5 | 0.00 |
+...
+Skipped (not supported on this backend): sampling</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Cache keys that miss a setting.</b> If the key omits the messages or settings, changing a prompt silently reuses old answers. Hash everything that affects the request, including the model ID.</li>
+      <li><b>Comparing groups of different sizes or items.</b> A pass rate on 10 needles against one on 50 different needles is not a comparison. Keep the case set fixed across models.</li>
+      <li><b>A profile run that costs more than expected.</b> 128k-token needles × 45 cases is millions of input tokens. Always <code>--dry-run</code> first and estimate with the <a href="p00.html#l4">L4</a> calculator.</li>
+    </ul>
+  </div>
+
+  <h3>Deliverables</h3>
+  <ul class="deliverables">
+    <li>A <code>lab/</code> package with the layout above, runnable as <code>uv run python -m lab --model ID</code>.</li>
+    <li>Four probes ported from L9, L11, L12 and L13, each declaring its backends and its groups; the L14 vision table as an optional fifth.</li>
+    <li>Wilson intervals on every pass rate, and <code>paired_diff_ci</code> for comparing two reports on the same cases.</li>
+    <li>A result cache keyed on model, case, messages and settings, so a second run makes no calls.</li>
+    <li><code>--dry-run</code>, which prints the number of cases per backend.</li>
+    <li>Committed reports for two models, for example <code>SMALL</code> and <code>MODEL</code>, plus one open model if you have a local server.</li>
+  </ul>
+  <div class="box note"><span class="tag">Acceptance test</span>
+    <ol>
+      <li><code>pytest tests/test_lab.py</code> passes with no network: a fake backend runs the suite twice and the test asserts the second run made zero calls.</li>
+      <li><code>python -m lab --model claude-haiku-5-5 --dry-run</code> prints a case count and makes no calls.</li>
+      <li>A real run writes <code>reports/claude-haiku-5-5.md</code> with a row for every Claude-capable probe group, an interval on each, and "sampling" listed as skipped.</li>
+      <li>Re-running the same command adds no lines to your <a href="p00.html#l2">L2</a> call log.</li>
+    </ol>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 90 min</h4>
+    <ol>
+      <li>Create the package, move <code>wilson</code>, <code>paired_diff_ci</code> and <code>distinct_n</code> into <code>stats.py</code>, and write the fake-backend test first.</li>
+      <li>Port the four probes, loading their data (probe questions, needle chunks, reasoning problems) from files under <code>lab/data/</code>.</li>
+      <li>Write <code>backends.py</code> and <code>__main__.py</code>; select the backend from the model ID (<code>claude-</code> prefix or an OpenAI-compatible <code>--base-url</code>).</li>
+      <li>Profile two Claude models and compare them with <code>paired_diff_ci</code> on the abstention and needle cases. Write three sentences on what differs and how sure you are.</li>
+    </ol>
+    <p><b>Ship:</b> one command that profiles a new model before you adopt it, and two committed reports that show what it produces.</p>
+  </div>
+  <p class="refs"><b>Read</b> Miller 2024, “Adding Error Bars to Evals: A Statistical Approach to Language Model Evaluations” (Anthropic) · Wilson 1927, “Probable Inference, the Law of Succession, and Statistical Inference” · Agresti and Coull 1998, “Approximate Is Better than ‘Exact’ for Interval Estimation of Binomial Proportions” · Efron and Tibshirani, <i>An Introduction to the Bootstrap</i></p>
+</article>
+
+<nav class="modnav">
+  <a href="p00.html"><small>Previous · Days 1–4</small>◂ Phase 0 — Orientation and the LLM API</a>
+  <a class="next" href="p02.html"><small>Next · Days 12–19</small>Phase 2 — Prompt and Context Engineering ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,1583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 11 — Open Models, Fine-Tuning and Serving · 100 Days of AI Engineering</title>
+<meta name="description" content="100 Days of AI Engineering, phase 11: Open Models, Fine-Tuning and Serving (lessons 115–124).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;family=Fira+Code:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m11" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of AI Engineering</a>
+  <span class="meta">Phase 11 · Open Models, Fine-Tuning and Serving · Days 85–92</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 11 · Open Models, Fine-Tuning and…</h4>
+  <nav>
+    <a href="#l115"><span class="n">L115</span>The Open-Weights Landscape and Li…</a>
+    <a href="#l116"><span class="n">L116</span>Running Models Locally: llama.cpp…</a>
+    <a href="#l117"><span class="n">L117</span>Quantisation: Memory Maths, INT8…</a>
+    <a href="#l118"><span class="n">L118</span>Serving at Scale: vLLM, PagedAtte…</a>
+    <a href="#l119"><span class="n">L119</span>Prompt, RAG or Fine-Tune? A Decis…</a>
+    <a href="#l120"><span class="n">L120</span>Fine-Tuning With LoRA and QLoRA</a>
+    <a href="#l121"><span class="n">L121</span>Data for Fine-Tuning: Curation, S…</a>
+    <a href="#l122"><span class="n">L122</span>Preference Tuning: DPO and Its Re…</a>
+    <a href="#l123"><span class="n">L123</span>Reinforcement Fine-Tuning With Ve…</a>
+    <a href="#l124"><span class="n">L124</span>Milestone: Distil DocPilot&#x27;s Tria…</a>
+  </nav>
+  <h4>All 133 lessons</h4>
+  <div class="spine" data-spine data-module="11" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p10.html">◂ Phase 10</a><a href="p12.html">Phase 12 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 11 · Days 85–92 · Lessons 115–124</p>
+<h1>Open Models, Fine-Tuning and Serving</h1>
+<p class="dek">This phase is about owning the model: choosing open weights you are allowed to use, running them locally and at scale, and fine-tuning a small model until it can take over a job from the API. It builds on the inference mechanics of Phase 1 and the evals and production stack of Phases 8–10, and ends with DocPilot's ticket triage served by a distilled small model behind an A/B test, ready for the frontier patterns and capstone of Phase 12.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Shortlist open-weight models for a task with their licence terms, variant (base, instruct, reasoning) and hardware needs, and count parameters from a <code>config.json</code>.</li>
+    <li>Compute serving memory (weights at any precision plus the KV cache and overhead) and choose a quantisation level backed by your own paired accuracy numbers.</li>
+    <li>Run a model locally behind an OpenAI-compatible API, serve it with vLLM, and load-test it into a users-per-GPU capacity estimate.</li>
+    <li>Decide between prompting, retrieval and fine-tuning from a labelled failure analysis and a break-even cost model.</li>
+    <li>Fine-tune a small model with LoRA or QLoRA on a distilled, deduplicated, versioned dataset, with loss masking and a clean held-out test set.</li>
+    <li>Explain and implement the DPO loss and GRPO's group-relative advantages, and write a programmatic reward that resists obvious hacks.</li>
+    <li>Ship a small model behind a router with fallback, and accept or reject it with a pre-registered non-inferiority test.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>10</b> lessons</li><li><b>7h 45m</b> video</li><li><b>10h 20m</b> practice</li><li>Days <b>85–92</b></li>
+</ul>
+
+<!-- ================================================================ L115 -->
+<article class="day" id="l115">
+  <header class="day-head">
+    <span class="day-no">L115 · DAY 85</span>
+    <h2>The Open-Weights Landscape and Licences</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">30m practice</span></p>
+  </header>
+  <p class="thesis">An open-weights model is a file you can download, run and modify under a licence someone else wrote. Choosing one means reading three things before any benchmark: the architecture (it sets your hardware bill), the variant (base, instruct or reasoning) and the licence (it sets what you may build).</p>
+
+  <h3>What "open weights" means</h3>
+  <p>A release usually contains a <code>config.json</code> (the architecture), the tokenizer, the weights as <code>.safetensors</code> shards, a chat template, and a model card. It usually does <em>not</em> contain the training data or the full training code. That is why "open weights" is the honest term: you can run and fine-tune the model, but you cannot rebuild it. The Open Source Initiative's 2024 Open Source AI Definition asks for much more (detailed data information and the code used to train), and few popular models meet it. AI2's OLMo family is one that publishes its data as well.</p>
+  <p>From DocPilot's point of view, owning the weights buys four things the API cannot: data never leaves your machines, the model never changes under you, you can fine-tune it as far as you like (<a href="#l120">L120</a>), and a small model can be much cheaper per request at volume. The price is that you now run the inference stack (<a href="#l116">L116</a>, <a href="#l118">L118</a>).</p>
+
+  <h3>The families, and dense vs mixture-of-experts</h3>
+  <p>As of late 2026 the most used families are Meta's <b>Llama</b>, Alibaba's <b>Qwen</b>, <b>Mistral</b>'s models, Google's <b>Gemma</b> and <b>DeepSeek</b>, with many others: Microsoft's Phi, IBM's Granite, AI2's OLMo, NVIDIA's Nemotron, Moonshot's Kimi, and OpenAI's gpt-oss. Each family ships several sizes and generations, and the gap between generations is usually bigger than the gap between families. Compare specific checkpoints, never brand names.</p>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>A <b>dense</b> model uses every parameter for every token. A <b>mixture-of-experts</b> (MoE) model replaces each MLP block with many expert MLPs and a router that sends each token to a few of them. It has a <b>total</b> parameter count (all experts) and an <b>active</b> count (what one token touches). Memory follows the total; compute per token, roughly \(2 \times\) active parameters FLOPs, follows the active count.</p>
+  </div>
+  <p>Mixtral 8x7B, DeepSeek-V3 and parts of the Llama 4 and Qwen3 lines are MoE; most small models are dense. MoE gives you big-model quality at small-model speed <em>if</em> you can hold all the experts in memory, which is why MoE models are cheap to rent from a provider and awkward to self-host. The <code>config.json</code> tells you which kind you have, and the parameter count falls out of it. <a href="p01.html#l7">L7</a> walked through the forward pass this code counts.</p>
+  <pre><code># lab/model_card.py
+def count_params(cfg: dict) -&gt; int:
+    """Parameter count of a Llama-style dense decoder from its config.json."""
+    d, L, ff, V = cfg["hidden_size"], cfg["num_hidden_layers"], cfg["intermediate_size"], cfg["vocab_size"]
+    head = d // cfg["num_attention_heads"]
+    kv = cfg["num_key_value_heads"] * head            # width of K and V (grouped-query attention)
+    attn = d * d + 2 * d * kv + d * d                 # q, k, v, o projections
+    mlp = 3 * d * ff                                  # gate, up, down (SwiGLU)
+    norms = 2 * d
+    embed = V * d * (1 if cfg.get("tie_word_embeddings") else 2)
+    return L * (attn + mlp + norms) + embed + d       # + final norm
+
+cfg = {"hidden_size": 4096, "num_hidden_layers": 32, "intermediate_size": 14336,
+       "num_attention_heads": 32, "num_key_value_heads": 8, "vocab_size": 128256,
+       "tie_word_embeddings": False}                  # a published 8B configuration
+n = count_params(cfg)
+print(f"{n:,} params = {n/1e9:.2f}B; BF16 weights = {n*2/2**30:.1f} GiB")
+total, active = 671e9, 37e9                           # DeepSeek-V3's reported MoE sizes
+print(f"MoE BF16 weights {total*2/1e12:.2f} TB; FLOPs/token ~ {2*active/1e9:.0f} GFLOP vs {2*total/1e9:.0f} if dense")</code></pre>
+  <pre><code class="plain">8,030,261,248 params = 8.03B; BF16 weights = 15.0 GiB
+MoE BF16 weights 1.34 TB; FLOPs/token ~ 74 GFLOP vs 1342 if dense</code></pre>
+  <p class="code-cap">The count matches the published "8B". <a href="#l117">L117</a> turns parameters into memory at every precision and adds the KV cache.</p>
+
+  <h3>Base, instruct and reasoning variants</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 680 270" role="img" aria-label="Lineage of a model release: pretraining gives a base model, which becomes instruct and reasoning variants, then quantised files and your fine-tunes">
+      <defs><marker id="ah-l115" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="90" width="110" height="46" rx="6" class="s-node"/>
+      <text x="65" y="109" class="s-ttl s-mid">pretraining</text>
+      <text x="65" y="126" class="s-ink2 s-mid s-sm">web-scale text</text>
+      <rect x="170" y="90" width="100" height="46" rx="6" class="s-node"/>
+      <text x="220" y="109" class="s-ttl s-mid">base</text>
+      <text x="220" y="126" class="s-ink2 s-mid s-sm">next-token LM</text>
+      <rect x="350" y="90" width="110" height="46" rx="6" class="s-node-mod"/>
+      <text x="405" y="109" class="s-ttl s-mid">instruct</text>
+      <text x="405" y="126" class="s-ink2 s-mid s-sm">chat template</text>
+      <rect x="540" y="90" width="125" height="46" rx="6" class="s-node"/>
+      <text x="602" y="109" class="s-ttl s-mid">your fine-tune</text>
+      <text x="602" y="126" class="s-ink2 s-mid s-sm">adapter, L120</text>
+      <rect x="340" y="10" width="130" height="42" rx="6" class="s-node"/>
+      <text x="405" y="27" class="s-ttl s-mid">quantised</text>
+      <text x="405" y="44" class="s-ink2 s-mid s-sm">GGUF · AWQ · GPTQ</text>
+      <rect x="350" y="170" width="110" height="46" rx="6" class="s-node"/>
+      <text x="405" y="189" class="s-ttl s-mid">reasoning</text>
+      <text x="405" y="206" class="s-ink2 s-mid s-sm">long thinking</text>
+      <line x1="120" y1="113" x2="168" y2="113" class="s-ln" marker-end="url(#ah-l115)"/>
+      <line x1="270" y1="113" x2="348" y2="113" class="s-ln" marker-end="url(#ah-l115)"/>
+      <text x="310" y="104" class="s-ink2 s-mid s-sm">SFT+prefs</text>
+      <line x1="460" y1="113" x2="538" y2="113" class="s-ln" marker-end="url(#ah-l115)"/>
+      <text x="500" y="104" class="s-ink2 s-mid s-sm">LoRA</text>
+      <line x1="405" y1="90" x2="405" y2="54" class="s-ln" marker-end="url(#ah-l115)"/>
+      <text x="414" y="76" class="s-ink2 s-sm">L116–L117</text>
+      <path d="M220,136 C220,190 280,193 348,193" class="s-ln" marker-end="url(#ah-l115)"/>
+      <text x="282" y="230" class="s-ink2 s-mid s-sm">RL, L123</text>
+      <line x1="405" y1="136" x2="405" y2="168" class="s-ln s-dash" marker-end="url(#ah-l115)"/>
+      <text x="340" y="258" class="s-acc s-mid">licence and use policy travel along every arrow</text>
+    </svg>
+    <figcaption><b>One release, many artefacts.</b> The base checkpoint is the pretrained next-token predictor; instruct and reasoning variants are post-trained from it (<a href="p01.html#l10">L10</a>, <a href="p01.html#l11">L11</a>). Community quantisations and your own fine-tunes are derivatives, and in most licences derivatives inherit the original terms.</figcaption>
+  </figure>
+  <p><b>Base</b> models continue text; they have no chat template and will not follow instructions reliably. They are the right start for continued pretraining or a large fine-tuning set. <b>Instruct</b> (or "chat", "it") variants have been through supervised fine-tuning and preference tuning, and expect their own chat template: send the wrong one and quality drops without an error. <b>Reasoning</b> variants were further trained with reinforcement learning to think at length before answering; some families ship a single hybrid model with thinking switched on or off in the template. For DocPilot's triage, a short classification with JSON output, start from a small instruct model: reasoning variants spend tokens you do not need, and base models need more data.</p>
+
+  <h3>Licences</h3>
+  <p>Licences fall into two groups. <b>Standard permissive licences</b> (Apache-2.0, MIT) allow commercial use, modification and redistribution with attribution, and Apache-2.0 adds a patent grant. <b>Custom model licences</b> are written by the publisher and add restrictions. The table is a starting point only: terms differ between releases of the same family and change over time, so read the licence file in the exact repository you download.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Family</th><th>Typical terms (check each model card)</th><th>Watch for</th></tr></thead>
+    <tbody>
+      <tr><td>Llama</td><td>Llama Community License, one per generation</td><td>An acceptable-use policy; a clause requiring a separate licence from Meta for companies above a very large user count (700 million monthly active users in recent versions); attribution and naming rules for derivatives</td></tr>
+      <tr><td>Qwen</td><td>Many models Apache-2.0; some sizes under Qwen's own licence</td><td>Check per size, not per family</td></tr>
+      <tr><td>Mistral</td><td>Many open models Apache-2.0; others under research or non-production licences</td><td>Commercial use of the restricted ones needs an agreement</td></tr>
+      <tr><td>Gemma</td><td>Google's Gemma Terms of Use</td><td>A prohibited-use policy that you must pass on to anyone you redistribute to</td></tr>
+      <tr><td>DeepSeek</td><td>Recent releases (e.g. R1) MIT; some earlier checkpoints under a DeepSeek model licence</td><td>Older checkpoints carry use restrictions</td></tr>
+      <tr><td>Others</td><td>Phi: MIT · OLMo, Granite, gpt-oss: Apache-2.0</td><td>Usage policies can sit beside a permissive licence</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box note"><span class="tag">Licence checklist</span>
+    <ul>
+      <li>Commercial use allowed? Any user-count or revenue threshold?</li>
+      <li>An acceptable-use policy, and does it cover your domain?</li>
+      <li>Rules on derivatives: naming, attribution, the same licence for fine-tunes?</li>
+      <li>Rules on using outputs to train other models (relevant to <a href="#l121">L121</a>)?</li>
+      <li>Gated download (you accept terms on the Hub)? Record who accepted and when.</li>
+    </ul>
+  </div>
+
+  <h3>Finding and evaluating models; hosted inference</h3>
+  <p>The Hugging Face Hub is the default index. Filter by task, size and licence, then read the model card: intended use, training-data summary, evaluation, known limitations and the chat template. Prefer <code>safetensors</code> to pickle-based <code>.bin</code> files, which can execute code on load (<a href="p09.html#l102">L102</a>). Treat public leaderboards as a shortlist generator, not a decision: contamination and prompt formatting move scores, and what matters is accuracy on your triage set, measured with the eval harness from <a href="p08.html#l86">Phase 8</a>.</p>
+  <p>You do not have to host a model to use it. Inference providers (Together AI, Fireworks AI, Groq, DeepInfra, Hugging Face Inference Providers, and the clouds' model catalogues) serve popular open models per token, mostly through OpenAI-compatible endpoints, so the client code from <a href="p01.html#l9">L9</a> works unchanged. This is the fastest way to evaluate a shortlist before buying hardware. Two caveats: providers may serve different quantisations and context limits under the same model name, and their data-retention terms are theirs, not the model publisher's.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Licence drift.</b> You validated v1 under Apache-2.0; v2 of the "same" model ships under a custom licence. Pin the exact repository revision and store its licence file with your model artefacts.</li>
+      <li><b>Wrong chat template.</b> A fine-tune or a quantised GGUF with a broken or missing template gives plausible but worse answers and no error. Test with the template the card specifies.</li>
+      <li><b>MoE sticker shock.</b> "Only 37B active" still needs memory for every expert. Size hardware on total parameters.</li>
+      <li><b>Provider mismatch.</b> Your eval ran against one provider; production calls another serving a lower-precision copy. Re-run the eval per provider.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 30 min</h4><ol>
+    <li>On the Hub, pick five instruct models under about 10B parameters from at least three families. For each, record the licence, gating, chat-template source and the exact revision hash.</li>
+    <li>Run <code>count_params</code> on each <code>config.json</code> and check the result against the name. Note any that are MoE and their active count.</li>
+    <li>Fill in the licence checklist for each. Drop any model whose terms you cannot accept for a commercial support product.</li>
+    <li>Keep three. For each, estimate BF16 weight memory and say what hardware would run it (you will refine this in <a href="#l117">L117</a>).</li>
+  </ol>
+  <p><b>Ship:</b> <code>docs/model-shortlist.md</code>: three models for triage, each with licence notes, revision, parameter count and hardware requirement.</p></div>
+  <p class="refs"><b>Read</b> Hugging Face Hub docs, Model cards and Gated models · Mitchell et al. 2019, “Model Cards for Model Reporting” · Jiang et al. 2024, “Mixtral of Experts” · DeepSeek-AI 2024, “DeepSeek-V3 Technical Report” · the licence file of each model you shortlist · Chip Huyen, <i>AI Engineering</i>, ch. 4</p>
+</article>
+<!-- ================================================================ L116 -->
+<article class="day" id="l116">
+  <header class="day-head">
+    <span class="day-no">L116 · DAY 85</span>
+    <h2>Running Models Locally: llama.cpp, Ollama and GGUF</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">60m practice</span></p>
+  </header>
+  <p class="thesis">A small quantised model on your own machine, behind an OpenAI-compatible endpoint, is a drop-in replacement for an API call. How fast it runs is set mostly by memory bandwidth, and whether it is good enough is something only your triage eval can tell you.</p>
+
+  <h3>The local stacks</h3>
+  <ul>
+    <li><b>llama.cpp</b>: a C/C++ inference engine (built on the <code>ggml</code> tensor library) that runs on CPUs, Apple Metal, CUDA, Vulkan and more. It ships <code>llama-cli</code> for chat and <code>llama-server</code>, an HTTP server with OpenAI-compatible routes. Most other local tools build on it.</li>
+    <li><b>Ollama</b>: a model manager and background service wrapped around a llama.cpp-derived engine. <code>ollama pull</code> fetches a model, and the service exposes an OpenAI-compatible API at <code>http://localhost:11434/v1</code>. Per-model settings live in a <code>Modelfile</code>.</li>
+    <li><b>LM Studio</b>: a desktop app for finding, downloading and chatting with models, with the same kind of local server. Good for trying a model in minutes.</li>
+    <li><b>MLX</b>: Apple's array framework for Apple silicon. The <code>mlx-lm</code> package runs Hub models converted to MLX format and makes good use of unified memory.</li>
+  </ul>
+  <p>Since all of them speak the OpenAI chat-completions protocol, DocPilot needs one client with a different <code>base_url</code>, the same pattern as the sampling experiments in <a href="p01.html#l9">L9</a> and the gateway in <a href="p10.html#l108">L108</a>.</p>
+  <pre><code class="plain"># Ollama: fetch a small instruct model; the service listens on :11434
+ollama pull llama3.2:3b
+
+# llama.cpp: serve a GGUF file; -c = context length, -ngl = layers offloaded to GPU
+llama-server -m ./models/model-Q4_K_M.gguf -c 8192 -ngl 99 --port 8080
+# flags as documented; check `llama-server --help` for your build</code></pre>
+
+  <h3>GGUF files and quantisation levels</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p><b>GGUF</b> is llama.cpp's single-file model format: every tensor plus the metadata needed to run it (architecture, tokenizer, chat template, quantisation type) in one file. Names such as <code>Q4_K_M</code> encode the quantisation: roughly 4 bits per weight, the "K" (k-quant) block scheme, medium mix. <a href="#l117">L117</a> explains how the blocks work.</p>
+  </div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Type</th><th>Approx. bits per weight</th><th>8B model file</th><th>Typical use</th></tr></thead>
+    <tbody>
+      <tr><td>F16 / BF16</td><td class="num">16</td><td class="num">≈16 GB</td><td>reference; converting and quantising from</td></tr>
+      <tr><td>Q8_0</td><td class="num">8.5</td><td class="num">≈8.5 GB</td><td>near-lossless when memory allows</td></tr>
+      <tr><td>Q6_K</td><td class="num">≈6.6</td><td class="num">≈6.6 GB</td><td>very close to Q8_0 in most reports</td></tr>
+      <tr><td>Q5_K_M</td><td class="num">≈5.7</td><td class="num">≈5.7 GB</td><td>a safe middle</td></tr>
+      <tr><td>Q4_K_M</td><td class="num">≈4.8</td><td class="num">≈4.9 GB</td><td>the common default for laptops</td></tr>
+      <tr><td>Q3_K_M and below</td><td class="num">≤4</td><td class="num">≤4 GB</td><td>only if nothing else fits; measure the loss</td></tr>
+    </tbody>
+  </table></div>
+  <p>Bits per weight include the per-block scales, which is why Q8_0 is 8.5 and not 8. Many GGUF files on the Hub are community conversions, not the publisher's: check who made the file, which revision it came from, and whether the chat template inside it matches the model card (<a href="#l115">L115</a>).</p>
+
+  <h3>Memory, context and CPU or GPU offload</h3>
+  <p>A local model needs room for its weights plus the KV cache for the context length you configure, using <a href="p01.html#l8">L8</a>'s formula. Servers usually allocate the cache for the whole configured context up front, so a 128k setting costs memory even if your prompts are short. If weights and cache do not fit in RAM or VRAM, the OS swaps to disk and generation slows by orders of magnitude.</p>
+  <p>With a GPU, llama.cpp can <b>offload</b> some layers (<code>-ngl N</code>) and keep the rest on the CPU. Each token passes through every layer, so the slow part sets the pace: offloading 80% of layers gives much less than 80% of the full-GPU speed. Prefill is compute-bound and benefits hugely from a GPU; on a laptop CPU, a few-thousand-token RAG prompt can take many seconds before the first token appears.</p>
+  <pre><code># lab/local_budget.py
+BPW = {"F16": 16.0, "Q8_0": 8.5, "Q6_K": 6.56, "Q5_K_M": 5.7, "Q4_K_M": 4.85}  # approximate bits/weight
+
+def local_budget(params: float, quant: str, ctx: int, layers: int, kv_heads: int, head_dim: int,
+                 kv_bytes: int = 2) -&gt; dict:
+    weights = params * BPW[quant] / 8
+    kv = 2 * layers * kv_heads * head_dim * ctx * kv_bytes        # L8's formula
+    return {"weights_GB": weights / 1e9, "kv_GB": kv / 1e9, "total_GB": (weights + kv) / 1e9}
+
+def decode_ceiling(weights_GB: float, bandwidth_GBps: float) -&gt; float:
+    """Dense decode reads every weight once per token: tokens/s &lt;= bandwidth / bytes."""
+    return bandwidth_GBps / weights_GB
+
+for q in ("F16", "Q8_0", "Q4_K_M"):
+    b = local_budget(8.03e9, q, ctx=8192, layers=32, kv_heads=8, head_dim=128)
+    print(q, {k: round(v, 2) for k, v in b.items()})
+w = local_budget(8.03e9, "Q4_K_M", 8192, 32, 8, 128)["weights_GB"]
+for name, bw in [("laptop CPU, DDR5", 80), ("Apple M-series Max", 400),
+                 ("desktop GPU", 1000), ("data-centre GPU", 3000)]:
+    print(f"{name:20s} {bw:5d} GB/s -&gt; &lt;= {decode_ceiling(w, bw):4.0f} tok/s")</code></pre>
+  <pre><code class="plain">F16 {'weights_GB': 16.06, 'kv_GB': 1.07, 'total_GB': 17.13}
+Q8_0 {'weights_GB': 8.53, 'kv_GB': 1.07, 'total_GB': 9.61}
+Q4_K_M {'weights_GB': 4.87, 'kv_GB': 1.07, 'total_GB': 5.94}
+laptop CPU, DDR5        80 GB/s -&gt; &lt;=   16 tok/s
+Apple M-series Max     400 GB/s -&gt; &lt;=   82 tok/s
+desktop GPU           1000 GB/s -&gt; &lt;=  205 tok/s
+data-centre GPU       3000 GB/s -&gt; &lt;=  616 tok/s</code></pre>
+
+  <h3>What speed to expect</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Bar chart of the decode-speed ceiling for an 8B Q4_K_M model on four kinds of hardware">
+      <text x="10" y="20" class="s-ttl">Decode ceiling, 8B model at Q4_K_M (≈4.9 GB read per token)</text>
+      <line x1="210" y1="34" x2="210" y2="186" class="s-ln-ink"/>
+      <text x="200" y="59" class="s-ink2 s-end">laptop CPU · 80 GB/s</text>
+      <rect x="210" y="46" width="9" height="20" class="s-acc"/>
+      <text x="227" y="61" class="s-ink s-sm">16 tok/s</text>
+      <text x="200" y="99" class="s-ink2 s-end">M-series Max · 400 GB/s</text>
+      <rect x="210" y="86" width="45" height="20" class="s-acc"/>
+      <text x="263" y="101" class="s-ink s-sm">82 tok/s</text>
+      <text x="200" y="139" class="s-ink2 s-end">desktop GPU · 1 TB/s</text>
+      <rect x="210" y="126" width="113" height="20" class="s-acc"/>
+      <text x="331" y="141" class="s-ink s-sm">205 tok/s</text>
+      <text x="200" y="179" class="s-ink2 s-end">data-centre GPU · 3 TB/s</text>
+      <rect x="210" y="166" width="340" height="20" class="s-acc"/>
+      <text x="558" y="181" class="s-ink s-sm">616 tok/s</text>
+      <text x="210" y="204" class="s-ink3 s-sm">ceiling = bandwidth ÷ bytes per token; measured speeds are lower</text>
+    </svg>
+    <figcaption><b>Bandwidth sets the ceiling.</b> In single-user decode, every weight is read once per token, so tokens per second cannot exceed memory bandwidth divided by model size. Bandwidths are round, order-of-magnitude figures for each class of hardware; measured speeds commonly land well below the ceiling. This is why quantising helps speed as well as memory.</figcaption>
+  </figure>
+  <p>The figures in the chart are upper bounds, but they predict the ratios well: halving the bytes per weight roughly doubles decode speed, and an MoE model decodes at the speed of its <em>active</em> size if all experts are in fast memory. For triage, output is about 20–40 tokens of JSON, so decode speed matters less than prefill on the ticket text. Measure both on your hardware rather than trusting anyone's table.</p>
+
+  <h3>Pointing DocPilot at a local model</h3>
+  <pre><code># docpilot/local.py
+import json, os, statistics, time
+from openai import OpenAI
+
+LOCAL = OpenAI(base_url=os.environ.get("LOCAL_BASE_URL", "http://localhost:11434/v1"),  # Ollama
+               api_key="unused")                    # local servers ignore the key
+LOCAL_MODEL = os.environ.get("LOCAL_MODEL", "llama3.2:3b")
+
+def triage_open(ticket: str, *, system: str, client=LOCAL, model=LOCAL_MODEL) -&gt; tuple[dict | None, dict]:
+    t0 = time.perf_counter()
+    resp = client.chat.completions.create(
+        model=model, temperature=0, max_tokens=200,
+        response_format={"type": "json_object"},
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": ticket}])
+    ms = (time.perf_counter() - t0) * 1000
+    try:
+        label = json.loads(resp.choices[0].message.content or "")
+    except json.JSONDecodeError:
+        label = None                                 # counts as wrong on every field
+    return label, {"latency_ms": ms, "out_tokens": resp.usage.completion_tokens if resp.usage else 0}
+
+def compare(rows: list[dict], run) -&gt; dict:
+    """rows: {'text', 'category', 'severity'}; run(text) -&gt; (label, stats)."""
+    hits, lat = {"category": 0, "severity": 0, "valid_json": 0}, []
+    for r in rows:
+        label, st = run(r["text"])
+        lat.append(st["latency_ms"])
+        if label is None:
+            continue
+        hits["valid_json"] += 1
+        for f in ("category", "severity"):
+            hits[f] += label.get(f) == r[f]
+    return {**{k: v / len(rows) for k, v in hits.items()}, "p50_ms": statistics.median(lat)}</code></pre>
+  <p class="code-cap">Tested against a fake client that returned two valid labels (one with the wrong severity) and one chatty non-JSON reply: <code>category 0.667, severity 0.333, valid_json 0.667</code>. Support for <code>response_format</code> varies by server and version, so the parser never trusts it. The same <code>compare</code> runs the API model through <code>chat()</code> for the side-by-side.</p>
+
+  <div class="box note"><span class="tag">When local inference makes sense</span>
+    <ul>
+      <li><b>Privacy:</b> tickets with customer data never leave the machine (<a href="p09.html#l101">L101</a>).</li>
+      <li><b>Offline and fast development loops:</b> no rate limits, no cost per call, and a model that never changes under your evals.</li>
+      <li><b>Narrow, high-volume tasks</b> where a small model is good enough, which <a href="#l120">L120</a> tries to make true for triage.</li>
+      <li><b>Not</b> for peak quality on hard questions, or for serving many concurrent users from one laptop. That is <a href="#l118">L118</a>.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Silent context truncation.</b> Local servers default to a modest context window (Ollama's has been a few thousand tokens), and longer prompts are cut without an error. Set it explicitly (<code>num_ctx</code> in a Modelfile, <code>-c</code> for llama.cpp) and log prompt token counts.</li>
+      <li><b>Cold starts.</b> Ollama unloads idle models after a keep-alive period, so the first call after a pause pays the load time. Exclude warm-up from benchmarks, or report it separately.</li>
+      <li><b>Evaluated one file, deployed another.</b> Q4_K_M from one converter is not Q4_K_M from another. Record the file's hash with your eval results.</li>
+      <li><b>Swapping.</b> A model a little too big for RAM does not fail; it gets very slow. Check memory headroom with the budget above.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 60 min</h4><ol>
+    <li>Install Ollama or llama.cpp and pull one 1–4B instruct model from your <a href="#l115">L115</a> shortlist at Q4_K_M. Run <code>local_budget</code> for it first and confirm it fits.</li>
+    <li>Set the context length explicitly; send the <a href="p02.html#l27">L27</a> triage prompt with one ticket through <code>triage_open</code> and check the JSON parses.</li>
+    <li>Run <code>compare</code> on 100 tickets from the L27 set for the local model and for the API model (the same prompt via <code>chat()</code>). Discard the first call as warm-up.</li>
+    <li>Record per-field accuracy, valid-JSON rate, p50 latency and tokens per second, with hardware, quantisation and file hash.</li>
+  </ol>
+  <p><b>Ship:</b> a table comparing triage accuracy and speed for the local and API models, committed as <code>evals/reports/local-vs-api.md</code>.</p></div>
+  <p class="refs"><b>Read</b> llama.cpp repository docs, <code>llama-server</code> README and GGUF specification · Ollama docs, OpenAI compatibility and Modelfile reference · LM Studio docs, local server · Apple MLX and <code>mlx-lm</code> documentation · Chip Huyen, <i>AI Engineering</i>, ch. 9</p>
+</article>
+<!-- ================================================================ L117 -->
+<article class="day" id="l117">
+  <header class="day-head">
+    <span class="day-no">L117 · DAY 86</span>
+    <h2>Quantisation: Memory Maths, INT8, INT4, AWQ and GPTQ</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">45m practice</span></p>
+  </header>
+  <p class="thesis">Serving memory is weights plus KV cache plus overhead, and quantisation shrinks the first two by storing numbers in fewer bits. Every bit you remove buys memory and decode speed and costs some accuracy; the only number that settles the trade is your own eval at each precision.</p>
+
+  <h3>Memory maths</h3>
+  <div class="box deriv"><span class="tag">Serving memory</span>
+    $$M \;\approx\; \underbrace{N \cdot \tfrac{b_w}{8}}_{\text{weights}} \;+\; \underbrace{2 \cdot L \cdot H_{kv} \cdot d_h \cdot T \cdot S \cdot \tfrac{b_{kv}}{8}}_{\text{KV cache}} \;+\; \text{overhead}$$
+    <p>\(N\) parameters at \(b_w\) bits each; \(L\) layers, \(H_{kv}\) key/value heads of dimension \(d_h\) (<a href="p01.html#l8">L8</a>); \(T\) tokens per sequence, \(S\) concurrent sequences, \(b_{kv}\) bits per cached value. Overhead covers activations, the runtime and fragmentation; 10–20% is a common planning margin, not a law. For a mixture-of-experts model, \(N\) is the <em>total</em> parameter count (<a href="#l115">L115</a>).</p>
+  </div>
+  <pre><code># lab/memory.py
+BITS = {"BF16": 16, "INT8/FP8": 8, "INT4-g128": 4.25, "3-bit": 3.5}   # effective bits/weight incl. scales
+MODELS = {"8B": (8e9, 32, 8, 128), "32B": (32e9, 64, 8, 128), "70B": (70e9, 80, 8, 128)}
+#          params, layers, KV heads, head dim (illustrative GQA configurations)
+
+def kv_bytes(layers, kv_heads, head_dim, tokens, seqs=1, bytes_per=2):
+    return 2 * layers * kv_heads * head_dim * tokens * seqs * bytes_per
+
+def serving_memory_GB(name, prec, tokens=8192, seqs=1, kv_bytes_per=2, overhead=0.10):
+    n, L, H, d = MODELS[name]
+    return (n * BITS[prec] / 8 + kv_bytes(L, H, d, tokens, seqs, kv_bytes_per)) * (1 + overhead) / 1e9
+
+for name, (n, *_) in MODELS.items():
+    print(f"{name:4s}", "  ".join(f"{p}={n*b/8/1e9:6.1f}" for p, b in BITS.items()))
+print("KV per token, 70B config:", kv_bytes(80, 8, 128, 1) // 1024, "KiB")
+for prec, kvb in [("BF16", 2), ("INT8/FP8", 2), ("INT4-g128", 2), ("INT4-g128", 1)]:
+    print(f"70B {prec:9s} kv={8*kvb:2d}-bit, 16 seqs x 8k: {serving_memory_GB('70B', prec, 8192, 16, kvb):6.1f} GB")</code></pre>
+  <pre><code class="plain">8B   BF16=  16.0  INT8/FP8=   8.0  INT4-g128=   4.2  3-bit=   3.5
+32B  BF16=  64.0  INT8/FP8=  32.0  INT4-g128=  17.0  3-bit=  14.0
+70B  BF16= 140.0  INT8/FP8=  70.0  INT4-g128=  37.2  3-bit=  30.6
+KV per token, 70B config: 320 KiB
+70B BF16      kv=16-bit, 16 seqs x 8k:  201.2 GB
+70B INT8/FP8  kv=16-bit, 16 seqs x 8k:  124.2 GB
+70B INT4-g128 kv=16-bit, 16 seqs x 8k:   88.2 GB
+70B INT4-g128 kv= 8-bit, 16 seqs x 8k:   64.5 GB</code></pre>
+  <figure class="fig">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Stacked bars of weights, KV cache and overhead for a 70B model at four precision settings against an 80 GB GPU">
+      <text x="142" y="57" class="s-ink2 s-end">BF16</text>
+      <rect x="150" y="42" width="280" height="22" class="s-acc"/><rect x="430" y="42" width="86" height="22" class="s-info"/><rect x="516" y="42" width="37" height="22" class="s-warn"/>
+      <text x="560" y="57" class="s-ink s-sm">201 GB</text>
+      <text x="142" y="97" class="s-ink2 s-end">INT8 / FP8</text>
+      <rect x="150" y="82" width="140" height="22" class="s-acc"/><rect x="290" y="82" width="86" height="22" class="s-info"/><rect x="376" y="82" width="23" height="22" class="s-warn"/>
+      <text x="406" y="97" class="s-ink s-sm">124 GB</text>
+      <text x="142" y="137" class="s-ink2 s-end">INT4 g128</text>
+      <rect x="150" y="122" width="74" height="22" class="s-acc"/><rect x="224" y="122" width="86" height="22" class="s-info"/><rect x="310" y="122" width="16" height="22" class="s-warn"/>
+      <text x="333" y="137" class="s-ink s-sm">88 GB</text>
+      <text x="142" y="177" class="s-ink2 s-end">INT4 + FP8 KV</text>
+      <rect x="150" y="162" width="74" height="22" class="s-acc"/><rect x="224" y="162" width="43" height="22" class="s-info"/><rect x="267" y="162" width="12" height="22" class="s-warn"/>
+      <text x="318" y="177" class="s-ink s-sm">64.5 GB</text>
+      <line x1="310" y1="30" x2="310" y2="192" class="s-ln-bad s-dash"/>
+      <text x="310" y="22" class="s-bad s-mid s-sm">one 80 GB GPU</text>
+      <rect x="150" y="206" width="12" height="12" class="s-acc"/><text x="168" y="216" class="s-ink2 s-sm">weights</text>
+      <rect x="250" y="206" width="12" height="12" class="s-info"/><text x="268" y="216" class="s-ink2 s-sm">KV cache, 16 seqs × 8k</text>
+      <rect x="440" y="206" width="12" height="12" class="s-warn"/><text x="458" y="216" class="s-ink2 s-sm">overhead 10%</text>
+    </svg>
+    <figcaption><b>Where the gigabytes go, 70B model.</b> Quantising the weights alone stops paying once the KV cache dominates: at INT4 the cache is larger than the weights. Quantising the cache too is what gets this workload onto one 80 GB card. Bars are from the code above (illustrative configuration, 10% overhead).</figcaption>
+  </figure>
+
+  <h3>Number formats</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Format</th><th>Bits</th><th>Layout</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>FP16</td><td class="num">16</td><td>5 exponent, 10 mantissa</td><td>max 65,504; overflow is a real risk in activations</td></tr>
+      <tr><td>BF16</td><td class="num">16</td><td>8 exponent, 7 mantissa</td><td>FP32's range with less precision; the usual released dtype</td></tr>
+      <tr><td>FP8</td><td class="num">8</td><td>E4M3 (max 448) or E5M2 (max 57,344)</td><td>native on recent data-centre GPUs; weights, activations and KV cache</td></tr>
+      <tr><td>INT8</td><td class="num">8</td><td>integer −128…127 plus a scale</td><td>per-channel scales make weights near-lossless</td></tr>
+      <tr><td>INT4</td><td class="num">4</td><td>integer −8…7 plus a scale per group</td><td>needs group scales (e.g. every 64 or 128 weights) and a good method</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box def"><span class="tag">Definition · uniform quantisation</span>
+    <p>For \(b\)-bit symmetric quantisation with scale \(s\): \(q = \mathrm{clamp}\big(\mathrm{round}(w/s),\, -2^{b-1},\, 2^{b-1}-1\big)\) and \(\hat w = s\,q\), with \(s = \max|w| / (2^{b-1}-1)\) over a <b>group</b> of weights. Asymmetric schemes add a zero point. Smaller groups track local ranges better but store more scales: a 16-bit scale per 128 four-bit weights adds 0.125 bits per weight.</p>
+  </div>
+  <p><b>Weight-only</b> quantisation (W8A16, W4A16) stores weights in low precision and dequantises them on the fly for a 16-bit matmul. It saves memory and bandwidth, so decode gets faster, but compute does not. <b>Weight-and-activation</b> quantisation (W8A8 in INT8 or FP8) also runs the matmul in low precision on tensor cores, which speeds up compute-bound prefill and large batches. It is harder because activations have outlier channels with values far larger than the rest (Dettmers et al. 2022, "LLM.int8()"). Rule of thumb: weight-only INT4 for small-batch and local serving, FP8 W8A8 for high-throughput serving on hardware that supports it.</p>
+
+  <h3>Post-training methods: GPTQ, AWQ and k-quants</h3>
+  <pre><code># lab/quant_demo.py: round-to-nearest vs groups vs activation-aware scaling
+import numpy as np
+rng = np.random.default_rng(0)
+
+def quantise(w, bits=4, group=None):
+    qmax = 2 ** (bits - 1) - 1
+    g = w.reshape(w.shape[0], -1, group or w.shape[1])         # (rows, groups, group)
+    scale = np.abs(g).max(axis=-1, keepdims=True) / qmax
+    return (np.clip(np.round(g / scale), -qmax - 1, qmax) * scale).reshape(w.shape)
+
+W = rng.normal(0, 0.02, (256, 1024))                           # (out, in)
+W[rng.integers(0, 256, 40), rng.integers(0, 1024, 40)] = 0.3    # a few large weights
+X = rng.normal(0, 1, (64, 1024)); X[:, :10] *= 20               # 10 outlier input channels
+out_err = lambda Wq: np.linalg.norm(X @ (W - Wq).T) / np.linalg.norm(X @ W.T)
+
+for name, Wq in [("INT8 per-row", quantise(W, 8)), ("INT4 per-row", quantise(W, 4)),
+                 ("INT4 g128", quantise(W, 4, 128)), ("INT4 g32", quantise(W, 4, 32))]:
+    print(f"{name:13s} output err {out_err(Wq):.4f}")
+for alpha in (0.0, 0.25, 0.5, 0.75):                            # AWQ idea: scale salient inputs up
+    s = np.abs(X).mean(axis=0) ** alpha
+    print(f"AWQ-style alpha={alpha:.2f} output err {out_err(quantise(W * s, 4, 128) / s):.4f}")</code></pre>
+  <pre><code class="plain">INT8 per-row  output err 0.0149
+INT4 per-row  output err 0.2598
+INT4 g128     output err 0.1392
+INT4 g32      output err 0.1018
+AWQ-style alpha=0.00 output err 0.1392
+AWQ-style alpha=0.25 output err 0.1002
+AWQ-style alpha=0.50 output err 0.1060
+AWQ-style alpha=0.75 output err 0.1394</code></pre>
+  <p class="code-cap">Large weights inflate a per-row scale and crush everything else; groups fix most of that. Scaling the weights of high-activation inputs before quantising (and folding \(1/s\) into the activations) cuts output error by about 28% at the same bit width. Too much scaling hurts again, which is why AWQ searches for it.</p>
+  <ul>
+    <li><b>GPTQ</b> (Frantar et al. 2022) quantises a layer's weights one column at a time and, after each, updates the not-yet-quantised weights to compensate for the rounding error, using approximate second-order information from a small calibration set. The paper reports 3–4-bit quantisation of 175B-parameter models in about four GPU hours with small accuracy loss.</li>
+    <li><b>AWQ</b> (Lin et al. 2023) observes that a small fraction of weight channels, those that see large activations, matter most. Instead of keeping them in 16 bits, it scales them up before quantising, with per-channel scales chosen on calibration data and no backpropagation. It is weight-only, usually INT4 with group size 128.</li>
+    <li><b>k-quants</b> (llama.cpp) pack weights into super-blocks of 256 split into smaller blocks whose scales are themselves quantised. For example, Q4_K stores 8 blocks of 32 weights, each with a 6-bit scale and minimum, at 4.5 bits per weight. The <code>_S/_M/_L</code> mixes keep more sensitive tensors at higher precision, and an optional importance matrix computed from calibration text weights the rounding error.</li>
+  </ul>
+  <p>All three are <b>post-training</b>: no retraining, minutes to hours on one GPU. Pre-quantised AWQ and GPTQ checkpoints for vLLM and GGUF files for llama.cpp are on the Hub. The 4-bit NF4 format in bitsandbytes is aimed at fine-tuning on a frozen base rather than at fast serving; it returns in <a href="#l120">L120</a>.</p>
+
+  <h3>Measuring quality loss on your task</h3>
+  <p>Perplexity on held-out text is a coarse check that a conversion did not break. The decision comes from DocPilot's triage eval run at each precision on the <em>same</em> tickets, using the paired methods from <a href="p08.html#l87">L87</a>. Quantisation losses are reported to be uneven: long contexts, multi-step reasoning, rare languages and strict output formats tend to suffer first. So track the valid-JSON rate and the worst category, not only mean accuracy.</p>
+  <div class="box intuition"><span class="tag">Worked example</span>
+    <p>On 300 tickets, BF16 gets 264 right (88%) and Q4 gets 258 (86%). They disagree on 22 tickets: 14 that only BF16 gets right, 8 that only Q4 does. An exact McNemar test on the 14-vs-8 split gives \(p \approx 0.29\), so this run cannot tell the two apart. Read those 22 tickets anyway: if the 14 are mostly "critical" severity, the 2-point gap is in the place that matters most.</p>
+  </div>
+
+  <h3>Quantised KV caches</h3>
+  <p>Because the cache can outgrow the weights (figure above), servers can store it in 8 bits: vLLM's <code>--kv-cache-dtype fp8</code>, llama.cpp's <code>--cache-type-k</code>/<code>--cache-type-v</code> (flags as documented; check your version). Halving the cache doubles the tokens you can hold: more concurrent users or longer contexts on the same card. Keys are reported to be more sensitive than values, and the loss shows up at long context, so evaluate with your longest realistic prompts.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Sizing on weights alone.</b> The model loads, then runs out of memory under load as the KV cache fills. Size for peak concurrency × context.</li>
+      <li><b>Calibration mismatch.</b> GPTQ or AWQ calibrated on generic web text can underperform on Kubernetes YAML and stack traces. Calibrate on your own data when you quantise yourself.</li>
+      <li><b>Kernel availability.</b> A format your hardware lacks fast kernels for (FP8 on older GPUs, some INT4 layouts) runs slowly or falls back to dequantising. Benchmark speed as well as accuracy.</li>
+      <li><b>Comparing different files.</b> "The 4-bit version" from two sources can be different methods with different losses. Record method, group size and file hash.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 45 min</h4><ol>
+    <li>Replace <code>MODELS</code> with the real <code>config.json</code> values of three sizes from your shortlist and print weights and serving memory at four precisions, for 1 and 16 concurrent 8k-token sequences.</li>
+    <li>Pick the hardware you can use (laptop, a rented GPU) and mark which combinations fit.</li>
+    <li>Run one model at two quantisation levels (for example Q8_0 and Q4_K_M via <a href="#l116">L116</a>'s <code>compare</code>) on the same 300 triage tickets.</li>
+    <li>Report accuracy per field, valid-JSON rate, the discordant tickets and a McNemar \(p\)-value, plus tokens per second for each.</li>
+  </ol>
+  <p><b>Ship:</b> a one-page precision decision ("Q5_K_M for triage on a 16 GB machine because…") backed by your own accuracy and speed numbers.</p></div>
+  <p class="refs"><b>Read</b> Frantar et al. 2022, “GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers” · Lin et al. 2023, “AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration” · Dettmers et al. 2022, “LLM.int8()” · vLLM docs, Quantization and Quantized KV cache · llama.cpp docs, <code>llama-quantize</code> · Chip Huyen, <i>AI Engineering</i>, ch. 9</p>
+</article>
+<!-- ================================================================ L118 -->
+<article class="day" id="l118">
+  <header class="day-head">
+    <span class="day-no">L118 · DAY 87</span>
+    <h2>Serving at Scale: vLLM, PagedAttention and Continuous Batching</h2>
+    <p class="day-meta"><span class="vid">55m video</span><span class="prac">60m practice</span></p>
+  </header>
+  <p class="thesis">A GPU decoding for one user spends nearly all its time reading weights to produce a single token. Serving engines earn their throughput by sharing each weight read across many sequences, which takes two ideas: schedule per token rather than per request (continuous batching), and allocate KV-cache memory in pages so many sequences fit (PagedAttention).</p>
+
+  <h3>Why naive serving wastes GPUs</h3>
+  <p>Decode is bandwidth-bound (<a href="p01.html#l8">L8</a>, <a href="#l116">L116</a>): each step reads every weight once. With \(B\) sequences in the batch, the same read yields \(B\) tokens, plus a read of each sequence's KV cache. Until the step becomes compute-bound, throughput grows almost linearly with \(B\).</p>
+  <pre><code># lab/serving_maths.py: a memory-bound model of one decode step
+def decode_step(batch, weights_GB=16.0, kv_per_seq_GB=0.27, bw_GBps=2000):
+    """Each step reads the weights once plus every running sequence's KV cache."""
+    t = (weights_GB + batch * kv_per_seq_GB) / bw_GBps          # seconds per step
+    return batch / t, 1 / t                                     # total tok/s, tok/s per user
+
+for b in (1, 8, 32, 64):
+    total, per_user = decode_step(b)
+    print(f"batch {b:3d}: {total:7.0f} tok/s total, {per_user:5.1f} tok/s per user")</code></pre>
+  <pre><code class="plain">batch   1:     123 tok/s total, 122.9 tok/s per user
+batch   8:     881 tok/s total, 110.1 tok/s per user
+batch  32:    2597 tok/s total,  81.2 tok/s per user
+batch  64:    3846 tok/s total,  60.1 tok/s per user</code></pre>
+  <p class="code-cap">8B BF16, 2k tokens of context per sequence, about 2 TB/s. 32 sequences give 21× the throughput for a third less speed per user. Compute is ignored, so very large batches are overstated.</p>
+
+  <h3>Continuous batching</h3>
+  <p><b>Static batching</b> runs \(B\) requests together and starts the next batch only when the longest finishes; since output lengths vary widely, most slots idle. <b>Continuous batching</b> (iteration-level scheduling, from Orca, Yu et al. 2022) re-forms the batch at every step.</p>
+  <div class="box algo"><span class="tag">Algorithm · Continuous batching, one engine step</span><ol>
+    <li>Remove sequences that emitted end-of-sequence or hit their token limit, and free their KV blocks.</li>
+    <li>Admit waiting requests while the sequence limit and free KV blocks allow; schedule their prefill, possibly in chunks.</li>
+    <li>Run one batched forward pass that advances every running sequence by one token.</li>
+  </ol></div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 260" role="img" aria-label="Gantt chart: four batch slots under static batching finish at step 15; under continuous batching the same eight requests finish at step 11">
+      <text x="10" y="20" class="s-ttl">static</text>
+      <text x="10" y="148" class="s-ttl">continuous</text>
+      <g class="s-sm">
+        <rect x="120" y="30" width="156" height="16" class="s-acc"/><text x="198" y="42" class="s-mid">r1</text><rect x="276" y="30" width="52" height="16" class="s-node s-dash"/>
+        <rect x="120" y="50" width="78" height="16" class="s-acc"/><text x="159" y="62" class="s-mid">r2</text><rect x="198" y="50" width="130" height="16" class="s-node s-dash"/>
+        <rect x="120" y="70" width="208" height="16" class="s-acc"/><text x="224" y="82" class="s-mid">r3</text>
+        <rect x="120" y="90" width="104" height="16" class="s-acc"/><text x="172" y="102" class="s-mid">r4</text><rect x="224" y="90" width="104" height="16" class="s-node s-dash"/>
+        <rect x="328" y="30" width="130" height="16" class="s-info"/><text x="393" y="42" class="s-mid">r5</text><rect x="458" y="30" width="52" height="16" class="s-node s-dash"/>
+        <rect x="328" y="50" width="182" height="16" class="s-info"/><text x="419" y="62" class="s-mid">r6</text>
+        <rect x="328" y="70" width="52" height="16" class="s-info"/><text x="354" y="82" class="s-mid">r7</text><rect x="380" y="70" width="130" height="16" class="s-node s-dash"/>
+        <rect x="328" y="90" width="78" height="16" class="s-info"/><text x="367" y="102" class="s-mid">r8</text><rect x="406" y="90" width="104" height="16" class="s-node s-dash"/>
+        <text x="518" y="72" class="s-bad">done at step 15</text>
+        <rect x="120" y="158" width="156" height="16" class="s-acc"/><text x="198" y="170" class="s-mid">r1</text><rect x="276" y="158" width="52" height="16" class="s-info"/><text x="302" y="170" class="s-mid">r7</text><rect x="328" y="158" width="78" height="16" class="s-info"/><text x="367" y="170" class="s-mid">r8</text>
+        <rect x="120" y="178" width="78" height="16" class="s-acc"/><text x="159" y="190" class="s-mid">r2</text><rect x="198" y="178" width="130" height="16" class="s-info"/><text x="263" y="190" class="s-mid">r5</text><rect x="328" y="178" width="78" height="16" class="s-node s-dash"/>
+        <rect x="120" y="198" width="208" height="16" class="s-acc"/><text x="224" y="210" class="s-mid">r3</text><rect x="328" y="198" width="78" height="16" class="s-node s-dash"/>
+        <rect x="120" y="218" width="104" height="16" class="s-acc"/><text x="172" y="230" class="s-mid">r4</text><rect x="224" y="218" width="182" height="16" class="s-info"/><text x="315" y="230" class="s-mid">r6</text>
+        <text x="414" y="200" class="s-acc">done at step 11</text>
+        <text x="112" y="72" class="s-ink3 s-end">4 slots</text>
+        <text x="112" y="200" class="s-ink3 s-end">4 slots</text>
+      </g>
+      <line x1="120" y1="122" x2="510" y2="122" class="s-ln-ink"/>
+      <text x="120" y="136" class="s-ink3 s-sm s-mid">0</text><text x="250" y="136" class="s-ink3 s-sm s-mid">5</text><text x="380" y="136" class="s-ink3 s-sm s-mid">10</text><text x="510" y="136" class="s-ink3 s-sm s-mid">15 steps</text>
+    </svg>
+    <figcaption><b>Eight requests, four slots.</b> Dashed boxes are idle slots. Static batching waits for the longest request in each batch: 38/60 = 63% utilisation. Continuous batching starts r5 the moment r2 ends: 38/44 = 86%.</figcaption>
+  </figure>
+  <pre><code># lab/batching_sim.py: static vs continuous batching, counted in decode steps
+import numpy as np
+rng = np.random.default_rng(1)
+lengths = np.clip(rng.lognormal(4.5, 0.8, 1024).astype(int), 5, 1000)  # output tokens per request
+SLOTS = 32
+
+def static(lengths, slots):
+    t, done = 0, []
+    for i in range(0, len(lengths), slots):
+        batch = lengths[i:i + slots]
+        done += [t + n for n in batch]                  # answers return as they finish...
+        t += batch.max()                                # ...but slots stay held until the longest ends
+    return t, done
+
+def continuous(lengths, slots):
+    free_at, done = [0] * slots, []                     # step at which each slot frees up
+    for n in lengths:                                   # FIFO: next request takes the first free slot
+        s = min(range(slots), key=free_at.__getitem__)
+        free_at[s] += n
+        done.append(free_at[s])
+    return max(free_at), done
+
+for name, fn in [("static", static), ("continuous", continuous)]:
+    steps, done = fn(lengths, SLOTS)
+    print(f"{name:10s} steps={steps:5d}  slot utilisation={lengths.sum() / (steps * SLOTS):.0%}  "
+          f"mean finish step={np.mean(done):6.0f}")</code></pre>
+  <pre><code class="plain">static     steps=16051  slot utilisation=23%  mean finish step=  7856
+continuous steps= 4289  slot utilisation=87%  mean finish step=  1850</code></pre>
+  <p class="code-cap">With long-tailed lengths, static batching idles three quarters of the slots; the continuous run loses 13% only as the backlog drains.</p>
+
+  <h3>PagedAttention and prefix caching</h3>
+  <div class="box def"><span class="tag">Definition · PagedAttention</span>
+    <p>Earlier servers reserved one contiguous KV region per request, sized for the maximum length, and most went unused. <b>PagedAttention</b> (Kwon et al. 2023, the paper behind vLLM) splits the cache into fixed-size blocks of a few tokens; each sequence has a block table mapping its positions to physical blocks, allocated only as tokens are generated. The paper reports near-zero waste, against most of the KV memory in earlier systems, and 2–4× throughput at the same latency.</p>
+  </div>
+  <p>Blocks can be <b>shared</b>: samples from one prompt share its blocks and copy on divergence. <b>Automatic prefix caching</b> hashes full prompt blocks, so a request starting with the same system prompt and few-shot examples reuses their KV and skips that prefill. It is the server-side twin of provider prompt caching (<a href="p02.html#l24">L24</a>), with the same rule: stable, byte-identical content first. SGLang's RadixAttention keeps prefixes in a radix tree for the same purpose.</p>
+
+  <h3>Tensor parallelism and serving engines</h3>
+  <p><b>Tensor parallelism</b> splits every weight matrix across \(k\) GPUs (Shoeybi et al. 2019, "Megatron-LM"): each holds and reads \(1/k\) of the weights per step, so latency falls, at the cost of an all-reduce per layer over a fast link such as NVLink. <b>Pipeline parallelism</b> puts different layers on different GPUs and tolerates slower links.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Engine</th><th>Known for</th></tr></thead>
+    <tbody>
+      <tr><td>vLLM</td><td>PagedAttention, continuous batching, prefix caching, broad model and quantisation support, an OpenAI-compatible server</td></tr>
+      <tr><td>SGLang</td><td>RadixAttention prefix sharing, fast constrained decoding, strong multi-turn and agent workloads</td></tr>
+      <tr><td>Text Generation Inference</td><td>Hugging Face's server; check its current maintenance status before adopting it</td></tr>
+      <tr><td>TensorRT-LLM</td><td>NVIDIA's compiled engines; often the fastest on NVIDIA hardware, more build and tuning work</td></tr>
+    </tbody>
+  </table></div>
+  <pre><code class="plain"># vLLM, API as documented; check `vllm serve --help` for your installed version
+vllm serve &lt;model&gt; --max-model-len 8192 --max-num-seqs 64 \
+  --gpu-memory-utilization 0.90 --enable-prefix-caching --tensor-parallel-size 1
+# OpenAI-compatible at http://localhost:8000/v1</code></pre>
+
+  <h3>Tuning, benchmarking and sizing</h3>
+  <ul>
+    <li><b>Maximum concurrent sequences</b>: more throughput, slower per user, until the KV cache runs out and sequences are pre-empted.</li>
+    <li><b>Maximum model length</b>: set it from real prompt sizes; a smaller limit fits more sequences.</li>
+    <li><b>Prefill budget per step</b> (chunked prefill): bigger chunks cut new requests' time to first token but stall running streams.</li>
+    <li><b>Client <code>max_tokens</code></b>: bounds the worst case; triage needs about 60.</li>
+  </ul>
+  <p>Benchmark with realistic traffic: lengths from DocPilot's logs (<a href="p10.html#l106">L106</a>), a warm-up, a concurrency sweep. Measure time to first token, end-to-end p95, output tokens per second and <b>goodput</b> (requests per second meeting the latency target).</p>
+  <pre><code># lab/loadtest.py
+import asyncio, statistics, time
+
+async def one_request(client, model, messages, max_tokens):
+    t0, ttft, n_out = time.perf_counter(), None, 0
+    stream = await client.chat.completions.create(
+        model=model, messages=messages, max_tokens=max_tokens, temperature=0,
+        stream=True, stream_options={"include_usage": True})
+    async for chunk in stream:
+        if ttft is None and chunk.choices and chunk.choices[0].delta.content:
+            ttft = time.perf_counter() - t0
+        if chunk.usage:                                   # final chunk carries usage
+            n_out = chunk.usage.completion_tokens
+    return {"ttft": ttft, "e2e": time.perf_counter() - t0, "out_tokens": n_out}
+
+async def sweep_point(client, model, prompts, concurrency, max_tokens=64):
+    sem = asyncio.Semaphore(concurrency)                  # closed loop: N users, back to back
+    async def user(p):
+        async with sem:
+            return await one_request(client, model, [{"role": "user", "content": p}], max_tokens)
+    t0 = time.perf_counter()
+    res = await asyncio.gather(*(user(p) for p in prompts))
+    wall = time.perf_counter() - t0
+    pct = lambda xs, p: statistics.quantiles(xs, n=100)[p - 1]
+    return {"users": concurrency, "req/s": round(len(res) / wall, 1),
+            "out_tok/s": round(sum(r["out_tokens"] for r in res) / wall),
+            "p50_ttft_ms": round(1000 * pct([r["ttft"] for r in res], 50)),
+            "p95_e2e_ms": round(1000 * pct([r["e2e"] for r in res], 95))}
+
+# Real run (needs `vllm serve` on :8000):
+#   from openai import AsyncOpenAI
+#   client = AsyncOpenAI(base_url="http://localhost:8000/v1", api_key="unused")
+#   for c in (1, 8, 32): print(asyncio.run(sweep_point(client, MODEL, ticket_prompts, c)))</code></pre>
+  <pre><code class="plain"># fake local engine, step time grows with running streams; timings vary run to run
+{'users': 1, 'req/s': 3.3, 'out_tok/s': 52, 'p50_ttft_ms': 63, 'p95_e2e_ms': 333}
+{'users': 8, 'req/s': 25.9, 'out_tok/s': 415, 'p50_ttft_ms': 63, 'p95_e2e_ms': 340}
+{'users': 32, 'req/s': 94.0, 'out_tok/s': 1504, 'p50_ttft_ms': 142, 'p95_e2e_ms': 380}</code></pre>
+  <div class="box intuition"><span class="tag">Worked example · users per GPU</span>
+    <p>Suppose at 32 concurrent streams triage p95 is 1.2 s, inside a 2 s target. Little's law (concurrency = throughput × latency) gives \(32 / 1.2 \approx 27\) requests/s. If an agent triggers one triage per 5 minutes at peak and you plan for 60% of capacity, one GPU serves \(27 \times 0.6 \times 300 \approx 4{,}800\) agents. These numbers are placeholders for your own sweep.</p>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Wrong traffic.</b> Identical short prompts hit the prefix cache and flatter the numbers. Replay real lengths and prefix overlap.</li>
+      <li><b>Pre-emption storms.</b> More sequences than the KV cache holds forces evict-and-recompute; p99 jumps. Watch pre-emption and cache-usage metrics.</li>
+      <li><b>Throughput without latency.</b> Peak tokens per second comes at a concurrency where everyone waits. Size on goodput.</li>
+      <li><b>Tensor parallelism over a slow link</b> can be slower than one GPU.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 60 min</h4><ol>
+    <li>Rent a GPU (or use a small model on your own GPU) and start <code>vllm serve</code> with your triage model, an explicit maximum model length and prefix caching on.</li>
+    <li>Build 200 prompts from real triage tickets with the production system prompt, and warm up with 20 requests.</li>
+    <li>Run <code>sweep_point</code> at 1, 8 and 32 concurrent users; add 64 if latency allows.</li>
+    <li>Plot output tokens per second and p95 latency against concurrency, and mark your latency target.</li>
+  </ol>
+  <p><b>Ship:</b> a capacity estimate (requests per second and support agents per GPU at your latency target) with the plot and the server flags used.</p></div>
+  <p class="refs"><b>Read</b> Kwon et al. 2023, “Efficient Memory Management for Large Language Model Serving with PagedAttention” · Yu et al. 2022, “Orca: A Distributed Serving System for Transformer-Based Generative Models” · Shoeybi et al. 2019, “Megatron-LM” · Zheng et al. 2024, “SGLang: Efficient Execution of Structured Language Model Programs” · vLLM docs, OpenAI-compatible server, Automatic prefix caching, Engine arguments · Chip Huyen, <i>AI Engineering</i>, ch. 9</p>
+</article>
+<!-- ================================================================ L119 -->
+<article class="day" id="l119">
+  <header class="day-head">
+    <span class="day-no">L119 · DAY 88</span>
+    <h2>Prompt, RAG or Fine-Tune? A Decision Framework</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">30m practice</span></p>
+  </header>
+  <p class="thesis">Prompting changes what the model is told, retrieval changes what it can see, and fine-tuning changes how it behaves. Choose by diagnosing your eval failures: missing knowledge is a retrieval problem, while a stable, narrow, high-volume behaviour that prompting cannot pin down is a fine-tuning problem.</p>
+
+  <h3>Three levers</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Lever</th><th>What changes</th><th>Good for</th><th>Time to change</th></tr></thead>
+    <tbody>
+      <tr><td>Prompt</td><td>instructions, examples, output schema</td><td>task definition, format, tone, routing</td><td>minutes</td></tr>
+      <tr><td>Retrieval</td><td>the context the model reads at query time</td><td>facts, freshness, citations, permissions</td><td>re-index in hours</td></tr>
+      <tr><td>Fine-tuning</td><td>the weights</td><td>consistent format and style, narrow skills, smaller and cheaper models</td><td>data plus training plus eval: days</td></tr>
+    </tbody>
+  </table></div>
+  <p>The levers compose. A fine-tuned triage model still gets a prompt, and a RAG answerer can be fine-tuned to cite better. The question is which lever fixes the failures you actually have.</p>
+
+  <h3>What fine-tuning is good and bad for</h3>
+  <p><b>Good for:</b> output format and style that must hold on every call (the triage JSON, the house answer style); narrow skills with clear labels (classifying tickets into L27's categories and severities); moving a task from a large model to a small one for cost and latency (<b>distillation</b>, <a href="#l121">L121</a>); and shortening prompts, since behaviour learned in the weights no longer needs pages of instructions and examples on every request.</p>
+  <p><b>Bad for:</b> adding fresh or changing knowledge. Fine-tuning on documents teaches the model what such text looks like more reliably than the facts in it, and facts learned this way are hard to update or attribute. Ovadia et al. (2023) found retrieval beat unsupervised fine-tuning for injecting knowledge, and Gekhman et al. (2024) found that fine-tuning on facts the model did not already know was learned slowly and increased hallucination. Kubernetes changes every release; that is a retrieval problem (<a href="p04.html#l38">Phase 4</a>).</p>
+  <div class="box note"><span class="tag">Diagnose before choosing</span>
+    <p>Label 50 failing eval cases with one cause each (<a href="p08.html#l86">L86</a>): <i>knowledge missing</i>, <i>retrieved but ignored</i>, <i>wrong format</i>, <i>wrong judgement</i>, <i>too slow or costly</i>. The first two point to retrieval and prompting. Format and judgement errors that survive good prompts and examples point to fine-tuning. Cost and latency point to a smaller model, and possibly distillation.</p>
+  </div>
+
+  <h3>The order of operations</h3>
+  <div class="box algo"><span class="tag">Algorithm · Prompt, then RAG, then fine-tune</span><ol>
+    <li>Build the eval first. Without it none of the later steps can be judged.</li>
+    <li>Write the best prompt you can, with structured outputs and a few good examples (<a href="p02.html#l17">Phase 2</a>). Try the strongest model to learn the ceiling.</li>
+    <li>If failures are about facts, add or fix retrieval. If they are about behaviour, keep improving prompts until gains stall.</li>
+    <li>Fine-tune when the remaining failures are behavioural, the task is stable, you can get hundreds to thousands of good examples, and the volume justifies a training and maintenance budget.</li>
+    <li>After SFT, consider preference tuning (<a href="#l122">L122</a>) or RL with verifiable rewards (<a href="#l123">L123</a>) only for what SFT cannot fix.</li>
+  </ol></div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 270" role="img" aria-label="Decision flow from failing eval cases through three questions to retrieval, prompting or fine-tuning">
+      <defs><marker id="ah-l119" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="20" width="130" height="44" rx="6" class="s-node"/>
+      <text x="75" y="39" class="s-ttl s-mid">failing cases</text>
+      <text x="75" y="55" class="s-ink2 s-mid s-sm">from your eval</text>
+      <rect x="190" y="20" width="220" height="44" rx="6" class="s-node"/>
+      <text x="300" y="47" class="s-mid">facts missing or stale?</text>
+      <rect x="190" y="105" width="220" height="44" rx="6" class="s-node"/>
+      <text x="300" y="132" class="s-mid">prompt + examples fix it?</text>
+      <rect x="190" y="190" width="220" height="44" rx="6" class="s-node"/>
+      <text x="300" y="217" class="s-mid">narrow, stable, high volume?</text>
+      <rect x="490" y="20" width="175" height="44" rx="6" class="s-node-mod"/>
+      <text x="577" y="47" class="s-mid">retrieval (Phases 4–5)</text>
+      <rect x="490" y="105" width="175" height="44" rx="6" class="s-node-mod"/>
+      <text x="577" y="132" class="s-mid">prompt (Phase 2)</text>
+      <rect x="490" y="190" width="175" height="44" rx="6" class="s-node-mod"/>
+      <text x="577" y="217" class="s-mid">fine-tune or distil</text>
+      <line x1="140" y1="42" x2="188" y2="42" class="s-ln" marker-end="url(#ah-l119)"/>
+      <line x1="410" y1="42" x2="488" y2="42" class="s-ln" marker-end="url(#ah-l119)"/>
+      <line x1="410" y1="127" x2="488" y2="127" class="s-ln" marker-end="url(#ah-l119)"/>
+      <line x1="410" y1="212" x2="488" y2="212" class="s-ln" marker-end="url(#ah-l119)"/>
+      <text x="449" y="35" class="s-acc s-mid s-sm">yes</text>
+      <text x="449" y="120" class="s-acc s-mid s-sm">yes</text>
+      <text x="449" y="205" class="s-acc s-mid s-sm">yes</text>
+      <line x1="300" y1="64" x2="300" y2="103" class="s-ln" marker-end="url(#ah-l119)"/>
+      <line x1="300" y1="149" x2="300" y2="188" class="s-ln" marker-end="url(#ah-l119)"/>
+      <text x="308" y="88" class="s-ink2 s-sm">no</text>
+      <text x="308" y="173" class="s-ink2 s-sm">no</text>
+      <line x1="300" y1="234" x2="300" y2="250" class="s-ln"/>
+      <text x="300" y="264" class="s-ink2 s-mid s-sm">no: bigger model, better data, or redesign the task</text>
+    </svg>
+    <figcaption><b>Diagnose, then pick the lever.</b> Most DocPilot failures stop at the first two questions. Fine-tuning is the answer to the third: a behaviour that prompting cannot make reliable, on a task stable enough to be worth training for.</figcaption>
+  </figure>
+
+  <h3>Data requirements and maintenance cost</h3>
+  <p>A narrow classification or formatting task with LoRA (<a href="#l120">L120</a>) often improves with a few hundred to a few thousand clean examples; broad skills need far more. Hosted services may accept tiny files, but a small set mostly teaches format. Plot a learning curve (train on 25%, 50% and 100% of your data): if accuracy is still rising at 100%, more data is the cheapest improvement. Hold out a test set the training data never touches (<a href="#l121">L121</a>).</p>
+  <p>The build is the cheap part. A fine-tuned model is an artefact you maintain: retrain when the label set changes (a new ticket category is a prompt edit for an API model, a retraining for yours), when the base model is superseded, or when traffic drifts. Each retrain needs the data pipeline, the eval suite and a rollout plan. If you serve the model yourself, add GPUs, on-call and upgrades (<a href="#l118">L118</a>).</p>
+  <pre><code># lab/breakeven.py: when does a fine-tuned small model pay for itself?
+def monthly_cost(requests, *, per_request=0.0, fixed=0.0):
+    return fixed + requests * per_request
+
+def breakeven(api_per_req, own_per_req, own_fixed_month, build_cost, months=12):
+    """Requests/month above which owning the model is cheaper, amortising the build over `months`."""
+    return (own_fixed_month + build_cost / months) / (api_per_req - own_per_req)
+
+# PLACEHOLDER costs in arbitrary units: replace with current price pages and your own quotes
+api = 1.0           # API cost per triage request
+own = 0.1           # self-hosted marginal cost per request
+fixed = 20_000      # serving fixed cost per month (GPU reservation, on-call share)
+build = 60_000      # data, training runs, evals, engineering time
+print(f"break-even ~ {breakeven(api, own, fixed, build):,.0f} requests/month")
+for vol in (10_000, 50_000, 200_000):
+    a, o = monthly_cost(vol, per_request=api), monthly_cost(vol, per_request=own, fixed=fixed + build / 12)
+    print(f"{vol:>8,} req/month: API {a:>9,.0f}  own {o:>9,.0f}  -&gt; {'own' if o &lt; a else 'API'}")</code></pre>
+  <pre><code class="plain">break-even ~ 27,778 requests/month
+  10,000 req/month: API    10,000  own    26,000  -&gt; API
+  50,000 req/month: API    50,000  own    30,000  -&gt; own
+ 200,000 req/month: API   200,000  own    45,000  -&gt; own</code></pre>
+  <p class="code-cap">The shape matters more than the placeholder numbers: owning a model is a fixed cost, so it only wins above a volume threshold. Serving a fine-tuned model through a per-token provider removes most of the fixed cost and moves the threshold down. Feed in real numbers from <a href="p10.html#l109">L109</a>'s cost model.</p>
+
+  <h3>Hosted fine-tuning or training it yourself</h3>
+  <p><b>Hosted fine-tuning</b> (model providers and open-model inference platforms): upload chat-format JSONL, get back a model ID. It needs no infrastructure and often adds no fixed serving cost. But only some models and methods are offered (check which support supervised, preference or reinforcement fine-tuning), the weights stay with the provider, and your training data goes to them under their terms. <b>Training yourself</b> on open weights with Hugging Face PEFT and TRL, Unsloth or Axolotl gives full control, portable weights and any serving stack. You own the GPUs, the bugs and the upgrades. For DocPilot the rest of this phase trains on open weights, because seeing the mechanism is the point; in production, try the hosted route first if your data terms allow it.</p>
+  <div class="box intuition"><span class="tag">Worked example · three DocPilot capabilities</span>
+    <ul>
+      <li><b>Answering documentation questions:</b> failures are mostly missing or stale facts. Decision: retrieval and prompts. Do not fine-tune; the docs change every release.</li>
+      <li><b>Answer style</b> (concise, cites every claim, asks one clarifying question when the request is ambiguous): prompting gets most of the way. Revisit with preference tuning only if a judge shows a persistent gap (<a href="#l122">L122</a>).</li>
+      <li><b>Ticket triage:</b> stable labels, strict JSON, high volume, and an API model that already does it well, so there is a teacher. Decision: distil into a small open model. This is the target for <a href="#l120">L120</a>–<a href="#l124">L124</a>.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Fine-tuning to fix retrieval.</b> The model learns to state facts confidently and goes stale with the next release.</li>
+      <li><b>No baseline.</b> Without a strong-prompt baseline on the same eval you cannot tell whether training helped.</li>
+      <li><b>Orphaned models.</b> Nobody owns retraining, the label set changes, and the fine-tune quietly degrades. Give every model an owner, an eval and a retrain trigger.</li>
+      <li><b>Data terms.</b> Training on provider outputs or customer tickets may be restricted by contract or policy (<a href="#l121">L121</a>, <a href="p09.html#l101">L101</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 30 min</h4><ol>
+    <li>For answering, style and triage, pull 20 recent eval failures each and label every failure with one cause from the diagnosis list.</li>
+    <li>Write a one-page memo per capability: the failure breakdown, the lever chosen, the data you would need, and the maintenance owner.</li>
+    <li>Fill in <code>breakeven</code> with real prices and your expected triage volume for the fine-tuning candidate.</li>
+  </ol>
+  <p><b>Ship:</b> <code>docs/decisions/fine-tuning-target.md</code>, naming triage (or another capability, if your data says so) as the fine-tuning target, with the reasons.</p></div>
+  <p class="refs"><b>Read</b> Chip Huyen, <i>AI Engineering</i>, ch. 7 · Ovadia et al. 2023, “Fine-Tuning or Retrieval? Comparing Knowledge Injection in LLMs” · Gekhman et al. 2024, “Does Fine-Tuning LLMs on New Knowledge Encourage Hallucinations?” · Alammar &amp; Grootendorst, <i>Hands-On Large Language Models</i>, ch. 12 · the fine-tuning guide of whichever provider you use</p>
+</article>
+<!-- ================================================================ L120 -->
+<article class="day" id="l120">
+  <header class="day-head">
+    <span class="day-no">L120 · DAY 88</span>
+    <h2>Fine-Tuning With LoRA and QLoRA</h2>
+    <p class="day-meta"><span class="vid">55m video</span><span class="prac">75m practice</span></p>
+  </header>
+  <p class="thesis">LoRA freezes the base model and learns a low-rank correction to selected weight matrices, so you train well under 1% of the parameters. QLoRA also stores the frozen base in 4 bits. Together they make fine-tuning a small model a single-GPU job, and they leave behind an adapter you can merge into the base or serve on its own.</p>
+
+  <h3>Full fine-tuning vs parameter-efficient fine-tuning</h3>
+  <p>Full fine-tuning updates every weight. With mixed-precision Adam that costs about 16 bytes per parameter (BF16 weights and gradients, FP32 master weights and two FP32 optimiser moments) before activations, and every run produces a full copy of the model. <b>Parameter-efficient fine-tuning</b> (PEFT) trains a small set of new parameters and leaves the base untouched. LoRA is the dominant method because, once merged, it adds no inference latency.</p>
+  <div class="box def"><span class="tag">Definition · LoRA (Hu et al. 2021)</span>
+    <p>For a frozen weight \(W_0 \in \R^{d \times k}\), learn \(B \in \R^{d \times r}\) and \(A \in \R^{r \times k}\) with rank \(r \ll \min(d, k)\):</p>
+    $$h = W_0 x + \frac{\alpha}{r}\, B A x.$$
+    <p>\(A\) starts random and \(B\) starts at zero, so training begins exactly at the base model. \(\alpha\) sets the update's scale independently of \(r\). The layer gains \(r(d + k)\) trainable parameters instead of \(dk\). <b>Target modules</b> are the matrices that receive adapters: the original paper used the attention query and value projections; QLoRA found that adapting all linear layers was needed to match full fine-tuning.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 250" role="img" aria-label="LoRA: input x goes through the frozen weight W0 and in parallel through trainable A then B, scaled by alpha over r, and the two are added">
+      <defs><marker id="ah-l120" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="105" width="70" height="40" rx="6" class="s-node"/>
+      <text x="55" y="130" class="s-ttl s-mid">x (k)</text>
+      <rect x="190" y="25" width="200" height="80" rx="6" class="s-node"/>
+      <text x="290" y="60" class="s-ttl s-mid">W₀  (d × k)</text>
+      <text x="290" y="82" class="s-ink2 s-mid s-sm">frozen; 4-bit NF4 in QLoRA</text>
+      <rect x="180" y="160" width="90" height="50" rx="6" class="s-node-mod"/>
+      <text x="225" y="182" class="s-ttl s-mid">A</text>
+      <text x="225" y="199" class="s-ink2 s-mid s-sm">r × k</text>
+      <rect x="310" y="160" width="90" height="50" rx="6" class="s-node-mod"/>
+      <text x="355" y="182" class="s-ttl s-mid">B</text>
+      <text x="355" y="199" class="s-ink2 s-mid s-sm">d × r</text>
+      <circle cx="475" cy="125" r="16" class="s-node"/>
+      <text x="475" y="130" class="s-ttl s-mid">+</text>
+      <rect x="545" y="105" width="80" height="40" rx="6" class="s-node"/>
+      <text x="585" y="130" class="s-ttl s-mid">h (d)</text>
+      <path d="M90,118 C140,100 150,70 188,66" class="s-ln" marker-end="url(#ah-l120)"/>
+      <path d="M90,132 C140,150 150,185 178,185" class="s-ln" marker-end="url(#ah-l120)"/>
+      <line x1="270" y1="185" x2="308" y2="185" class="s-ln" marker-end="url(#ah-l120)"/>
+      <path d="M400,185 C440,185 460,160 468,141" class="s-ln" marker-end="url(#ah-l120)"/>
+      <path d="M390,66 C440,66 460,92 468,110" class="s-ln" marker-end="url(#ah-l120)"/>
+      <line x1="491" y1="125" x2="543" y2="125" class="s-ln" marker-end="url(#ah-l120)"/>
+      <text x="452" y="196" class="s-acc s-sm">× α/r</text>
+      <text x="225" y="232" class="s-ink3 s-mid s-sm">A random at init</text>
+      <text x="355" y="232" class="s-ink3 s-mid s-sm">B = 0 at init</text>
+      <text x="290" y="150" class="s-acc s-mid s-sm">trainable: r(d + k)</text>
+    </svg>
+    <figcaption><b>A side path through a rank-r bottleneck.</b> Only A and B get gradients. After training, \(W_0 + \tfrac{\alpha}{r}BA\) can be folded into a single matrix (merged) or kept separate as a small adapter file.</figcaption>
+  </figure>
+
+  <h3>LoRA in NumPy, and the parameter count</h3>
+  <pre><code># lab/lora_numpy.py: a LoRA linear layer, trained and merged
+import numpy as np
+rng = np.random.default_rng(0)
+
+class LoRALinear:
+    def __init__(self, W0, r, alpha):
+        d, k = W0.shape
+        self.W0 = W0                                           # (d, k), frozen
+        self.A = rng.normal(0, 1 / np.sqrt(k), (r, k))         # random
+        self.B = np.zeros((d, r))                              # zero: no change at start
+        self.s = alpha / r
+    def __call__(self, x):                                     # x: (n, k)
+        return x @ self.W0.T + self.s * (x @ self.A.T) @ self.B.T
+    def merged(self):
+        return self.W0 + self.s * self.B @ self.A
+
+d, k = 64, 48
+W0, x = rng.normal(0, 0.1, (d, k)), rng.normal(size=(256, k))
+dW = rng.normal(0, 0.3, (d, 2)) @ rng.normal(0, 0.3, (2, k))   # a rank-2 "task" update
+y = x @ (W0 + dW).T
+
+for r in (1, 4):
+    lora = LoRALinear(W0, r, alpha=2 * r)
+    assert np.allclose(lora(x), x @ W0.T)                      # identical to the base at init
+    for step in range(301):
+        err = lora(x) - y                                      # grad of 0.5*MSE w.r.t. output
+        gB = lora.s * err.T @ (x @ lora.A.T) / len(x)
+        gA = lora.s * (err @ lora.B).T @ x / len(x)
+        lora.B -= 0.05 * gB
+        lora.A -= 0.05 * gA
+    print(f"r={r}: trainable {lora.A.size + lora.B.size} = r(d+k) vs {W0.size} full; "
+          f"final mse {np.mean(err ** 2):.1e}; merged == adapter: {np.allclose(x @ lora.merged().T, lora(x))}")</code></pre>
+  <pre><code class="plain">r=1: trainable 112 = r(d+k) vs 3072 full; final mse 3.8e-01; merged == adapter: True
+r=4: trainable 448 = r(d+k) vs 3072 full; final mse 1.4e-31; merged == adapter: True</code></pre>
+  <p class="code-cap">A rank-1 adapter cannot represent a rank-2 change; rank 4 recovers it exactly. The bet behind LoRA is that the change a narrow task needs is low-rank.</p>
+  <pre><code># lab/lora_count.py: the 8B configuration from L115
+cfg = {"hidden_size": 4096, "intermediate_size": 14336, "num_hidden_layers": 32,
+       "num_attention_heads": 32, "num_key_value_heads": 8}
+N = 8.03e9
+
+def lora_params(cfg, r, targets):
+    d, ff, L = cfg["hidden_size"], cfg["intermediate_size"], cfg["num_hidden_layers"]
+    kv = cfg["num_key_value_heads"] * d // cfg["num_attention_heads"]
+    shapes = {"q": (d, d), "k": (kv, d), "v": (kv, d), "o": (d, d),
+              "gate": (ff, d), "up": (ff, d), "down": (d, ff)}         # (out, in) of each linear
+    return L * sum(r * (o + i) for t, (o, i) in shapes.items() if t in targets)
+
+for r, t in [(16, "q v".split()), (16, "q k v o gate up down".split()), (64, "q k v o gate up down".split())]:
+    p = lora_params(cfg, r, t)
+    print(f"r={r:2d} {'+'.join(t):22s} {p/1e6:6.1f}M trainable = {100*p/N:.2f}% of the model")
+p = lora_params(cfg, 16, "q k v o gate up down".split())
+print(f"full FT, mixed-precision Adam (~16 B/param): {16*N/1e9:5.0f} GB + activations")
+print(f"LoRA, BF16 frozen base:                      {2*N/1e9 + 16*p/1e9:5.1f} GB + activations")
+print(f"QLoRA, NF4 base (~4.13 bits incl. constants): {4.13/8*N/1e9 + 16*p/1e9:5.1f} GB + activations")</code></pre>
+  <pre><code class="plain">r=16 q+v                       6.8M trainable = 0.08% of the model
+r=16 q+k+v+o+gate+up+down     41.9M trainable = 0.52% of the model
+r=64 q+k+v+o+gate+up+down    167.8M trainable = 2.09% of the model
+full FT, mixed-precision Adam (~16 B/param):   128 GB + activations
+LoRA, BF16 frozen base:                       16.7 GB + activations
+QLoRA, NF4 base (~4.13 bits incl. constants):   4.8 GB + activations</code></pre>
+
+  <h3>QLoRA</h3>
+  <p>QLoRA (Dettmers et al. 2023) keeps the frozen base in 4 bits and backpropagates through it into BF16 LoRA adapters. It introduced three pieces: <b>NF4</b>, a 4-bit NormalFloat data type whose levels suit normally distributed weights; <b>double quantisation</b>, which quantises the per-block scales themselves, saving about 0.37 bits per parameter; and <b>paged optimisers</b>, which page optimiser state between GPU and CPU memory to survive memory spikes. Weights are dequantised to the compute dtype for each matmul, so QLoRA is somewhat slower per step than LoRA on a BF16 base, in exchange for about a quarter of the memory. An 8B model fits on a 16 GB GPU at modest sequence lengths. Older free-tier GPUs such as the T4 lack fast BF16, so use FP16 compute there.</p>
+  <pre><code># train/qlora_triage.py
+# transformers + peft + trl + bitsandbytes + datasets: API as documented; check your installed version
+import torch
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from trl import SFTConfig, SFTTrainer
+
+BASE = "org/small-instruct-model"              # from your L115 shortlist; pin a revision
+bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                         bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)
+model = AutoModelForCausalLM.from_pretrained(BASE, quantization_config=bnb, device_map="auto")
+model = prepare_model_for_kbit_training(model)
+lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, task_type="CAUSAL_LM",
+                  target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"])
+model = get_peft_model(model, lora)
+model.print_trainable_parameters()
+
+# rows: {"messages": [system, user (ticket), assistant (triage JSON)]}
+data = load_dataset("json", data_files={"train": "data/triage_train.jsonl", "dev": "data/triage_dev.jsonl"})
+args = SFTConfig(output_dir="runs/triage-qlora", num_train_epochs=2, learning_rate=2e-4,
+                 per_device_train_batch_size=4, gradient_accumulation_steps=4,
+                 lr_scheduler_type="cosine", logging_steps=10, bf16=True)
+trainer = SFTTrainer(model=model, args=args, train_dataset=data["train"], eval_dataset=data["dev"])
+trainer.train()
+model.save_pretrained("adapters/triage-v1")    # adapter weights only: tens of MB</code></pre>
+
+  <h3>Chat templates and loss masking</h3>
+  <p>An instruct model was trained on one exact chat template (<a href="#l115">L115</a>). Format training rows with the tokenizer's own template (<code>tokenizer.apply_chat_template</code>), and serve with the same one. Then compute the loss only on assistant tokens: set the labels of system, user and template tokens to −100, which PyTorch's cross-entropy ignores. Without masking, a triage row with a 600-token prompt and a 30-token answer spends \(600/630 \approx 95\%\) of its loss terms teaching the model to reproduce tickets and the system prompt. TRL can mask prompt and template tokens for conversational datasets, but the option's name has changed between versions, so check your version's SFTTrainer docs and verify by decoding the unmasked tokens of one batch.</p>
+
+  <h3>Hyperparameters, overfitting, merging and tools</h3>
+  <div class="box note"><span class="tag">Starting points, not rules</span>
+    <ul>
+      <li><b>Learning rate:</b> around \(10^{-4}\) to \(2 \times 10^{-4}\) for LoRA, roughly ten times what full fine-tuning uses; cosine or linear decay with a short warm-up.</li>
+      <li><b>Epochs:</b> 1–3 for 1,000 examples. More epochs on small data is the usual cause of overfitting.</li>
+      <li><b>Batch:</b> an effective batch of 16–32 through gradient accumulation.</li>
+      <li><b>Rank and alpha:</b> \(r = 16\), \(\alpha = 2r\), all linear layers; raise \(r\) only if a learning curve says capacity is the limit.</li>
+      <li><b>Select checkpoints by dev-set triage accuracy</b>, not by loss.</li>
+    </ul>
+  </div>
+  <p><b>Signs of overfitting:</b> training loss near zero while dev loss rises; dev accuracy peaks and then falls; predictions collapse towards the most common label; and general instruction-following degrades. Check that last one with 20 unrelated prompts before and after training. Fixes: fewer epochs, a lower learning rate, more varied data (<a href="#l121">L121</a>).</p>
+  <p><b>Merging vs serving separately.</b> To merge, load the base in BF16 (not 4-bit), apply the adapter, call PEFT's <code>merge_and_unload()</code>, save the result, then quantise it for serving (<a href="#l117">L117</a>). A merged model is one ordinary checkpoint at the base model's speed. Keeping the adapter separate lets one base serve many adapters: vLLM can load LoRA adapters per request, for example one adapter per task or per tenant. <b>Tools:</b> Hugging Face PEFT (adapters) and TRL (SFT, DPO and GRPO trainers); Unsloth (memory- and speed-optimised single-GPU LoRA and QLoRA); Axolotl (YAML-configured training recipes over the same libraries).</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Template mismatch.</b> Trained with one chat template, served with another: accuracy drops with no error. Run the eval through the serving stack, not the training notebook.</li>
+      <li><b>Unmasked prompts.</b> The model learns to write tickets. Decode one batch's labels to confirm only the answer is trained.</li>
+      <li><b>Merging into the quantised base.</b> Merging into 4-bit weights loses precision; merge in BF16 and re-quantise.</li>
+      <li><b>Leakage.</b> Dev tickets that are near-duplicates of training tickets inflate scores (<a href="#l121">L121</a> deduplicates).</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 75 min</h4><ol>
+    <li>Export 1,000 labelled triage tickets from L27 as chat-format JSONL (system, user = ticket, assistant = the triage JSON), with a separate 200-ticket dev set and the existing test set untouched.</li>
+    <li>Run <code>qlora_triage.py</code> on a free or rented GPU with your shortlisted small model; log training and dev loss.</li>
+    <li>Decode one batch to confirm the loss mask; pick the checkpoint with the best dev accuracy.</li>
+    <li>Evaluate base model, fine-tuned adapter and API model on the test set with <a href="#l116">L116</a>'s <code>compare</code>: per-field accuracy, valid-JSON rate, latency.</li>
+  </ol>
+  <p><b>Ship:</b> <code>adapters/triage-v1</code> plus an eval table comparing base, fine-tuned and API models on the same test set.</p></div>
+  <p class="refs"><b>Read</b> Hu et al. 2021, “LoRA: Low-Rank Adaptation of Large Language Models” · Dettmers et al. 2023, “QLoRA: Efficient Finetuning of Quantized LLMs” · Hugging Face docs, PEFT (LoRA, merging) and TRL (SFTTrainer) · Unsloth and Axolotl documentation · Chip Huyen, <i>AI Engineering</i>, ch. 7</p>
+</article>
+<!-- ================================================================ L121 -->
+<article class="day" id="l121">
+  <header class="day-head">
+    <span class="day-no">L121 · DAY 89</span>
+    <h2>Data for Fine-Tuning: Curation, Synthetic Data and Distillation</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+  <p class="thesis">A fine-tuned model is a compressed copy of its training data, mistakes included. Distilling from a stronger model gives you volume; diversity by design, filtering, deduplication and a protected test set turn that volume into data worth training on.</p>
+
+  <h3>Quality over quantity</h3>
+  <p>Zhou et al. (2023, "LIMA") fine-tuned a strong base model on 1,000 carefully curated examples and reported results competitive with models trained on far larger instruction sets. The general lesson holds for narrow tasks too: every wrong label is a lesson in being wrong, and inconsistent labels (the same kind of ticket marked "high" in one row and "critical" in another) teach the model to guess. For triage, label noise puts a ceiling on accuracy. 1,000 consistent examples beat 5,000 noisy ones, and a learning curve on clean data (<a href="#l119">L119</a>) tells you whether more would help.</p>
+  <div class="box def"><span class="tag">Definition</span>
+    <p><b>Distillation</b> trains a small <i>student</i> to imitate a larger <i>teacher</i>. Classic distillation matches the teacher's output probabilities (Hinton et al. 2015). Through an API you usually get only text, so you do <b>sequence-level distillation</b>: the teacher writes the targets (here, triage labels and sometimes the tickets too), and the student is fine-tuned on them with ordinary SFT.</p>
+  </div>
+
+  <h3>Synthetic data from a stronger model</h3>
+  <p>Real tickets are the best inputs if your privacy rules allow training on them (<a href="p09.html#l101">L101</a>): scrub PII and keep their natural messiness. Synthetic tickets fill gaps such as rare categories, critical severities and unusual writing styles. Diversity must be designed in. Asking one prompt for 3,000 tickets returns 3,000 variations on the model's favourite ticket, and current Claude models have no temperature setting to turn up anyway. So vary the <em>specification</em>: a grid over category, severity, persona and channel, as in <a href="p02.html#l27">L27</a> and <a href="p08.html#l87">L87</a>, with the generated ticket labelled independently afterwards.</p>
+  <pre><code># docpilot/data/distil.py
+import itertools, json, random
+from docpilot.llm import chat, text_of, MODEL, LARGE
+from docpilot.triage import CATEGORIES, SEVERITIES, TRIAGE_SYSTEM, TRIAGE_SCHEMA   # L27
+
+PERSONAS = ["new user", "platform engineer", "frustrated customer", "non-native English speaker"]
+CHANNELS = ["email", "chat", "web form"]
+GEN = ("Write one realistic support ticket from a {persona} via {channel}: a {category} problem "
+       "of {severity} severity on Kubernetes. Concrete details, no names or emails. Ticket text only.")
+JUDGE = ("Ticket:\n{ticket}\n\nLabel: {label}\n\nScore 1-5: is this a realistic ticket and is the label "
+         'correct under the triage guide? Reply as JSON {{"score": n, "reason": "..."}}.')
+
+def specs(n: int, seed: int = 0) -&gt; list[dict]:
+    grid = list(itertools.product(CATEGORIES, SEVERITIES, PERSONAS, CHANNELS))   # coverage by design
+    random.Random(seed).shuffle(grid)
+    keys = ("category", "severity", "persona", "channel")
+    return [dict(zip(keys, g)) for g in itertools.islice(itertools.cycle(grid), n)]
+
+def distil_one(spec: dict, *, teacher=LARGE, judge=MODEL, min_score=4) -&gt; tuple[dict | None, str]:
+    ticket = text_of(chat([{"role": "user", "content": GEN.format(**spec)}], model=teacher, max_tokens=400))
+    fmt = {"format": {"type": "json_schema", "schema": TRIAGE_SCHEMA}}
+    label = json.loads(text_of(chat([{"role": "user", "content": ticket}], system=TRIAGE_SYSTEM,
+                                    model=teacher, max_tokens=300, output_config=fmt)))
+    if (label["category"], label["severity"]) != (spec["category"], spec["severity"]):
+        return None, "teacher_disagrees"                      # ambiguous ticket or wrong label
+    verdict = json.loads(text_of(chat([{"role": "user", "content": JUDGE.format(ticket=ticket, label=label)}],
+                                      model=judge, max_tokens=200)))
+    if verdict["score"] &lt; min_score:
+        return None, "judge_rejects"
+    return {"text": ticket, **label, "messages": [
+        {"role": "system", "content": TRIAGE_SYSTEM}, {"role": "user", "content": ticket},
+        {"role": "assistant", "content": json.dumps(label)}]}, "ok"</code></pre>
+  <p class="code-cap">Tested with a fake <code>chat</code> returning locally built <code>anthropic.types.Message</code> objects: three specs gave <code>ok</code>, <code>teacher_disagrees</code> and <code>judge_rejects</code>. With 8 categories the grid has 384 cells, so 3,000 specs cover each cell about eight times. Run the real thing through Message Batches (<a href="p10.html#l109">L109</a>).</p>
+  <div class="box note"><span class="tag">Terms that govern distillation</span>
+    <p>Model providers' terms of service, and some open-model licences, restrict using outputs to develop competing models; some licences instead attach naming or attribution conditions to models trained on their outputs (<a href="#l115">L115</a>). Whether an internal triage classifier counts is a question for whoever owns your contracts, and the answer depends on the current terms. Record which teacher model and which terms version produced each dataset.</p>
+  </div>
+
+  <h3>Filtering: agreement and judges</h3>
+  <p>The pipeline has three filters. <b>Schema validity</b> comes free from structured outputs. <b>Agreement</b>: the ticket was written to be "storage / medium", so if the teacher, labelling it cold, says something else, the ticket is ambiguous or off-spec; drop it rather than guess. A <b>judge</b>, a different model from the teacher to reduce self-preference (<a href="p08.html#l89">L89</a>), scores realism and label correctness against the triage guide. Calibrate the judge's threshold on about 100 human-labelled rows before trusting it (<a href="p08.html#l90">L90</a>). Read 30 rejected rows per run as well: a filter that rejects every critical ticket would quietly skew your label mix.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 650 240" role="img" aria-label="Distillation pipeline: spec grid, teacher writes and labels a ticket, agreement filter, judge, deduplication and decontamination, versioned dataset, training">
+      <defs><marker id="ah-l121" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="30" width="135" height="46" rx="6" class="s-node"/>
+      <text x="77" y="49" class="s-ttl s-mid">spec grid</text><text x="77" y="66" class="s-ink2 s-mid s-sm">coverage by design</text>
+      <rect x="175" y="30" width="135" height="46" rx="6" class="s-node"/>
+      <text x="242" y="49" class="s-ttl s-mid">teacher writes</text><text x="242" y="66" class="s-ink2 s-mid s-sm">the ticket</text>
+      <rect x="340" y="30" width="135" height="46" rx="6" class="s-node"/>
+      <text x="407" y="49" class="s-ttl s-mid">teacher labels</text><text x="407" y="66" class="s-ink2 s-mid s-sm">JSON schema</text>
+      <rect x="505" y="30" width="135" height="46" rx="6" class="s-node-mod"/>
+      <text x="572" y="49" class="s-ttl s-mid">label = spec?</text><text x="572" y="66" class="s-ink2 s-mid s-sm">agreement</text>
+      <rect x="505" y="150" width="135" height="46" rx="6" class="s-node-mod"/>
+      <text x="572" y="169" class="s-ttl s-mid">judge ≥ 4</text><text x="572" y="186" class="s-ink2 s-mid s-sm">different model</text>
+      <rect x="340" y="150" width="135" height="46" rx="6" class="s-node-mod"/>
+      <text x="407" y="169" class="s-ttl s-mid">dedup</text><text x="407" y="186" class="s-ink2 s-mid s-sm">+ decontaminate</text>
+      <rect x="175" y="150" width="135" height="46" rx="6" class="s-node"/>
+      <text x="242" y="169" class="s-ttl s-mid">versioned JSONL</text><text x="242" y="186" class="s-ink2 s-mid s-sm">+ manifest</text>
+      <rect x="10" y="150" width="135" height="46" rx="6" class="s-node"/>
+      <text x="77" y="169" class="s-ttl s-mid">train</text><text x="77" y="186" class="s-ink2 s-mid s-sm">QLoRA, L120</text>
+      <line x1="145" y1="53" x2="173" y2="53" class="s-ln" marker-end="url(#ah-l121)"/>
+      <line x1="310" y1="53" x2="338" y2="53" class="s-ln" marker-end="url(#ah-l121)"/>
+      <line x1="475" y1="53" x2="503" y2="53" class="s-ln" marker-end="url(#ah-l121)"/>
+      <line x1="572" y1="76" x2="572" y2="148" class="s-ln" marker-end="url(#ah-l121)"/>
+      <line x1="505" y1="173" x2="477" y2="173" class="s-ln" marker-end="url(#ah-l121)"/>
+      <line x1="340" y1="173" x2="312" y2="173" class="s-ln" marker-end="url(#ah-l121)"/>
+      <line x1="175" y1="173" x2="147" y2="173" class="s-ln" marker-end="url(#ah-l121)"/>
+      <text x="580" y="112" class="s-bad s-sm">✗ drop</text>
+      <text x="572" y="215" class="s-bad s-mid s-sm">✗ score &lt; 4</text>
+      <text x="407" y="215" class="s-bad s-mid s-sm">✗ duplicate or leak</text>
+    </svg>
+    <figcaption><b>Every stage removes rows.</b> Generate more specs than you need (about 30% extra is a reasonable start) and log the drop count per stage. A sudden change in one stage's rate usually means a prompt or model change upstream.</figcaption>
+  </figure>
+
+  <h3>Deduplication, decontamination and diversity</h3>
+  <p>Duplicates over-weight some examples, and near-duplicates of test tickets inflate scores without improving the model: <b>contamination</b>, the same problem public benchmarks have (<a href="p08.html#l92">L92</a>). Remove exact duplicates after normalisation, near-duplicates by n-gram overlap (or embeddings, <a href="p03.html#l28">Phase 3</a>), and anything close to the dev or test sets.</p>
+  <pre><code># docpilot/data/curate.py
+import hashlib, json, re
+from collections import Counter
+
+def norm(text: str) -&gt; str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", text.lower())).strip()
+
+def shingles(text: str, n: int = 3) -&gt; set[tuple]:
+    w = norm(text).split()
+    return {tuple(w[i:i + n]) for i in range(max(1, len(w) - n + 1))}
+
+def jaccard(a: set, b: set) -&gt; float:
+    return len(a &amp; b) / len(a | b) if a | b else 1.0
+
+def curate(train: list[dict], held_out: list[dict], near: float = 0.6) -&gt; tuple[list[dict], Counter]:
+    """Drop exact and near duplicates within train, and anything close to a held-out ticket."""
+    held = [shingles(r["text"]) for r in held_out]
+    kept, kept_sh, seen, why = [], [], set(), Counter()
+    for r in train:
+        h = hashlib.sha256(norm(r["text"]).encode()).hexdigest()
+        sh = shingles(r["text"])
+        if h in seen:
+            why["exact_dup"] += 1
+        elif any(jaccard(sh, e) &gt;= near for e in held):
+            why["contaminated"] += 1                      # O(n*m); use MinHash LSH at scale
+        elif any(jaccard(sh, k) &gt;= near for k in kept_sh):
+            why["near_dup"] += 1
+        else:
+            seen.add(h); kept.append(r); kept_sh.append(sh)
+    return kept, why
+
+def write_versioned(rows: list[dict], path: str, **provenance) -&gt; dict:
+    blob = "".join(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n" for r in rows)
+    manifest = {"rows": len(rows), "sha256": hashlib.sha256(blob.encode()).hexdigest()[:16],
+                "labels": Counter(f'{r["category"]}/{r["severity"]}' for r in rows).most_common(3),
+                **provenance}
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(blob)
+    with open(path + ".manifest.json", "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    return manifest</code></pre>
+  <pre><code class="plain"># five toy rows: a case/punctuation duplicate, a near duplicate, a near-copy of a held-out ticket
+2 kept; {'exact_dup': 1, 'near_dup': 1, 'contaminated': 1}
+{'rows': 2, 'sha256': '892a5b9c40190f0d', 'labels': [('storage/medium', 1), ('billing/low', 1)],
+ 'teacher': 'claude-opus-5-5', 'prompt': 'triage_gen.v3', 'judge_min': 4}</code></pre>
+  <p>Then check <b>diversity</b>: the label distribution against production traffic (deliberately oversample rare classes, but know by how much), the spread of ticket lengths, and a distinct-n-gram ratio across tickets. A dataset where 40% of tickets start "Hi team, we are seeing…" teaches the student a writing style, not triage.</p>
+
+  <h3>Formatting, held-out sets and versioning</h3>
+  <ul>
+    <li><b>Format</b> each row as the exact conversation the model will see in production: the same system prompt (or a deliberately shortened one, used in serving too), the user turn, and the assistant's JSON. Loss goes on the assistant turn only (<a href="#l120">L120</a>).</li>
+    <li><b>Hold out</b> the test set first and never regenerate it from the same pipeline. Prefer real tickets for test, split by time, so the eval measures the traffic you will serve rather than your generator's habits.</li>
+    <li><b>Version</b> every dataset like code: a content hash, the generator and judge prompt versions (<a href="p02.html#l21">L21</a>), the teacher model ID, the filter thresholds and the per-stage counts, all in a manifest committed beside the file or tracked with DVC or a Hub dataset revision. A model card should name the exact dataset hash it was trained on.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Synthetic-only test sets.</b> The student learns the teacher's ticket style and aces a test set written in the same style. Test on real tickets.</li>
+      <li><b>Copying the teacher's mistakes.</b> Distillation can at best match the teacher, and the agreement filter cannot catch errors the teacher makes consistently. Spot-check against human labels.</li>
+      <li><b>Mode collapse.</b> Without the spec grid, generated tickets cluster around a few templates, and the student fails on anything else.</li>
+      <li><b>Untraceable data.</b> Six months later nobody knows which prompt or teacher made <code>train_final2.jsonl</code>. The manifest is the fix.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 60 min</h4><ol>
+    <li>Generate about 4,000 specs and run <code>distil_one</code> over them with the large model as teacher (batch API), logging the drop reason for each row.</li>
+    <li>Calibrate the judge threshold on 100 rows you label yourself; re-filter if the agreement with your labels is poor.</li>
+    <li>Run <code>curate</code> against the dev and test sets, cap the result at 3,000 rows, and write it with <code>write_versioned</code>.</li>
+    <li>Retrain the <a href="#l120">L120</a> QLoRA recipe on the new set with identical hyperparameters, and compare test accuracy with the first adapter.</li>
+  </ol>
+  <p><b>Ship:</b> a reproducible data pipeline and manifest whose dataset beats L120's on the same real-ticket test set.</p></div>
+  <p class="refs"><b>Read</b> Zhou et al. 2023, “LIMA: Less Is More for Alignment” · Hinton, Vinyals &amp; Dean 2015, “Distilling the Knowledge in a Neural Network” · Kim &amp; Rush 2016, “Sequence-Level Knowledge Distillation” · Wang et al. 2023, “Self-Instruct” · Chip Huyen, <i>AI Engineering</i>, ch. 8 · your model provider's terms of service, section on use of outputs</p>
+</article>
+<!-- ================================================================ L122 -->
+<article class="day" id="l122">
+  <header class="day-head">
+    <span class="day-no">L122 · DAY 90</span>
+    <h2>Preference Tuning: DPO and Its Relatives</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+  <p class="thesis">Supervised fine-tuning teaches "say this"; preference tuning teaches "this rather than that". DPO does it without a reward model or reinforcement learning, as a classification loss on pairs of answers, and like every optimiser of a proxy it will exploit whatever your preferences fail to pin down.</p>
+
+  <h3>Why SFT cannot teach better vs worse</h3>
+  <p>SFT maximises the likelihood of one reference answer. It never sees a bad answer, so it cannot learn what to avoid, and it cannot express that two acceptable answers differ in quality. Many style goals are comparative: "more concise, but not at the cost of the citation", "asks a clarifying question only when the request really is ambiguous". It is easier, for people and for judges, to say which of two answers is better than to write the perfect one. That comparison is a <b>preference pair</b>: a prompt \(x\), a chosen answer \(y_w\) and a rejected answer \(y_l\). <a href="p01.html#l10">L10</a> placed RLHF and DPO in the training pipeline; this lesson works with the objective itself.</p>
+
+  <h3>The DPO objective</h3>
+  <div class="box deriv"><span class="tag">Derivation · DPO (Rafailov et al. 2023)</span>
+    <p>RLHF maximises a learned reward \(r\) while staying close to a reference policy \(\pi_{\text{ref}}\) (the SFT model): \(\max_\pi \E[r(x,y)] - \beta\,\KL(\pi \,\|\, \pi_{\text{ref}})\). Its optimum has a closed form, \(\pi^*(y\mid x) = \pi_{\text{ref}}(y\mid x)\, e^{r(x,y)/\beta} / Z(x)\), which rearranges to</p>
+    $$r(x, y) = \beta \log \frac{\pi^*(y\mid x)}{\pi_{\text{ref}}(y\mid x)} + \beta \log Z(x).$$
+    <p>Under the Bradley–Terry model \(P(y_w \succ y_l) = \sigma\big(r(x,y_w) - r(x,y_l)\big)\), the intractable \(Z(x)\) cancels. Fitting the policy directly to the preferences gives</p>
+    $$\mathcal L_{\text{DPO}} = -\,\E_{(x, y_w, y_l)}\left[\log \sigma\!\left(\beta \log \frac{\pi_\theta(y_w\mid x)}{\pi_{\text{ref}}(y_w\mid x)} \;-\; \beta \log \frac{\pi_\theta(y_l\mid x)}{\pi_{\text{ref}}(y_l\mid x)}\right)\right].$$
+    <p>\(\hat r_\theta = \beta \log(\pi_\theta/\pi_{\text{ref}})\) is the <b>implicit reward</b>. The gradient scales each pair by \(\sigma(\hat r_l - \hat r_w)\), so pairs the model currently ranks wrongly get the largest updates.</p>
+  </div>
+  <p><b>β</b> controls how far the policy may move from the reference. Small β allows large moves and makes over-optimisation easier; large β keeps the model close and saturates the loss sooner on pairs it already gets right. Values around 0.1 are a common default; treat β as a hyperparameter that you select by held-out win rate.</p>
+  <pre><code># lab/dpo_numpy.py: the DPO loss on toy sequence log-probabilities
+import numpy as np
+
+def log_sigmoid(z):
+    return -np.logaddexp(0.0, -z)                        # stable log(1 / (1 + e^-z))
+
+def dpo_loss(pol_w, pol_l, ref_w, ref_l, beta=0.1):
+    """Inputs: summed token log-probs of chosen (w) and rejected (l) answers under policy and reference."""
+    margin = beta * ((pol_w - ref_w) - (pol_l - ref_l))  # implicit reward of chosen minus rejected
+    return -log_sigmoid(margin).mean(), margin
+
+ref_w = np.array([-42.0, -37.5, -55.1, -20.3])            # four pairs, reference model
+ref_l = np.array([-40.2, -39.0, -51.8, -22.0])
+loss, _ = dpo_loss(ref_w, ref_l, ref_w, ref_l)            # policy starts equal to the reference
+print(f"at init: loss {loss:.4f} = log 2 = {np.log(2):.4f}")
+
+pol_w = ref_w + np.array([3.0, 1.0, 2.0, -1.0])           # after some training: chosen up...
+pol_l = ref_l + np.array([-2.0, -1.0, -4.0, 0.5])         # ...rejected down, except pair 4
+for beta in (0.1, 0.5):
+    loss, m = dpo_loss(pol_w, pol_l, ref_w, ref_l, beta)
+    weight = 1 / (1 + np.exp(m))                          # sigma(-margin): each pair's gradient scale
+    print(f"beta={beta}: loss {loss:.4f}  reward acc {np.mean(m &gt; 0):.2f}  "
+          f"margins {np.round(m, 2)}  grad weights {np.round(weight, 2)}")</code></pre>
+  <pre><code class="plain">at init: loss 0.6931 = log 2 = 0.6931
+beta=0.1: loss 0.5702  reward acc 0.75  margins [ 0.5   0.2   0.6  -0.15]  grad weights [0.38 0.45 0.35 0.54]
+beta=0.5: loss 0.3944  reward acc 0.75  margins [ 2.5   1.    3.   -0.75]  grad weights [0.08 0.27 0.05 0.68]</code></pre>
+  <p class="code-cap">At the start every pair contributes \(\log 2\). Notice that the chosen answer in pair 1 has a <em>lower</em> raw log-probability than the rejected one under the reference; only the change relative to the reference counts. Pair 4, still ranked wrongly, gets the largest weight, and a larger β concentrates the gradient on it.</p>
+  <pre><code># train/dpo_style.py
+# trl + peft + datasets: API as documented; check your installed version (untested here)
+from datasets import load_dataset
+from trl import DPOConfig, DPOTrainer
+
+pairs = load_dataset("json", data_files="data/style_pairs.jsonl")["train"]   # {"prompt", "chosen", "rejected"}
+args = DPOConfig(output_dir="runs/style-dpo", beta=0.1, learning_rate=5e-6, num_train_epochs=1,
+                 per_device_train_batch_size=4, gradient_accumulation_steps=4, logging_steps=10)
+# model: your SFT model with a LoRA adapter; with ref_model=None, TRL uses the adapter-free base as reference
+trainer = DPOTrainer(model=model, ref_model=None, args=args, train_dataset=pairs)
+trainer.train()</code></pre>
+
+  <h3>Relatives: IPO, KTO, ORPO, SimPO</h3>
+  <p>Each is reported to help on some benchmarks; none dominates across tasks, so start with DPO and switch only for a reason you can name.</p>
+  <ul>
+    <li><b>IPO</b> (Azar et al. 2023) replaces the log-sigmoid with a squared loss pulling the log-ratio margin towards a fixed target, aiming to stop DPO from over-fitting when preferences are nearly deterministic.</li>
+    <li><b>KTO</b> (Ethayarajh et al. 2024) learns from unpaired good/bad labels with a loss inspired by prospect theory. It fits thumbs-up/thumbs-down feedback, where you rarely have pairs.</li>
+    <li><b>ORPO</b> (Hong et al. 2024) adds an odds-ratio preference term to the SFT loss, so one stage does both and no reference model is needed.</li>
+    <li><b>SimPO</b> (Meng et al. 2024) uses the length-normalised average log-probability as the reward, with a target margin and no reference model, which also counters the pull towards longer answers.</li>
+  </ul>
+
+  <h3>Collecting preferences</h3>
+  <ul>
+    <li><b>From users:</b> thumbs up/down (unpaired, so KTO-shaped), choosing between two drafts, or edits. An edited answer is "chosen" and the original "rejected", which is the strongest signal you will get (<a href="p10.html#l113">L113</a>).</li>
+    <li><b>From a judge:</b> sample two to four answers per prompt from the model you are training, and have a calibrated judge pick the better one under a written rubric (<a href="p08.html#l89">L89</a>, <a href="p08.html#l90">L90</a>). Swap positions and keep only consistent verdicts.</li>
+    <li><b>Pair design:</b> both answers should be plausible and differ mainly on the property you care about. Pairs sampled from the model being trained (on-policy) are generally reported to work better than pairs written by other models. Check that "chosen" is not simply "longer" in most pairs, or you will train verbosity.</li>
+  </ul>
+
+  <h3>Reward hacking, over-optimisation and evaluation</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Schematic: proxy score keeps rising with optimisation while true quality peaks and then declines">
+      <line x1="60" y1="200" x2="610" y2="200" class="s-ln-ink"/>
+      <line x1="60" y1="200" x2="60" y2="25" class="s-ln-ink"/>
+      <polyline points="60,190 150,140 250,105 350,82 450,66 550,55 600,50" class="s-ln-acc" fill="none"/>
+      <polyline points="60,190 150,150 250,126 330,118 420,128 520,150 600,172" class="s-ln-bad" fill="none"/>
+      <line x1="330" y1="35" x2="330" y2="200" class="s-ln s-dash"/>
+      <text x="338" y="48" class="s-ink2 s-sm">stop here</text>
+      <text x="470" y="46" class="s-acc s-sm">judge win rate (proxy)</text>
+      <text x="470" y="182" class="s-bad s-sm">true quality</text>
+      <text x="335" y="222" class="s-ink2 s-mid s-sm">optimisation: steps, or divergence from the reference →</text>
+      <text x="52" y="30" class="s-ink2 s-end s-sm">score</text>
+    </svg>
+    <figcaption><b>Schematic of over-optimisation.</b> The proxy (a judge, or the implicit reward) keeps rising while what you actually want peaks and declines, the pattern Gao et al. (2022) measured for reward models. Early-stop on a held-out signal that the training signal did not produce.</figcaption>
+  </figure>
+  <p>Whatever produced your preferences becomes the target. If the judge likes length, confident tone or bullet lists, DPO delivers more of them. Watch for answers growing longer, hedging or flattery appearing, refusals drifting, and the log-probabilities of <em>both</em> chosen and rejected answers falling, which has been reported in DPO runs and signals drift away from fluent text.</p>
+  <div class="box note"><span class="tag">How to evaluate</span>
+    <ul>
+      <li><b>Pairwise win rate</b> against the SFT model on held-out prompts, judged in both orders, with ties counted separately. With 200 prompts a 60% win rate has a 95% interval of about ±7 points.</li>
+      <li><b>Length-controlled</b> win rate or a length check: report mean answer length next to every win rate.</li>
+      <li><b>Regression evals</b>: triage accuracy, citation faithfulness and refusal rate must not fall (<a href="p08.html#l93">L93</a>).</li>
+      <li><b>Human spot-check</b> of 30 pairs where the judge preferred the DPO model.</li>
+    </ul>
+  </div>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Verbosity creep.</b> Judges and users both tend to prefer longer answers; the model learns length. Balance lengths in pairs or use a length-normalised method.</li>
+      <li><b>Same judge for training and evaluation.</b> The win rate then measures how well you fitted that judge. Evaluate with a different judge and with humans.</li>
+      <li><b>Noisy pairs.</b> Pairs with no real difference teach noise. Drop those where the judge is inconsistent across positions.</li>
+      <li><b>Learning rate too high.</b> DPO needs far smaller steps than SFT; at SFT rates it can wreck fluency in a few hundred steps.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 60 min</h4><ol>
+    <li>Choose a free-text output of your small model: DocPilot's short answers, or the triage <code>summary</code> field. Write a five-line style rubric for it.</li>
+    <li>For 600 held-in prompts, sample two answers from your fine-tuned model, have the judge compare them in both orders, and keep about 500 consistent, length-balanced pairs.</li>
+    <li>Run <code>dpo_style.py</code> at β = 0.1 and one other β; log reward accuracy and margins.</li>
+    <li>On 200 held-out prompts, measure win rate against the SFT model with a different judge, plus length and the triage regression eval.</li>
+  </ol>
+  <p><b>Ship:</b> a DPO-tuned adapter with its win rate and confidence interval, mean length before and after, and the regression results.</p></div>
+  <p class="refs"><b>Read</b> Rafailov et al. 2023, “Direct Preference Optimization: Your Language Model Is Secretly a Reward Model” · Azar et al. 2023, “A General Theoretical Paradigm to Understand Learning from Human Preferences” (IPO) · Ethayarajh et al. 2024, “KTO” · Hong et al. 2024, “ORPO” · Meng et al. 2024, “SimPO” · Gao et al. 2022, “Scaling Laws for Reward Model Overoptimization” · Hugging Face TRL docs, DPOTrainer</p>
+</article>
+<!-- ================================================================ L123 -->
+<article class="day" id="l123">
+  <header class="day-head">
+    <span class="day-no">L123 · DAY 91</span>
+    <h2>Reinforcement Fine-Tuning With Verifiable Rewards</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">50m practice</span></p>
+  </header>
+  <p class="thesis">If a program can check the answer, you can skip both labelled targets and preference pairs: sample several answers, score them with the program, and push the model towards the ones that scored above their group's average. That is RL with verifiable rewards via GRPO. It is powerful, expensive, and only as good as the reward function, which the model will probe for loopholes.</p>
+
+  <h3>Verifiable rewards</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p><b>Reinforcement learning with verifiable rewards</b> (RLVR) fine-tunes a model with a reward computed by a program rather than a learned reward model: the maths answer matches, the code passes its tests, the JSON parses and the labels are right. The model generates, the checker scores, and the policy is updated to make high-scoring outputs more likely.</p>
+  </div>
+  <p>Compared with SFT (<a href="#l120">L120</a>), RLVR needs no reference answers, only a way to check one, and it trains on the model's <em>own</em> samples, so it can fix errors the model actually makes. Compared with DPO (<a href="#l122">L122</a>), the signal is exact rather than a judge's opinion. The catch is that it can only amplify behaviour the model already produces sometimes: if none of eight samples is ever right, there is nothing to reinforce. DeepSeek-R1 (DeepSeek-AI 2025) made the approach prominent, using GRPO with rule-based accuracy and format rewards to train long chain-of-thought reasoning (<a href="p01.html#l11">L11</a>).</p>
+
+  <h3>GRPO: group-relative advantages</h3>
+  <p>PPO, the classic RLHF optimiser, estimates each token's advantage with a learned value network, often as large as the policy. <b>GRPO</b> (Group Relative Policy Optimization, introduced with DeepSeekMath by Shao et al. 2024) drops the critic. For each prompt it samples a group of \(G\) outputs and uses the group's own statistics as the baseline.</p>
+  <div class="box deriv"><span class="tag">GRPO objective (outcome rewards)</span>
+    <p>For prompt \(q\), sample \(o_1, \dots, o_G \sim \pi_{\theta_{\text{old}}}\) and score them \(r_1, \dots, r_G\). Every token of \(o_i\) gets the same advantage</p>
+    $$\hat A_i = \frac{r_i - \operatorname{mean}(r_1, \dots, r_G)}{\operatorname{std}(r_1, \dots, r_G)}.$$
+    <p>With the per-token ratio \(\rho_{i,t} = \pi_\theta(o_{i,t} \mid q, o_{i,&lt;t}) / \pi_{\theta_{\text{old}}}(o_{i,t} \mid q, o_{i,&lt;t})\), maximise</p>
+    $$\mathcal J(\theta) = \E\left[\frac{1}{G}\sum_{i=1}^{G}\frac{1}{|o_i|}\sum_{t=1}^{|o_i|} \min\!\Big(\rho_{i,t}\hat A_i,\ \operatorname{clip}(\rho_{i,t}, 1-\varepsilon, 1+\varepsilon)\,\hat A_i\Big) \;-\; \beta\, \KL\big(\pi_\theta \,\|\, \pi_{\text{ref}}\big)\right].$$
+    <p>The clipped ratio is PPO's guard against overly large steps; the KL term keeps the policy near the reference model.</p>
+  </div>
+  <pre><code># lab/grpo_numpy.py: group-relative advantages and the clipped surrogate
+import numpy as np
+
+def group_advantages(rewards, eps=1e-6):
+    """rewards: (prompts, G). One outcome reward per sample becomes one advantage for all its tokens."""
+    r = np.asarray(rewards, dtype=float)
+    return (r - r.mean(axis=1, keepdims=True)) / (r.std(axis=1, keepdims=True) + eps)
+
+R = [[1.0, 0.7, 0.2, 0.0],          # mixed results: a learning signal
+     [1.0, 1.0, 1.0, 1.0],          # too easy: every sample right
+     [0.0, 0.0, 0.0, 0.0]]          # too hard: nothing to reinforce
+print(np.round(group_advantages(R), 2))
+
+def clipped(ratio, adv, eps=0.2):   # PPO-style per-token term: min(rho*A, clip(rho)*A)
+    return np.minimum(ratio * adv, np.clip(ratio, 1 - eps, 1 + eps) * adv)
+rho = np.array([0.7, 1.0, 1.5])     # pi_theta / pi_old for one token
+print("A=+1.33:", clipped(rho, 1.33).round(2), " A=-1.20:", clipped(rho, -1.20).round(2))</code></pre>
+  <pre><code class="plain">[[ 1.33  0.57 -0.69 -1.2 ]
+ [ 0.    0.    0.    0.  ]
+ [ 0.    0.    0.    0.  ]]
+A=+1.33: [0.93 1.33 1.6 ]  A=-1.20: [-0.96 -1.2  -1.8 ]</code></pre>
+  <p class="code-cap">Groups where every sample scores the same contribute nothing, so prompts that are always or never solved waste compute: filter the training set towards prompts the model gets right some of the time. Clipping caps the gain from pushing a good token's probability beyond \(1+\varepsilon\) but never caps a penalty, so the objective is a pessimistic bound. Later work proposes variants (for example, removing the std normalisation or the length averaging); check what your trainer implements.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 260" role="img" aria-label="GRPO loop: a ticket prompt, the policy samples four outputs, a reward function scores them, scores are normalised within the group, and the policy is updated">
+      <defs><marker id="ah-l123" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="95" width="100" height="50" rx="6" class="s-node"/>
+      <text x="60" y="116" class="s-ttl s-mid">ticket</text><text x="60" y="134" class="s-ink2 s-mid s-sm">prompt q</text>
+      <rect x="140" y="95" width="110" height="50" rx="6" class="s-node-mod"/>
+      <text x="195" y="116" class="s-ttl s-mid">policy πθ</text><text x="195" y="134" class="s-ink2 s-mid s-sm">sample G = 4</text>
+      <rect x="290" y="20" width="160" height="40" rx="6" class="s-node"/><text x="300" y="44" class="s-sm">o₁ all correct</text><text x="440" y="44" class="s-acc s-end s-sm">r = 1.0</text>
+      <rect x="290" y="72" width="160" height="40" rx="6" class="s-node"/><text x="300" y="96" class="s-sm">o₂ severity wrong</text><text x="440" y="96" class="s-acc s-end s-sm">0.7</text>
+      <rect x="290" y="124" width="160" height="40" rx="6" class="s-node"/><text x="300" y="148" class="s-sm">o₃ labels wrong</text><text x="440" y="148" class="s-acc s-end s-sm">0.2</text>
+      <rect x="290" y="176" width="160" height="40" rx="6" class="s-node"/><text x="300" y="200" class="s-sm">o₄ not JSON</text><text x="440" y="200" class="s-acc s-end s-sm">0.0</text>
+      <rect x="490" y="80" width="160" height="80" rx="6" class="s-node"/>
+      <text x="570" y="103" class="s-ttl s-mid">normalise</text>
+      <text x="570" y="122" class="s-ink2 s-mid s-sm">(r − mean) / std</text>
+      <text x="570" y="140" class="s-ink2 s-mid s-sm">+1.33 +0.57 −0.69 −1.20</text>
+      <line x1="110" y1="120" x2="138" y2="120" class="s-ln" marker-end="url(#ah-l123)"/>
+      <path d="M250,120 C270,120 270,40 288,40" class="s-ln" marker-end="url(#ah-l123)"/>
+      <path d="M250,120 C270,120 270,92 288,92" class="s-ln" marker-end="url(#ah-l123)"/>
+      <path d="M250,120 C270,120 270,144 288,144" class="s-ln" marker-end="url(#ah-l123)"/>
+      <path d="M250,120 C270,120 270,196 288,196" class="s-ln" marker-end="url(#ah-l123)"/>
+      <line x1="450" y1="120" x2="488" y2="120" class="s-ln" marker-end="url(#ah-l123)"/>
+      <text x="469" y="112" class="s-ink3 s-mid s-sm">r</text>
+      <path d="M570,160 L570,240 L195,240 L195,147" class="s-ln-mod" fill="none" marker-end="url(#ah-l123)"/>
+      <text x="382" y="234" class="s-mod s-mid s-sm">update πθ: clipped ratio × Â, KL to πref</text>
+    </svg>
+    <figcaption><b>One GRPO step for one prompt.</b> The reward function from the next section scores four sampled triage outputs; each sample's advantage is its score relative to its own group. Real runs use 8–16 samples per prompt and many prompts per step.</figcaption>
+  </figure>
+
+  <h3>Reward design and reward hacking</h3>
+  <p>The reward function is the specification, and RL is an adversarial reader of it. Give partial credit so that early, mostly wrong policies still get a gradient. Let correctness dominate format. Validate the exact output contract production uses: if your parser rejects Markdown fences, so does the reward.</p>
+  <pre><code># docpilot/rl/reward.py: a programmatic reward for triage JSON
+import json
+from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+SEV = ["low", "medium", "high", "critical"]
+
+class Triage(BaseModel):                            # use your L27 label set
+    model_config = ConfigDict(extra="forbid")
+    category: Literal["networking", "storage", "compute", "auth", "billing", "upgrades", "observability", "other"]
+    severity: Literal["low", "medium", "high", "critical"]
+    summary: str = Field(min_length=10, max_length=200)
+
+def triage_reward(completion: str, gold: dict) -&gt; float:
+    """0.1 parses as a bare JSON object, +0.1 matches the schema, +0.5 category, +0.3 severity (0.1 if one step off)."""
+    try:
+        obj = json.loads(completion.strip())        # fenced or chatty output fails here, as in production
+    except json.JSONDecodeError:
+        return 0.0
+    if not isinstance(obj, dict):
+        return 0.0
+    try:
+        t = Triage.model_validate(obj)
+    except ValidationError:
+        return 0.1                                  # no label credit without the schema: blocks junk fields
+    r = 0.2 + 0.5 * (t.category == gold["category"])
+    gap = abs(SEV.index(t.severity) - SEV.index(gold["severity"]))
+    return round(r + (0.3 if gap == 0 else 0.1 if gap == 1 else 0.0), 2)
+
+def grpo_reward(completions, category, severity, **kwargs) -&gt; list[float]:
+    """TRL-style reward function: dataset columns arrive as keyword arguments (check your TRL version)."""
+    texts = [c if isinstance(c, str) else c[-1]["content"] for c in completions]
+    return [triage_reward(t, {"category": c, "severity": s}) for t, c, s in zip(texts, category, severity)]</code></pre>
+  <pre><code class="plain"># gold = storage / high
+correct         1.0
+severity 1 off  0.8
+wrong category  0.5
+empty summary   0.1
+extra field     0.1
+markdown fence  0.0
+prose           0.0
+grpo_reward([conversational correct, plain prose]) -&gt; [1.0, 0.0]</code></pre>
+  <div class="box note"><span class="tag">Loopholes to close before training</span>
+    <ul>
+      <li><b>Format-only reward:</b> the policy learns valid JSON carrying the majority label. Correctness must carry most of the weight.</li>
+      <li><b>Unchecked fields:</b> nothing scores the <code>summary</code> beyond its length, so it may decay into filler. Monitor it with the <a href="#l122">L122</a> judge, or add a check.</li>
+      <li><b>Severity inflation:</b> with partial credit for being one step off, "high" is a safe guess between medium and critical. Inspect the confusion matrix before and after.</li>
+      <li><b>Judge-based rewards</b> are no longer verifiable: the policy will find what the judge likes.</li>
+    </ul>
+  </div>
+
+  <h3>Compute, hosted services and when it is worth it</h3>
+  <p>Generation dominates the cost: each step samples \(G\) completions for every prompt, then trains on them. Trainers can hand generation to an inference engine such as vLLM, and memory must hold the policy, the reference model (unless the KL weight is zero) and optimiser state; LoRA cuts the last of these.</p>
+  <div class="box intuition"><span class="tag">Worked example · rollout budget</span>
+    <p>300 steps × 8 prompts per step × \(G = 8\) samples = 19,200 completions. At about 60 tokens of triage JSON each, that is roughly 1.2 million generated tokens, plus a forward and backward pass over all of them. Reasoning tasks with 2,000-token completions cost about 30× more per sample. Time a single step before committing to a run.</p>
+  </div>
+  <pre><code># train/grpo_triage.py
+# trl + datasets: API as documented; check your installed version (untested here)
+from datasets import load_dataset
+from trl import GRPOConfig, GRPOTrainer
+from docpilot.rl.reward import grpo_reward
+
+ds = load_dataset("json", data_files="data/triage_rl.jsonl")["train"]   # {"prompt": [...], "category", "severity"}
+args = GRPOConfig(output_dir="runs/triage-grpo", num_generations=8, max_completion_length=128,
+                  per_device_train_batch_size=8, learning_rate=1e-6, logging_steps=5)
+trainer = GRPOTrainer(model="org/tiny-instruct-model", reward_funcs=grpo_reward, args=args, train_dataset=ds)
+trainer.train()                                     # log mean reward, reward std, completion length, KL</code></pre>
+  <p><b>Hosted reinforcement fine-tuning:</b> some model providers run the RL loop for you. You upload prompts and a grader (a program, string matching or a model-graded rubric) and get back a tuned model. Check which models are eligible, how grading is billed, and whether your grader can run on their side.</p>
+  <p><b>When it is worth it:</b> the objective is checkable, SFT on good data has plateaued, the model already succeeds sometimes, and the remaining errors matter. For triage, distilled SFT (<a href="#l121">L121</a>) usually captures most of the gain. RLVR is a candidate for the hard tail (severity boundaries, format robustness on odd inputs), and the before-and-after must show it paid for its compute.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Reward goes up, eval does not.</b> The policy found a loophole or overfitted the RL prompts. Evaluate on held-out real tickets, not the training reward.</li>
+      <li><b>Flat reward from step one.</b> Prompts too hard or too easy (zero-variance groups), or a reward bug that returns 0. Unit-test the reward function on known outputs first, as above.</li>
+      <li><b>Length drift.</b> Completions grow or shrink in ways nothing rewards. Log completion length every step.</li>
+      <li><b>Cost surprise.</b> Rollouts scale with prompts × \(G\) × length. Budget and time a step first.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 50 min</h4><ol>
+    <li>Unit-test <code>triage_reward</code> on 20 hand-written outputs, including every loophole above; fix the scoring until it ranks them as you would.</li>
+    <li>Pick 400 training tickets the current tiny model gets right between 10% and 90% of the time (sample 8 each to measure).</li>
+    <li>Run <code>grpo_triage.py</code> for a short budget (for example 200–300 steps); log mean reward, the share of zero-variance groups, completion length and KL.</li>
+    <li>Evaluate before and after on the real-ticket test set with <a href="#l116">L116</a>'s <code>compare</code>, and record GPU hours.</li>
+  </ol>
+  <p><b>Ship:</b> a reward curve, a before-and-after eval table, and an honest cost note: GPU hours, tokens generated, and whether the gain justified them.</p></div>
+  <p class="refs"><b>Read</b> Shao et al. 2024, “DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models” (GRPO) · DeepSeek-AI 2025, “DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning” · Schulman et al. 2017, “Proximal Policy Optimization Algorithms” · Hugging Face TRL docs, GRPOTrainer · your provider's reinforcement fine-tuning guide, if it offers one</p>
+</article>
+<!-- ================================================================ L124 -->
+<article class="day project" id="l124">
+  <header class="day-head">
+    <span class="day-no">L124 · DAY 92</span>
+    <h2>Milestone: Distil DocPilot's Triage Into a Small Open Model</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">150m practice</span><span class="tagx">project day</span></p>
+  </header>
+  <p class="thesis">A fine-tuned model is not shipped until it serves real traffic behind a fallback, wins or ties on a pre-registered acceptance test, and can be switched off in one config change. Today you take the Phase 11 artefacts (distilled data, QLoRA adapter, quantisation, serving) and run them as a controlled experiment against the API model.</p>
+
+  <h3>What you are shipping</h3>
+  <p>The triage path becomes a router. A deterministic hash of the ticket ID assigns each ticket to the small model or the API model. The small model's output is validated against the triage schema, and anything invalid, slow or unreachable falls back to the API pipeline from <a href="p02.html#l27">L27</a>. Every call is traced (<a href="p10.html#l106">L106</a>) with its arm, fallback reason, latency and tokens, so the A/B analysis (<a href="p08.html#l94">L94</a>) runs off the logs.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 680 255" role="img" aria-label="Triage router: tickets are hashed to the small model or the API model; invalid small-model output falls back to the API; all calls are logged">
+      <defs><marker id="ah-l124" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="10" y="100" width="80" height="44" rx="6" class="s-node"/>
+      <text x="50" y="127" class="s-ttl s-mid">ticket</text>
+      <rect x="120" y="95" width="125" height="54" rx="6" class="s-node-mod"/>
+      <text x="182" y="117" class="s-ttl s-mid">router</text><text x="182" y="136" class="s-ink2 s-mid s-sm">hash(id) → arm</text>
+      <rect x="290" y="25" width="160" height="50" rx="6" class="s-node"/>
+      <text x="370" y="45" class="s-ttl s-mid">small model</text><text x="370" y="63" class="s-ink2 s-mid s-sm">vLLM or Ollama</text>
+      <rect x="480" y="25" width="110" height="50" rx="6" class="s-node"/>
+      <text x="535" y="45" class="s-ttl s-mid">validate</text><text x="535" y="63" class="s-ink2 s-mid s-sm">Triage schema</text>
+      <rect x="290" y="170" width="160" height="50" rx="6" class="s-node"/>
+      <text x="370" y="190" class="s-ttl s-mid">API model</text><text x="370" y="208" class="s-ink2 s-mid s-sm">L27 pipeline</text>
+      <rect x="605" y="100" width="65" height="44" rx="6" class="s-node-mod"/>
+      <text x="637" y="127" class="s-ttl s-mid">label</text>
+      <line x1="90" y1="122" x2="118" y2="122" class="s-ln" marker-end="url(#ah-l124)"/>
+      <path d="M245,110 C265,110 265,50 288,50" class="s-ln" marker-end="url(#ah-l124)"/>
+      <path d="M245,134 C265,134 265,195 288,195" class="s-ln" marker-end="url(#ah-l124)"/>
+      <text x="262" y="40" class="s-ink2 s-mid s-sm">arm A</text>
+      <text x="262" y="232" class="s-ink2 s-mid s-sm">arm B</text>
+      <line x1="450" y1="50" x2="478" y2="50" class="s-ln" marker-end="url(#ah-l124)"/>
+      <path d="M590,50 C620,50 637,70 637,98" class="s-ln" marker-end="url(#ah-l124)"/>
+      <path d="M450,195 C560,195 637,180 637,146" class="s-ln" marker-end="url(#ah-l124)"/>
+      <path d="M520,75 C510,120 470,160 452,180" class="s-ln-bad s-dash" marker-end="url(#ah-l124)"/>
+      <text x="500" y="128" class="s-bad s-sm">✗ fallback</text>
+      <text x="340" y="250" class="s-ink3 s-mid s-sm">every call logs arm, fallback reason, latency and tokens → A/B report</text>
+    </svg>
+    <figcaption><b>Small model first, API as the safety net.</b> Fallbacks count against the small-model arm in the analysis (you assigned the ticket to it), and the fallback rate is itself an acceptance metric.</figcaption>
+  </figure>
+
+  <h3>The plan</h3>
+  <div class="box algo"><span class="tag">Algorithm · From adapter to A/B</span><ol>
+    <li><b>Freeze</b> the dataset manifest (<a href="#l121">L121</a>), the adapter, the base revision and the test set. Write the acceptance criteria now, before you see results.</li>
+    <li><b>Package:</b> keep the adapter on the base (vLLM) or merge in BF16, convert and quantise (Ollama, <a href="#l117">L117</a>). Re-run the offline eval on the <em>served</em> artefact, not the training checkpoint.</li>
+    <li><b>Serve</b> with explicit context length and prefix caching on; load-test at your peak concurrency (<a href="#l118">L118</a>).</li>
+    <li><b>Shadow:</b> send production tickets to both models, use only the API's answer, compare the logs for a few days.</li>
+    <li><b>A/B:</b> route a share of tickets to the small model, starting small (for example 10%), and raise the share as the metrics hold.</li>
+    <li><b>Decide</b> against the acceptance test and write it up, including the cost note.</li>
+  </ol></div>
+  <pre><code class="plain"># Option A: vLLM with the adapter on the base (flags as documented; check `vllm serve --help`)
+vllm serve org/small-instruct-model --enable-lora --lora-modules triage=adapters/triage-v2 \
+  --max-model-len 4096 --enable-prefix-caching          # clients then send model="triage"
+
+# Option B: Ollama with a merged, quantised GGUF (llama.cpp tools; check your version)
+python convert_hf_to_gguf.py merged/triage-v2 --outfile triage-f16.gguf
+llama-quantize triage-f16.gguf triage-Q5_K_M.gguf Q5_K_M
+ollama create docpilot-triage -f Modelfile               # Modelfile: FROM ./triage-Q5_K_M.gguf</code></pre>
+
+  <h3>The router</h3>
+  <pre><code># docpilot/triage_router.py
+import hashlib, time
+from collections.abc import Callable
+from pydantic import ValidationError
+from docpilot.rl.reward import Triage                   # the L123 schema
+
+def arm(ticket_id: str, share_small: float) -&gt; str:
+    """Sticky assignment: the same ticket id always lands in the same arm."""
+    u = int(hashlib.sha256(ticket_id.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+    return "small" if u &lt; share_small else "api"
+
+def triage(ticket_id: str, text: str, *, small: Callable[[str], str], api: Callable[[str], str],
+           share_small: float = 0.5, log: Callable[[dict], None] = print) -&gt; dict:
+    route, fallback, t0 = arm(ticket_id, share_small), None, time.perf_counter()
+    label = None
+    if route == "small":
+        try:
+            label = Triage.model_validate_json(small(text)).model_dump()
+        except (ValidationError, TimeoutError, ConnectionError) as e:
+            fallback = type(e).__name__                # analyse by assigned arm; report the fallback rate
+    if label is None:
+        label = Triage.model_validate_json(api(text)).model_dump()
+    log({"ticket": ticket_id, "arm": route, "fallback": fallback,
+         "latency_ms": round(1000 * (time.perf_counter() - t0), 1), **label})
+    return label</code></pre>
+  <pre><code class="plain"># share_small=0.2 over 10,000 ids
+Counter({'api': 7987, 'small': 2013})
+# fake small model returns one valid label, then prose; fake API always valid
+{'ticket': 'T-0', 'arm': 'small', 'fallback': None, 'category': 'storage'}
+{'ticket': 'T-2', 'arm': 'small', 'fallback': 'ValidationError', 'category': 'storage'}
+{'ticket': 'T-1', 'arm': 'api', 'fallback': None, 'category': 'storage'}</code></pre>
+  <p class="code-cap">In production, <code>small</code> wraps the OpenAI client pointed at your server (<a href="#l116">L116</a>'s <code>triage_open</code>, with a client timeout) and <code>api</code> wraps <code>chat()</code> with structured outputs. Setting <code>share_small=0</code> is the rollback switch; keep it in config, not code.</p>
+
+  <h3>The comparison and the acceptance test</h3>
+  <p>Report one table with both models on the same frozen real-ticket test set: per-field accuracy, critical-severity recall, valid-output rate before fallback, p50 and p95 latency at your peak concurrency, and cost per 1,000 tickets (API tokens × current prices vs GPU-hours ÷ tickets per hour from your load test, <a href="#l119">L119</a>). Then decide non-inferiority on the paired offline results.</p>
+  <pre><code># evals/accept_small_model.py: paired non-inferiority check on the offline test set
+import numpy as np
+
+def non_inferior(small_ok, api_ok, margin=0.03, z=1.96) -&gt; dict:
+    """small_ok, api_ok: 0/1 per test ticket, same tickets in the same order."""
+    d = np.asarray(small_ok, float) - np.asarray(api_ok, float)
+    half = z * d.std(ddof=1) / np.sqrt(len(d))
+    lo, hi = float(d.mean() - half), float(d.mean() + half)
+    return {"n": len(d), "diff": round(float(d.mean()), 3), "ci95": (round(lo, 3), round(hi, 3)),
+            "pass": lo &gt; -margin}
+
+def paired(n, both, api_only, small_only):              # build outcome vectors from the 2x2 counts
+    api = np.r_[np.ones(both + api_only), np.zeros(small_only), np.zeros(n - both - api_only - small_only)]
+    small = np.r_[np.ones(both), np.zeros(api_only), np.ones(small_only), np.zeros(n - both - api_only - small_only)]
+    return small, api
+
+print(non_inferior(*paired(300, 250, 14, 8)))            # L117's example: 88% vs 86%
+print(non_inferior(*paired(1200, 1000, 56, 32)))         # same rates, four times the tickets
+print(non_inferior(*paired(1200, 1024, 32, 24)))         # a smaller gap</code></pre>
+  <pre><code class="plain">{'n': 300, 'diff': -0.02, 'ci95': (-0.051, 0.011), 'pass': False}
+{'n': 1200, 'diff': -0.02, 'ci95': (-0.035, -0.005), 'pass': False}
+{'n': 1200, 'diff': -0.007, 'ci95': (-0.019, 0.006), 'pass': True}</code></pre>
+  <p class="code-cap">300 tickets cannot show that a model is within 3 points of another; even 1,200 fail when the true gap is 2 points. Size the test set for the margin you care about before running the experiment.</p>
+
+  <div class="box note"><span class="tag">Acceptance test</span>
+    <ul>
+      <li><b>Accuracy:</b> category and severity accuracy non-inferior to the API model at a 3-point margin (lower 95% bound above −0.03) on the frozen test set, measured through the serving stack.</li>
+      <li><b>Safety-critical slice:</b> recall on "critical" tickets no lower than the API model's on the same tickets; read every critical miss.</li>
+      <li><b>Validity:</b> at least 99% schema-valid output before fallback, and 100% after.</li>
+      <li><b>Latency and cost:</b> p95 at your peak concurrency within your triage target, and cost per 1,000 tickets below the API's at your expected volume.</li>
+      <li><b>Online:</b> in the A/B, the rate at which support agents correct triage labels in the small-model arm is no worse than in the API arm.</li>
+      <li><b>Rollback:</b> setting the share to 0 routes 100% of traffic to the API within one deploy, rehearsed once.</li>
+    </ul>
+  </div>
+
+  <ul class="deliverables">
+    <li>Versioned training data with its manifest, and the frozen test set's hash.</li>
+    <li>The adapter (or merged, quantised model) with a model card: base model and revision, licence notes from <a href="#l115">L115</a>, dataset hash, hyperparameters and eval results.</li>
+    <li>Serving configuration with every flag pinned, plus the load-test plot and capacity estimate.</li>
+    <li><code>docpilot/triage_router.py</code> with sticky assignment, schema validation, fallback and logging, behind a config share.</li>
+    <li><code>evals/reports/triage-small-vs-api.md</code>: the comparison table, non-inferiority results, critical-ticket review, shadow and A/B findings, cost note and the ship/no-ship decision.</li>
+    <li>A rollback runbook of three lines or fewer.</li>
+  </ul>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Evaluating the checkpoint, serving the GGUF.</b> Merging, conversion and quantisation each change outputs. Only the served artefact's eval counts.</li>
+      <li><b>Hiding fallbacks.</b> Counting fallback tickets as the API's makes the small model look perfect. Analyse by assigned arm.</li>
+      <li><b>Drift after launch.</b> New products or categories appear and the small model has never seen them. Monitor the fallback and correction rates weekly and set a retraining trigger (<a href="#l119">L119</a>).</li>
+      <li><b>Moving goalposts.</b> Choosing the margin after seeing the results. Commit the acceptance test with the experiment config.</li>
+    </ul>
+  </div>
+
+  <div class="practice"><h4>Practice · 150 min</h4><ol>
+    <li>Freeze the artefacts and commit the acceptance test (20 min).</li>
+    <li>Package and serve the model with vLLM or Ollama; re-run the offline eval and the load test against the served endpoint (45 min).</li>
+    <li>Wire <code>triage_router.py</code> into DocPilot with <code>share_small</code> in config; run shadow mode on a replay of recent tickets (40 min).</li>
+    <li>Run the A/B on replayed or live traffic at 10–50%, compute the comparison table and the non-inferiority check (30 min).</li>
+    <li>Write the report and the decision; rehearse the rollback (15 min).</li>
+  </ol>
+  <p><b>Ship:</b> a production-ready small triage model behind the router, with an A/B comparison of cost, latency and accuracy against the API model, and a written ship/no-ship decision.</p></div>
+  <p class="refs"><b>Read</b> Kohavi, Tang &amp; Xu, <i>Trustworthy Online Controlled Experiments</i> (2020) · vLLM docs, LoRA adapters · llama.cpp docs, conversion and <code>llama-quantize</code> · Ollama docs, Modelfile · Chip Huyen, <i>AI Engineering</i>, ch. 10</p>
+</article>
+
+<nav class="modnav">
+  <a href="p10.html"><small>Previous · Days 76–84</small>◂ Phase 10 — Production LLMOps</a>
+  <a class="next" href="p12.html"><small>Next · Days 93–100</small>Phase 12 — Frontier Patterns and Capstone ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>

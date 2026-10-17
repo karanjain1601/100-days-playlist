@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 3 — Embeddings and Search · 100 Days of AI Engineering</title>
+<meta name="description" content="100 Days of AI Engineering, phase 3: Embeddings and Search (lessons 28–37).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;family=Fira+Code:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="app.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="m3" data-lang="python">
+
+<header class="topbar">
+  <a class="brand" href="index.html">◂ <b>100 Days</b> of AI Engineering</a>
+  <span class="meta">Phase 3 · Embeddings and Search · Days 20–26</span>
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-theme-toggle>Dark / light</button>
+</header>
+
+<div class="layout">
+<aside class="sidebar">
+  <h4>Phase 3 · Embeddings and Search</h4>
+  <nav>
+    <a href="#l28"><span class="n">L28</span>Embeddings: Meaning as Geometry</a>
+    <a href="#l29"><span class="n">L29</span>Embedding Models in Practice: Cho…</a>
+    <a href="#l30"><span class="n">L30</span>Lexical Search: Inverted Indexes…</a>
+    <a href="#l31"><span class="n">L31</span>Nearest-Neighbour Search: Exact…</a>
+    <a href="#l32"><span class="n">L32</span>Vector Databases: Choosing and Us…</a>
+    <a href="#l33"><span class="n">L33</span>Metadata Filtering, Namespaces an…</a>
+    <a href="#l34"><span class="n">L34</span>Hybrid Search and Rank Fusion</a>
+    <a href="#l35"><span class="n">L35</span>Rerankers: Cross-Encoders and Lat…</a>
+    <a href="#l36"><span class="n">L36</span>Fine-Tuning Embeddings for Your D…</a>
+    <a href="#l37"><span class="n">L37</span>Milestone: A Search Service Over…</a>
+  </nav>
+  <h4>All 133 lessons</h4>
+  <div class="spine" data-spine data-module="3" style="grid-template-columns:repeat(10,1fr)"></div>
+  <h4>Phases</h4>
+  <div class="pager"><a href="p02.html">◂ Phase 2</a><a href="p04.html">Phase 4 ▸</a></div>
+</aside>
+
+<main>
+<div class="wrap">
+
+<p class="eyebrow">Phase 3 · Days 20–26 · Lessons 28–37</p>
+<h1>Embeddings and Search</h1>
+<p class="dek">Phase 3 builds DocPilot's retrieval layer from first principles and measures every choice: embeddings, BM25, approximate nearest-neighbour indexes, vector databases, metadata filters, hybrid fusion, reranking and embedding fine-tuning. It turns the documentation corpus and synthetic tickets from Phases 0–2 into a search service with published metrics, and Phase 4 wraps that service in retrieval-augmented generation.</p>
+<div class="outcomes">
+  <h2>By the end of this phase you can</h2>
+  <ul>
+    <li>Explain why cosine, dot product and Euclidean distance rank unit vectors identically, and predict the queries where dense retrieval fails: negation, versions, exact identifiers.</li>
+    <li>Choose an embedding model by recall@5 on your own queries, and compute its storage at float32, int8, binary and Matryoshka-truncated dimensions.</li>
+    <li>Implement BM25 from scratch with a code-aware analyser, and say what k1, b and the IDF variant each do.</li>
+    <li>Describe IVF and HNSW precisely (nprobe, M, efConstruction, efSearch) and pick index parameters from a measured recall–latency curve.</li>
+    <li>Run filtered, versioned search in pgvector or Qdrant, and prove with a test that no hits leak across versions.</li>
+    <li>Fuse BM25 and dense results with RRF, add a time-budgeted cross-encoder reranker, and quantify the gain with nDCG@5.</li>
+    <li>Serve <code>search(query, k, filters)</code> from FastAPI, with a retrieval report of recall@k, MRR and nDCG.</li>
+  </ul>
+</div>
+<ul class="chips">
+  <li><b>10</b> lessons</li><li><b>7h 30m</b> video</li><li><b>8h 55m</b> practice</li><li>Days <b>20–26</b></li>
+</ul>
+
+<!-- ================================================================ L28 -->
+<article class="day" id="l28">
+  <header class="day-head">
+    <span class="day-no">L28 · DAY 20</span>
+    <h2>Embeddings: Meaning as Geometry</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">An embedding model maps a piece of text to a point in \(\R^d\) so that texts that answer each other land close together. Search then becomes nearest-neighbour geometry, and its failures are predictable from how the model was trained.</p>
+
+  <h3>What an embedding is</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>An <b>embedding model</b> is a function \(f:\text{text}\to\R^d\). In most text embedding models a transformer encoder (<a href="p01.html#l7">L7</a>) reads the tokens and pools the final hidden states, by averaging them or by taking one special token, into a single vector. \(d\) is fixed per model: a few hundred to a few thousand dimensions. One vector per chunk is a lossy summary. Everything the model did not encode is invisible to search.</p>
+  </div>
+  <p>DocPilot will embed every documentation chunk once, at index time, and every query at request time. Retrieval returns the chunks whose vectors are nearest to the query vector. The rest of this phase is about doing that fast (<a href="#l31">L31</a>), combining it with keyword search (<a href="#l34">L34</a>) and measuring it (<a href="#l37">L37</a>).</p>
+
+  <h3>How embedding models are trained</h3>
+  <p>Modern text embedders are trained <b>contrastively</b>. They see pairs that should match, such as a question and its answer, a title and its body, or a query and a clicked passage, and learn to pull matching pairs together and push everything else apart. The cheap source of “everything else” is the rest of the batch. With \(B\) pairs in a batch, each query has one positive and \(B-1\) <b>in-batch negatives</b>, and the loss is a softmax over the batch (InfoNCE):</p>
+  $$\mathcal L = -\frac1B\sum_{i=1}^{B}\log\frac{\exp\big(s(q_i,p_i)/\tau\big)}{\sum_{j=1}^{B}\exp\big(s(q_i,p_j)/\tau\big)}$$
+  <p>Here \(s\) is cosine similarity and \(\tau\) is a small temperature. Typical recipes pretrain on hundreds of millions of weakly paired texts mined from the web, then fine-tune on labelled pairs with <b>hard negatives</b>: passages that look relevant but are not. The consequence matters more than the recipe. <em>“Similar” means whatever co-occurred as a matching pair in the training data</em>, which is mostly topical relatedness, not logical equivalence.</p>
+  <pre><code>import numpy as np
+
+def normalize(X):
+    return X / np.linalg.norm(X, axis=-1, keepdims=True)
+
+def info_nce(Q, P, tau=0.05):
+    """Q[i] matches P[i]; every P[j] with j != i is an in-batch negative."""
+    S = normalize(Q) @ normalize(P).T / tau          # B x B similarity matrix
+    S = S - S.max(axis=1, keepdims=True)             # numerical stability
+    log_p = S - np.log(np.exp(S).sum(axis=1, keepdims=True))
+    return float(-np.diag(log_p).mean())             # positives sit on the diagonal
+
+rng = np.random.default_rng(0)
+P = rng.normal(size=(32, 384))
+print(round(info_nce(rng.normal(size=(32, 384)), P), 2))   # unrelated queries: 3.8
+print(round(info_nce(P + 3 * rng.normal(size=(32, 384)), P), 3))   # near their passages: 0.174</code></pre>
+  <p class="code-cap">Simulated with random vectors. Guessing among 32 candidates scores \(\log 32\approx 3.47\); unrelated pairs land near that, aligned pairs near 0. <a href="#l36">L36</a> uses this loss on a real model.</p>
+
+  <h3>Cosine, dot product and Euclidean distance</h3>
+  <p>Three scores are in common use: the dot product \(q\cdot d\), cosine similarity \(\cos\theta=\frac{q\cdot d}{\lVert q\rVert\,\lVert d\rVert}\), and Euclidean distance \(\lVert q-d\rVert\). They rank documents differently unless the vectors are normalised.</p>
+  <div class="box deriv"><span class="tag">Derivation · when all three agree</span>
+    <p>If \(\lVert q\rVert=\lVert d\rVert=1\), then \(\cos\theta=q\cdot d\) and</p>
+    $$\lVert q-d\rVert^2=\lVert q\rVert^2+\lVert d\rVert^2-2\,q\cdot d=2-2\cos\theta .$$
+    <p>Distance is a decreasing function of cosine, so sorting by largest dot product, largest cosine or smallest distance gives the same order. Without normalisation the dot product also rewards long vectors, and Euclidean distance penalises them.</p>
+  </div>
+  <pre><code>docs = rng.normal(size=(1000, 384)) * rng.uniform(0.5, 2.0, size=(1000, 1))  # unequal norms
+q = rng.normal(size=384)
+top5 = lambda s: np.argsort(-s)[:5].tolist()
+
+print(top5(docs @ q) == top5(normalize(docs) @ normalize(q)))   # False: raw vectors
+D, qn = normalize(docs), normalize(q)
+print(top5(D @ qn) == top5(-np.linalg.norm(D - qn, axis=1)))    # True: normalised</code></pre>
+  <div class="box note"><span class="tag">Use the metric the model was trained with</span>
+    <p>The model card says which score the model was trained for. Most current models are trained with cosine. Normalise every vector once, at write time, and then use the dot product everywhere, because it is the cheapest of the three. A few models are trained with unnormalised dot products, where the norm carries information; normalising those throws it away.</p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Left: unit vectors q, d1 and d2 with the angle between q and d1. Right: chunks clustered by section, with a negated sentence sitting next to its opposite">
+      <text x="120" y="22" class="s-ttl s-mid">unit vectors</text>
+      <circle cx="120" cy="125" r="85" class="s-ln s-dash"/>
+      <line x1="120" y1="125" x2="200" y2="96" class="s-ln-acc"/>
+      <line x1="120" y1="125" x2="180" y2="65" class="s-ln-mod"/>
+      <line x1="120" y1="125" x2="55" y2="70" class="s-ln-ink"/>
+      <line x1="200" y1="96" x2="180" y2="65" class="s-ln-warn s-dash"/>
+      <path d="M148,115 A30,30 0 0 0 141,104" class="s-ln"/>
+      <text x="156" y="113" class="s-ink2 s-sm">θ</text>
+      <text x="208" y="100" class="s-acc">q</text>
+      <text x="184" y="58" class="s-mod">d₁</text>
+      <text x="40" y="64" class="s-ink">d₂</text>
+      <text x="120" y="232" class="s-ink2 s-mid s-sm">dot = cos when ‖v‖ = 1</text>
+      <text x="120" y="250" class="s-warn s-mid s-sm">‖q − d₁‖² = 2 − 2cos θ</text>
+      <line x1="270" y1="20" x2="270" y2="250" class="s-grid"/>
+      <ellipse cx="390" cy="95" rx="62" ry="40" class="s-ln s-dash"/>
+      <ellipse cx="560" cy="105" rx="55" ry="40" class="s-ln s-dash"/>
+      <ellipse cx="470" cy="198" rx="62" ry="34" class="s-ln s-dash"/>
+      <text x="390" y="46" class="s-ttl s-mid">Pods</text>
+      <text x="560" y="56" class="s-ttl s-mid">Networking</text>
+      <text x="470" y="250" class="s-ttl s-mid">Storage</text>
+      <circle cx="395" cy="78" r="4" class="s-mod"/><circle cx="420" cy="104" r="4" class="s-mod"/><circle cx="390" cy="115" r="4" class="s-mod"/>
+      <circle cx="545" cy="98" r="4" class="s-info"/><circle cx="568" cy="88" r="4" class="s-info"/><circle cx="578" cy="118" r="4" class="s-info"/><circle cx="552" cy="126" r="4" class="s-info"/>
+      <circle cx="450" cy="192" r="4" class="s-ink2"/><circle cx="482" cy="186" r="4" class="s-ink2"/><circle cx="496" cy="207" r="4" class="s-ink2"/><circle cx="458" cy="210" r="4" class="s-ink2"/>
+      <circle cx="405" cy="92" r="6" class="s-acc"/>
+      <text x="415" y="88" class="s-acc s-sm">query</text>
+      <circle cx="352" cy="96" r="4" class="s-bad"/><circle cx="361" cy="104" r="4" class="s-bad"/>
+      <text x="290" y="152" class="s-bad s-sm">“Running” ≈ “not Running”</text>
+    </svg>
+    <figcaption><b>Meaning as position.</b> On the unit sphere, angle, dot product and distance carry the same information. Chunks from the same documentation section cluster together, which is what makes retrieval work, but a sentence and its negation share almost all their words and context and land next to each other.</figcaption>
+  </figure>
+
+  <h3>Dimensionality, and why scores are not probabilities</h3>
+  <p>More dimensions give the model more room to separate meanings, and cost storage and compute linearly in \(d\) (the storage maths and Matryoshka truncation are in <a href="#l29">L29</a>). In high dimensions, random directions are nearly orthogonal: the cosine between two random unit vectors in \(\R^d\) has mean 0 and standard deviation about \(1/\sqrt d\), roughly 0.036 at \(d=768\). Trained models do not use the space evenly. Their vectors tend to occupy a narrow cone (<b>anisotropy</b>), so unrelated texts often score well above zero.</p>
+  <p>A cosine of 0.82 is therefore not “82% relevant”. The scale depends on the model, its training temperature, the text lengths and the domain. Two models give different numbers for the same pair, and so do short and long queries in one model. Use similarity for <em>ranking</em>. If you need a cut-off, calibrate it on labelled queries for that model (<a href="p04.html#l44">L44</a>).</p>
+  <pre><code>d = 384
+u = normalize(rng.normal(size=d))
+iso = normalize(rng.normal(size=(500, d)))                 # spread over the whole sphere
+cone = normalize(rng.normal(size=(500, d)) + 15 * u)       # share one common direction
+pair_mean = lambda X: float((X @ X.T)[np.triu_indices(len(X), 1)].mean())
+print(round(pair_mean(iso), 3), round(pair_mean(cone), 3))  # 0.0 0.369</code></pre>
+
+  <h3>Symmetric and asymmetric retrieval</h3>
+  <p><b>Symmetric</b> tasks compare like with like: duplicate-ticket detection, paraphrase search, clustering. <b>Asymmetric</b> tasks compare a short query with a long passage that answers it, such as “why is my pod pending” against a scheduling page. The two sides look nothing alike, so models built for asymmetric search are trained on (query, passage) pairs and often expect a marker telling them which side they are encoding, such as a <code>query:</code> or <code>passage:</code> prefix or an instruction. <a href="#l29">L29</a> covers these conventions. DocPilot's main search is asymmetric; its ticket deduplication (<a href="p02.html#l27">L27</a> data) is symmetric.</p>
+
+  <h3>What embeddings capture badly</h3>
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Negation and polarity.</b> “Pods that are not ready” and “pods that are ready” share topic, vocabulary and context, so they embed close together. Contrastive training rarely contains pairs that teach the difference.</li>
+      <li><b>Numbers and versions.</b> “v1.29” and “v1.31” are near neighbours, and so are “port 80” and “port 8080”. Put versions in metadata and filter on them (<a href="#l33">L33</a>).</li>
+      <li><b>Exact identifiers.</b> Error strings (<code>CrashLoopBackOff</code>, <code>ErrImagePull</code>), flag names (<code>--dry-run=server</code>) and resource kinds are split into sub-word tokens and blurred. A user pasting an exact error wants the page containing that string, which is what BM25 is for (<a href="#l30">L30</a>).</li>
+      <li><b>Long chunks.</b> Pooling a whole page into one vector averages several topics into a point that is near none of them (chunk sizing is <a href="p04.html#l41">L41</a>).</li>
+      <li><b>Out-of-domain jargon.</b> Words the model rarely saw in training get generic vectors (<a href="#l36">L36</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Take 1,000 chunks of the Kubernetes docs corpus from <a href="p00.html#l6">L6</a>. Label each with its top-level section (Concepts, Tasks, Reference, Tutorials). Embed them with one model (a local sentence-transformers model or a provider API; <a href="#l29">L29</a> compares options), normalise, and save as a float32 <code>.npy</code> file next to a JSON list of chunk IDs.</li>
+      <li>For 10 random chunks, print the 5 nearest neighbours by dot product and count how many share the chunk's section.</li>
+      <li>Project to 2-D with PCA (<code>Xc = X - X.mean(0)</code>; <code>Xc @ np.linalg.svd(Xc, full_matrices=False)[2][:2].T</code>) and scatter-plot coloured by section. Note which sections overlap.</li>
+      <li>Write 12 probe pairs: 4 negations, 4 version or number changes, 4 exact error strings against a paraphrase. Record each pair's cosine next to the cosine of two unrelated chunks.</li>
+    </ol>
+    <p><b>Ship:</b> a one-page note listing the query types where you expect dense search to fail, each backed by a measured probe.</p>
+  </div>
+  <p class="refs"><b>Read</b> Reimers &amp; Gurevych 2019, “Sentence-BERT” · Karpukhin et al. 2020, “Dense Passage Retrieval for Open-Domain Question Answering” · van den Oord, Li &amp; Vinyals 2018, “Representation Learning with Contrastive Predictive Coding” · Wang et al. 2022, “Text Embeddings by Weakly-Supervised Contrastive Pre-training” · Ethayarajh 2019, “How Contextual are Contextualized Word Representations?”</p>
+</article>
+<!-- ================================================================ L29 -->
+<article class="day" id="l29">
+  <header class="day-head">
+    <span class="day-no">L29 · DAY 21</span>
+    <h2>Embedding Models in Practice: Choosing, Batching and Matryoshka</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">50m practice</span></p>
+  </header>
+
+  <p class="thesis">A public leaderboard gives you a shortlist; your own queries pick the model. After that the work is engineering: the right prefixes, batched calls, unit-length vectors, a byte budget, and an index that belongs to exactly one model.</p>
+
+  <h3>Choosing a model: leaderboards shortlist, your data decides</h3>
+  <p>MTEB (the Massive Text Embedding Benchmark) scores models on dozens of datasets across retrieval, classification, clustering, reranking and other tasks. Use it to build a shortlist of three or four candidates, and look only at the retrieval columns, because the overall average mixes in tasks DocPilot never runs. Then read each model card for what the leaderboard hides: licence, maximum input length (longer chunks are silently truncated), output dimension, languages, and whether you can host it. Benchmark averages are a weak predictor for one narrow domain, and some models are reported to have trained on data overlapping the benchmark's tasks. The decider is recall on <em>your</em> queries, which is why the practice block builds a 50-query set.</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th></th><th>Hosted embedding API</th><th>Local model (sentence-transformers)</th></tr></thead>
+    <tbody>
+      <tr><td><b>Setup</b></td><td>an API key</td><td>a GPU, or patience on CPU</td></tr>
+      <tr><td><b>Cost</b></td><td>per input token; re-embedding the corpus is a bill</td><td>hardware and electricity; re-embedding is a batch job</td></tr>
+      <tr><td><b>Throughput</b></td><td>bounded by rate limits</td><td>bounded by your hardware</td></tr>
+      <tr><td><b>Data</b></td><td>leaves your network</td><td>stays local</td></tr>
+      <tr><td><b>Versioning</b></td><td>the provider can retire the model</td><td>you pin the exact weights</td></tr>
+    </tbody>
+  </table></div>
+  <p>Anthropic does not serve its own embedding model; its documentation points to third-party providers (Voyage AI at the time of writing). The OpenAI SDK's <code>client.embeddings.create(model=…, input=[…], dimensions=…)</code> also works against OpenAI-compatible local servers, so one code path covers both.</p>
+
+  <h3>Query and document prefixes</h3>
+  <p>Many retrieval models are trained asymmetrically (<a href="#l28">L28</a>) and expect a marker saying which side is being encoded. The E5 family wants <code>query: </code> and <code>passage: </code> prefixes; BGE suggests an instruction before queries only; instruction-tuned embedders take a task description. Leaving the prefix off rarely raises an error. It just costs recall. Copy the exact strings from the model card and store them with the index.</p>
+  <pre><code># sentence-transformers: API as documented; check your installed version (untested here)
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("intfloat/e5-small-v2", truncate_dim=None)   # 384 dimensions
+D = model.encode(["passage: " + c for c in chunks], batch_size=64, normalize_embeddings=True)
+Q = model.encode(["query: " + q for q in queries], batch_size=64, normalize_embeddings=True)</code></pre>
+
+  <h3>Batching, rate limits and normalisation</h3>
+  <p>Send many texts per request: embedding endpoints accept a list, and per-request overhead dominates for short chunks. Providers cap inputs per request and enforce requests-per-minute and tokens-per-minute limits, so a corpus job needs batching and backoff. The OpenAI SDK already retries 429s (<code>max_retries</code>, default 2). Add your own outer backoff for long jobs. Re-sort results by <code>index</code>, and normalise once at write time so that dot product equals cosine everywhere downstream.</p>
+  <pre><code>import time
+import numpy as np
+import openai
+
+def embed_batched(client, texts, *, model, dimensions=None, batch_size=128, prefix="", sleep=time.sleep):
+    """Embed in batches, keep input order, back off on 429s, return unit-length float32 rows."""
+    out = []
+    for i in range(0, len(texts), batch_size):
+        batch = [prefix + t for t in texts[i:i + batch_size]]
+        kw = {"dimensions": dimensions} if dimensions else {}
+        for attempt in range(6):
+            try:
+                resp = client.embeddings.create(model=model, input=batch, **kw)
+                break
+            except openai.RateLimitError:          # raised after the SDK's own retries
+                sleep(min(60, 2 ** attempt))
+        else:
+            raise RuntimeError(f"still rate-limited at batch {i}")
+        out.extend(e.embedding for e in sorted(resp.data, key=lambda e: e.index))
+    E = np.asarray(out, dtype=np.float32)
+    return E / np.linalg.norm(E, axis=1, keepdims=True)</code></pre>
+  <p class="code-cap">Tested with a fake client that raises one <code>RateLimitError</code> and returns rows in reverse order: 3 texts, batch size 2, 3 calls, rows come back in input order and unit length.</p>
+
+  <h3>Matryoshka embeddings and truncated dimensions</h3>
+  <div class="box def"><span class="tag">Definition · Matryoshka representation learning</span>
+    <p>Train with the contrastive loss applied to several prefixes of the vector at once, for a set of sizes \(\mathcal M\) such as \(\{64,128,256,512,1024\}\):</p>
+    $$\mathcal L_{\text{MRL}}=\sum_{m\in\mathcal M} c_m\,\mathcal L\big(f(x)_{1:m}\big)$$
+    <p>Each prefix is then a usable embedding by itself, with the most important information in the first coordinates. To shrink an index, keep the first \(m\) coordinates and <b>renormalise</b>. Some APIs do this server-side (the <code>dimensions</code> parameter).</p>
+  </div>
+  <p>Truncating a model that was <em>not</em> trained this way discards information at random. A synthetic test shows the difference. One corpus spreads variance evenly across dimensions; the other front-loads it, which is roughly what Matryoshka training produces. For each truncation we measure how much of the full-dimension top 10 survives:</p>
+  <pre><code>rng = np.random.default_rng(0)
+unit = lambda X: X / np.linalg.norm(X, axis=-1, keepdims=True)
+
+def overlap_at_10(D, Q, m):
+    full = np.argsort(-(Q @ D.T), axis=1)[:, :10]
+    cut = np.argsort(-(unit(Q[:, :m]) @ unit(D[:, :m]).T), axis=1)[:, :10]
+    return float(np.mean([len(set(a) &amp; set(b)) / 10 for a, b in zip(full, cut)]))
+
+n, d = 20_000, 1024
+for name, s in {"flat": np.ones(d), "front-loaded": 1 / np.sqrt(np.arange(1, d + 1))}.items():
+    D = unit((rng.normal(size=(n, d)) * s).astype(np.float32))
+    Q = unit(D[:200] + 0.5 * unit(rng.normal(size=(200, d)) * s).astype(np.float32))
+    print(name, [round(overlap_at_10(D, Q, m), 2) for m in (64, 128, 256, 512)])
+# flat         [0.1, 0.12, 0.14, 0.22]
+# front-loaded [0.61, 0.73, 0.83, 0.91]</code></pre>
+  <p class="code-cap">Synthetic vectors, not a real model. On real models, measure recall on labelled queries rather than overlap with the full ranking.</p>
+
+  <h3>Storage maths</h3>
+  <div class="box deriv"><span class="tag">Derivation · raw vector bytes</span>
+    $$\text{bytes}=n\times d\times\frac{\text{bits per dimension}}{8}$$
+    <p>For \(n=10^6\) chunks at \(d=1024\): float32 \(=4.10\) GB, float16 \(2.05\) GB, int8 \(1.02\) GB, binary (1 bit) \(0.13\) GB. Truncating to 256 dimensions divides each by 4. ANN index structures add their own overhead on top (<a href="#l31">L31</a>), and an in-RAM index needs all of it in memory.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 215" role="img" aria-label="Bar chart of storage for one million vectors at different precisions and dimensions">
+      <text x="320" y="22" class="s-ttl s-mid">1M vectors, raw storage (index overhead not included)</text>
+      <text x="150" y="54" class="s-ink s-end">float32 · 1024</text>
+      <rect x="160" y="40" width="400" height="20" class="s-node-mod"/>
+      <text x="568" y="54" class="s-ink2">4.10 GB</text>
+      <text x="150" y="89" class="s-ink s-end">float16 · 1024</text>
+      <rect x="160" y="75" width="200" height="20" class="s-node-mod"/>
+      <text x="368" y="89" class="s-ink2">2.05 GB</text>
+      <text x="150" y="124" class="s-ink s-end">int8 · 1024</text>
+      <rect x="160" y="110" width="100" height="20" class="s-node-mod"/>
+      <text x="268" y="124" class="s-ink2">1.02 GB</text>
+      <text x="150" y="159" class="s-ink s-end">binary · 1024</text>
+      <rect x="160" y="145" width="13" height="20" class="s-node-mod"/>
+      <text x="181" y="159" class="s-ink2">0.13 GB</text>
+      <text x="245" y="159" class="s-ink3 s-sm">sign bits, Hamming distance</text>
+      <text x="150" y="194" class="s-ink s-end">float32 · 256</text>
+      <rect x="160" y="180" width="100" height="20" class="s-node"/>
+      <text x="268" y="194" class="s-ink2">1.02 GB</text>
+      <text x="330" y="194" class="s-acc s-sm">Matryoshka truncation</text>
+    </svg>
+    <figcaption><b>Bytes scale with n × d × precision.</b> Halving precision and quartering dimensions compound. Quantisation (<a href="#l31">L31</a>) and truncation both cost some recall, so measure each one on your own queries before you adopt it.</figcaption>
+  </figure>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Mixing models in one index.</b> Two models' vectors live in unrelated coordinate systems, even at the same dimension, so cross-model cosines are noise. The same applies to one model with a different prefix, truncation or normalisation. Store a manifest (model ID and revision, dimension, prefixes, normalised or not) with the index and refuse queries whose manifest differs. Changing models means re-embedding everything and swapping indexes atomically.</li>
+      <li><b>Silent input truncation.</b> Text beyond the model's input limit is dropped without an error, so the end of a long chunk is never embedded.</li>
+      <li><b>Truncating without renormalising.</b> A truncated vector is shorter than 1, so dot products are no longer cosines and rankings shift.</li>
+      <li><b>A hosted model that changes underneath you.</b> Pin the model version where the provider allows it, and re-run your recall check after any provider notice.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 50 min</h4>
+    <ol>
+      <li>Write DocPilot's 50-query retrieval set: real-sounding questions, each labelled with the chunk IDs that answer it. Include 10 queries containing exact error strings or flag names. <a href="p05.html#l50">L50</a> turns this into a proper golden set.</li>
+      <li>Embed the corpus with two shortlisted models (for example one hosted, one local), using each model's documented prefixes, and save each index with its manifest.</li>
+      <li>Compute recall@5 per model, \(\frac{|\text{relevant}\cap\text{top}_5|}{|\text{relevant}|}\) averaged over queries, and list the queries each model misses.</li>
+      <li>Truncate the better model to 256 dimensions, renormalise, and re-measure. Compute the storage for each variant with the formula above.</li>
+    </ol>
+    <p><b>Ship:</b> a chosen embedding model, recorded with its recall@5 at full and truncated dimension and the storage cost of each.</p>
+  </div>
+  <p class="refs"><b>Read</b> Muennighoff et al. 2023, “MTEB: Massive Text Embedding Benchmark” · Kusupati et al. 2022, “Matryoshka Representation Learning” · Wang et al. 2022, “Text Embeddings by Weakly-Supervised Contrastive Pre-training” (E5) · sentence-transformers documentation · OpenAI API docs, Embeddings · Anthropic docs, Embeddings</p>
+</article>
+<!-- ================================================================ L30 -->
+<article class="day" id="l30">
+  <header class="day-head">
+    <span class="day-no">L30 · DAY 21</span>
+    <h2>Lexical Search: Inverted Indexes and BM25</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Lexical search scores documents by the query terms they actually contain: rare terms count for more, repeats saturate, and long documents are discounted. That makes BM25 the right tool for error codes, flag names and exact identifiers, which are exactly the queries embeddings blur.</p>
+
+  <h3>From text to terms: analysers</h3>
+  <p>An <b>analyser</b> turns text into index terms. It runs at index time and at query time, and both must use the same one. Its usual stages:</p>
+  <ul>
+    <li><b>Tokenising:</b> split on whitespace and punctuation. Code-heavy text needs care: <code>--dry-run=server</code>, <code>v1.31</code> and <code>kube-proxy</code> should survive as whole tokens and also be indexed as their parts.</li>
+    <li><b>Normalising:</b> lowercase, Unicode-normalise, and fold accents if your users type without them.</li>
+    <li><b>Stop words:</b> drop very common words (“the”, “is”). This matters less under BM25, whose IDF already makes them nearly worthless, and dropping them breaks phrase queries such as “to be or not to be”.</li>
+    <li><b>Stemming</b> (rule-based suffix stripping, such as Porter's: “restarting” to “restart”) or <b>lemmatisation</b> (dictionary forms). Both raise recall and occasionally merge unrelated words.</li>
+  </ul>
+
+  <h3>The inverted index</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <p>An <b>inverted index</b> maps each term to its <b>postings list</b>: the documents containing it, with the term frequency \(\text{tf}(t,D)\) and optionally the positions (needed for phrase and proximity queries). It also stores document lengths \(|D|\) and the document frequency \(n(t)\) of each term. A query touches only the postings of its own terms, so the cost grows with how common those terms are, not with corpus size. That is why one machine can run keyword search over millions of documents.</p>
+  </div>
+
+  <h3>From TF-IDF to BM25</h3>
+  <p>TF-IDF weights a term by how often it appears in the document and how rare it is in the corpus, \(\text{tf}(t,D)\cdot\log\frac{N}{n(t)}\), with \(N\) documents in total. It has two defects. Score grows linearly with repetition, so a page that says “pod” forty times beats a precise one. And long documents win simply by containing more words. BM25 fixes both.</p>
+  <div class="box def"><span class="tag">Definition · Okapi BM25</span>
+    $$\text{BM25}(q,D)=\sum_{t\in q}\text{IDF}(t)\cdot\frac{\text{tf}(t,D)\,(k_1+1)}{\text{tf}(t,D)+k_1\left(1-b+b\,\frac{|D|}{\text{avgdl}}\right)}$$
+    <p><b>IDF used here (Lucene's variant):</b> \(\text{IDF}(t)=\ln\!\left(1+\frac{N-n(t)+0.5}{n(t)+0.5}\right)\). It is always positive. The classic Robertson–Spärck Jones form \(\ln\frac{N-n(t)+0.5}{n(t)+0.5}\) goes negative for terms in more than half the documents, so a document can lose score for matching a query term.</p>
+    <ul>
+      <li>\(k_1\) controls <b>term-frequency saturation</b>. At \(k_1=0\) only presence counts; as \(k_1\to\infty\) it approaches raw tf. One term's contribution can never exceed \((k_1+1)\cdot\text{IDF}\).</li>
+      <li>\(b\in[0,1]\) controls <b>length normalisation</b>. At \(b=0\) length is ignored; at \(b=1\) tf is fully scaled by \(|D|/\text{avgdl}\).</li>
+      <li>Defaults in Lucene and Elasticsearch: \(k_1=1.2,\ b=0.75\). Tune them on your own queries; short, uniform chunks often want a lower \(b\).</li>
+    </ul>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 680 262" role="img" aria-label="BM25 term-frequency saturation curves for k1 of 0.5, 1.2 and 2.0, compared with a linear raw tf line">
+      <line x1="60" y1="220" x2="600" y2="220" class="s-ln"/>
+      <line x1="60" y1="220" x2="60" y2="36" class="s-ln"/>
+      <line x1="60" y1="160" x2="600" y2="160" class="s-grid"/>
+      <line x1="60" y1="100" x2="600" y2="100" class="s-grid"/>
+      <line x1="60" y1="40" x2="600" y2="40" class="s-grid"/>
+      <text x="52" y="224" class="s-ink3 s-end s-sm">0</text>
+      <text x="52" y="164" class="s-ink3 s-end s-sm">1</text>
+      <text x="52" y="104" class="s-ink3 s-end s-sm">2</text>
+      <text x="52" y="44" class="s-ink3 s-end s-sm">3</text>
+      <text x="60" y="236" class="s-ink3 s-mid s-sm">0</text>
+      <text x="330" y="236" class="s-ink3 s-mid s-sm">5</text>
+      <text x="600" y="236" class="s-ink3 s-mid s-sm">10</text>
+      <text x="330" y="254" class="s-ink2 s-mid s-sm">term frequency in the document (|D| = avgdl)</text>
+      <text x="66" y="30" class="s-ink2 s-sm">per-term score ÷ IDF</text>
+      <line x1="60" y1="220" x2="222" y2="40" class="s-ln-bad s-dash"/>
+      <text x="190" y="66" class="s-bad s-sm s-end">raw tf</text>
+      <line x1="60" y1="88" x2="600" y2="88" class="s-grid s-dash"/>
+      <text x="250" y="84" class="s-ink3 s-sm">ceiling = k₁+1</text>
+      <path d="M60,220.0 L87,175.0 L114,160.0 L141,152.5 L168,148.0 L195,145.0 L222,142.9 L249,141.2 L276,140.0 L303,139.0 L330,138.2 L357,137.5 L384,136.9 L411,136.4 L438,136.0 L465,135.6 L492,135.3 L519,135.0 L546,134.7 L573,134.5 L600,134.3" class="s-ln-info"/>
+      <path d="M60,220.0 L87,181.2 L114,160.0 L141,146.7 L168,137.5 L195,130.8 L222,125.7 L249,121.7 L276,118.5 L303,115.8 L330,113.5 L357,111.6 L384,110.0 L411,108.6 L438,107.3 L465,106.2 L492,105.2 L519,104.3 L546,103.5 L573,102.8 L600,102.1" class="s-ln-acc"/>
+      <path d="M60,220.0 L87,184.0 L114,160.0 L141,142.9 L168,130.0 L195,120.0 L222,112.0 L249,105.5 L276,100.0 L303,95.4 L330,91.4 L357,88.0 L384,85.0 L411,82.4 L438,80.0 L465,77.9 L492,76.0 L519,74.3 L546,72.7 L573,71.3 L600,70.0" class="s-ln-mod"/>
+      <text x="608" y="74" class="s-mod s-sm">k₁ = 2.0</text>
+      <text x="608" y="106" class="s-acc s-sm">k₁ = 1.2</text>
+      <text x="608" y="138" class="s-info s-sm">k₁ = 0.5</text>
+    </svg>
+    <figcaption><b>Saturation.</b> The first occurrence of a term earns the most and later ones earn less, approaching \(k_1+1\) times IDF (the dashed ceiling is drawn for \(k_1=1.2\)). Raw tf, as in TF-IDF, grows without bound. Every curve passes through 1 at tf = 1 when the document has average length.</figcaption>
+  </figure>
+  <div class="box intuition"><span class="tag">Worked example · length normalisation</span>
+    <p>Take \(k_1=1.2\), \(b=0.75\) and a term that appears once. In an average-length chunk it contributes \(\frac{2.2}{1+1.2}=1.00\) times IDF. In a chunk twice the average length the denominator becomes \(1+1.2(0.25+1.5)=3.1\), giving 0.71. In a chunk half the average length it becomes \(1+1.2(0.25+0.375)=1.75\), giving 1.26. With \(b=0\) all three would score 1.00.</p>
+  </div>
+
+  <h3>BM25 from scratch</h3>
+  <pre><code>import math
+import re
+from collections import Counter, defaultdict
+
+STOP = {"a", "an", "and", "are", "be", "does", "for", "how", "in", "is", "it", "my", "of", "on", "or", "the", "to", "why", "with"}
+TOKEN = re.compile(r"[a-z0-9]+(?:[-_.=/][a-z0-9]+)*")
+
+def analyse(text: str) -> list[str]:
+    """Lowercase; keep identifiers such as dry-run=server or v1.31 whole and also index their parts."""
+    out = []
+    for tok in TOKEN.findall(text.lower()):
+        if tok in STOP:
+            continue
+        out.append(tok)
+        parts = [p for p in re.split(r"[-_.=/]", tok) if p and p not in STOP]
+        if len(parts) &gt; 1:
+            out += parts
+    return out
+
+class BM25:
+    def __init__(self, docs: dict[str, str], k1: float = 1.2, b: float = 0.75):
+        self.k1, self.b = k1, b
+        self.postings: dict[str, dict[str, int]] = defaultdict(dict)   # term -&gt; {doc_id: tf}
+        self.dl = {}
+        for doc_id, text in docs.items():
+            toks = analyse(text)
+            self.dl[doc_id] = len(toks)
+            for term, tf in Counter(toks).items():
+                self.postings[term][doc_id] = tf
+        self.N, self.avgdl = len(docs), sum(self.dl.values()) / len(docs)
+
+    def idf(self, term: str) -&gt; float:          # Lucene's variant: always positive
+        n = len(self.postings.get(term, {}))
+        return math.log(1 + (self.N - n + 0.5) / (n + 0.5))
+
+    def search(self, query: str, k: int = 5) -&gt; list[tuple[str, float]]:
+        scores: dict[str, float] = defaultdict(float)
+        for term in set(analyse(query)):
+            idf = self.idf(term)
+            for doc_id, tf in self.postings.get(term, {}).items():    # only docs that contain the term
+                norm = self.k1 * (1 - self.b + self.b * self.dl[doc_id] / self.avgdl)
+                scores[doc_id] += idf * tf * (self.k1 + 1) / (tf + norm)
+        return [(d, round(s, 2)) for d, s in sorted(scores.items(), key=lambda kv: -kv[1])[:k]]</code></pre>
+  <pre><code>docs = {
+    "debug-pods": "A pod in CrashLoopBackOff is restarting repeatedly because its container exits. "
+                  "Read the previous container's logs with kubectl logs --previous.",
+    "images": "ErrImagePull or ImagePullBackOff means the kubelet could not pull the container image. "
+              "Check the image name and the registry credentials.",
+    "dry-run": "kubectl apply --dry-run=server sends the request to the API server without persisting it.",
+    "scheduling": "A pod stays Pending when no node has enough CPU or memory. Describe the pod to see events.",
+    "probes": "A failing liveness probe makes the kubelet restart the container, again and again.",
+    "upgrade": "Kubernetes v1.31 removes deprecated beta APIs. Read the deprecation guide before you upgrade.",
+}
+index = BM25(docs)
+for q in ["CrashLoopBackOff", "kubectl --dry-run=server", "pod restart", "why does my app keep rebooting"]:
+    print(f"{q!r:34} {index.search(q, k=3)}")
+# 'CrashLoopBackOff'                 [('debug-pods', 1.42)]
+# 'kubectl --dry-run=server'         [('dry-run', 8.04), ('debug-pods', 0.95)]
+# 'pod restart'                      [('probes', 1.77), ('scheduling', 1.39), ('debug-pods', 0.95)]
+# 'why does my app keep rebooting'   []</code></pre>
+  <p class="code-cap">The identifier queries land exactly. “pod restart” misses that debug-pods says “restarting”, because there is no stemmer, and it ranks the scheduling page second because that page says “pod” twice. The paraphrase query shares no terms with any document and returns nothing. Query-term repeats are ignored (<code>set</code>), a common simplification.</p>
+
+  <h3>Where lexical search wins, and where it loses</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Query type</th><th>Example</th><th>Usually wins</th></tr></thead>
+    <tbody>
+      <tr><td>Error codes, exact messages</td><td><code>CrashLoopBackOff</code>, <code>x509: certificate signed by unknown authority</code></td><td>BM25</td></tr>
+      <tr><td>Flags, field and resource names</td><td><code>--dry-run=server</code>, <code>spec.securityContext</code></td><td>BM25</td></tr>
+      <tr><td>Rare terms and product names</td><td>“Gatekeeper”, “kube-proxy”</td><td>BM25</td></tr>
+      <tr><td>Exact phrases (with positions)</td><td>“pod disruption budget”</td><td>BM25</td></tr>
+      <tr><td>Paraphrase, synonyms</td><td>“app keeps rebooting”</td><td>dense</td></tr>
+      <tr><td>Conceptual questions</td><td>“how do I limit noisy neighbours”</td><td>dense</td></tr>
+      <tr><td>Cross-lingual</td><td>a Spanish query over English docs</td><td>dense (multilingual model)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Neither column is empty, which is why <a href="#l34">L34</a> fuses the two.</p>
+
+  <h3>Search engines</h3>
+  <p>You will rarely ship the class above. <b>Elasticsearch</b> and <b>OpenSearch</b> are distributed engines built on Lucene, with BM25 as the default similarity and configurable analysers. <b>Tantivy</b> is a Lucene-inspired library in Rust for embedding search in your own process. <b>Postgres full-text search</b> keeps everything in one database: a <code>tsvector</code> column, a GIN index and <code>tsquery</code> matching. Its built-in <code>ts_rank</code> is a frequency-based ranking, not BM25, and extensions add BM25 (for example ParadeDB's pg_search).</p>
+  <pre><code class="plain">ALTER TABLE chunks ADD COLUMN tsv tsvector
+  GENERATED ALWAYS AS (to_tsvector('english', text)) STORED;
+CREATE INDEX chunks_tsv ON chunks USING gin (tsv);
+
+SELECT id, ts_rank(tsv, q) AS score
+FROM chunks, websearch_to_tsquery('english', 'pod stuck pending') AS q
+WHERE tsv @@ q ORDER BY score DESC LIMIT 10;</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>An analyser that eats identifiers.</b> A default English analyser can split <code>ErrImagePull</code> oddly, stem flag names, or drop <code>--</code>, so the queries BM25 should win silently degrade. Test your analyser's output on 20 real identifiers.</li>
+      <li><b>Different analysers at index and query time.</b> Terms stop matching without any error.</li>
+      <li><b>Stale statistics.</b> IDF and avgdl come from the corpus. Engines keep them per shard or segment, so small or skewed shards give different scores for the same document.</li>
+      <li><b>Treating BM25 scores as comparable across queries or with cosines.</b> They are unbounded and depend on query length (<a href="#l34">L34</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Index every DocPilot chunk with the class above. Add a stemmer if you have one, and keep identifiers whole.</li>
+      <li>Split your 50-query set from <a href="#l29">L29</a> into identifier queries (error messages, flag names, field paths) and natural-language queries. Add 10 more of each from the <a href="p02.html#l27">L27</a> tickets.</li>
+      <li>Run BM25 and the L29 embedding index on every query; record recall@5 per method and per query type.</li>
+      <li>Sweep \(k_1\in\{0.6,1.2,1.8\}\) and \(b\in\{0.3,0.75,1.0\}\) and keep the best setting on half the queries; confirm it on the other half.</li>
+    </ol>
+    <p><b>Ship:</b> a table of query types with the method that wins on each and by how much.</p>
+  </div>
+  <p class="refs"><b>Read</b> Robertson &amp; Zaragoza 2009, “The Probabilistic Relevance Framework: BM25 and Beyond” · Manning, Raghavan &amp; Schütze, <i>Introduction to Information Retrieval</i>, ch. 1–2, 6 and 11 · Elasticsearch docs, Similarity settings · PostgreSQL docs, Full Text Search</p>
+</article>
+<!-- ================================================================ L31 -->
+<article class="day" id="l31">
+  <header class="day-head">
+    <span class="day-no">L31 · DAY 22</span>
+    <h2>Nearest-Neighbour Search: Exact, IVF, HNSW and Quantisation</h2>
+    <p class="day-meta"><span class="vid">55m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">Exact nearest-neighbour search compares the query with every vector. Approximate indexes avoid most of those comparisons, by visiting only a few clusters (IVF) or by walking a graph (HNSW), and quantisation shrinks each comparison. Every such index trades recall against latency and memory, so you choose its parameters from a measured curve.</p>
+
+  <h3>Exact search and the triangle</h3>
+  <p>Brute force costs \(n\cdot d\) multiply-adds per query, \(7.7\times10^8\) for a million 768-d chunks. Run as one matrix product it copes with a few hundred thousand vectors on a CPU, and it has perfect recall, so it is the ground truth for everything else. Past that, an approximate (ANN) index trades among three quantities:</p>
+  <div class="box def"><span class="tag">Definition · the ANN triangle</span>
+    <ul>
+      <li><b>Recall@k:</b> the share of the true \(k\) nearest neighbours (from brute force) that the index returns.</li>
+      <li><b>Latency, or queries per second</b>, at a stated recall.</li>
+      <li><b>Memory:</b> vectors plus index structure, which usually must fit in RAM.</li>
+    </ul>
+    <p>Report results as pairs (“recall@10 = 0.95 at 2 ms”), never recall or speed alone.</p>
+  </div>
+
+  <h3>IVF: cluster, then probe a few lists</h3>
+  <div class="box algo"><span class="tag">Algorithm · inverted file index (IVF)</span>
+    <ol>
+      <li><b>Train:</b> run k-means on the vectors to get <code>nlist</code> centroids.</li>
+      <li><b>Add:</b> put each vector in the inverted list of its nearest centroid.</li>
+      <li><b>Search:</b> rank the centroids by distance to the query, scan only the vectors in the <code>nprobe</code> closest lists, and return the best \(k\).</li>
+    </ol>
+    <p>The share of the corpus scanned is roughly <code>nprobe / nlist</code>. A query's true neighbour can sit just across a cluster boundary, so raising <code>nprobe</code> buys recall with linear cost.</p>
+  </div>
+  <pre><code>import numpy as np
+
+def kmeans(X, nlist, iters=10, seed=0):
+    C = X[np.random.default_rng(seed).choice(len(X), nlist, replace=False)]
+    for _ in range(iters):
+        assign = np.argmin((C ** 2).sum(1) - 2 * X @ C.T, axis=1)     # nearest centroid per row
+        for j in range(nlist):
+            if (assign == j).any():
+                C[j] = X[assign == j].mean(0)
+    return C, assign
+
+class IVF:
+    def __init__(self, X, nlist):
+        self.X = X
+        self.C, assign = kmeans(X, nlist)
+        self.lists = [np.flatnonzero(assign == j) for j in range(nlist)]   # inverted lists of row ids
+
+    def search(self, q, k, nprobe):
+        near = np.argsort((self.C ** 2).sum(1) - 2 * self.C @ q)[:nprobe]  # the nprobe closest centroids
+        ids = np.concatenate([self.lists[j] for j in near])
+        return ids[np.argsort(((self.X[ids] - q) ** 2).sum(1))[:k]], len(ids)</code></pre>
+  <p>We measured it on 20,000 synthetic 64-dimensional vectors with 200 queries, <code>nlist = 128</code>, and brute force as ground truth. There are two datasets: isotropic Gaussian noise (a worst case with no structure) and a mixture of 200 loose clusters (closer to real embeddings).</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>nprobe</th><th>Share scanned</th><th>Recall@10, random</th><th>Recall@10, clustered</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="num">0.8–0.9%</td><td class="num">0.067</td><td class="num">0.589</td></tr>
+      <tr><td class="num">4</td><td class="num">3.3–3.8%</td><td class="num">0.198</td><td class="num">0.718</td></tr>
+      <tr><td class="num">16</td><td class="num">13–15%</td><td class="num">0.478</td><td class="num">0.873</td></tr>
+      <tr><td class="num">32</td><td class="num">26–30%</td><td class="num">0.701</td><td class="num">0.943</td></tr>
+    </tbody>
+  </table></div>
+  <p class="code-cap">Random: <code>rng.normal(size=(n, 64))</code>. Clustered: each point is one of 200 centres drawn from 0.7·N(0, I), plus N(0, I) noise. IVF works only as well as the data clusters: on noise, scanning 26% of the corpus still misses 30% of the neighbours.</p>
+
+  <h3>HNSW: a navigable layered graph</h3>
+  <div class="box def"><span class="tag">Definition · HNSW (Malkov &amp; Yashunin)</span>
+    <ul>
+      <li><b>Layers.</b> Every vector is a node on layer 0. A new node is assigned a top layer \(\ell=\lfloor-\ln U\cdot m_L\rfloor\) with \(U\sim\text{Uniform}(0,1)\) and \(m_L=1/\ln M\), so each layer up holds about \(1/M\) as many nodes. The node appears on every layer from \(\ell\) down to 0. The sparse upper layers act like express lanes.</li>
+      <li><b><code>M</code></b> is the number of links a node gets per layer, capped at \(M_{\max}=M\) on upper layers and \(M_{\max 0}=2M\) on layer 0. Larger <code>M</code> gives higher recall and more memory (about \(2M\times4\) bytes of neighbour IDs per vector on layer 0).</li>
+      <li><b><code>efConstruction</code></b> is the beam width used while inserting. Wider beams find better neighbours, so build time rises and recall improves.</li>
+      <li><b><code>efSearch</code></b> is the beam width at query time, at least \(k\). It is the main knob for trading recall against latency, and you can change it per query without rebuilding.</li>
+    </ul>
+  </div>
+  <div class="box algo"><span class="tag">Algorithm · HNSW search and insert</span>
+    <ol>
+      <li><b>Search.</b> Start at the global entry point on the top layer. On each layer above 0, move greedily (beam width 1) to whichever neighbour is closest to \(q\) until no neighbour is closer, then drop to the next layer from that node. On layer 0, run a beam search with width <code>efSearch</code> and return the best \(k\).</li>
+      <li><b>Insert</b> \(x\) with top layer \(\ell\): descend greedily to layer \(\ell+1\); on each layer from \(\ell\) to 0, beam-search with width <code>efConstruction</code> and link \(x\) both ways to <code>M</code> candidates, pruning any neighbour pushed over its cap.</li>
+      <li><b>Neighbour heuristic.</b> Add a candidate only if it is closer to \(x\) than to every neighbour already chosen. This keeps links pointing in different directions, including the long links between clusters that make the graph navigable.</li>
+    </ol>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Three HNSW layers. Search enters at the top layer, moves greedily, descends, and runs a beam search on layer 0 near the query">
+      <defs><marker id="ah-l31" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk-mod"/></marker></defs>
+      <text x="16" y="54" class="s-ttl">layer 2</text>
+      <text x="16" y="129" class="s-ttl">layer 1</text>
+      <text x="16" y="209" class="s-ttl">layer 0</text>
+      <text x="16" y="224" class="s-ink3 s-sm">all nodes</text>
+      <line x1="180" y1="56" x2="180" y2="119" class="s-grid s-dash"/>
+      <line x1="180" y1="131" x2="180" y2="194" class="s-grid s-dash"/>
+      <line x1="260" y1="131" x2="260" y2="200" class="s-grid s-dash"/>
+      <line x1="380" y1="131" x2="380" y2="199" class="s-grid s-dash"/>
+      <line x1="560" y1="131" x2="560" y2="194" class="s-grid s-dash"/>
+      <line x1="180" y1="125" x2="260" y2="125" class="s-ln"/><line x1="260" y1="125" x2="380" y2="125" class="s-ln"/>
+      <line x1="380" y1="125" x2="470" y2="125" class="s-ln"/><line x1="470" y1="125" x2="560" y2="125" class="s-ln"/>
+      <path d="M130,212 L180,200 L230,228 L260,206 L180,200 M260,206 L310,190 L345,226 L380,205 L310,190 M380,205 L422,222 L470,198 L380,205 M470,198 L520,214 L422,222 M520,214 L560,200 L600,222" class="s-ln"/>
+      <line x1="187" y1="50" x2="460" y2="50" class="s-ln-mod" marker-end="url(#ah-l31)"/>
+      <line x1="470" y1="57" x2="470" y2="117" class="s-ln-mod" marker-end="url(#ah-l31)"/>
+      <line x1="470" y1="132" x2="470" y2="190" class="s-ln-mod" marker-end="url(#ah-l31)"/>
+      <line x1="463" y1="202" x2="430" y2="217" class="s-ln-mod" marker-end="url(#ah-l31)"/>
+      <circle cx="180" cy="50" r="6" class="s-node-mod"/><circle cx="470" cy="50" r="6" class="s-node-mod"/>
+      <circle cx="180" cy="125" r="6" class="s-node"/><circle cx="260" cy="125" r="6" class="s-node"/><circle cx="380" cy="125" r="6" class="s-node"/><circle cx="470" cy="125" r="6" class="s-node-mod"/><circle cx="560" cy="125" r="6" class="s-node"/>
+      <circle cx="130" cy="212" r="5" class="s-node"/><circle cx="180" cy="200" r="5" class="s-node"/><circle cx="230" cy="228" r="5" class="s-node"/><circle cx="260" cy="206" r="5" class="s-node"/><circle cx="310" cy="190" r="5" class="s-node"/><circle cx="345" cy="226" r="5" class="s-node"/><circle cx="380" cy="205" r="5" class="s-node"/><circle cx="470" cy="198" r="5" class="s-node-mod"/><circle cx="520" cy="214" r="5" class="s-node"/><circle cx="560" cy="200" r="5" class="s-node"/><circle cx="600" cy="222" r="5" class="s-node"/>
+      <circle cx="422" cy="222" r="6" class="s-acc"/>
+      <circle cx="450" cy="246" r="4" class="s-warn"/>
+      <text x="460" y="250" class="s-warn s-sm">q</text>
+      <text x="180" y="34" class="s-ink2 s-mid s-sm">entry point</text>
+      <text x="325" y="42" class="s-mod s-mid s-sm">greedy, beam width 1</text>
+      <text x="480" y="92" class="s-ink3 s-sm">descend</text>
+      <text x="572" y="112" class="s-ink3 s-sm">≤ M links</text>
+      <text x="630" y="264" class="s-mod s-end s-sm">beam search, width efSearch</text>
+    </svg>
+    <figcaption><b>Coarse to fine.</b> The upper layers hold few nodes and long links, so a few greedy hops bring the search near the query. Layer 0 holds every node, with up to 2M links each, and a beam of width efSearch finds the nearest node (filled).</figcaption>
+  </figure>
+  <p>The per-layer beam search is short:</p>
+  <pre><code>import heapq
+
+def search_layer(q, entry, graph, X, ef):
+    """HNSW's per-layer search: best-first beam that keeps the ef closest nodes found so far."""
+    dist = lambda i: float(((X[i] - q) ** 2).sum())
+    visited = {entry}
+    cand = [(dist(entry), entry)]             # min-heap of nodes still to expand
+    best = [(-cand[0][0], entry)]             # max-heap (negated) of the ef best so far
+    while cand:
+        dc, c = heapq.heappop(cand)
+        if dc &gt; -best[0][0]:                  # closest unexpanded node is worse than our worst: stop
+            break
+        for nb in graph[c]:
+            if nb in visited:
+                continue
+            visited.add(nb)
+            dn = dist(nb)
+            if len(best) &lt; ef or dn &lt; -best[0][0]:
+                heapq.heappush(cand, (dn, nb))
+                heapq.heappush(best, (-dn, nb))
+                if len(best) &gt; ef:
+                    heapq.heappop(best)
+    return [i for _, i in sorted((-dd, i) for dd, i in best)], len(visited)</code></pre>
+  <p>On a single-layer two-way 16-NN graph over 5,000 random 64-d vectors, starting from node 0, recall@10 is 0.730 / 0.875 / 0.977 / 0.997 at <code>ef</code> = 10 / 20 / 50 / 100, visiting 1,072 to 3,411 nodes. On 200 well-separated clusters the same pure k-NN graph breaks down: it has almost no links between clusters, so at <code>ef</code> = 100 recall is 0.240. Adding just 4 random long-range links per node lifts it to 0.995. That is the job the neighbour heuristic and the upper layers do in real HNSW.</p>
+
+  <h3>Quantisation: smaller vectors, cheaper distances</h3>
+  <ul>
+    <li><b>Scalar (int8):</b> map each dimension's range to 0–255 for a 4× saving. Recall@10 against float32 was 0.983 on 20,000 random 256-d unit vectors.</li>
+    <li><b>Binary:</b> keep one sign bit per dimension and compare with Hamming distance (XOR plus popcount), a 32× saving. On the same random vectors recall@10 was 0.106, so shortlist with bits and <b>rescore</b> the top few hundred with full vectors (0.456 with 200 rescored). Real embeddings are reported to fare much better than isotropic noise; measure on yours.</li>
+    <li><b>Product quantisation (PQ):</b> split \(x\) into \(m\) sub-vectors, run k-means with 256 centroids on each sub-space, and store \(m\) one-byte codes. Distances are sums of table lookups, \(\lVert q-\hat x\rVert^2=\sum_{j=1}^{m}\lVert q^{(j)}-c^{(j)}_{i_j}\rVert^2\), with the \(m\times256\) table computed once per query. A 768-d float32 vector (3,072 bytes) becomes 96 bytes at \(m=96\). IVF-PQ combines the two ideas, and is how billion-scale indexes fit in memory.</li>
+  </ul>
+  <pre><code># faiss: API as documented; check your installed version (untested here)
+import faiss
+
+hnsw = faiss.IndexHNSWFlat(d, 32)           # M = 32, L2 (unit vectors give cosine order)
+hnsw.hnsw.efConstruction = 200
+hnsw.add(X)                                 # X: float32 array of shape (n, d)
+hnsw.hnsw.efSearch = 64
+D, I = hnsw.search(Q, 10)
+
+ivf = faiss.IndexIVFFlat(faiss.IndexFlatL2(d), d, 1024)   # nlist = 1024
+ivf.train(X)
+ivf.add(X)
+ivf.nprobe = 16
+D, I = ivf.search(Q, 10)</code></pre>
+
+  <h3>Filters, and benchmarking honestly</h3>
+  <p>Filtered search (“only version 1.31”, “only this tenant”) is hard for graph indexes. If you <em>post-filter</em>, the \(k\) results may all be rejected. If you skip disallowed nodes during traversal, a selective filter leaves a sparse, disconnected subgraph, which is the separated-clusters failure above, and recall collapses. Engines widen the beam, fall back to brute force over a small filtered subset, or add filter-aware links (<a href="#l33">L33</a>). Benchmark the way ANN-Benchmarks does: exact ground truth, one knob swept (<code>nprobe</code>, <code>efSearch</code>), recall@k plotted against queries per second, all at your real \(k\), filters and concurrency.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Benchmarking on the wrong data.</b> Random vectors, or someone else's embeddings, give different curves. Use your own vectors and queries.</li>
+      <li><b>An index that no longer fits in RAM.</b> HNSW performance falls apart when the graph is paged from disk. Budget vectors plus links plus headroom.</li>
+      <li><b>Deletes and updates.</b> Graph deletes are tombstones that erode recall, and IVF centroids go stale as the corpus drifts. Plan rebuilds.</li>
+      <li><b>A metric mismatch.</b> An L2 index over unnormalised vectors does not return cosine neighbours.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Embed or synthesise 100k vectors (tile your DocPilot embeddings with small noise if the corpus is smaller) and 500 held-out queries; compute exact top-10 by brute force and time it.</li>
+      <li>Build FAISS <code>IndexIVFFlat</code> (the FAISS guidelines suggest <code>nlist</code> of a few multiples of \(\sqrt n\)) and <code>IndexHNSWFlat</code> (<code>M</code> = 32). Sweep <code>nprobe</code> ∈ {1, 4, 16, 64} and <code>efSearch</code> ∈ {16, 32, 64, 128, 256}.</li>
+      <li>Plot recall@10 against median latency for both, on one chart, and note build time and memory per index.</li>
+      <li>Repeat one HNSW point with a filter that keeps 5% of vectors and compare recall.</li>
+    </ol>
+    <p><b>Ship:</b> chosen index type and parameters, read off your own recall–latency curve at a stated recall target.</p>
+  </div>
+  <p class="refs"><b>Read</b> Malkov &amp; Yashunin 2018, “Efficient and Robust Approximate Nearest Neighbor Search Using Hierarchical Navigable Small World Graphs” · Jégou, Douze &amp; Schmid 2011, “Product Quantization for Nearest Neighbor Search” · Johnson, Douze &amp; Jégou 2019, “Billion-scale similarity search with GPUs” · Aumüller, Bernhardsson &amp; Faithfull 2020, “ANN-Benchmarks” · FAISS wiki, Guidelines to choose an index</p>
+</article>
+<!-- ================================================================ L32 -->
+<article class="day" id="l32">
+  <header class="day-head">
+    <span class="day-no">L32 · DAY 23</span>
+    <h2>Vector Databases: Choosing and Using One</h2>
+    <p class="day-meta"><span class="vid">50m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">An ANN library answers “which vectors are nearest?”. A vector database also keeps the vectors safe, filters them, updates and deletes them, replicates them and often runs keyword search beside them. Choose one by your scale, your filtering needs and the operations you already run, then design the schema so that re-ingesting and re-embedding are routine.</p>
+
+  <h3>What a database adds over a library</h3>
+  <p>FAISS (<a href="#l31">L31</a>) is a library: an index in your process's memory, fast and flexible, with no server. Everything around it is left to you: saving it to disk, mapping integer row IDs back to chunks, filtering by metadata, deleting a document, serving many readers, recovering after a crash. A vector database packages those concerns.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A library provides only the ANN index; a vector database wraps it with persistence, updates, filtering, hybrid search, replication and an API">
+      <text x="120" y="24" class="s-ttl s-mid">library (FAISS)</text>
+      <rect x="40" y="190" width="160" height="34" rx="6" class="s-node-mod"/>
+      <text x="120" y="211" class="s-mid">ANN index</text>
+      <text x="120" y="120" class="s-ink3 s-mid s-sm">everything else</text>
+      <text x="120" y="135" class="s-ink3 s-mid s-sm">is your code</text>
+      <line x1="240" y1="20" x2="240" y2="235" class="s-grid"/>
+      <text x="450" y="24" class="s-ttl s-mid">vector database</text>
+      <rect x="290" y="36" width="320" height="22" rx="5" class="s-node"/><text x="450" y="51" class="s-mid s-sm">API, auth, client SDKs</text>
+      <rect x="290" y="62" width="320" height="22" rx="5" class="s-node"/><text x="450" y="77" class="s-mid s-sm">replication and sharding</text>
+      <rect x="290" y="88" width="320" height="22" rx="5" class="s-node"/><text x="450" y="103" class="s-mid s-sm">hybrid search: sparse or BM25 beside dense</text>
+      <rect x="290" y="114" width="320" height="22" rx="5" class="s-node"/><text x="450" y="129" class="s-mid s-sm">payload index and filters</text>
+      <rect x="290" y="140" width="320" height="22" rx="5" class="s-node"/><text x="450" y="155" class="s-mid s-sm">upserts, deletes, versions</text>
+      <rect x="290" y="166" width="320" height="22" rx="5" class="s-node"/><text x="450" y="181" class="s-mid s-sm">persistence: write-ahead log, snapshots</text>
+      <rect x="290" y="192" width="320" height="32" rx="6" class="s-node-mod"/><text x="450" y="212" class="s-mid">ANN index (HNSW, IVF, quantised)</text>
+    </svg>
+    <figcaption><b>Same core, different packaging.</b> The ANN index at the bottom is the same idea in both columns. What you are choosing is everything stacked on top of it, and who operates it.</figcaption>
+  </figure>
+
+  <h3>pgvector: vectors inside Postgres</h3>
+  <p>pgvector adds a <code>vector(n)</code> column type, distance operators, and two index types to Postgres. Your chunks, metadata, permissions and vectors then live in one transactional database, and filters are ordinary SQL.</p>
+  <div class="box def"><span class="tag">Definition · pgvector distance operators</span>
+    <ul>
+      <li><code>a &lt;-&gt; b</code>: Euclidean (L2) distance. Index ops class <code>vector_l2_ops</code>.</li>
+      <li><code>a &lt;#&gt; b</code>: <b>negative</b> inner product, so that ascending order puts the largest dot product first. Ops class <code>vector_ip_ops</code>.</li>
+      <li><code>a &lt;=&gt; b</code>: cosine <b>distance</b>, \(1-\cos\theta\). Ops class <code>vector_cosine_ops</code>; similarity is <code>1 - (a &lt;=&gt; b)</code>.</li>
+    </ul>
+    <p>An index is used only when the query's operator matches the index's ops class and the query has the shape <code>ORDER BY embedding &lt;op&gt; :q LIMIT k</code>.</p>
+  </div>
+  <pre><code class="plain">CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE chunks (
+  id           uuid PRIMARY KEY,           -- stable, derived from source (below)
+  doc_id       text NOT NULL,              -- delete-and-replace a document in one statement
+  url          text, heading_path text, section text, version text, lang text,
+  text         text NOT NULL,
+  embed_model  text NOT NULL,              -- which model produced the vector
+  embedding    vector(384) NOT NULL
+);
+CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+-- or, after loading data: USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
+
+SET hnsw.ef_search = 100;                  -- per session; ivfflat.probes for IVFFlat
+SELECT id, url, 1 - (embedding &lt;=&gt; :q) AS score
+FROM chunks WHERE version = '1.31'
+ORDER BY embedding &lt;=&gt; :q LIMIT 5;</code></pre>
+  <p class="code-cap">pgvector, SQL as documented; check your installed version (untested here). <code>:q</code> is a bound parameter; from Python, the <code>pgvector</code> package registers the type with psycopg. Build IVFFlat after loading data, because its k-means needs the vectors.</p>
+
+  <h3>The dedicated engines, and FAISS</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Option</th><th>What it is</th><th>Reach for it when</th></tr></thead>
+    <tbody>
+      <tr><td><b>pgvector</b></td><td>Postgres extension</td><td>you already run Postgres, want SQL filters and joins, and have up to millions of vectors</td></tr>
+      <tr><td><b>Qdrant</b></td><td>Rust vector database with payload filtering, sparse vectors and quantisation</td><td>filtering is heavy and you want a dedicated service</td></tr>
+      <tr><td><b>Weaviate</b></td><td>vector database with schema and built-in BM25 hybrid</td><td>you want hybrid search and integrations out of the box</td></tr>
+      <tr><td><b>Milvus</b></td><td>distributed vector database, many index types</td><td>very large collections that need horizontal scale</td></tr>
+      <tr><td><b>Chroma</b></td><td>developer-friendly store, embedded or client–server</td><td>prototypes, notebooks, small apps</td></tr>
+      <tr><td><b>FAISS</b></td><td>library, in process</td><td>batch jobs, research, or a custom service you will build around it</td></tr>
+    </tbody>
+  </table></div>
+  <p><b>Managed vs self-hosted.</b> Most of these offer a hosted cloud version, and some vendors are managed-only. Managed buys backups, upgrades and scaling for a bill and a data-residency question. Self-hosted is one more stateful service for your on-call rota. The decision criteria, in rough order: <b>existing stack</b> (a new database is a long-term cost), <b>filtering needs</b> (selective filters over many tenants or versions), <b>scale</b> (vectors × dimensions × replicas against RAM, <a href="#l29">L29</a>), <b>update pattern</b> (frequent deletes and re-ingestion), and <b>hybrid search</b>. Feature lists change quickly: check current docs before committing.</p>
+  <pre><code># qdrant-client: API as documented; check your installed version (untested here)
+from qdrant_client import QdrantClient, models
+
+qc = QdrantClient(url="http://localhost:6333")
+qc.create_collection("docpilot", vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE))
+qc.upsert("docpilot", points=[models.PointStruct(id=str(cid), vector=v.tolist(), payload=p)
+                              for cid, v, p in zip(chunk_ids, E, payloads)])
+hits = qc.query_points("docpilot", query=q.tolist(), limit=5, query_filter=models.Filter(
+    must=[models.FieldCondition(key="version", match=models.MatchValue(value="1.31"))])).points</code></pre>
+
+  <h3>Schema design: IDs, payloads, versions</h3>
+  <div class="box note"><span class="tag">Design rules</span>
+    <ul>
+      <li><b>Deterministic IDs.</b> Derive each chunk's ID from its source, such as a UUIDv5 of URL, heading path and chunk index. Re-ingestion then upserts in place instead of duplicating. Qdrant accepts only unsigned integers or UUIDs as point IDs, so a UUID works everywhere.</li>
+      <li><b>A <code>doc_id</code> on every chunk</b>, so that “document changed” becomes delete all its chunks, then insert the new ones.</li>
+      <li><b>A payload for filtering and citing</b>: URL, heading path, section, product version, language, access labels, updated-at. <a href="#l33">L33</a> designs these.</li>
+      <li><b>The embedding model on every row</b>, or one collection per model. A new model means a new collection, filled in the background and swapped in by alias.</li>
+    </ul>
+  </div>
+  <p>To compare stores fairly, put one interface in front of all of them. Here is the in-memory reference that DocPilot's tests (and <a href="#l37">L37</a>) use:</p>
+  <pre><code>import uuid
+import numpy as np
+
+NS = uuid.UUID("6f1c2a52-6d0e-4c1b-9a59-2f8a3c1e0b7d")       # fixed namespace for DocPilot chunk IDs
+
+def chunk_id(url: str, heading_path: str, i: int) -&gt; str:
+    return str(uuid.uuid5(NS, f"{url}#{heading_path}#{i}"))
+
+def matches(payload: dict, where: dict) -&gt; bool:
+    return all(payload.get(k) in v if isinstance(v, (list, set, tuple)) else payload.get(k) == v
+               for k, v in where.items())
+
+class InMemoryStore:
+    """Upsert, delete and filtered exact search; the contract the pgvector and Qdrant adapters must match."""
+    def __init__(self, dim: int, model: str):
+        self.dim, self.model, self.rows = dim, model, {}         # id -&gt; (unit vector, payload)
+
+    def upsert(self, id: str, vec, payload: dict) -&gt; None:
+        v = np.asarray(vec, dtype=np.float32)
+        if v.shape != (self.dim,):
+            raise ValueError(f"expected {self.dim} dims from {self.model}, got {v.shape}")
+        self.rows[id] = (v / np.linalg.norm(v), payload)
+
+    def delete(self, **where) -&gt; int:
+        doomed = [i for i, (_, p) in self.rows.items() if matches(p, where)]
+        for i in doomed:
+            del self.rows[i]
+        return len(doomed)
+
+    def search(self, q, k: int = 5, **where) -&gt; list[tuple[str, float]]:
+        ids = [i for i, (_, p) in self.rows.items() if matches(p, where)]   # filter first, then exact
+        if not ids:
+            return []
+        s = np.stack([self.rows[i][0] for i in ids]) @ (q / np.linalg.norm(q))
+        return [(ids[j], round(float(s[j]), 3)) for j in np.argsort(-s)[:k]]
+
+store = InMemoryStore(dim=4, model="toy-4d")
+for i, (vec, ver) in enumerate([([1, 0, 0, 0], "1.30"), ([0.9, 0.1, 0, 0], "1.31"), ([0, 1, 0, 0], "1.31")]):
+    store.upsert(chunk_id("https://k8s.io/docs/pods", "Pods", i), vec, {"doc_id": "pods", "version": ver})
+print(store.search(np.array([1.0, 0, 0, 0]), k=2))
+print(store.search(np.array([1.0, 0, 0, 0]), k=2, version="1.31"))
+print(store.delete(doc_id="pods"), len(store.rows))
+# [('bbeabda7-…', 1.0), ('ad248f24-…', 0.994)]      chunks 0 (v1.30) and 1 (v1.31)
+# [('ad248f24-…', 0.994), ('255753aa-…', 0.0)]      the v1.30 chunk is filtered out
+# 3 0                                               whole document removed</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>The query does not use the index.</b> In pgvector, an operator that does not match the ops class, or an expression in <code>ORDER BY</code>, silently falls back to a sequential scan. Check with <code>EXPLAIN</code>.</li>
+      <li><b>Filters return fewer than k rows.</b> With an approximate index, the database may apply the filter after the index scan (<a href="#l33">L33</a>).</li>
+      <li><b>Random IDs.</b> Re-running ingestion doubles the corpus, and duplicate chunks crowd the top k.</li>
+      <li><b>Bulk loads with the index in place.</b> Building HNSW row by row is far slower than loading first and indexing once. Raise <code>maintenance_work_mem</code> for the build.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Run Postgres with pgvector and Qdrant locally in Docker. Create the schema above in both, with deterministic chunk IDs.</li>
+      <li>Write <code>PgVectorStore</code> and <code>QdrantStore</code> with the same <code>upsert</code> / <code>delete</code> / <code>search(q, k, **where)</code> contract as <code>InMemoryStore</code>. Run one shared test file against all three.</li>
+      <li>Load the DocPilot chunks with their L29 embeddings. Re-run ingestion and confirm the row count does not change.</li>
+      <li>Time 200 queries per store (median and p95), with and without a version filter, and check that the top 5 agree with the in-memory store.</li>
+    </ol>
+    <p><b>Ship:</b> a one-page decision record for DocPilot's vector store: options considered, measured latency, filtering and operations notes, decision and the conditions that would reverse it.</p>
+  </div>
+  <p class="refs"><b>Read</b> pgvector README (indexing, querying, filtering) · Qdrant docs, Collections, Points and Filtering · Weaviate, Milvus and Chroma documentation, concepts sections · FAISS wiki · Huyen, <i>AI Engineering</i>, the RAG chapter</p>
+</article>
+<!-- ================================================================ L33 -->
+<article class="day" id="l33">
+  <header class="day-head">
+    <span class="day-no">L33 · DAY 23</span>
+    <h2>Metadata Filtering, Namespaces and Multi-Tenancy</h2>
+    <p class="day-meta"><span class="vid">40m video</span><span class="prac">40m practice</span></p>
+  </header>
+
+  <p class="thesis">Similarity alone cannot tell the 1.29 page from the near-identical 1.31 page, or one customer's document from another's. Metadata filters can, but only if you design the fields up front and know whether your engine filters before or after the nearest-neighbour search.</p>
+
+  <h3>Metadata design</h3>
+  <p>Every field you might filter or cite on has to be attached at ingestion; adding one later means re-ingesting. For DocPilot:</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Field</th><th>Example</th><th>Used for</th></tr></thead>
+    <tbody>
+      <tr><td><code>doc_id</code>, <code>url</code>, <code>heading_path</code></td><td><code>tasks/run-application/…</code>, “Tasks › Run Applications”</td><td>citations, delete-and-replace (<a href="#l32">L32</a>)</td></tr>
+      <tr><td><code>source</code></td><td><code>docs</code>, <code>ticket</code>, <code>runbook</code></td><td>routing, separate quality bars</td></tr>
+      <tr><td><code>section</code></td><td>Concepts, Tasks, Reference</td><td>boosting how-to pages for how-to questions</td></tr>
+      <tr><td><code>version</code></td><td><code>1.31</code></td><td>answering for the right release</td></tr>
+      <tr><td><code>updated_at</code></td><td><code>2026-09-14</code></td><td>freshness filters and boosts (<a href="p04.html#l48">L48</a>)</td></tr>
+      <tr><td><code>lang</code></td><td><code>en</code>, <code>ja</code></td><td>matching the user's language</td></tr>
+      <tr><td><code>tenant</code>, <code>acl</code></td><td><code>acme</code>, <code>["support", "sre"]</code></td><td>isolation and permissions (<a href="p04.html#l47">L47</a>)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Store values in normalised form (<code>"1.31"</code>, not “v1.31” in one place and “1.31.0” in another), and create a payload index on each filtered field (a B-tree column in Postgres, a payload index in Qdrant). Without one, a filter becomes a scan.</p>
+
+  <h3>Pre-filtering vs post-filtering</h3>
+  <div class="box def"><span class="tag">Definition · two ways to combine a filter with ANN</span>
+    <ul>
+      <li><b>Post-filtering:</b> retrieve the top \(k'\) by similarity, then drop rows that fail the filter. If a share \(s\) of rows pass and passing is unrelated to similarity, you get back about \(\min(k,\ k's)\) rows, so you need \(k'\approx k/s\) to fill \(k\) slots.</li>
+      <li><b>Pre-filtering:</b> restrict the search to passing rows, then rank. Exact search over the subset has perfect recall at a cost that grows with subset size. Inside a graph index, skipping disallowed nodes can strand the search in a disconnected subgraph (<a href="#l31">L31</a>).</li>
+    </ul>
+    <p>Engines blend the two: they estimate selectivity, brute-force small subsets, widen the beam for medium ones, or keep filter-aware links. pgvector 0.8 added iterative index scans for filtered queries; check what your version does.</p>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 640 200" role="img" aria-label="Post-filtering retrieves ten then filters to one; pre-filtering filters first and returns ten">
+      <defs><marker id="ah-l33" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="20" y="52" class="s-ttl">post-filter</text>
+      <rect x="130" y="30" width="150" height="36" rx="6" class="s-node"/><text x="205" y="53" class="s-mid s-sm">ANN top k′ = 10</text>
+      <rect x="320" y="30" width="150" height="36" rx="6" class="s-node"/><text x="405" y="53" class="s-mid s-sm">keep version 1.29</text>
+      <rect x="510" y="30" width="110" height="36" rx="6" class="s-node"/><text x="565" y="53" class="s-bad s-mid s-sm">≈ 1 result</text>
+      <line x1="280" y1="48" x2="318" y2="48" class="s-ln" marker-end="url(#ah-l33)"/>
+      <line x1="470" y1="48" x2="508" y2="48" class="s-ln" marker-end="url(#ah-l33)"/>
+      <text x="320" y="88" class="s-ink3 s-mid s-sm">share passing s = 0.1, so about k′s = 1 survives</text>
+      <text x="20" y="142" class="s-ttl">pre-filter</text>
+      <rect x="130" y="120" width="150" height="36" rx="6" class="s-node-mod"/><text x="205" y="143" class="s-mid s-sm">keep version 1.29</text>
+      <rect x="320" y="120" width="150" height="36" rx="6" class="s-node-mod"/><text x="405" y="143" class="s-mid s-sm">search the subset</text>
+      <rect x="510" y="120" width="110" height="36" rx="6" class="s-node-mod"/><text x="565" y="143" class="s-acc s-mid s-sm">10 results</text>
+      <line x1="280" y1="138" x2="318" y2="138" class="s-ln" marker-end="url(#ah-l33)"/>
+      <line x1="470" y1="138" x2="508" y2="138" class="s-ln" marker-end="url(#ah-l33)"/>
+      <text x="320" y="178" class="s-ink3 s-mid s-sm">exact over the subset, or a filter-aware index</text>
+    </svg>
+    <figcaption><b>Order matters.</b> Post-filtering is cheap and fine for permissive filters. It quietly returns too few results for selective ones, and the model then answers from whatever is left.</figcaption>
+  </figure>
+  <pre><code>import numpy as np
+
+rng = np.random.default_rng(0)
+n, d, k = 20_000, 64, 10
+unit = lambda A: A / np.linalg.norm(A, axis=-1, keepdims=True)
+X, Q = unit(rng.normal(size=(n, d))), unit(rng.normal(size=(200, d)))
+S = Q @ X.T                                                # exact scores stand in for an ANN index
+for share in (0.5, 0.1, 0.01):
+    allowed = rng.random(n) &lt; share                        # rows passing e.g. version == "1.29"
+    for over in (1, 4, 20):
+        got = [[i for i in np.argsort(-s)[:k * over] if allowed[i]][:k] for s in S]  # top k*over, then filter
+        print(f"share={share:&lt;4} k'={k * over:3d}  results returned={np.mean([len(g) for g in got]):4.1f} of {k}")
+# share=0.5  k'= 10  returned 5.0    k'= 40  10.0    k'=200  10.0
+# share=0.1  k'= 10  returned 0.9    k'= 40   4.0    k'=200  10.0
+# share=0.01 k'= 10  returned 0.1    k'= 40   0.3    k'=200   1.9</code></pre>
+  <p class="code-cap">The measured counts match \(k's\). At 1% selectivity even 20× oversampling fills only 2 of 10 slots: pre-filter instead.</p>
+
+  <h3>Answering for the right version</h3>
+  <p>The Kubernetes site publishes documentation per release, and most pages barely change between releases, so the 1.29 and 1.31 versions of a page embed almost identically. Without a filter, retrieval mixes them freely. Resolve the version first, then filter on it. An explicit mention in the query wins, then the version known from the ticket (<a href="p02.html#l27">L27</a> extracts it), then the latest release. Record which rule fired so the answer can say “for 1.31”. Where a chunk is identical across releases, you can store it once with a <code>versions</code> list and filter by membership.</p>
+  <pre><code>import re
+
+SUPPORTED, LATEST = ("1.29", "1.30", "1.31"), "1.31"
+VERSION = re.compile(r"\b(?:v|version\s*|kubernetes\s*)?(1\.\d{1,2})\b", re.I)
+
+def resolve_version(query: str, cluster_version: str | None = None) -&gt; tuple[str, str]:
+    """Explicit mention beats the user's known cluster version, which beats the latest docs."""
+    for m in VERSION.finditer(query):
+        if m.group(1) in SUPPORTED:
+            return m.group(1), "explicit"
+    if cluster_version in SUPPORTED:
+        return cluster_version, "ticket"
+    return LATEST, "default"
+
+print(resolve_version("is PodSecurityPolicy still in v1.29?"))            # ('1.29', 'explicit')
+print(resolve_version("how do I drain a node", cluster_version="1.30"))   # ('1.30', 'ticket')
+print(resolve_version("how do I drain a node"))                           # ('1.31', 'default')</code></pre>
+  <p>A leakage test on synthetic data uses the <code>InMemoryStore</code> from <a href="#l32">L32</a>. It indexes 30 topics, each as three near-identical release copies, and runs 20 “on v1.29” queries. Without the filter, <b>67%</b> of the top-5 hits came from the wrong release; with <code>version=</code> applied as a pre-filter, <b>0%</b>. Your real test should assert zero, per query, in CI.</p>
+
+  <h3>Namespaces and multi-tenancy</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Layout</th><th>Strengths</th><th>Costs</th></tr></thead>
+    <tbody>
+      <tr><td><b>Collection (or index) per tenant</b></td><td>hard isolation; delete a tenant by dropping it; per-tenant tuning and models</td><td>fixed overhead per collection; thousands of small indexes strain memory and operations</td></tr>
+      <tr><td><b>Shared collection, tenant field</b></td><td>one index to run; efficient for many small tenants</td><td>every query must carry the filter; selective-filter recall issues; noisy neighbours</td></tr>
+      <tr><td><b>Partitioned (namespaces, tenant-aware shards)</b></td><td>a shared service with physically separate data per tenant</td><td>engine-specific; check what yours supports</td></tr>
+    </tbody>
+  </table></div>
+  <p>At scale, a common pattern is a hybrid: large tenants get their own collection or shard, and the long tail shares one with a tenant field. Whatever the layout, the tenant filter is added by the server from the authenticated identity, never by the caller or the model. In Postgres, row-level security can enforce it below your code.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>The forgotten filter.</b> One code path, such as a new endpoint or an agent tool (<a href="p06.html#l62">L62</a>), calls search without the tenant or version filter. Put filters inside the search function, not in its callers.</li>
+      <li><b>Post-filtered tenants.</b> A small tenant in a shared HNSW index gets two results instead of ten and nobody notices. Alert on result counts below <code>k</code>.</li>
+      <li><b>Inconsistent values.</b> “1.31” and “v1.31” in different chunks make an exact-match filter drop half the corpus.</li>
+      <li><b>Over-eager parsing.</b> A version regex that also matches part of an IP address or a port number silently filters to the wrong release. Test it on real tickets.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 40 min</h4>
+    <ol>
+      <li>Add <code>version</code>, <code>section</code> and <code>updated_at</code> to every DocPilot chunk; index two or three Kubernetes releases of the docs.</li>
+      <li>Wire <code>resolve_version</code> into search so every query is filtered, and return the resolved version with the hits.</li>
+      <li>Write 20 queries that name a version (plus 5 that don't) and assert every hit carries the resolved version. Run it with the filter disabled once to see the contamination rate.</li>
+      <li>Measure result counts for your most selective filter under post-filtering at \(k'\in\{10,40,200\}\).</li>
+    </ol>
+    <p><b>Ship:</b> zero cross-version hits on the 20-query test, enforced as a test.</p>
+  </div>
+  <p class="refs"><b>Read</b> pgvector README, Filtering · Qdrant docs, Filtering, Indexing and Multitenancy · Weaviate docs, Multi-tenancy · PostgreSQL docs, Row Security Policies · Kubernetes docs, Available Documentation Versions</p>
+</article>
+<!-- ================================================================ L34 -->
+<article class="day" id="l34">
+  <header class="day-head">
+    <span class="day-no">L34 · DAY 24</span>
+    <h2>Hybrid Search and Rank Fusion</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">BM25 and dense retrieval fail on different queries, so running both and merging the results recovers much of what each one misses. Their scores live on unrelated scales, so you fuse ranks (RRF) or carefully normalised scores, and then check on your own queries that the merge beats each part.</p>
+
+  <h3>Why combine, and why not add scores</h3>
+  <p><a href="#l30">L30</a> ended with a table in which neither column was empty: BM25 wins on identifiers, error strings and rare terms, and dense retrieval wins on paraphrase and concepts. A real query stream mixes both kinds, and so do single queries (“CrashLoopBackOff after the upgrade”). Hybrid search runs both retrievers and merges their lists.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 640 200" role="img" aria-label="Query fans out to BM25 and dense retrievers, their top 50 lists are fused with RRF, then passed to a reranker">
+      <defs><marker id="ah-l34" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="80" width="90" height="40" rx="6" class="s-node"/><text x="65" y="104" class="s-mid">query</text>
+      <rect x="150" y="30" width="140" height="40" rx="6" class="s-node"/><text x="220" y="54" class="s-mid">BM25 · top 50</text>
+      <rect x="150" y="130" width="140" height="40" rx="6" class="s-node"/><text x="220" y="154" class="s-mid">dense · top 50</text>
+      <text x="220" y="22" class="s-ink3 s-mid s-sm">identifiers, rare terms</text>
+      <text x="220" y="188" class="s-ink3 s-mid s-sm">paraphrase, concepts</text>
+      <rect x="340" y="80" width="120" height="40" rx="6" class="s-node-mod"/><text x="400" y="104" class="s-mid">RRF, k = 60</text>
+      <rect x="500" y="80" width="120" height="40" rx="6" class="s-node"/><text x="560" y="104" class="s-mid">rerank (L35)</text>
+      <line x1="110" y1="92" x2="148" y2="56" class="s-ln" marker-end="url(#ah-l34)"/>
+      <line x1="110" y1="108" x2="148" y2="144" class="s-ln" marker-end="url(#ah-l34)"/>
+      <line x1="290" y1="56" x2="338" y2="92" class="s-ln" marker-end="url(#ah-l34)"/>
+      <line x1="290" y1="144" x2="338" y2="108" class="s-ln" marker-end="url(#ah-l34)"/>
+      <line x1="460" y1="100" x2="498" y2="100" class="s-ln" marker-end="url(#ah-l34)"/>
+    </svg>
+    <figcaption><b>Fan out, fuse, rerank.</b> The two retrievers run in parallel, so hybrid adds little latency beyond the slower of the two. Fusion is microseconds of arithmetic. The reranker in the next lesson is where the real cost sits.</figcaption>
+  </figure>
+  <p>The tempting merge, adding the scores, fails because the scales are unrelated. BM25 is unbounded and grows with query length and term rarity, so 12.4 on one query means nothing on another. Cosine similarity sits in a narrow band, often 0.7 to 0.9 for a model's plausible hits (<a href="#l28">L28</a>). Add them and BM25 decides almost everything.</p>
+  <div class="box intuition"><span class="tag">Worked example · raw sum vs RRF</span>
+    <p>Query: “CrashLoopBackOff after upgrade”. BM25 returns <code>debug-pods</code> 12.4, <code>upgrade</code> 7.9, <code>images</code> 3.1, <code>probes</code> 1.2. Dense returns <code>probes</code> 0.83, <code>debug-pods</code> 0.81, <code>scheduling</code> 0.78, <code>upgrade</code> 0.74. The raw sum is simply the BM25 order with dense noise added: debug-pods 13.21, upgrade 8.64, images 3.10, probes 2.03. RRF with \(k=60\) gives debug-pods \(\frac1{61}+\frac1{62}=0.0325\), probes \(\frac1{64}+\frac1{61}=0.0320\), upgrade \(\frac1{62}+\frac1{64}=0.0318\), then images and scheduling at \(\frac1{63}=0.0159\). Documents both retrievers like rise to the top.</p>
+  </div>
+
+  <h3>Reciprocal Rank Fusion</h3>
+  <div class="box def"><span class="tag">Definition · RRF (Cormack, Clarke &amp; Büttcher 2009)</span>
+    $$\text{RRF}(d)=\sum_{r\in R}\frac{w_r}{k+\text{rank}_r(d)}$$
+    <p>Here \(R\) is the set of ranked lists, ranks start at 1, a document absent from a list contributes nothing from it, and the weights \(w_r\) are 1 in the original method. <b>\(k=60\)</b> is the constant from the original paper and the common default. It damps the top of each list: at \(k=60\), rank 1 earns only 15% more than rank 10 (\(\frac{70}{61}\)), so agreement between lists outweighs any single list's top spot. At \(k=1\), rank 1 earns 5.5 times rank 10 and one list's favourite dominates.</p>
+  </div>
+  <p>RRF needs no score calibration, no training and no per-query normalisation, which is why it is the default hybrid method in many engines. Its blind spot is that it ignores how confident each retriever was. A BM25 hit that matched a rare error code exactly counts the same as a lucky rank 1.</p>
+  <h3>Weighted fusion after normalisation</h3>
+  <p>To keep score information, normalise each list and then take a weighted sum, \(s(d)=\alpha\,\tilde s_{\text{dense}}(d)+(1-\alpha)\,\tilde s_{\text{bm25}}(d)\). Min–max normalisation maps each query's top-\(k\) scores to \([0,1]\); z-scores use the list's mean and standard deviation. Both depend on what else came back for that query, and a single outlier stretches min–max. Tune \(\alpha\) on held-out queries, and consider a different \(\alpha\) for queries that contain identifiers.</p>
+  <pre><code>from collections import defaultdict
+
+def rrf(rankings: list[list[str]], k: int = 60, weights: list[float] | None = None) -&gt; list[tuple[str, float]]:
+    """Reciprocal Rank Fusion: score(d) = sum over lists of w / (k + rank), ranks starting at 1."""
+    scores: dict[str, float] = defaultdict(float)
+    for ranking, w in zip(rankings, weights or [1.0] * len(rankings)):
+        for rank, doc in enumerate(ranking, start=1):
+            scores[doc] += w / (k + rank)
+    return sorted(scores.items(), key=lambda kv: -kv[1])
+
+def minmax_fusion(score_lists: list[dict[str, float]], weights: list[float]) -&gt; list[tuple[str, float]]:
+    """Normalise each list's scores to [0, 1], then take a weighted sum; missing docs count as 0."""
+    fused: dict[str, float] = defaultdict(float)
+    for scores, w in zip(score_lists, weights):
+        lo, hi = min(scores.values()), max(scores.values())
+        for doc, s in scores.items():
+            fused[doc] += w * (s - lo) / ((hi - lo) or 1.0)
+    return sorted(fused.items(), key=lambda kv: -kv[1])
+
+bm25 = {"debug-pods": 12.4, "upgrade": 7.9, "images": 3.1, "probes": 1.2}
+dense = {"probes": 0.83, "debug-pods": 0.81, "scheduling": 0.78, "upgrade": 0.74}
+print([(d, round(v, 4)) for d, v in rrf([list(bm25), list(dense)])])
+print([(d, round(v, 3)) for d, v in minmax_fusion([bm25, dense], [0.5, 0.5])])
+# [('debug-pods', 0.0325), ('probes', 0.032), ('upgrade', 0.0318), ('images', 0.0159), ('scheduling', 0.0159)]
+# [('debug-pods', 0.889), ('probes', 0.5), ('upgrade', 0.299), ('scheduling', 0.222), ('images', 0.085)]</code></pre>
+
+  <h3>Learned sparse retrieval, and hybrid built in</h3>
+  <p><b>SPLADE</b> and similar models put a transformer in front of an inverted index. For each text the model outputs a weight for every vocabulary term, most of them zero. It keeps the terms present and adds related ones (“restarting” can activate “crash” and “loop”). Scoring is a sparse dot product, so you keep exact-term matching, gain some vocabulary expansion, and still use inverted-index machinery. The costs are a model at index and query time and larger postings than BM25.</p>
+  <p>Most engines now run hybrid queries natively. Weaviate combines BM25 and vectors with a weighting parameter; Qdrant fuses dense and sparse sub-queries, RRF included; Elasticsearch and OpenSearch offer RRF and score-normalisation pipelines. In Postgres you write it yourself as a full outer join of two ranked lists. Names and options change, so check current documentation.</p>
+  <pre><code class="plain">WITH dense AS (SELECT id, row_number() OVER (ORDER BY embedding &lt;=&gt; :q) AS r
+               FROM chunks ORDER BY embedding &lt;=&gt; :q LIMIT 50),
+     lex   AS (SELECT id, row_number() OVER (ORDER BY ts_rank(tsv, query) DESC) AS r
+               FROM chunks, websearch_to_tsquery('english', :text) AS query
+               WHERE tsv @@ query ORDER BY ts_rank(tsv, query) DESC LIMIT 50)
+SELECT id, coalesce(1.0 / (60 + dense.r), 0) + coalesce(1.0 / (60 + lex.r), 0) AS rrf
+FROM dense FULL OUTER JOIN lex USING (id) ORDER BY rrf DESC LIMIT 10;   -- untested sketch</code></pre>
+
+  <h3>Evaluating the combination against each part</h3>
+  <p>Fusion is not free recall. RRF rewards agreement, so a distractor that both retrievers rank moderately high can beat a correct document that only one of them finds. The simulation below is synthetic: 50 queries, 20 suiting BM25 and 30 suiting dense, with distractors correlated across the two methods as they are in practice. <code>p_weak</code> controls how deep the weaker method buries the answer.</p>
+  <pre><code>import numpy as np
+
+def recall_at(ranking, relevant, k):
+    return len(set(ranking[:k]) &amp; relevant) / len(relevant)
+
+def mrr(ranking, relevant):
+    return next((1 / r for r, doc in enumerate(ranking, start=1) if doc in relevant), 0.0)
+
+def simulate(p_weak, n_docs=1000, seed=0):
+    rng, runs = np.random.default_rng(seed), {"bm25": [], "dense": [], "rrf": []}
+    for lex_suits in [True] * 20 + [False] * 30:
+        shared = rng.normal(size=n_docs)                  # distractors look relevant to both methods
+        pair = []
+        for suits in (lex_suits, not lex_suits):
+            order = [f"d{i}" for i in np.argsort(-(shared + rng.normal(size=n_docs)))]
+            order.insert(int(rng.geometric(0.5 if suits else p_weak)) - 1, "rel")   # where the answer lands
+            pair.append(order[:50])
+        runs["bm25"].append(pair[0]); runs["dense"].append(pair[1]); runs["rrf"].append([d for d, _ in rrf(pair)])
+    return {m: (round(float(np.mean([recall_at(r, {"rel"}, 5) for r in rs])), 2),
+                round(float(np.mean([mrr(r, {"rel"}) for r in rs])), 3)) for m, rs in runs.items()}
+
+print(simulate(0.05))  # {'bm25': (0.54, 0.344), 'dense': (0.68, 0.462), 'rrf': (0.88, 0.564)}
+print(simulate(0.02))  # {'bm25': (0.46, 0.291), 'dense': (0.6, 0.43), 'rrf': (0.7, 0.359)}</code></pre>
+  <p class="code-cap">Pairs are (recall@5, MRR). In both settings RRF lifts recall@5. In the second, where the weak method usually misses the answer altogether, RRF's MRR (0.359) falls <em>below</em> dense alone (0.430): agreed-on distractors push the answer down. Measure it on real queries; don't assume it.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Adding raw scores.</b> One retriever silently dominates. Use ranks or normalised scores.</li>
+      <li><b>Fusing lists of very different depth.</b> Top 5 from one retriever against top 100 from the other skews RRF. Retrieve the same depth from each.</li>
+      <li><b>Different filters on each branch.</b> The version or tenant filter (<a href="#l33">L33</a>) must apply to both retrievers, or fusion reintroduces the leak.</li>
+      <li><b>Reporting only the blend.</b> Without per-retriever and per-query-type numbers you cannot tell which half regressed.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Wrap the L30 BM25 index and the L32 vector store as two retrievers that return the top 50 IDs for a query, with the same filters.</li>
+      <li>Fuse them with <code>rrf</code> (\(k=60\)) and with <code>minmax_fusion</code> for \(\alpha\in\{0.3,0.5,0.7\}\).</li>
+      <li>On the 50-query set, report recall@5 and MRR for BM25, dense, RRF and the best weighted blend, overall and split by identifier and natural-language queries.</li>
+      <li>Try \(k\in\{10,60,100\}\) and list the queries where fusion lost to the better single retriever.</li>
+    </ol>
+    <p><b>Ship:</b> a measured hybrid-vs-dense comparison table, with the fusion method and parameters you chose.</p>
+  </div>
+  <p class="refs"><b>Read</b> Cormack, Clarke &amp; Büttcher 2009, “Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods” · Formal et al. 2021, “SPLADE: Sparse Lexical and Expansion Model for First Stage Ranking” · Bruch, Gai &amp; Ingber 2023, “An Analysis of Fusion Functions for Hybrid Retrieval” · Weaviate, Qdrant and Elasticsearch docs, hybrid search</p>
+</article>
+<!-- ================================================================ L35 -->
+<article class="day" id="l35">
+  <header class="day-head">
+    <span class="day-no">L35 · DAY 25</span>
+    <h2>Rerankers: Cross-Encoders and Late Interaction</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">45m practice</span></p>
+  </header>
+
+  <p class="thesis">First-stage retrieval is built for speed over millions of documents, so it compares compressed summaries. A reranker reads the query and each candidate together, which is far more accurate and far too slow for the whole corpus. So you retrieve about 50 candidates cheaply and rerank them down to 5.</p>
+
+  <h3>Bi-encoders and cross-encoders</h3>
+  <div class="box def"><span class="tag">Definition</span>
+    <ul>
+      <li><b>Bi-encoder:</b> query and document are encoded <em>separately</em> into vectors and compared by cosine (<a href="#l28">L28</a>). Document vectors are computed once, offline, so search is an index lookup. But no query token ever attends to a document token.</li>
+      <li><b>Cross-encoder:</b> the transformer reads the pair, <code>[query ; document]</code>, with full attention across both, and outputs one relevance score. It sees negation, exact matches and which entity a phrase refers to. It also costs one forward pass per (query, document) pair, at query time.</li>
+      <li><b>Late interaction (ColBERT):</b> both sides are encoded separately into <em>one vector per token</em>; relevance is computed from token-to-token similarities. It sits between the other two in accuracy and cost.</li>
+    </ul>
+  </div>
+  <figure class="fig">
+    <svg viewBox="0 0 660 232" role="img" aria-label="Bi-encoder, cross-encoder and late-interaction architectures side by side">
+      <defs><marker id="ah-l35" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <text x="110" y="22" class="s-ttl s-mid">bi-encoder</text>
+      <rect x="30" y="38" width="70" height="26" rx="5" class="s-node"/><text x="65" y="55" class="s-mid s-sm">query</text>
+      <rect x="120" y="38" width="70" height="26" rx="5" class="s-node"/><text x="155" y="55" class="s-mid s-sm">doc</text>
+      <rect x="30" y="92" width="70" height="30" rx="5" class="s-node-mod"/><text x="65" y="111" class="s-mid s-sm">encoder</text>
+      <rect x="120" y="92" width="70" height="30" rx="5" class="s-node-mod"/><text x="155" y="111" class="s-mid s-sm">encoder</text>
+      <text x="65" y="148" class="s-ink2 s-mid s-sm">1 vector</text><text x="155" y="148" class="s-ink2 s-mid s-sm">1 vector</text>
+      <rect x="55" y="172" width="110" height="28" rx="5" class="s-node"/><text x="110" y="190" class="s-mid s-sm">cosine</text>
+      <line x1="65" y1="64" x2="65" y2="90" class="s-ln" marker-end="url(#ah-l35)"/><line x1="155" y1="64" x2="155" y2="90" class="s-ln" marker-end="url(#ah-l35)"/>
+      <line x1="65" y1="154" x2="90" y2="170" class="s-ln" marker-end="url(#ah-l35)"/><line x1="155" y1="154" x2="130" y2="170" class="s-ln" marker-end="url(#ah-l35)"/>
+      <text x="110" y="222" class="s-ink3 s-mid s-sm">docs encoded offline</text>
+      <text x="330" y="22" class="s-ttl s-mid">cross-encoder</text>
+      <rect x="255" y="38" width="150" height="26" rx="5" class="s-node"/><text x="330" y="55" class="s-mid s-sm">[query ; doc]</text>
+      <rect x="255" y="92" width="150" height="30" rx="5" class="s-node-mod"/><text x="330" y="111" class="s-mid s-sm">encoder, joint attention</text>
+      <rect x="275" y="172" width="110" height="28" rx="5" class="s-node"/><text x="330" y="190" class="s-mid s-sm">score</text>
+      <line x1="330" y1="64" x2="330" y2="90" class="s-ln" marker-end="url(#ah-l35)"/><line x1="330" y1="122" x2="330" y2="170" class="s-ln" marker-end="url(#ah-l35)"/>
+      <text x="330" y="222" class="s-ink3 s-mid s-sm">one pass per pair</text>
+      <text x="550" y="22" class="s-ttl s-mid">late interaction</text>
+      <rect x="470" y="38" width="70" height="26" rx="5" class="s-node"/><text x="505" y="55" class="s-mid s-sm">query</text>
+      <rect x="560" y="38" width="70" height="26" rx="5" class="s-node"/><text x="595" y="55" class="s-mid s-sm">doc</text>
+      <rect x="470" y="92" width="70" height="30" rx="5" class="s-node-mod"/><text x="505" y="111" class="s-mid s-sm">encoder</text>
+      <rect x="560" y="92" width="70" height="30" rx="5" class="s-node-mod"/><text x="595" y="111" class="s-mid s-sm">encoder</text>
+      <text x="505" y="148" class="s-ink2 s-mid s-sm">per token</text><text x="595" y="148" class="s-ink2 s-mid s-sm">per token</text>
+      <rect x="495" y="172" width="110" height="28" rx="5" class="s-node"/><text x="550" y="190" class="s-mid s-sm">Σ max sim</text>
+      <line x1="505" y1="64" x2="505" y2="90" class="s-ln" marker-end="url(#ah-l35)"/><line x1="595" y1="64" x2="595" y2="90" class="s-ln" marker-end="url(#ah-l35)"/>
+      <line x1="505" y1="154" x2="530" y2="170" class="s-ln" marker-end="url(#ah-l35)"/><line x1="595" y1="154" x2="570" y2="170" class="s-ln" marker-end="url(#ah-l35)"/>
+      <text x="550" y="222" class="s-ink3 s-mid s-sm">token vectors stored</text>
+    </svg>
+    <figcaption><b>Where the query meets the document.</b> In a bi-encoder they meet only at the final cosine. In a cross-encoder they meet in every attention layer. Late interaction encodes the two separately but compares them token by token.</figcaption>
+  </figure>
+
+  <h3>Two-stage retrieval</h3>
+  <div class="box algo"><span class="tag">Algorithm · retrieve, then rerank</span>
+    <ol>
+      <li>Hybrid first stage (<a href="#l34">L34</a>): fetch the top \(N\approx50\) with filters applied.</li>
+      <li>Score every (query, candidate) pair with the reranker, batched.</li>
+      <li>Sort by reranker score and keep the top 5 for the prompt. Optionally drop candidates below a score floor calibrated on labelled data.</li>
+    </ol>
+    <p>The reranker can only reorder what stage 1 found, so <b>recall@N of stage 1 is a ceiling</b> on the final result. Choose \(N\) from a recall@N curve, then choose the reranker from nDCG@5 and latency.</p>
+  </div>
+  <p>Hosted rerank endpoints from several providers take a query and a list of documents and return relevance scores. Open cross-encoders, such as the MS MARCO MiniLM models in sentence-transformers or BAAI's bge-reranker family, run on your own hardware. Model names and quality change quickly; pick from current leaderboards and confirm on your own queries.</p>
+  <pre><code># sentence-transformers: API as documented; check your installed version (untested here)
+from sentence_transformers import CrossEncoder
+
+ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+score_pairs = lambda pairs: ce.predict(pairs, batch_size=32).tolist()   # [(query, passage), ...] -&gt; [float]</code></pre>
+
+  <h3>Late interaction: ColBERT and MaxSim</h3>
+  <div class="box def"><span class="tag">Definition · MaxSim</span>
+    $$s(q,d)=\sum_{i=1}^{|q|}\ \max_{1\le j\le|d|}\ \mathbf q_i\cdot\mathbf d_j$$
+    <p>Each query token finds its best-matching document token, and the matches are summed. Document token vectors are precomputed, so the query-time cost is one encoder pass for the query plus a \(|q|\times|d|\) similarity matrix per candidate. The storage price is one vector per token: 300 tokens × 128 dimensions × 2 bytes is about 77 KB per chunk, versus 3 KB for one 768-d float32 vector. ColBERTv2 compresses token vectors to cut this substantially.</p>
+  </div>
+  <pre><code>import numpy as np
+
+def maxsim(Qt: np.ndarray, Dt: np.ndarray) -&gt; float:
+    """ColBERT late interaction: each query token takes its best document token; sum over query tokens."""
+    return float((Qt @ Dt.T).max(axis=1).sum())
+
+rng = np.random.default_rng(0)
+unit = lambda A: A / np.linalg.norm(A, axis=-1, keepdims=True)
+vocab = unit(rng.normal(size=(500, 128)))                       # synthetic token vectors
+q = vocab[[7, 8, 9]]                                            # say "crashloopbackoff", "after", "upgrade"
+d_exact = vocab[np.r_[7, rng.integers(20, 500, 199)]]           # long chunk containing token 7 once
+d_topic = unit(vocab[rng.integers(20, 500, 30)] + 0.6 * vocab[8])   # short chunk loosely about token 8
+pooled = lambda T: unit(T.mean(0))
+print(round(maxsim(q, d_exact), 2), round(maxsim(q, d_topic), 2))                          # 1.44 0.98
+print(round(float(pooled(q) @ pooled(d_exact)), 3), round(float(pooled(q) @ pooled(d_topic)), 3))  # 0.226 0.542</code></pre>
+  <p class="code-cap">MaxSim prefers the chunk that contains the exact token; mean-pooled single vectors prefer the vaguely topical chunk. That is the token-level matching late interaction buys.</p>
+
+  <h3>LLM-based reranking</h3>
+  <p><b>Pointwise:</b> ask a model to grade each passage on its own (0–3). Calls run in parallel and grades are comparable across queries, but you pay one call per candidate. <b>Listwise:</b> put all candidates in one prompt and ask for an ordering. One call sees everything, but long lists suffer position bias and context limits, so implementations slide a window over the list (RankGPT). Either way the input is roughly \(N\times\) passage length, about 15,000 tokens for 50 passages of 300 tokens, per query. It is usually the most expensive and slowest option, worth it for offline labelling or for low-volume, high-value queries.</p>
+  <pre><code>import json
+from docpilot.llm import SMALL, chat, text_of
+
+ORDER = {"type": "object", "additionalProperties": False, "required": ["order"],
+         "properties": {"order": {"type": "array", "items": {"type": "integer"}}}}
+
+def llm_rerank(query: str, hits: list[dict], top_n: int = 5) -&gt; list[dict]:
+    passages = "\n\n".join(f"[{i}] {h['text'][:1500]}" for i, h in enumerate(hits))
+    msg = chat([{"role": "user", "content": f"Query: {query}\n\nPassages:\n{passages}\n\nList the indices "
+                 "of passages that help answer the query, most useful first."}],
+               model=SMALL, max_tokens=300, output_config={"format": {"type": "json_schema", "schema": ORDER}})
+    return [hits[i] for i in parse_order(text_of(msg), len(hits))[:top_n]]
+
+def parse_order(text: str, n: int) -&gt; list[int]:
+    """Valid, unique indices in the model's order, then the rest in first-stage order."""
+    order = []
+    for i in json.loads(text).get("order", []):
+        if isinstance(i, int) and 0 &lt;= i &lt; n and i not in order:
+            order.append(i)
+    return order + [i for i in range(n) if i not in order]</code></pre>
+  <p class="code-cap">The model call is untested here. <code>parse_order</code> was tested on a locally built <code>Message</code> whose text was <code>{"order": [3, 1, 3, 99, 0]}</code>, with 5 hits: it returns <code>[3, 1, 0, 2, 4]</code>.</p>
+
+  <h3>The latency budget, and measuring the gain</h3>
+  <p>Reranking is usually the slowest step of retrieval. A small cross-encoder scoring 50 pairs typically takes tens of milliseconds on a GPU and noticeably longer on a CPU; measure yours. Give the reranker a fixed budget and fall back to first-stage order when it is exceeded, so a slow reranker degrades quality, not availability. Measure the gain with nDCG@5 using graded labels (0 to 3). Here the gain is \(2^{\text{grade}}-1\); <a href="#l37">L37</a> collects the metric helpers.</p>
+  <pre><code>import math
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as Timeout
+
+def ndcg_at(ranking: list[str], grades: dict[str, int], k: int) -&gt; float:
+    dcg = lambda gains: sum(g / math.log2(i + 2) for i, g in enumerate(gains))
+    ideal = sorted((2 ** g - 1 for g in grades.values()), reverse=True)[:k]
+    return dcg([2 ** grades.get(d, 0) - 1 for d in ranking[:k]]) / dcg(ideal) if any(ideal) else 0.0
+
+_pool = ThreadPoolExecutor(max_workers=4)
+
+def rerank(query, hits, score_pairs, *, top_n=5, budget_s=0.3):
+    """Reorder hits by reranker score; on timeout or error keep first-stage order. Returns (hits, info)."""
+    t0, status = time.perf_counter(), "reranked"
+    try:
+        scores = _pool.submit(score_pairs, [(query, h["text"]) for h in hits]).result(timeout=budget_s)
+        order = sorted(range(len(hits)), key=lambda i: -scores[i])
+    except Timeout:
+        order, status = list(range(len(hits))), "timeout"     # the worker thread still finishes in the background
+    except Exception:
+        order, status = list(range(len(hits))), "error"
+    return [hits[i] for i in order[:top_n]], {"status": status, "ms": round(1000 * (time.perf_counter() - t0))}
+
+print(round(ndcg_at(["x", "c", "a", "y", "b"], {"a": 3, "b": 2, "c": 1}, 5), 3))   # 0.563 before reranking
+print(ndcg_at(["a", "b", "c", "x", "y"], {"a": 3, "b": 2, "c": 1}, 5))             # 1.0 after</code></pre>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Reranking too few candidates.</b> If the answer is at rank 80 and you rerank 20, the reranker cannot help. Check stage-1 recall@N first.</li>
+      <li><b>Truncated pairs.</b> Cross-encoders have input limits (often 512 tokens). Long chunks are cut and the relevant sentence may be the part dropped.</li>
+      <li><b>Unbounded latency.</b> A reranker without a timeout turns a slow GPU into an outage. Budget it, log <code>status</code>, and alert on the timeout rate.</li>
+      <li><b>Thresholds on reranker scores across models.</b> Scores are model-specific logits, not probabilities (<a href="#l28">L28</a>). Recalibrate after every model change.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 45 min</h4>
+    <ol>
+      <li>Grade the top 20 hybrid results for 30 of your 50 queries on a 0–3 scale (or reuse labels from <a href="#l29">L29</a> plus spot grading).</li>
+      <li>Plot stage-1 recall@N for \(N\in\{10,20,50,100\}\) and pick \(N\).</li>
+      <li>Add the cross-encoder via <code>rerank()</code>. Report nDCG@5 before and after, and p50/p95 added latency on your hardware.</li>
+      <li>Optional: run <code>llm_rerank</code> on 10 queries and compare its nDCG@5, latency and token cost with the cross-encoder.</li>
+    </ol>
+    <p><b>Ship:</b> a retrieval stack with a reranker, with the nDCG@5 gain and the added p95 latency written next to each other.</p>
+  </div>
+  <p class="refs"><b>Read</b> Nogueira &amp; Cho 2019, “Passage Re-ranking with BERT” · Khattab &amp; Zaharia 2020, “ColBERT” · Santhanam et al. 2022, “ColBERTv2” · Sun et al. 2023, “Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents” · sentence-transformers docs, Cross-Encoders</p>
+</article>
+<!-- ================================================================ L36 -->
+<article class="day" id="l36">
+  <header class="day-head">
+    <span class="day-no">L36 · DAY 25</span>
+    <h2>Fine-Tuning Embeddings for Your Domain</h2>
+    <p class="day-meta"><span class="vid">45m video</span><span class="prac">60m practice</span></p>
+  </header>
+
+  <p class="thesis">A general embedding model learned someone else's idea of “similar”. Fine-tuning it on (query, relevant chunk) pairs from your domain, with hard negatives, can teach it yours. It pays off only if a held-out evaluation on real queries says so, and only after you count the cost of re-embedding everything.</p>
+
+  <h3>When off-the-shelf embeddings underperform</h3>
+  <p>The symptoms show up in the failure lists from <a href="#l28">L28</a> and <a href="#l29">L29</a>:</p>
+  <ul>
+    <li><b>Jargon and identifiers</b> the model rarely saw. To a general model, “taint”, “toleration” and “cordon” may sit near their everyday meanings rather than near each other.</li>
+    <li><b>A domain-specific notion of similarity.</b> For DocPilot, a ticket about <code>ImagePullBackOff</code> should be near the registry-credentials page, not near every page that mentions images.</li>
+    <li><b>Systematic confusions</b> that hybrid search (<a href="#l34">L34</a>) and reranking (<a href="#l35">L35</a>) do not fix.</li>
+  </ul>
+  <p>Try the cheaper fixes first: hybrid search, better chunking and chunk context (Phase 4), a reranker, a different base model. Fine-tune when those are exhausted and the remaining misses are about meaning, not about missing keywords.</p>
+
+  <h3>Training data: pairs, synthetic queries and hard negatives</h3>
+  <p>The unit of data is a <b>(query, positive)</b> pair, optionally with a <b>hard negative</b>. Real pairs come from search logs, tickets linked to the doc that resolved them, or your labelled set. Usually there are too few, so generate <b>synthetic queries</b>: show a model each chunk and ask for questions it answers. Ask for variety (an exact error string, a vague symptom, a precise how-to) and forbid copying sentences, or the pairs only teach lexical overlap.</p>
+  <figure class="fig">
+    <svg viewBox="0 0 660 190" role="img" aria-label="Fine-tuning pipeline from chunks to synthetic queries, document-level split, hard-negative mining, filtering, training, evaluation and re-indexing">
+      <defs><marker id="ah-l36" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="30" width="130" height="50" rx="6" class="s-node"/><text x="85" y="52" class="s-mid s-sm">2,000 chunks</text><text x="85" y="67" class="s-ink3 s-mid s-sm">from the corpus</text>
+      <rect x="180" y="30" width="130" height="50" rx="6" class="s-node"/><text x="245" y="52" class="s-mid s-sm">LLM writes 3</text><text x="245" y="67" class="s-mid s-sm">queries each</text>
+      <rect x="340" y="30" width="130" height="50" rx="6" class="s-node"/><text x="405" y="52" class="s-mid s-sm">split by document</text><text x="405" y="67" class="s-mid s-sm">train · test</text>
+      <rect x="500" y="30" width="130" height="50" rx="6" class="s-node"/><text x="565" y="52" class="s-mid s-sm">mine hard negs</text><text x="565" y="67" class="s-mid s-sm">with base model</text>
+      <rect x="500" y="120" width="130" height="50" rx="6" class="s-node"/><text x="565" y="142" class="s-mid s-sm">drop false</text><text x="565" y="157" class="s-mid s-sm">negatives</text>
+      <rect x="340" y="120" width="130" height="50" rx="6" class="s-node-mod"/><text x="405" y="142" class="s-mid s-sm">train with</text><text x="405" y="157" class="s-mid s-sm">MNRL</text>
+      <rect x="180" y="120" width="130" height="50" rx="6" class="s-node"/><text x="245" y="142" class="s-mid s-sm">eval: held-out</text><text x="245" y="157" class="s-mid s-sm">+ real queries</text>
+      <rect x="20" y="120" width="130" height="50" rx="6" class="s-node"/><text x="85" y="142" class="s-mid s-sm">re-embed corpus,</text><text x="85" y="157" class="s-mid s-sm">swap index</text>
+      <line x1="150" y1="55" x2="178" y2="55" class="s-ln" marker-end="url(#ah-l36)"/>
+      <line x1="310" y1="55" x2="338" y2="55" class="s-ln" marker-end="url(#ah-l36)"/>
+      <line x1="470" y1="55" x2="498" y2="55" class="s-ln" marker-end="url(#ah-l36)"/>
+      <line x1="565" y1="80" x2="565" y2="118" class="s-ln" marker-end="url(#ah-l36)"/>
+      <line x1="500" y1="145" x2="472" y2="145" class="s-ln" marker-end="url(#ah-l36)"/>
+      <line x1="340" y1="145" x2="312" y2="145" class="s-ln" marker-end="url(#ah-l36)"/>
+      <line x1="180" y1="145" x2="152" y2="145" class="s-ln" marker-end="url(#ah-l36)"/>
+    </svg>
+    <figcaption><b>Most of the work is data.</b> Split before mining so that test chunks never appear as training negatives. Re-indexing at the end is a cost you pay every time the model changes.</figcaption>
+  </figure>
+  <pre><code>import json
+from docpilot.llm import SMALL, chat, text_of
+
+QUERIES = {"type": "object", "additionalProperties": False, "required": ["queries"],
+           "properties": {"queries": {"type": "array", "items": {"type": "string"}}}}
+PROMPT = """<passage>{text}</passage>
+Write 3 different questions a Kubernetes user might type into a support search box that this passage answers:
+one quoting an exact error message or field name if the passage has one, one vague symptom, one precise how-to.
+Do not copy sentences from the passage."""
+
+def synth_queries(chunk_text: str) -&gt; list[str]:
+    msg = chat([{"role": "user", "content": PROMPT.format(text=chunk_text)}], model=SMALL, max_tokens=300,
+               output_config={"format": {"type": "json_schema", "schema": QUERIES}})
+    qs = [q.strip() for q in json.loads(text_of(msg))["queries"] if 8 &lt;= len(q.strip()) &lt;= 300]
+    return list(dict.fromkeys(qs))[:3]                  # de-duplicate, keep order, cap at 3</code></pre>
+  <p class="code-cap">The model call is untested here. The post-processing was tested on a local <code>Message</code>: a duplicate and a too-short string (“why?”) are dropped. Batch the 2,000 calls with Message Batches if latency does not matter.</p>
+  <p><b>Hard negatives</b> are chunks the <em>base</em> model ranks highly for the query but which do not answer it. They carry the training signal, because random negatives are already easy. The risk is <b>false negatives</b>: a sibling chunk from the same page may answer the query too, and training would push it away. Exclude the positive's own document (the code below does), and consider skipping candidates that score above the positive, which are often unlabelled positives.</p>
+
+  <h3>The loss: multiple-negatives ranking</h3>
+  <div class="box def"><span class="tag">Definition · multiple-negatives ranking loss</span>
+    <p>For a batch of anchors \(a_i\), positives \(p_i\) and optional hard negatives \(n_i\), every candidate in the batch competes for every anchor:</p>
+    $$\mathcal L=-\frac1B\sum_{i=1}^{B}\log\frac{e^{\,s\cdot\cos(a_i,p_i)}}{\sum_{j}e^{\,s\cdot\cos(a_i,p_j)}+\sum_{j}e^{\,s\cdot\cos(a_i,n_j)}}$$
+    <p>This is the InfoNCE loss from <a href="#l28">L28</a>, with scale \(s=1/\tau\); sentence-transformers' default is \(s=20\). Larger batches give more negatives for free. Because every candidate serves every anchor, two pairs from the same chunk in one batch make each other false negatives, so use a no-duplicates batch sampler.</p>
+  </div>
+  <pre><code>import numpy as np
+
+unit = lambda X: X / np.linalg.norm(X, axis=-1, keepdims=True)
+
+def mnrl_loss(A, P, N=None, scale=20.0):
+    """Multiple-negatives ranking loss: anchor i must pick P[i] among every positive (and negative) in the batch."""
+    C = unit(P) if N is None else unit(np.vstack([P, N]))      # B, or 2B, candidates shared by all anchors
+    S = scale * unit(A) @ C.T                                   # scale 20 is a temperature of 0.05
+    S = S - S.max(axis=1, keepdims=True)
+    return float(-np.mean(np.diag(S) - np.log(np.exp(S).sum(axis=1))))
+
+def mine_hard_negatives(Q, D, pos, doc_of, n=1):
+    """Top-scoring chunks under the base model that are not from the positive's document."""
+    return [[j for j in np.argsort(-row) if doc_of[j] != doc_of[pos[i]]][:n] for i, row in enumerate(Q @ D.T)]
+
+rng = np.random.default_rng(0)
+noise = lambda m, s: s * unit(rng.normal(size=(m, 384)))
+sections = unit(rng.normal(size=(40, 384)))                    # 40 sections x 5 docs x 5 chunks
+docs = unit(np.repeat(sections, 5, axis=0) + noise(200, 0.4))
+D = unit(np.repeat(docs, 5, axis=0) + noise(1000, 0.4))
+doc_of, sec_of = np.repeat(np.arange(200), 5), np.repeat(np.arange(40), 25)
+pos = np.array([rng.choice(np.flatnonzero(sec_of == s)) for s in rng.choice(40, 32, replace=False)])
+Q = unit(D[pos] + noise(32, 1.5))                              # one synthetic query per positive chunk
+hard = D[[j[0] for j in mine_hard_negatives(Q, D, pos, doc_of)]]
+rand = D[rng.choice(np.flatnonzero(~np.isin(doc_of, doc_of[pos])), 32)]
+cos = lambda X: round(float(np.mean(np.sum(Q * X, axis=1))), 2)
+print("cos to query  positive", cos(D[pos]), " hard", cos(hard), " random", cos(rand))
+print("MNRL  in-batch", round(mnrl_loss(Q, D[pos]), 3), " +random", round(mnrl_loss(Q, D[pos], rand), 3),
+      " +hard", round(mnrl_loss(Q, D[pos], hard), 3))
+# cos to query  positive 0.56  hard 0.45  random 0.01
+# MNRL  in-batch 0.001  +random 0.044  +hard 0.121</code></pre>
+  <p class="code-cap">Synthetic vectors. Mined negatives sit close to the query (0.45 against 0.56 for the positive), and they nearly triple the loss compared with random negatives. That loss is the gradient signal the model learns from.</p>
+  <pre><code># sentence-transformers v3+ trainer API: as documented; check your installed version (untested here)
+from datasets import Dataset
+from sentence_transformers import (SentenceTransformer, SentenceTransformerTrainer,
+                                   SentenceTransformerTrainingArguments)
+from sentence_transformers.losses import MultipleNegativesRankingLoss
+from sentence_transformers.training_args import BatchSamplers
+
+model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+train = Dataset.from_dict({"anchor": queries, "positive": positives, "negative": hard_negatives})
+args = SentenceTransformerTrainingArguments(
+    output_dir="models/docpilot-embed", num_train_epochs=1, per_device_train_batch_size=64,
+    learning_rate=2e-5, warmup_ratio=0.1, batch_sampler=BatchSamplers.NO_DUPLICATES)
+SentenceTransformerTrainer(model=model, args=args, train_dataset=train,
+                           loss=MultipleNegativesRankingLoss(model)).train()</code></pre>
+  <p class="code-cap">Columns are read by position: anchor, positive, then negative. Older sentence-transformers code used <code>model.fit</code>.</p>
+
+  <h3>Evaluation on held-out queries</h3>
+  <ul>
+    <li><b>Split by document, not by query.</b> Three synthetic queries from one chunk land in train and test otherwise, and the test only measures memorisation.</li>
+    <li><b>Evaluate on real queries too.</b> Synthetic test queries share the generator's style. The 50-query set from <a href="#l29">L29</a> is the number that matters.</li>
+    <li><b>Check for regressions.</b> Measure recall@5 on queries outside the fine-tuning domain, such as general Kubernetes questions not covered by your chunks. Fine-tuning can overwrite general knowledge.</li>
+    <li><b>Compare against the cheap alternatives</b>, such as hybrid plus reranker, not only against the base model.</li>
+  </ul>
+
+  <h3>The cost of re-indexing</h3>
+  <p>A new embedding model means a new vector space (<a href="#l29">L29</a>): every chunk must be re-embedded, the ANN index rebuilt, both indexes stored during cutover, and the query encoder switched in the same deploy. The re-embedding cost is total corpus tokens divided by encoder throughput, and you pay it again for every retrain and every corpus-wide change. One way to cut it is a query-side adapter, a small learned transform applied only to query vectors, which leaves document vectors untouched. It is weaker than full fine-tuning, but there is nothing to re-index.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Leaky splits.</b> Test chunks used as training negatives or positives inflate the gain.</li>
+      <li><b>Generator-shaped queries.</b> The model gets very good at the LLM's phrasing and no better at users'.</li>
+      <li><b>False negatives in mining.</b> Training pushes away chunks that were right, and recall on paraphrases drops.</li>
+      <li><b>Half-migrated indexes.</b> Queries embedded with the new model against documents embedded with the old one return garbage (manifest check, <a href="#l29">L29</a>).</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 60 min</h4>
+    <ol>
+      <li>Sample 2,000 chunks, split them 80/20 by document, and run <code>synth_queries</code> on each (Message Batches is fine).</li>
+      <li>Mine one hard negative per training pair with the base model, excluding the positive's document and anything scoring above the positive.</li>
+      <li>Fine-tune a small open model (for example a bge-small or MiniLM class model) for one epoch with MNRL.</li>
+      <li>Report recall@5 for base and fine-tuned models on the held-out synthetic queries, on your 50 real queries, and on 20 out-of-domain queries.</li>
+    </ol>
+    <p><b>Ship:</b> a fine-tuned embedding model with its measured gain and re-indexing cost, or a written decision not to use one, backed by the same numbers.</p>
+  </div>
+  <p class="refs"><b>Read</b> Henderson et al. 2017, “Efficient Natural Language Response Suggestion for Smart Reply” (multiple-negatives loss) · Karpukhin et al. 2020, “Dense Passage Retrieval” (in-batch and hard negatives) · Wang et al. 2022, “GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval” · sentence-transformers docs, Training Overview and Loss Overview · Alammar &amp; Grootendorst, <i>Hands-On Large Language Models</i>, the chapter on creating text embedding models</p>
+</article>
+<!-- ================================================================ L37 -->
+<article class="day project" id="l37">
+  <header class="day-head">
+    <span class="day-no">L37 · DAY 26</span>
+    <h2>Milestone: A Search Service Over the DocPilot Corpus</h2>
+    <p class="day-meta"><span class="vid">30m video</span><span class="prac">100m practice</span><span class="tagx">project day</span></p>
+  </header>
+
+  <p class="thesis">Phase 3 ends with one function that every later phase depends on, <code>search(query, k=…, filters=…)</code>, served over HTTP and published with retrieval metrics. Without those metrics, every Phase 4 change is guesswork.</p>
+
+  <h3>What you are assembling</h3>
+  <figure class="fig">
+    <svg viewBox="0 0 660 200" role="img" aria-label="Search request flows through version resolution, BM25 and dense retrieval, RRF and a budgeted reranker; an evaluation harness calls the same service and writes a report">
+      <defs><marker id="ah-l37" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="s-mk"/></marker></defs>
+      <rect x="20" y="30" width="110" height="40" rx="6" class="s-node"/><text x="75" y="54" class="s-mid">POST /search</text>
+      <rect x="150" y="30" width="130" height="40" rx="6" class="s-node"/><text x="215" y="47" class="s-mid s-sm">resolve version</text><text x="215" y="61" class="s-mid s-sm">+ filters (L33)</text>
+      <rect x="305" y="8" width="90" height="30" rx="6" class="s-node"/><text x="350" y="27" class="s-mid s-sm">BM25 (L30)</text>
+      <rect x="305" y="62" width="90" height="30" rx="6" class="s-node"/><text x="350" y="81" class="s-mid s-sm">dense (L32)</text>
+      <rect x="420" y="30" width="80" height="40" rx="6" class="s-node-mod"/><text x="460" y="54" class="s-mid s-sm">RRF (L34)</text>
+      <rect x="525" y="30" width="115" height="40" rx="6" class="s-node"/><text x="582" y="47" class="s-mid s-sm">rerank (L35)</text><text x="582" y="61" class="s-mid s-sm">with a budget</text>
+      <text x="582" y="88" class="s-acc s-mid s-sm">→ list[Hit]</text>
+      <line x1="130" y1="50" x2="148" y2="50" class="s-ln" marker-end="url(#ah-l37)"/>
+      <line x1="280" y1="44" x2="303" y2="26" class="s-ln" marker-end="url(#ah-l37)"/>
+      <line x1="280" y1="56" x2="303" y2="76" class="s-ln" marker-end="url(#ah-l37)"/>
+      <line x1="395" y1="24" x2="418" y2="44" class="s-ln" marker-end="url(#ah-l37)"/>
+      <line x1="395" y1="77" x2="418" y2="58" class="s-ln" marker-end="url(#ah-l37)"/>
+      <line x1="500" y1="50" x2="523" y2="50" class="s-ln" marker-end="url(#ah-l37)"/>
+      <rect x="20" y="130" width="150" height="40" rx="6" class="s-node"/><text x="95" y="147" class="s-mid s-sm">golden set</text><text x="95" y="161" class="s-mid s-sm">50 graded queries</text>
+      <rect x="200" y="130" width="140" height="40" rx="6" class="s-node-mod"/><text x="270" y="154" class="s-mid">evaluate(mode)</text>
+      <rect x="370" y="130" width="270" height="40" rx="6" class="s-node"/><text x="505" y="154" class="s-mid">report: recall@5, MRR, nDCG@5</text>
+      <line x1="170" y1="150" x2="198" y2="150" class="s-ln" marker-end="url(#ah-l37)"/>
+      <line x1="340" y1="150" x2="368" y2="150" class="s-ln" marker-end="url(#ah-l37)"/>
+      <line x1="255" y1="130" x2="225" y2="73" class="s-ln s-dash" marker-end="url(#ah-l37)"/>
+      <text x="262" y="110" class="s-ink3 s-sm">calls run()</text>
+    </svg>
+    <figcaption><b>One code path.</b> The evaluation harness calls the same <code>run()</code> as the API, switching only <code>mode</code> and the reranker, so the published numbers describe the code that serves traffic.</figcaption>
+  </figure>
+
+  <h3>The service: docpilot/search.py</h3>
+  <pre><code>import time
+from dataclasses import dataclass, field
+
+from docpilot.fusion import rrf                 # L34
+from docpilot.lexical import BM25               # L30
+from docpilot.rerank import rerank              # L35
+from docpilot.store import matches              # L32
+from docpilot.versions import resolve_version   # L33
+
+@dataclass
+class Hit:
+    id: str
+    text: str
+    score: float
+    url: str
+    heading_path: str
+    meta: dict = field(default_factory=dict)
+
+class SearchService:
+    def __init__(self, chunks: dict[str, dict], embed, store, score_pairs=None, depth: int = 50):
+        self.chunks, self.embed, self.store, self.score_pairs, self.depth = chunks, embed, store, score_pairs, depth
+        self.bm25 = BM25({cid: c["text"] for cid, c in chunks.items()})
+
+    def run(self, query: str, *, k: int = 5, filters: dict | None = None, mode: str = "hybrid"):
+        t0, ms, where = time.perf_counter(), {}, dict(filters or {})
+        version, how = (where["version"], "filter") if "version" in where else resolve_version(query)
+        where["version"] = version
+        lex = [cid for cid, _ in self.bm25.search(query, k=len(self.chunks))
+               if matches(self.chunks[cid], where)][:self.depth]
+        qv = self.embed(query)
+        dense = [cid for cid, _ in self.store.search(qv, k=self.depth, **where)] if qv.any() else []
+        lists = {"bm25": [lex], "dense": [dense], "hybrid": [lex, dense]}[mode]
+        cands = [{"id": cid, "text": self.chunks[cid]["text"], "score": s} for cid, s in rrf(lists)[:self.depth]]
+        ms["retrieve"], status = round(1000 * (time.perf_counter() - t0), 1), "off"
+        if self.score_pairs and cands:
+            cands, info = rerank(query, cands, self.score_pairs, top_n=k)
+            status, ms["rerank"] = info["status"], info["ms"]
+        hits = [Hit(c["id"], c["text"], round(c["score"], 4), self.chunks[c["id"]]["url"],
+                    self.chunks[c["id"]]["heading_path"],
+                    {f: v for f, v in self.chunks[c["id"]].items() if f != "text"}) for c in cands[:k]]
+        ms["total"] = round(1000 * (time.perf_counter() - t0), 1)
+        return hits, {"version": version, "version_source": how, "rerank": status, "timings_ms": ms}
+
+service: SearchService | None = None            # built once at start-up
+
+def search(query: str, *, k: int = 5, filters: dict | None = None) -&gt; list[Hit]:
+    """The interface every later phase calls."""
+    return service.run(query, k=k, filters=filters)[0]</code></pre>
+  <p class="code-cap">Both retrievers get the same <code>where</code>: BM25 by exact pre-filtering, the store inside its own search. Fusion therefore cannot reintroduce a leak.</p>
+
+  <h3>The API: services/api.py</h3>
+  <pre><code>from fastapi import FastAPI
+from pydantic import BaseModel, ConfigDict, Field
+
+from docpilot.search import Hit, SearchService
+
+class Filters(BaseModel):
+    model_config = ConfigDict(extra="forbid")          # callers cannot add tenant or acl filters
+    version: str | None = None
+    section: str | None = None
+    lang: str | None = None
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    k: int = Field(5, ge=1, le=50)
+    filters: Filters = Field(default_factory=Filters)
+
+class SearchResponse(BaseModel):
+    hits: list[Hit]
+    version: str
+    version_source: str
+    rerank: str
+    timings_ms: dict[str, float]
+
+def create_app(service: SearchService) -&gt; FastAPI:
+    app = FastAPI(title="DocPilot search")
+
+    @app.post("/search", response_model=SearchResponse)
+    def do_search(req: SearchRequest) -&gt; SearchResponse:
+        hits, info = service.run(req.query, k=req.k, filters=req.filters.model_dump(exclude_none=True))
+        return SearchResponse(hits=hits, **info)
+
+    return app</code></pre>
+  <p><code>extra="forbid"</code> rejects filters the caller has no business setting. Tenant and permission filters will come from the authenticated user, server-side (<a href="p04.html#l47">L47</a>). An entry point builds the service once and serves <code>create_app(service)</code> with uvicorn.</p>
+
+  <h3>Metrics: docpilot/metrics.py</h3>
+  <div class="box def"><span class="tag">Definition · the three retrieval metrics</span>
+    <p>For a query with relevant set \(R\) (grade at least 1), ranked list \(L\) and graded labels \(g_i\in\{0,1,2,3\}\) for the item at position \(i\):</p>
+    $$\text{recall@}k=\frac{|R\cap L_{1..k}|}{|R|},\qquad \text{RR}=\frac{1}{\text{rank of the first relevant item}}\ (0\text{ if none}),\qquad \text{nDCG@}k=\frac{\sum_{i=1}^{k}\frac{2^{g_i}-1}{\log_2(i+1)}}{\text{IDCG@}k}$$
+    <p>MRR averages RR over queries; IDCG@k is the DCG of the ideal ordering. <a href="p05.html#l50">L50</a> adds precision@k and confidence intervals.</p>
+  </div>
+  <pre><code>import math
+import statistics
+
+def recall_at_k(ranked: list[str], relevant: set[str], k: int) -&gt; float:
+    return len(set(ranked[:k]) &amp; relevant) / len(relevant)
+
+def mrr(ranked: list[str], relevant: set[str]) -&gt; float:
+    return next((1 / r for r, d in enumerate(ranked, start=1) if d in relevant), 0.0)
+
+def ndcg_at_k(ranked: list[str], grades: dict[str, int], k: int) -&gt; float:
+    dcg = lambda gains: sum(g / math.log2(i + 2) for i, g in enumerate(gains))
+    ideal = dcg(sorted((2 ** g - 1 for g in grades.values()), reverse=True)[:k])
+    return dcg([2 ** grades.get(d, 0) - 1 for d in ranked[:k]]) / ideal if ideal else 0.0
+
+def evaluate(run, golden: list[dict], k: int = 5) -&gt; dict[str, float]:
+    """run(query) -&gt; ranked ids. Golden rows: {"query", "grades": {id: 0..3}}; relevant means grade &gt;= 1."""
+    rows = []
+    for g in golden:
+        ranked, rel = run(g["query"]), {d for d, s in g["grades"].items() if s &gt;= 1}
+        rows.append((recall_at_k(ranked, rel, k), mrr(ranked, rel), ndcg_at_k(ranked, g["grades"], k)))
+    return {n: round(statistics.mean(c), 3) for n, c in zip((f"recall@{k}", "MRR", f"nDCG@{k}"), zip(*rows))}</code></pre>
+
+  <h3>Tests and the evaluation run</h3>
+  <p>The tests run in seconds with no network: hashed trigrams stand in for the embedding model and word overlap for the cross-encoder. Run the same assertions against the real stack in a slower target.</p>
+  <pre><code>import zlib
+import numpy as np
+from fastapi.testclient import TestClient
+
+from docpilot.lexical import analyse
+from docpilot.metrics import evaluate
+from docpilot.search import SearchService
+from docpilot.store import InMemoryStore, chunk_id
+from services.api import create_app
+
+def hashed_embed(text: str, dim: int = 256) -&gt; np.ndarray:
+    """Stand-in for an embedding model: hashed character trigrams."""
+    v = np.zeros(dim, dtype=np.float32)
+    for tok in analyse(text):
+        for gram in {tok[i:i + 3] for i in range(max(1, len(tok) - 2))}:
+            v[zlib.crc32(gram.encode()) % dim] += 1.0
+    return v
+
+DOCS = {"debug-pods": "A pod in CrashLoopBackOff is restarting repeatedly because its container exits.",
+        "images": "ErrImagePull or ImagePullBackOff means the kubelet could not pull the container image.",
+        "dry-run": "kubectl apply --dry-run=server sends the request without persisting it.",
+        "probes": "A failing liveness probe makes the kubelet restart the container again and again."}
+chunks, store = {}, InMemoryStore(dim=256, model="hashed-trigram-test")
+for ver in ("1.30", "1.31"):
+    for name, text in DOCS.items():
+        url = f"https://kubernetes.io/{ver}/{name}"
+        cid = chunk_id(url, name, 0)
+        chunks[cid] = {"text": text, "url": url, "heading_path": name, "version": ver}
+        store.upsert(cid, hashed_embed(text), chunks[cid])
+overlap = lambda pairs: [len(set(analyse(q)) &amp; set(analyse(p))) for q, p in pairs]   # toy cross-encoder
+svc = SearchService(chunks, hashed_embed, store, score_pairs=overlap)
+client = TestClient(create_app(svc))
+
+body = client.post("/search", json={"query": "CrashLoopBackOff on v1.30", "k": 3}).json()
+assert len(body["hits"]) == 3 and {h["meta"]["version"] for h in body["hits"]} == {"1.30"}
+assert body["hits"][0]["heading_path"] == "debug-pods" and body["rerank"] == "reranked"
+assert client.post("/search", json={"query": "pods", "k": 500}).status_code == 422
+assert client.post("/search", json={"query": "pods", "filters": {"tenant": "x"}}).status_code == 422
+assert client.post("/search", json={"query": "???"}).status_code == 200          # no tokens, no crash
+
+ids = {(c["heading_path"], c["version"]): cid for cid, c in chunks.items()}
+golden = [{"query": q, "grades": {ids[(n, "1.31")]: g for n, g in gr.items()}} for q, gr in [
+    ("CrashLoopBackOff", {"debug-pods": 3, "probes": 1}), ("my container keeps restarting", {"debug-pods": 3, "probes": 2}),
+    ("cannot pull image from registry", {"images": 3}), ("validate a manifest without saving it", {"dry-run": 3})]]
+results = {}
+for name, mode, scorer in [("bm25", "bm25", None), ("dense", "dense", None), ("hybrid+rerank", "hybrid", overlap)]:
+    svc.score_pairs = scorer
+    results[name] = evaluate(lambda q: [h.id for h in svc.run(q, k=5, mode=mode)[0]], golden, k=5)
+print(results)</code></pre>
+  <pre><code class="plain">{'bm25': {'recall@5': 0.875, 'MRR': 1.0, 'nDCG@5': 0.968},
+ 'dense': {'recall@5': 1.0, 'MRR': 0.875, 'nDCG@5': 0.903},
+ 'hybrid+rerank': {'recall@5': 1.0, 'MRR': 1.0, 'nDCG@5': 0.985}}</code></pre>
+  <p class="code-cap">Real output, with every assertion passing. With 8 chunks, 4 queries and a toy embedder, it proves only that the plumbing works.</p>
+
+  <div class="box trap"><span class="tag">What breaks in production</span>
+    <ul>
+      <li><b>Evaluation and serving drift apart.</b> A notebook that re-implements retrieval measures code you do not ship.</li>
+      <li><b>A golden set shaped by one method.</b> Queries written while looking at BM25 results favour BM25. Write them from tickets.</li>
+      <li><b>Silent fallbacks.</b> A reranker that always times out still returns 200s. Alert on <code>rerank</code> status.</li>
+    </ul>
+  </div>
+
+  <div class="practice">
+    <h4>Practice · 100 min</h4>
+    <ol>
+      <li>Wire the service to your chosen store adapter and embedding model (L29, L32).</li>
+      <li>Grade your 50-query set 0–3, with identifier, paraphrase and version-naming queries.</li>
+      <li>Run <code>evaluate</code> for bm25, dense, hybrid and hybrid+rerank; add p50 and p95 of <code>timings_ms["total"]</code> to the table.</li>
+      <li>Add the leakage test from <a href="#l33">L33</a>, a reranker-timeout test, and the request-validation tests to CI.</li>
+    </ol>
+    <ul class="deliverables">
+      <li><code>docpilot/search.py</code> exposing <code>Hit</code> and <code>search(query, *, k=5, filters=None)</code></li>
+      <li><code>services/api.py</code>: <code>POST /search</code> with validated requests and timings in every response</li>
+      <li><code>evals/retrieval_report.md</code>: recall@5, MRR, nDCG@5 and latency for four configurations, with model versions</li>
+      <li>A test suite covering version leakage, forbidden filters, <code>k</code> bounds, empty queries and reranker fallback</li>
+    </ul>
+    <p><b>Acceptance test:</b> <code>pytest</code> passes; <code>POST /search {"query": "CrashLoopBackOff", "k": 5}</code> on the running service returns 5 hits with URL and heading path for the latest release. The report shows hybrid+rerank at least matching dense on nDCG@5, or says why it does not, with p95 latency inside your budget.</p>
+    <p><b>Ship:</b> a retrieval service with published metrics that Phase 4 builds on.</p>
+  </div>
+  <p class="refs"><b>Read</b> FastAPI docs, Testing · Manning, Raghavan &amp; Schütze, <i>Introduction to Information Retrieval</i>, ch. 8 (evaluation) · Järvelin &amp; Kekäläinen 2002, “Cumulated Gain-Based Evaluation of IR Techniques” · Huyen, <i>AI Engineering</i>, the RAG chapter</p>
+</article>
+
+<nav class="modnav">
+  <a href="p02.html"><small>Previous · Days 12–19</small>◂ Phase 2 — Prompt and Context Engineering</a>
+  <a class="next" href="p04.html"><small>Next · Days 27–35</small>Phase 4 — Retrieval-Augmented Generation ▸</a>
+</nav>
+
+</div>
+</main>
+</div>
+</body>
+</html>
